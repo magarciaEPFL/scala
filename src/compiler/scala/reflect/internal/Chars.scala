@@ -64,12 +64,12 @@ trait Chars {
 
   /** Can character form part of an alphanumeric Scala identifier? */
   def isIdentifierPart(c: Char) =
-    (c == '$') || Character.isUnicodeIdentifierPart(c)
+    (c == '$') || java.lang.Character.isUnicodeIdentifierPart(c)
 
   /** Is character a math or other symbol in Unicode?  */
   def isSpecial(c: Char) = {
     val chtp = Character.getType(c)
-    chtp == Character.MATH_SYMBOL.toInt || chtp == Character.OTHER_SYMBOL.toInt
+    chtp == java.lang.Character.MATH_SYMBOL.toInt || chtp == java.lang.Character.OTHER_SYMBOL.toInt
   }
 
   private final val otherLetters = Set[Char]('\u0024', '\u005F')  // '$' and '_'

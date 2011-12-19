@@ -39,7 +39,7 @@ import ILGenerator._
      * the Microsoft intermediate language (MSIL) stream of instructions.
      */
     def Emit(opcode: OpCode, arg: Char) {
-	emit(opcode,new Character(arg))
+	emit(opcode,new java.lang.Character(arg))
     }
 
     /**
@@ -336,7 +336,7 @@ import ILGenerator._
         emitSpecialLabel(Label.Try)
         val endExc: Label = new Label.NormalLabel() // new Label(lastLabel) ???
         excStack.push(Label.Try, endExc)
-	return endExc
+	    return
     }
 
     /** Begins a catch block. */

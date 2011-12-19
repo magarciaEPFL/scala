@@ -25,7 +25,7 @@ import java.lang.reflect.{ Modifier, Method => JMethod }
 object ScalaRunTime {
   def isArray(x: AnyRef): Boolean = isArray(x, 1)
   def isArray(x: Any, atLevel: Int): Boolean =
-    x != null && isArrayClass(x.getClass, atLevel)
+    x != null && isArrayClass(x.asInstanceOf[AnyRef].getClass, atLevel)
 
   private def isArrayClass(clazz: Class[_], atLevel: Int): Boolean =
     clazz.isArray && (atLevel == 1 || isArrayClass(clazz.getComponentType, atLevel - 1))
@@ -271,7 +271,7 @@ object ScalaRunTime {
   def stringOf(arg: Any): String = stringOf(arg, scala.Int.MaxValue)
   def stringOf(arg: Any, maxElements: Int): String = {
     def isScalaClass(x: AnyRef) =
-      Option(x.getClass.getPackage) exists (_.getName startsWith "scala.")
+      Option(x.getClass.getPackage) exists (p => p.getName startsWith "scala.")
 
     def isTuple(x: AnyRef) =
       x.getClass.getName matches """^scala\.Tuple(\d+).*"""

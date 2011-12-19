@@ -52,7 +52,7 @@ object PluginDescription {
     }
     // extract one field
     def getField(field: String): Option[String] = {
-      val text = (xml \\ field).text.trim
+      val text = { val tmp = (xml \\ field).text; tmp.trim }
       if (text == "") None else Some(text)
     }
 

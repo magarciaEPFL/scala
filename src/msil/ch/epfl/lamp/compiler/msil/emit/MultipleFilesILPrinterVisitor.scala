@@ -99,6 +99,7 @@ final class MultipleFilesILPrinterVisitor(destPath: String, sourceFilesPath: Str
 			printAssemblyBoilerplate()
 
 			print(".module \'"); print(module.Name); println("\'")
+			println(".corflags 0x00020003    //  ILONLY 32BITPREFERRED")
 		    printAttributes(module)
         }
 
@@ -121,6 +122,7 @@ final class MultipleFilesILPrinterVisitor(destPath: String, sourceFilesPath: Str
 			printAssemblyBoilerplate()
 
 			print(".module \'"); print(module.Name); println("\'")
+			println(".corflags 0x00020003    //  ILONLY 32BITPREFERRED")
 		    printAttributes(module)
 		}
 

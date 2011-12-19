@@ -80,4 +80,10 @@ object Main extends Driver with EvalLoop {
       resident(compiler)
     else super.doCompile(compiler)
   }
+
+  override def main(args: Array[String]) {
+    process(args)
+    sys.exit(if (reporter.hasErrors) 1 else 0)
+  }
+
 }

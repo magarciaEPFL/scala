@@ -416,6 +416,51 @@ abstract class TypeParser {
     // the backend will recognize them and replace them with comparison or
     // bitwise logical operations on the primitive underlying type
 
+    if( (typ.FullName == "scala.runtime.ObjectRef") ||
+        (typ.FullName == "scala.runtime.VolatileObjectRef") ) {
+
+      /* We want to simulate as if the following signature had been read (which happens to be the case on JVM):
+
+      [<deferred> <param> T]lang.this.Object with io.this.Serializable{
+        <mutable> <java> var elem: T;
+        <method> <java> def this(<param> <synthetic> x$1: T): runtime.this.VolatileObjectRef[T];
+        <method> <java> def toString(): lang.this.String
+      }
+
+      Long story:
+
+      On JVM, a signature as above (with type param) is returned by ClassfileParser.parseClass()
+      for ObjectRefClass and VolatileObjectRefClass.
+      Afterwards, erasure results in bytecode instructions that work with those type vars substituted with j.l.Object
+
+      On CLR, the signature read from scalaruntime.dll has no type params. The compiler contains however code to build,
+      say, appliedType of an ObjectRefClass, and for that to work we have to fake the info of
+      ObjectRefClass and VolatileObjectRefClass (as an interim hack).
+
+      */
+      val tpname = "T".toTypeName
+      val s = clazz.newTypeParameter(NoPosition, tpname)
+
+      val ORef2ORefOfT = new TypeMap {
+        def apply(tp: Type): Type = tp match {
+          case TypeRef(pre, sym, targs)
+          if (sym == definitions.ObjectRefClass) || (sym == definitions.VolatileObjectRefClass) =>
+            val newtargs = List(typeRef(NoPrefix, s, Nil))
+            TypeRef(pre, sym, newtargs)
+          case other =>
+            mapOver(other)
+        }
+      }
+
+      s.setInfo(TypeBounds(definitions.NothingClass.tpe, definitions.AnyClass.tpe))
+      val theField  = clazz.info.decls.toList filter (sym => sym.isVariable) head;
+      theField.setInfo(typeRef(NoPrefix, s, Nil))
+      val theConstr = clazz.info.decls.toList filter (sym => sym.isConstructor && (sym.paramss.head.size == 1) ) head;
+      theConstr.setInfo(ORef2ORefOfT(theConstr.info))
+      clazz.setInfo(polyType(List(s), clazz.info))
+      scala.Console.println("fabricating info for " + clazz.name)
+    }
+
     if (typ.IsEnum) {
       val ENUM_CMP_NAMES = List(nme.EQ, nme.NE, nme.LT, nme.LE, nme.GT, nme.GE);
       val ENUM_BIT_LOG_NAMES = List(nme.OR, nme.AND, nme.XOR);

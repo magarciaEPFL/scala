@@ -72,6 +72,7 @@ final class SingleFileILPrinterVisitor(_fileName: String) extends ILPrinterVisit
 	currentModule = module
         if (nomembers) {
             print(".module \'"); print(module.Name); println("\'")
+            println(".corflags 0x00020003    //  ILONLY 32BITPREFERRED")
             printAttributes(module)
         }
 

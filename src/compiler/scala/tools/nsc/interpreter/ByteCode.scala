@@ -26,7 +26,7 @@ object ByteCode {
 
   private lazy val aliasMap = {
     for (module <- DECODER ; method <- decoderMethod("typeAliases", classOf[String])) yield
-      method.invoke(module, _: String).asInstanceOf[Option[Map[String, String]]]
+      { p : String => method.invoke(module, p ).asInstanceOf[Option[Map[String, String]]] }
   }
 
   /** Scala sig bytes.

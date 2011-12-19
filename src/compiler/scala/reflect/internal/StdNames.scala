@@ -578,11 +578,11 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     final val BoxedCharacter: TypeName      = "System.IConvertible"
     final val BoxedNumber: TypeName         = "System.IConvertible"
     final val Class: TypeName               = "System.Type"
-    final val Code: TypeName                = tpnme.NO_NAME
+    final val Code: TypeName                = "scala.reflect.Code"
     final val Delegate: TypeName            = "System.MulticastDelegate"
     final val IOOBException: TypeName       = "System.IndexOutOfRangeException"
     final val InvTargetException: TypeName  = "System.Reflection.TargetInvocationException"
-    final val JavaSerializable: TypeName    = tpnme.NO_NAME
+    final val JavaSerializable: TypeName    = "java.io.Serializable.__Interface" // TOCO check System.Runtime.Serialization.ISerializable
     final val MethodAsObject: TypeName      = "System.Reflection.MethodInfo"
     final val NPException: TypeName         = "System.NullReferenceException"
     final val Object: TypeName              = "System.Object"

@@ -31,7 +31,7 @@ object NoJavap extends Javap {
 
 class JavapClass(
   val loader: ScalaClassLoader = ScalaClassLoader.appLoader,
-  val printWriter: PrintWriter = new PrintWriter(System.out, true)
+  val printWriter: PrintWriter = new PrintWriter(java.lang.System.out, true)
 ) extends Javap {
 
   lazy val parser = new JpOptions

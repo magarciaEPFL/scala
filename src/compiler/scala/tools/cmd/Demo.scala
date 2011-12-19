@@ -62,7 +62,7 @@ class Demo(args: List[String]) extends {
   private def isDemo(m: Method) = (m.getName startsWith "opt") && !(m.getName contains "$") && (m.getParameterTypes.isEmpty)
 
   def demoString(ms: List[Method]) = {
-    val longest   = ms map (_.getName.length) max
+    val longest   = ms map (m => m.getName.length) max
     val formatStr = "    %-" + longest + "s: %s"
     val xs        = ms map (m => formatStr.format(m.getName, m.invoke(this)))
 

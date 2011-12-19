@@ -148,7 +148,10 @@ self =>
     def freshTypeName(prefix: String): TypeName = newTypeName(globalFresh.newName(prefix))
 
     def o2p(offset: Int): Position = new OffsetPosition(source, offset)
-    def r2p(start: Int, mid: Int, end: Int): Position = rangePos(source, start, mid, end)
+    def r2p(start: Int, mid: Int, end: Int): Position =
+      if(forMSIL) new util.RangePosition(source, start, mid, end)
+      else rangePos(source, start, mid, end)
+
 
     // suppress warnings; silent abort on errors
     def warning(offset: Int, msg: String) {}
@@ -972,7 +975,12 @@ self =>
     /** Assumed (provisionally) to be TermNames. */
     def ident(skipIt: Boolean): Name =
       if (isIdent) {
-        val name = in.name.encode
+        val name =
+          if(forMSIL) {
+            val n = in.name
+            if (n.toString.contains("\u0060") || n.toString.equals("__<ref>")) n
+            else n.encode
+          } else in.name.encode
         in.nextToken()
         name
       } else {

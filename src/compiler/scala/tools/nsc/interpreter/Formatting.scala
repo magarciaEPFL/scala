@@ -14,7 +14,7 @@ trait Formatting {
   def spaces(code: String): String = {
     /** Heuristic to avoid indenting and thereby corrupting """-strings and XML literals. */
     val tokens = List("\"\"\"", "</", "/>")
-    val noIndent = (code contains "\n") && (tokens exists code.contains)
+    val noIndent = (code contains "\n") && (tokens exists { t => code contains t} )
 
     if (noIndent) ""
     else prompt drop 1 map (_ => ' ')

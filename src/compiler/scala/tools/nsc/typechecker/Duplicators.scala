@@ -149,13 +149,15 @@ abstract class Duplicators extends Analyzer {
             ldef.symbol = newsym
             log("newsym: " + newsym + " info: " + newsym.info)
 
-          case vdef @ ValDef(mods, name, _, rhs) if mods.hasFlag(Flags.LAZY) =>
-            log("ValDef " + name + " sym.info: " + vdef.symbol.info)
-            invalidSyms(vdef.symbol) = vdef
-            val newsym = vdef.symbol.cloneSymbol(context.owner)
-            newsym.setInfo(fixType(vdef.symbol.info))
-            vdef.symbol = newsym
-            log("newsym: " + newsym + " info: " + newsym.info)
+          case vdef @ ValDef(mods, name, _, rhs) =>
+            if (mods.hasFlag(Flags.LAZY)) {
+              log("ValDef " + name + " sym.info: " + vdef.symbol.info)
+              invalidSyms(vdef.symbol) = vdef
+              val newsym = vdef.symbol.cloneSymbol(context.owner)
+              newsym.setInfo(fixType(vdef.symbol.info))
+              vdef.symbol = newsym
+              log("newsym: " + newsym + " info: " + newsym.info)
+            } else tree.symbol = NoSymbol
 
           case DefDef(_, name, tparams, vparamss, _, rhs) =>
             // invalidate parameters

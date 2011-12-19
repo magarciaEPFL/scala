@@ -51,7 +51,7 @@ trait ConversionUtil { self: SymbolTable =>
   }
 
   protected val classCache = new TwoWayCache[jClass[_], Symbol]
-  protected val packageCache = new TwoWayCache[Package, Symbol]
+  protected val packageCache = new TwoWayCache[jPackage, Symbol]
   protected val methodCache = new TwoWayCache[jMethod, Symbol]
   protected val constructorCache = new TwoWayCache[jConstructor[_], Symbol]
   protected val fieldCache = new TwoWayCache[jField, Symbol]

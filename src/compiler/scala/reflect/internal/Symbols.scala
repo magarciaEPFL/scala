@@ -1501,10 +1501,14 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         (this.sourceFile == that.sourceFile) || {
           // recognize companion object in separate file and fail, else compilation
           // appears to succeed but highly opaque errors come later: see bug #1286
-          if (this.sourceFile.path != that.sourceFile.path) {
+          val thissfp = this.sourceFile.path
+          val thatsfp = that.sourceFile.path
+          if (thissfp != thatsfp) {
             // The cheaper check can be wrong: do the expensive normalization
             // before failing.
-            if (this.sourceFile.canonicalPath != that.sourceFile.canonicalPath)
+            val thiscanp = this.sourceFile.canonicalPath
+            val thatcanp = that.sourceFile.canonicalPath
+            if (thiscanp != thatcanp)
               throw InvalidCompanions(this, that)
           }
 
@@ -2534,8 +2538,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   }
 
   case class InvalidCompanions(sym1: Symbol, sym2: Symbol) extends Throwable(
-    "Companions '" + sym1 + "' and '" + sym2 + "' must be defined in same file:\n" +
-    "  Found in " + sym1.sourceFile.canonicalPath + " and " + sym2.sourceFile.canonicalPath
+    "Companions '" + sym1 + "' and '" + sym2 + "' must be defined in same file:\n"
+    // TODO problematic for Scala.Net "  Found in " + sym1.sourceFile.canonicalPath + " and " + sym2.sourceFile.canonicalPath
   ) {
       override def toString = getMessage
   }

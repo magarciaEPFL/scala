@@ -51,6 +51,6 @@ object FileCompletion {
         else if (p.isDirectory) (p.toDirectory, "")
         else (p.parent, p.name)
 
-      dir.list filter (_.name startsWith stub) map (_.path) toList
+      dir.list filter (d => d.name startsWith stub) map (_.path) toList
     }
 }

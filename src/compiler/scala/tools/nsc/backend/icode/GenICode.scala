@@ -1127,6 +1127,9 @@ abstract class GenICode extends SubComponent  {
       }
       else (from, to) match  {
         case (BYTE, LONG) | (SHORT, LONG) | (CHAR, LONG) | (INT, LONG) => ctx.bb.emit(CALL_PRIMITIVE(Conversion(INT, LONG)))
+        case (REFERENCE(clsFrom), REFERENCE(clsTo))
+        if(forMSIL && loaders.clrTypes.isValueType(clsFrom) && (clsTo eq definitions.ObjectClass)) =>
+          ctx.bb.emit(BOX(from))
         case _ => ()
       }
     }

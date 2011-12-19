@@ -430,6 +430,7 @@ abstract class GenMSIL extends SubComponent {
         code.Emit(OpCodes.Ldarg_0)
         code.Emit(OpCodes.Callvirt, mainMethod)
         code.Emit(OpCodes.Ret)
+        mmodule.CreateGlobalFunctions()
       }
       createTypes()
       var outDirName: String = null
@@ -1234,7 +1235,13 @@ abstract class GenMSIL extends SubComponent {
           //  is permitted in the host environment."
           case CHECK_CAST(tpknd) =>
             val tMSIL = msilType(tpknd)
+            if(tMSIL.IsValueType()) {
+              // TODO OpCodes.Unbox_Any
+              mcode.Emit(OpCodes.Unbox, tMSIL)
+              mcode.Emit(OpCodes.Ldobj, tMSIL)
+            } else {
               mcode.Emit(OpCodes.Castclass, tMSIL)
+            }
 
           // no SWITCH is generated when there's
           //  - a default case ("case _ => ...") in the matching expr
@@ -1415,7 +1422,7 @@ abstract class GenMSIL extends SubComponent {
       case 8  => code.Emit(OpCodes.Ldc_I4_8)
       case _  =>
         if (value >= -128 && value <= 127)
-          code.Emit(OpCodes.Ldc_I4_S, value)
+          code.Emit(OpCodes.Ldc_I4 /* TODO Ldc_I4_S */, value)
         else
           code.Emit(OpCodes.Ldc_I4, value)
     }
@@ -1684,7 +1691,7 @@ abstract class GenMSIL extends SubComponent {
         else if (sym hasFlag Flags.PROTECTED) FieldAttributes.FamORAssem
         else FieldAttributes.Public
 
-      if (sym hasFlag Flags.FINAL)
+      if (sym hasFlag Flags.FINAL) // TODO bring in line with GenJVM's finalFlag in javaFlags(sym). See r25635.
         mf = mf | FieldAttributes.InitOnly
 
       if (sym.isStaticMember)

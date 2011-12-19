@@ -47,7 +47,7 @@ abstract class Erasure extends AddInterfaces
   def getClassReturnType(tp: Type): Type = {
     val sym     = tp.typeSymbol
 
-    if (phase.erasedTypes) ClassClass.tpe
+    if (phase.erasedTypes || forMSIL) ClassClass.tpe
     else if (isValueClass(sym)) ClassType(tp.widen)
     else {
       val eparams    = typeParamsToExistentials(ClassClass, ClassClass.typeParams)
@@ -109,7 +109,7 @@ abstract class Erasure extends AddInterfaces
     }
   }
 
-  override protected def verifyJavaErasure = settings.Xverify.value || settings.debug.value
+  override protected def verifyJavaErasure = forJVM && (settings.Xverify.value || settings.debug.value)
   def needsJavaSig(tp: Type) = !settings.Ynogenericsig.value && NeedsSigCollector.collect(tp)
 
   // only refer to type params that will actually make it into the sig, this excludes:

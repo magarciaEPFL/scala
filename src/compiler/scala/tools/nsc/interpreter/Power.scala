@@ -217,7 +217,7 @@ abstract class Power(
 
     def man        = manifest[T]
     def erasure    = man.erasure
-    def members    = tpe.members filterNot (_.name.toString contains "$mc")
+    def members    = tpe.members filterNot (m => m.name.toString contains "$mc")
     def allMembers = tpe.members
     def bts        = info.baseTypeSeq.toList
     def btsmap     = bts map (x => (x, x.decls.toList)) toMap
@@ -299,8 +299,8 @@ abstract class Power(
     def >#[U](p: T => U): Unit                   = this ppfreq p
 
     def >?(p: T => Boolean): Unit                = pp(_ filter p)
-    def >?(s: String): Unit                      = pp(_ filter (_.toString contains s))
-    def >?(r: Regex): Unit                       = pp(_ filter (_.toString matches fixRegex(r)))
+    def >?(s: String): Unit                      = pp(_ filter (p => p.toString contains s))
+    def >?(r: Regex): Unit                       = pp(_ filter (p => p.toString matches fixRegex(r)))
 
     private def fixRegex(r: scala.util.matching.Regex): String = {
       val s = r.pattern.toString

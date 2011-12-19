@@ -43,7 +43,7 @@ class TableDef[T](_cols: Column[T]*) {
     def apply(index: Int) = rows(index)
     def length            = rows.length
 
-    def maxColWidth(col: Column[T]) = col.name +: (rows map col.f) map (_.toString.length) max
+    def maxColWidth(col: Column[T]) = col.name +: (rows map col.f) map (e => e.toString.length) max
     def specs = cols map (_ formatSpec rows)
 
     val colWidths   = cols map maxColWidth
@@ -80,7 +80,7 @@ class TableDef[T](_cols: Column[T]*) {
 
 object TableDef {
   case class Column[-T](name: String, f: T => Any, left: Boolean) {
-    def maxWidth(elems: Seq[T]): Int = name +: (elems map f) map (_.toString.length) max
+    def maxWidth(elems: Seq[T]): Int = name +: (elems map f) map (e => e.toString.length) max
     def formatSpec(elems: Seq[T]): String = {
       val justify = if (left) "-" else ""
       "%" + justify + maxWidth(elems) + "s"

@@ -229,8 +229,9 @@ abstract class SymbolTable extends api.Universe
 
     def clearAll() = {
       if (settings.debug.value) {
-        val size = caches flatMap (ref => Option(ref.get)) map (_.size) sum;
-        log("Clearing " + caches.size + " caches totalling " + size + " entries.")
+        // TODO problematic for Scala.Net
+        // val size = caches flatMap (ref => Option(ref.get)) map (_.size) sum;
+        // log("Clearing " + caches.size + " caches totalling " + size + " entries.")
       }
       caches foreach { ref =>
         val cache = ref.get()

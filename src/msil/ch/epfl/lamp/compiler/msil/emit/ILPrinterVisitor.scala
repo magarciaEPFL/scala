@@ -280,9 +280,9 @@ abstract class ILPrinterVisitor extends Visitor {
 		print("nullref")
 	    } else if (value.isInstanceOf[String]) {
 		print(msilString(value.asInstanceOf[String]))
-	    } else if (value.isInstanceOf[Boolean]) {
+	    } else if (value.isInstanceOf[java.lang.Boolean]) {
 		print("bool (")
-		print(if((value.asInstanceOf[Boolean]).booleanValue()) { "true" } else { "false" })
+		print(if((value.asInstanceOf[java.lang.Boolean]).booleanValue()) { "true" } else { "false" })
 		print(")")
 	    } else if (value.isInstanceOf[Byte]) {
 		print("int8 (")
@@ -292,20 +292,20 @@ abstract class ILPrinterVisitor extends Visitor {
 		print("int16 (")
 		print(value)
 		print(")")
-	    } else if (value.isInstanceOf[Character]) {
+	    } else if (value.isInstanceOf[java.lang.Character]) {
 		print("char (")
-		print((value.asInstanceOf[Character]).charValue())
+		print((value.asInstanceOf[java.lang.Character]).charValue())
 		print(")")
-	    } else if (value.isInstanceOf[Integer]) {
+	    } else if (value.isInstanceOf[java.lang.Integer]) {
 		print("int32 (")
-		print((value.asInstanceOf[Integer]).intValue())
+		print((value.asInstanceOf[java.lang.Integer]).intValue())
 		print(")")
-	    } else if (value.isInstanceOf[Long]) {
+	    } else if (value.isInstanceOf[java.lang.Long]) {
 		print("int64 (")
-		print((value.asInstanceOf[Long]).longValue())
+		print((value.asInstanceOf[java.lang.Long]).longValue())
 		print(")")
-	    } else if (value.isInstanceOf[Float]) {
-        print(msilSyntaxFloat(value.asInstanceOf[Float]))
+	    } else if (value.isInstanceOf[java.lang.Float]) {
+        print(msilSyntaxFloat(value.asInstanceOf[java.lang.Float]))
 	    } else if (value.isInstanceOf[Double]) {
         print(msilSyntaxDouble(value.asInstanceOf[Double]))
 	    } else {

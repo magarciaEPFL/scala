@@ -1183,8 +1183,8 @@ class IMain(initialSettings: Settings, protected val out: JPrintWriter) extends 
     /** Secret bookcase entrance for repl debuggers: end the line
      *  with "// show" and see what's going on.
      */
-    def isShow    = code.lines exists (_.trim endsWith "// show")
-    def isShowRaw = code.lines exists (_.trim endsWith "// raw")
+    def isShow    = code.lines exists (lin => lin.trim endsWith "// show")
+    def isShowRaw = code.lines exists (lin => lin.trim endsWith "// raw")
 
     // checking for various debug signals
     if (isShowRaw)

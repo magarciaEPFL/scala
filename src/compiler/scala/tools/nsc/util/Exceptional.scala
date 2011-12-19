@@ -119,12 +119,12 @@ object Exceptional {
    */
   def locateSources(sources: Sources, frame: JavaStackFrame): List[Fileish] = {
     // if only one has a matching path, that's fairly sure to be the one
-    val matches = sources(frame.fileName) filter (_.pkgFromPath endsWith frame.pkgName)
+    val matches = sources(frame.fileName) filter (s => s.pkgFromPath endsWith frame.pkgName)
     if (matches.isEmpty || matches.tail.isEmpty)
       return matches
 
     // otherwise we'll drink them in and look for a package name
-    matches filter (_.pkgFromSource endsWith frame.pkgName)
+    matches filter (m => m.pkgFromSource endsWith frame.pkgName)
   }
 
   /** Right now this punts if more than one match and it accepts the first at random.

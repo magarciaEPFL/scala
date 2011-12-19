@@ -15,7 +15,7 @@ object KeyBinding {
   def parse(bindings: String): List[KeyBinding] = {
     def loop(xs: List[String]): List[KeyBinding] = {
       val (comment, lines) = xs span (_ startsWith "#")
-      val description = comment map (_ drop 1 trim) mkString " "
+      val description = comment map (c => c drop 1 trim) mkString " "
       val (aliases, desc) = description span (_ != ':') match {
         case (x, y) => (
           x split ',' map (_.trim) toList,

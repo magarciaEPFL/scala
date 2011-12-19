@@ -27,7 +27,14 @@ object MsilClassPath {
     val assem = Assembly.LoadFrom(assemFile.path)
     if (assem != null) {
       // DeclaringType == null: true for non-inner classes
-      res = assem.GetTypes() filter (_.DeclaringType == null)
+      val res0: Array[MSILType] = assem.GetTypes() filter (_.DeclaringType == null)
+      /* filtering out those MSILTypes that are IsDefinitelyInternal
+         makes IKVM's java.lang.StringBuilder non-instantiable because one of its parents (AbstractStringBuilder)
+         IsDefinitelyInternal (although it has default access in the JDK version).
+         So we filter out only what we must, ie mscorlib's System.Internal,
+         ("we must" because otherwise its companion object will name-clash with package System.Internal,
+         which shows up in the popular System.Drawing.dll). */
+      res = if(assem.GetName.Name == "mscorlib") res0 filterNot (t => t.FullName == "System.Internal") else res0
       Sorting.stableSort(res, (t1: MSILType, t2: MSILType) => (t1.FullName compareTo t2.FullName) < 0)
     }
     res
@@ -110,7 +117,7 @@ class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: 
     else namespace drop (i + 1)
   }
   def asURLs = List(new java.net.URL(name))
-  def asClasspathString = sys.error("Unknown")  // I don't know what if anything makes sense here?
+  def asClasspathString = "TODO"  // TODO
 
   private lazy val first: Int = {
     var m = 0

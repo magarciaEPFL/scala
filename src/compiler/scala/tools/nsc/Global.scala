@@ -1050,7 +1050,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
       else {
         def warn(count: Int, what: String, option: Settings#BooleanSetting) = (
           if (option.isDefault && count > 0)
-            warning("there were %d %s warnings; re-run with %s for details".format(count, what, option.name))
+            warning("there were "+count+" %s warnings; re-run with %s for details".format(what, option.name))
         )
         warn(deprecationWarnings.size, "deprecation", settings.deprecation)
         warn(uncheckedWarnings.size, "unchecked", settings.unchecked)

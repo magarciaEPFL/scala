@@ -99,7 +99,7 @@ class Index(universe: doc.Universe, index: doc.Index) extends HtmlPage {
               }
             }</ol>
             <ol class="packages"> {
-              for (sp <- pack.packages sortBy (_.name.toLowerCase)) yield
+              for (sp <- pack.packages sortBy (p => p.name.toLowerCase)) yield
                 <li class="pack" title={ sp.qualifiedName }>{ packageElem(sp) }</li>
             }</ol>
           </xml:group>

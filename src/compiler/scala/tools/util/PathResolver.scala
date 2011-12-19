@@ -39,7 +39,7 @@ object PathResolver {
    */
   object Environment {
     private def searchForBootClasspath = (
-      systemProperties find (_._1 endsWith ".boot.class.path") map (_._2) getOrElse ""
+      systemProperties find (p => p._1 endsWith ".boot.class.path") map (_._2) getOrElse ""
     )
 
     /** Environment variables which java pays attention to so it

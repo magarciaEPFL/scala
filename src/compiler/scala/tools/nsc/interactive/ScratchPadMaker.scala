@@ -103,7 +103,7 @@ trait ScratchPadMaker { self: Global =>
      *  @require  traverse is run first
      */
     def result: Array[Char] = {
-      val reslen = contents.length + (patches map (_.text.length)).sum
+      val reslen = contents.length + (patches map (p => p.text.length)).sum
       val res = Array.ofDim[Char](reslen)
       var lastOffset = 0
       var from = 0

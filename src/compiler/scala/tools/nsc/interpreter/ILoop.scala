@@ -148,7 +148,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
     }
   }
   private def helpSummary() = {
-    val usageWidth  = commands map (_.usageMsg.length) max
+    val usageWidth  = commands map (c => c.usageMsg.length) max
     val formatStr   = "%-" + usageWidth + "s %s %s"
 
     echo("All commands can be abbreviated, e.g. :he instead of :help.")
@@ -166,7 +166,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
     }
     Result(true, None)
   }
-  private def matchingCommands(cmd: String) = commands filter (_.name startsWith cmd)
+  private def matchingCommands(cmd: String) = commands filter (c => c.name startsWith cmd)
   private def uniqueCommand(cmd: String): Option[LoopCommand] = {
     // this lets us add commands willy-nilly and only requires enough command to disambiguate
     matchingCommands(cmd) match {

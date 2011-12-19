@@ -25,7 +25,7 @@ class StatBase {
     if (_enabled) System.nanoTime() else 0L
 
   def showPercent(x: Double, base: Double) =
-    if (base == 0) "" else " ("+"%2.1f".format(x / base * 100)+"%)"
+    if (base == 0) "" else " ("+ (x / base * 100).toInt +"%)"
 
   def incCounter(c: Counter) {
     if (_enabled) c.value += 1
