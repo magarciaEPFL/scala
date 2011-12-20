@@ -13,7 +13,7 @@ package scala.runtime;
 /**
  * Methods on Java arrays
  */
-class ArrayRuntime {
+public class ArrayRuntime {
   public static boolean[] cloneArray(boolean[] array) { return array.clone(); }
   public static byte[] cloneArray(byte[] array) { return array.clone(); }
   public static short[] cloneArray(short[] array) { return array.clone(); }
