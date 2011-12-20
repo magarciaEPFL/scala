@@ -123,7 +123,7 @@ object MurmurHash {
    *  @return          the updated hash value
    */
   def extendHash(hash: Int, value: Int, magicA: Int, magicB: Int) = {
-    (hash ^ rotl(value*magicA,11)*magicB)*3 + visibleMixer
+    (hash ^ java.lang.Integer.rotateLeft(value*magicA,11)*magicB)*3 + visibleMixer
   }
 
   /** Given a magic integer from the first stream, compute the next */

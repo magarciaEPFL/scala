@@ -25,7 +25,7 @@ class MurmurHash3 {
   /** Mix in a block of data into an intermediate hash value. */
   final def mix(hash: Int, data: Int): Int = {
     var h = mixLast(hash, data)
-    h = rotl(h, 13)
+    h = java.lang.Integer.rotateLeft(h, 13)
     h * 5 + 0xe6546b64
   }
 
@@ -36,7 +36,7 @@ class MurmurHash3 {
     var k = data
 
     k *= 0xcc9e2d51
-    k = rotl(k, 15)
+    k = java.lang.Integer.rotateLeft(k, 15)
     k *= 0x1b873593
 
     hash ^ k
