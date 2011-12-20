@@ -189,9 +189,6 @@ PROPERTIES
   <!-- if ANT_OPTS is already set by the environment, it will be unaltered,
        but if it is unset it will take this default value. -->
   <property name="env.ANT_OPTS" value="-Xms1536M -Xmx1536M -Xss1M -XX:MaxPermSize=192M -XX:+UseParallelGC" />
-  
-  <!--  to find max heap usage: -Xaprof ; currently at 980M for locker.comp -->
-  <echo message="Forking with JVM opts: ${env.ANT_OPTS} ${jvm.opts}" />
 
   <property
       name="scalacfork.jvmargs"
@@ -201,13 +198,22 @@ PROPERTIES
 INITIALISATION
 ============================================================================ -->
 
-  <target name="init">
+  <condition property="starr.absent">
+    <not><available file="${lib.dir}/scala-library.jar"/></not>
+  </condition>
+
+  <target name="init.starr" if="starr.absent">
+    <echo level="warn" message="Downloading bootstrap libs.  (To do this by hand, run ./pull-binary-libs.sh)"/>
+    <exec osfamily="unix" vmlauncher="false" executable="./pull-binary-libs.sh" failifexecutionfails="true" />
+    <exec osfamily="windows" vmlauncher="false" executable="pull-binary-libs.sh" failifexecutionfails="true" />
+  </target>
+
+  <target name="init" depends="init.starr">
   <!-- scalac.args.optimise is selectively overridden in certain antcall tasks. -->
     <property name="scalac.args.optimise" value=""/>
   <!-- scalac.args.quickonly are added to quick.* targets but not others (particularly, locker.)
        This is to facilitate testing new command line options which do not yet exist in starr. -->
-    <property name="scalac.args.quickonly" value=""/>
-
+  <property name="scalac.args.quickonly" value=""/>
     <property name="scalac.args.all" value="${scalac.args} ${scalac.args.optimise}"/>
     <property name="scalac.args.quick" value="${scalac.args.all} ${scalac.args.quickonly}"/>
     <!-- Setting-up Ant contrib tasks -->
@@ -222,21 +228,25 @@ INITIALISATION
       <os family="windows"/>
     </condition>
 
-    <exec osfamily="unix" executable="tools/get-scala-revision" outputproperty="svn.number" failifexecutionfails="false" />
-    <exec osfamily="windows" executable="tools/get-scala-revision.bat" outputproperty="svn.number" failifexecutionfails="false" />
+    <exec osfamily="unix" executable="tools/get-scala-revision" outputproperty="git.describe" failifexecutionfails="false" />
+    <exec osfamily="windows" executable="tools/get-scala-revision.bat" outputproperty="git.describe" failifexecutionfails="false" />
     <!-- some default in case something went wrong getting the revision -->
-    <property name="svn.number" value="0"/>
-
+    <property name="git.describe" value="-unknown-"/>
     <property name="init.avail" value="yes"/>
 
     <!-- Generating version number -->
     <property file="${basedir}/build.number"/>
     <property
       name="version.number"
-      value="${version.major}.${version.minor}.${version.patch}.r${svn.number}-b${time.short}"/>
+      value="${version.major}.${version.minor}.${version.patch}.${git.describe}"/>
+
     <!-- And print-out what we are building -->
-    <echo level="info" message="Build number is '${version.number}'"/>
-    <echo level="info" message="Built ${time.human} from revision ${svn.number} with ${java.vm.name} ${java.version}"/>
+    <echo message="       build time: ${time.human}" />
+    <echo message="     java version: ${java.vm.name} ${java.version}" />
+    <echo message="        java args: ${env.ANT_OPTS} ${jvm.opts}" />
+    <echo message="       javac args: ${javac.args}" />
+    <echo message="      scalac args: ${scalac.args}" />
+    <echo message="     build number: ${version.number}" />
   
     <!-- Local libs (developer use.) -->
     <mkdir dir="${lib-extra.dir}"/>
@@ -388,6 +398,11 @@ LOCAL REFERENCE BUILD (LOCKER)
     <path id="locker.classpath">
       <pathelement location="${build-locker.dir}/classes/library"/>
       <pathelement location="${build-locker.dir}/classes/compiler"/>
+      <path refid="aux.libs"/>
+    </path>
+    <path id="quick.classpath">
+      <pathelement location="${build-quick.dir}/classes/library"/>
+      <pathelement location="${build-quick.dir}/classes/compiler"/>
       <path refid="aux.libs"/>
     </path>
   </target>
@@ -610,7 +625,7 @@ QUICK BUILD (QUICK)
     <mkdir dir="${build-quick.dir}/classes/continuations-plugin"/>
     <scalacfork
       destdir="${build-quick.dir}/classes/continuations-plugin"
-      compilerpathref="locker.classpath"
+      compilerpathref="quick.classpath"
       params="${scalac.args.quick}"
       srcdir="${src.dir}/continuations/plugin"
       jvmargs="${scalacfork.jvmargs}">
@@ -633,16 +648,14 @@ QUICK BUILD (QUICK)
     <!-- might split off library part into its own ant target -->
     <scalacfork
       destdir="${build-quick.dir}/classes/library"
-      compilerpathref="locker.classpath"
-      params="${scalac.args.quick} -Xpluginsdir ${build-quick.dir}/misc/scala-devel/plugins -Xplugin-require:continuations -P:continuations:enable"
+      compilerpathref="quick.classpath"
+      params="${scalac.args.quick} -Xplugin-require:continuations"
       srcdir="${src.dir}/continuations/library"
       jvmargs="${scalacfork.jvmargs}">
       <include name="**/*.scala"/>
       <compilationpath refid="quick.compilation.path"/>
-	  <!-- TODO: Enable this and remove from params above when "compilerarg" is in starr
       <compilerarg value="-Xpluginsdir"/>
       <compilerarg file="${build-quick.dir}/misc/scala-devel/plugins"/>
-	  -->
     </scalacfork>
     <touch file="${build-quick.dir}/plugins.complete" verbose="no"/>
     <stopwatch name="quick.plugins.timer" action="total"/>
@@ -652,7 +665,7 @@ QUICK BUILD (QUICK)
     <mkdir dir="${build-quick.dir}/classes/scalacheck"/>
     <scalacfork
       destdir="${build-quick.dir}/classes/scalacheck"
-      compilerpathref="locker.classpath"
+      compilerpathref="quick.classpath"
       params="${scalac.args.all}"
       srcdir="${src.dir}/scalacheck"
       jvmargs="${scalacfork.jvmargs}">
@@ -675,7 +688,7 @@ QUICK BUILD (QUICK)
     <mkdir dir="${build-quick.dir}/classes/scalap"/>
     <scalacfork
       destdir="${build-quick.dir}/classes/scalap"
-      compilerpathref="locker.classpath"
+      compilerpathref="quick.classpath"
       params="${scalac.args.quick}"
       srcdir="${src.dir}/scalap"
       jvmargs="${scalacfork.jvmargs}">
@@ -717,7 +730,7 @@ QUICK BUILD (QUICK)
     </javac>
     <scalacfork
       destdir="${build-quick.dir}/classes/partest"
-      compilerpathref="locker.classpath"
+      compilerpathref="quick.classpath"
       params="${scalac.args.quick}"
       srcdir="${src.dir}/partest"
       jvmargs="${scalacfork.jvmargs}">
@@ -1151,15 +1164,13 @@ BOOTSTRAPPING BUILD (STRAP)
     <scalacfork
       destdir="${build-strap.dir}/classes/library"
       compilerpathref="pack.classpath"
-      params="${scalac.args.all} -Xpluginsdir ${build-strap.dir}/misc/scala-devel/plugins -Xplugin-require:continuations -P:continuations:enable"
+      params="${scalac.args.all} -Xplugin-require:continuations"
       srcdir="${src.dir}/continuations/library"
       jvmargs="${scalacfork.jvmargs}">
       <include name="**/*.scala"/>
       <compilationpath refid="strap.compilation.path"/>
-	  <!-- TODO: Enable this and remove from params above when "compilerarg" is in starr
       <compilerarg value="-Xpluginsdir"/>
       <compilerarg file="${build-strap.dir}/misc/scala-devel/plugins"/>
-	  -->
     </scalacfork>
     <touch file="${build-strap.dir}/plugins.complete" verbose="no"/>
     <stopwatch name="strap.plugins.timer" action="total"/>
@@ -1563,6 +1574,20 @@ BOOTRAPING TEST AND TEST SUITE
     </partest>
   </target>
 
+  <target name="test.ant" depends="pack.done">
+    <property name="partest.srcdir" value="files" />
+    <partest showlog="yes" erroronfailed="yes" javacmd="${java.home}/bin/java"
+             srcdir="${partest.srcdir}"
+             scalacopts="${scalac.args.optimise}">
+      <compilationpath>
+        <path refid="pack.classpath"/>
+        <pathelement location="${pack.dir}/lib/scala-swing.jar"/>
+        <fileset dir="${partest.dir}/files/lib" includes="*.jar" />
+      </compilationpath>
+      <anttests dir="${partest.dir}/${partest.srcdir}/ant" includes="*build.xml"/>
+    </partest>
+  </target>
+
   <target name="test.suite" depends="pack.done">
     <property name="partest.srcdir" value="files" />
     <partest showlog="yes" erroronfailed="yes" javacmd="${java.home}/bin/java"
@@ -1599,7 +1624,9 @@ BOOTRAPING TEST AND TEST SUITE
     <partest showlog="yes" erroronfailed="yes" javacmd="${java.home}/bin/java"
              timeout="2400000"
              srcdir="${partest.srcdir}"
-             scalacopts="${scalac.args.optimise} -Xpluginsdir ${build-quick.dir}/misc/scala-devel/plugins -Xplugin-require:continuations -P:continuations:enable">
+             scalacopts="${scalac.args.optimise} -Xplugin-require:continuations">
+      <compilerarg value="-Xpluginsdir"/>
+      <compilerarg file="${build-quick.dir}/misc/scala-devel/plugins"/>
       <compilationpath>
         <path refid="pack.classpath"/>
         <fileset dir="${partest.dir}/files/lib" includes="*.jar" />
@@ -1660,7 +1687,9 @@ DISTRIBUTION
     </copy>
     <mkdir dir="${dist.dir}/doc/scala-devel-docs/examples"/>
     <copy toDir="${dist.dir}/doc/scala-devel-docs/examples">
-      <fileset dir="${docs.dir}/examples"/>
+      <fileset dir="${docs.dir}/examples">
+        <exclude name="**/*.desired.sha1"/>
+      </fileset>
     </copy>
     <mkdir dir="${dist.dir}/doc/scala-devel-docs/tools"/>
     <copy toDir="${dist.dir}/doc/scala-devel-docs/tools">

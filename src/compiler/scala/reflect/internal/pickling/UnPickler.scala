@@ -46,7 +46,7 @@ abstract class UnPickler /*extends reflect.generic.UnPickler*/ {
     }
   }
 
-  class Scan(bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) extends PickleBuffer(bytes, offset, -1) {
+  class Scan(_bytes: Array[Byte], offset: Int, classRoot: Symbol, moduleRoot: Symbol, filename: String) extends PickleBuffer(_bytes, offset, -1) {
     //println("unpickle " + classRoot + " and " + moduleRoot)//debug
 
     protected def debug = settings.debug.value
@@ -509,7 +509,7 @@ abstract class UnPickler /*extends reflect.generic.UnPickler*/ {
       val tpe = if (tag == EMPTYtree) NoType else readTypeRef()
 
       // Set by the three functions to follow.  If symbol is non-null
-      // after the the new tree 't' has been created, t has its Symbol
+      // after the new tree 't' has been created, t has its Symbol
       // set to symbol; and it always has its Type set to tpe.
       var symbol: Symbol = null
       var mods: Modifiers = null

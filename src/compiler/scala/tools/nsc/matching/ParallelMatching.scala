@@ -25,7 +25,7 @@ trait ParallelMatching extends ast.TreeDSL
 
   import global.{ typer => _, _ }
   import definitions.{
-    AnyRefClass, NothingClass, IntClass, BooleanClass, SomeClass, OptionClass,
+    AnyRefClass, IntClass, BooleanClass, SomeClass, OptionClass,
     getProductArgs, productProj, Object_eq, Any_asInstanceOf
   }
   import CODE._
@@ -433,7 +433,7 @@ trait ParallelMatching extends ast.TreeDSL
           case (false, false) => pivotLen == x.nonStarLength
         }
 
-        def isDefinedAt(pat: Pattern) = pat match {
+        def _isDefinedAt(pat: Pattern) = pat match {
           case x: SequenceLikePattern => seqIsDefinedAt(x)
           case WildcardPattern()      => true
           case _                      => false

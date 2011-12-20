@@ -216,7 +216,7 @@ abstract class UnCurry extends InfoTransform
 
     /*  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
      *
-     *    class $anon() extends Object() with FunctionN[T_1, .., T_N, R] with ScalaObject {
+     *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
      *      def apply(x_1: T_1, ..., x_N: T_n): R = body
      *    }
      *    new $anon()
@@ -225,10 +225,14 @@ abstract class UnCurry extends InfoTransform
      *    body = expr match { case P_i if G_i => E_i }_i=1..n
      *  to:
      *
-     *    class $anon() extends Object() with PartialFunction[T, R] with ScalaObject {
+     *    class $anon() extends AbstractPartialFunction[T, R] with Serializable {
      *      def apply(x: T): R = (expr: @unchecked) match {
-     *        { case P_i if G_i => E_i }_i=1..n
-     *      def isDefinedAt(x: T): boolean = (x: @unchecked) match {
+     *        case P_1 if G_1 => E_1
+     *        ...
+     *        case P_n if G_n => true
+     *        case _ => this.missingCase(x)
+     *      }
+     *      def isDefinedAtCurrent(x: T): boolean = (x: @unchecked) match {
      *        case P_1 if G_1 => true
      *        ...
      *        case P_n if G_n => true
@@ -237,9 +241,10 @@ abstract class UnCurry extends InfoTransform
      *    }
      *    new $anon()
      *
-     *  However, if one of the patterns P_i if G_i is a default pattern, generate instead
+     *  However, if one of the patterns P_i if G_i is a default pattern,
+     *  drop the last default clause in tghe definition of `apply` and generate for `isDefinedAtCurrent` instead
      *
-     *      def isDefinedAt(x: T): boolean = true
+     *      def isDefinedAtCurrent(x: T): boolean = true
      */
     def transformFunction(fun: Function): Tree = {
       val fun1 = deEta(fun)
@@ -264,12 +269,21 @@ abstract class UnCurry extends InfoTransform
 
         fun.vparams foreach (_.symbol.owner = applyMethod)
         new ChangeOwnerTraverser(fun.symbol, applyMethod) traverse fun.body
+
+        def missingCaseCall(scrutinee: Tree): Tree = Apply(Select(This(anonClass), nme.missingCase), List(scrutinee))
+
         def applyMethodDef() = {
-          val body = if (isPartial) gen.mkUncheckedMatch(fun.body) else fun.body
+          val body =
+            if (isPartial) gen.mkUncheckedMatch(gen.withDefaultCase(fun.body, missingCaseCall))
+            else fun.body
           DefDef(Modifiers(FINAL), nme.apply, Nil, List(fun.vparams), TypeTree(restpe), body) setSymbol applyMethod
         }
         def isDefinedAtMethodDef() = {
-          val m = anonClass.newMethod(fun.pos, nme.isDefinedAt) setFlag FINAL
+          val isDefinedAtName = {
+            if (anonClass.info.member(nme._isDefinedAt) != NoSymbol) nme._isDefinedAt
+            else nme.isDefinedAt
+          }
+          val m = anonClass.newMethod(fun.pos, isDefinedAtName) setFlag FINAL
           m setInfo MethodType(m newSyntheticValueParams formals, BooleanClass.tpe)
           anonClass.info.decls enter m
           val vparam = fun.vparams.head.symbol
@@ -306,7 +320,11 @@ abstract class UnCurry extends InfoTransform
                       else if (IntClass.tpe <:< a.tpe)     Literal(Constant(0))
                       else if (LongClass.tpe <:< a.tpe)    Literal(Constant(0L))
                       else if (CharClass.tpe <:< a.tpe)    Literal(Constant(0.toChar))
-                      else gen.mkCast(NULL, a.tpe)         // must cast, at least when a.tpe <:< NothingClass.tpe
+                      else {
+                        val tpA = a.tpe.normalize
+                        if (NullClass.tpe <:< tpA) NULL
+                        else gen.mkCast(NULL, tpA)         // must cast, at least when a.tpe <:< NothingClass.tpe
+                      }
                     Apply(fun.duplicate, List(zero))
                   case _ =>
                     super.transform(tree)
@@ -356,7 +374,9 @@ abstract class UnCurry extends InfoTransform
           assert(toArraySym != NoSymbol)
           def getManifest(tp: Type): Tree = {
             val manifestOpt = localTyper.findManifest(tp, false)
-            if (!manifestOpt.tree.isEmpty) manifestOpt.tree
+            // Don't want bottom types getting any further than this (SI-4024)
+            if (tp.typeSymbol.isBottomClass) getManifest(AnyClass.tpe)
+            else if (!manifestOpt.tree.isEmpty) manifestOpt.tree
             else if (tp.bounds.hi ne tp) getManifest(tp.bounds.hi)
             else localTyper.getManifestTree(tree.pos, tp, false)
           }

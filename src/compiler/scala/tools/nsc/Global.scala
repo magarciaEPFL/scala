@@ -307,6 +307,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
   // to create it on that side.  For this one my strategy is a constant def at the file
   // where I need it, and then an override in Global with the setting.
   override protected val etaExpandKeepsStar = settings.etaExpandKeepsStar.value
+  // Here comes another one...
+  override protected val enableTypeVarExperimentals = (
+    settings.Xexperimental.value || settings.YvirtPatmat.value
+  )
 
   // True if -Xscript has been set, indicating a script run.
   def isScriptRun = opt.script.isDefined
@@ -339,7 +343,14 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
 
     def run() {
       echoPhaseSummary(this)
-      currentRun.units foreach applyPhase
+      currentRun.units foreach { unit =>
+        if (opt.timings) {
+          val start = System.nanoTime
+          try applyPhase(unit)
+          finally unitTimings(unit) += (System.nanoTime - start)
+        }
+        else applyPhase(unit)
+      }
     }
 
     def apply(unit: CompilationUnit): Unit
@@ -665,6 +676,21 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
   protected lazy val phasesSet     = new mutable.HashSet[SubComponent]
   protected lazy val phasesDescMap = new mutable.HashMap[SubComponent, String] withDefaultValue ""
   private lazy val phaseTimings = new Phases.TimingModel   // tracking phase stats
+  private lazy val unitTimings = mutable.HashMap[CompilationUnit, Long]() withDefaultValue 0L // tracking time spent per unit
+  private def unitTimingsFormatted(): String = {
+    def toMillis(nanos: Long) = "%.3f" format nanos / 1000000d
+    
+    val formatter = new util.TableDef[(String, String)] {
+      >> ("ms"   -> (_._1)) >+ "  "
+      << ("path" -> (_._2))
+    }
+    "" + (
+      new formatter.Table(unitTimings.toList sortBy (-_._2) map { 
+        case (unit, nanos) => (toMillis(nanos), unit.source.path)
+      })
+    )
+  }
+  
   protected def addToPhasesSet(sub: SubComponent, descr: String) {
     phasesSet += sub
     phasesDescMap(sub) = descr
@@ -1145,8 +1171,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
       if (opt.profileAll)
         profiler.stopProfiling()
 
-      if (opt.timings)
+      if (opt.timings) {
         inform(phaseTimings.formatted)
+        inform(unitTimingsFormatted)
+      }
 
       // In case no phase was specified for -Xshow-class/object, show it now for sure.
       if (opt.noShow)

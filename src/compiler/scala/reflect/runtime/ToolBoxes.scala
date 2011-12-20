@@ -3,6 +3,7 @@ package runtime
 
 import scala.tools.nsc.reporters.Reporter
 import scala.tools.nsc.reporters.StoreReporter
+import scala.tools.nsc.reporters.AbstractReporter
 import scala.tools.nsc.ReflectGlobal
 import scala.tools.nsc.CompilerCommand
 import scala.tools.nsc.Global
@@ -41,11 +42,10 @@ trait ToolBoxes extends { self: Universe =>
 
       def wrapInObject(expr: Tree, fvs: List[Symbol]): ModuleDef = {
         val obj = EmptyPackageClass.newModule(NoPosition, nextWrapperModuleName())
-        val minfo = ClassInfoType(List(ObjectClass.tpe), new Scope, obj.moduleClass)
+        val minfo = ClassInfoType(List(ObjectClass.tpe, ScalaObjectClass.tpe), new Scope, obj.moduleClass)
         obj.moduleClass setInfo minfo
         obj setInfo obj.moduleClass.tpe
         val meth = obj.moduleClass.newMethod(NoPosition, wrapperMethodName)
-        meth setFlag Flags.STATIC
         def makeParam(fv: Symbol) = meth.newValueParameter(NoPosition, fv.name) setInfo fv.tpe
         meth setInfo MethodType(fvs map makeParam, expr.tpe)
         minfo.decls enter meth
@@ -87,11 +87,19 @@ trait ToolBoxes extends { self: Universe =>
       def runExpr(expr: Tree): Any = {
         val etpe = expr.tpe
         val fvs = (expr filter isFree map (_.symbol)).distinct
+        
+        reporter.reset()
         val className = compileExpr(expr, fvs)
+        if (reporter.hasErrors) {
+          throw new Error("reflective compilation has failed")
+        }
+        
         if (settings.debug.value) println("generated: "+className)
         val jclazz = jClass.forName(moduleFileName(className), true, classLoader)
         val jmeth = jclazz.getDeclaredMethods.find(_.getName == wrapperMethodName).get
-        val result = jmeth.invoke(null, fvs map (sym => sym.asInstanceOf[FreeVar].value.asInstanceOf[AnyRef]): _*)
+        val jfield = jclazz.getDeclaredFields.find(_.getName == NameTransformer.MODULE_INSTANCE_NAME).get
+        val singleton = jfield.get(null)
+        val result = jmeth.invoke(singleton, fvs map (sym => sym.asInstanceOf[FreeVar].value.asInstanceOf[AnyRef]): _*)
         if (etpe.typeSymbol != FunctionClass(0)) result
         else {
           val applyMeth = result.getClass.getMethod("apply")
@@ -109,7 +117,12 @@ trait ToolBoxes extends { self: Universe =>
       }
 
     lazy val compiler: ToolBoxGlobal = {
-      val command = new CompilerCommand(arguments.toList, reporter.error(scala.tools.nsc.util.NoPosition, _))
+      val errorFn: String => Unit = reporter.error(scala.tools.nsc.util.NoPosition, _)
+      val command = reporter match {
+        case reporter: AbstractReporter => new CompilerCommand(arguments.toList, reporter.settings, errorFn)
+        case _ => new CompilerCommand(arguments.toList, errorFn)
+      }
+
       command.settings.outputDirs setSingleOutput virtualDirectory
       new ToolBoxGlobal(command.settings, reporter)
     }

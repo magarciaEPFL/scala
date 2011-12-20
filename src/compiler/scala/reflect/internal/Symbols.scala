@@ -334,6 +334,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def isTerm         = false  // to be overridden
     def isType         = false  // to be overridden
     def isClass        = false  // to be overridden
+    def isBottomClass  = false  // to be overridden
     def isAliasType    = false  // to be overridden
     def isAbstractType = false  // to be overridden
     private[scala] def isSkolem = false // to be overridden
@@ -493,8 +494,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // string.  So this needs attention.  For now the fact that migration is
     // private[scala] ought to provide enough protection.
     def hasMigrationAnnotation = hasAnnotation(MigrationAnnotationClass)
-    def migrationMessage    = getAnnotation(MigrationAnnotationClass) flatMap { _.stringArg(2) }
-    def migrationVersion    = getAnnotation(MigrationAnnotationClass) map { version => version.intArg(0).get + "." + version.intArg(1).get }
+    def migrationMessage    = getAnnotation(MigrationAnnotationClass) flatMap { _.stringArg(0) }
+    def migrationVersion    = getAnnotation(MigrationAnnotationClass) flatMap { _.stringArg(1) }
     def elisionLevel        = getAnnotation(ElidableMethodClass) flatMap { _.intArg(0) }
     def implicitNotFoundMsg = getAnnotation(ImplicitNotFoundClass) flatMap { _.stringArg(0) }
 
@@ -525,6 +526,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // unfortunately having the CASEACCESSOR flag does not actually mean you
     // are a case accessor (you can also be a field.)
     def isCaseAccessorMethod = isMethod && isCaseAccessor
+
+    def isMacro = isMethod && hasFlag(MACRO)
 
     /** Does this symbol denote the primary constructor of its enclosing class? */
     final def isPrimaryConstructor =
@@ -711,8 +714,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def originalOwnerChain: List[Symbol] = this :: originalOwner.getOrElse(this, rawowner).originalOwnerChain
 
     def enclClassChain: List[Symbol] = {
-      if (this eq NoSymbol) Nil
-      else if (isClass && !isPackageClass) this :: owner.enclClassChain
+      if ((this eq NoSymbol) || isPackageClass) Nil
+      else if (isClass) this :: owner.enclClassChain
       else owner.enclClassChain
     }
 
@@ -951,6 +954,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     def hasRawInfo: Boolean = infos ne null
+    def hasCompleteInfo = hasRawInfo && rawInfo.isComplete
 
     /** Return info without checking for initialization or completing */
     def rawInfo: Type = {
@@ -1093,6 +1097,10 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def typeParams: List[Symbol] =
       if (isMonomorphicType) Nil
       else {
+        // analogously to the "info" getter, here we allow for two completions:
+        //   one: sourceCompleter to LazyType, two: LazyType to completed type
+        if (validTo == NoPeriod)
+          atPhase(phaseOf(infos.validFrom))(rawInfo load this)
         if (validTo == NoPeriod)
           atPhase(phaseOf(infos.validFrom))(rawInfo load this)
 
@@ -1180,41 +1188,31 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
 // ----- annotations ------------------------------------------------------------
 
-    private var rawannots: List[AnnotationInfoBase] = Nil
-    def rawAnnotations = rawannots
+    // null is a marker that they still need to be obtained.
+    private var _annotations: List[AnnotationInfo] = Nil
 
-    /* Used in namer to check whether annotations were already assigned or not */
-    def hasAssignedAnnotations = rawannots.nonEmpty
+    def annotationsString = if (annotations.isEmpty) "" else annotations.mkString("(", ", ", ")")
 
     /** After the typer phase (before, look at the definition's Modifiers), contains
      *  the annotations attached to member a definition (class, method, type, field).
      */
-    def annotations: List[AnnotationInfo] = {
-      // .initialize: the type completer of the symbol parses the annotations,
-      // see "def typeSig" in Namers
-      val annots1 = initialize.rawannots map {
-        case x: LazyAnnotationInfo  => x.annot()
-        case x: AnnotationInfo      => x
-      } filterNot (_.atp.isError)
-      rawannots = annots1
-      annots1
-    }
-
-    def setRawAnnotations(annots: List[AnnotationInfoBase]): this.type = {
-      this.rawannots = annots
+    def annotations: List[AnnotationInfo] = _annotations
+    def setAnnotations(annots: List[AnnotationInfo]): this.type = {
+      _annotations = annots
       this
     }
-    def setAnnotations(annots: List[AnnotationInfo]): this.type =
-      setRawAnnotations(annots)
 
     def withAnnotations(annots: List[AnnotationInfo]): this.type =
-      setRawAnnotations(annots ::: rawannots)
+      setAnnotations(annots ::: annotations)
 
     def withoutAnnotations: this.type =
-      setRawAnnotations(Nil)
+      setAnnotations(Nil)
+
+    def filterAnnotations(p: AnnotationInfo => Boolean): this.type =
+      setAnnotations(annotations filter p)
 
     def addAnnotation(annot: AnnotationInfo): this.type =
-      setRawAnnotations(annot :: rawannots)
+      setAnnotations(annot :: annotations)
 
     // Convenience for the overwhelmingly common case
     def addAnnotation(sym: Symbol, args: Tree*): this.type =
@@ -1246,19 +1244,20 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       owner == that || owner != NoSymbol && (owner isNestedIn that)
 
     /** Is this class symbol a subclass of that symbol? */
-    final def isNonBottomSubClass(that: Symbol): Boolean =
-      this == that || this.isError || that.isError ||
+    final def isNonBottomSubClass(that: Symbol): Boolean = (
+      (this eq that) || this.isError || that.isError ||
       info.baseTypeIndex(that) >= 0
-
-    final def isSubClass(that: Symbol): Boolean = (
-      isNonBottomSubClass(that) ||
-      this == NothingClass ||
-      this == NullClass &&
-      (that == AnyClass ||
-       that != NothingClass && (that isSubClass ObjectClass))
     )
+
+    /** Overridden in NullClass and NothingClass for custom behavior.
+     */
+    def isSubClass(that: Symbol) = isNonBottomSubClass(that)
+
     final def isNumericSubClass(that: Symbol): Boolean =
       definitions.isNumericSubClass(this, that)
+
+    final def isWeakSubClass(that: Symbol) =
+      isSubClass(that) || isNumericSubClass(that)
 
 // ------ overloaded alternatives ------------------------------------------------------
 
@@ -2436,6 +2435,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       unlock()
       validTo = currentPeriod
     }
+    override def isSubClass(that: Symbol) = false
     override def filter(cond: Symbol => Boolean) = this
     override def defString: String = toString
     override def locationString: String = ""

@@ -75,10 +75,11 @@ class DirectCompiler(val fileManager: FileManager) extends SimpleCompiler {
     val logWriter = new FileWriter(log)
 
     // check whether there is a ".flags" file
-    val flagsFileName = "%s.flags" format (basename(log.getName) dropRight 4) // 4 is "-run" or similar
+    val logFile = basename(log.getName)
+    val flagsFileName = "%s.flags" format (logFile.substring(0, logFile.lastIndexOf("-")))
     val argString = (io.File(log).parent / flagsFileName) ifFile (x => updatePluginPath(x.slurp())) getOrElse ""
-    val allOpts = fileManager.SCALAC_OPTS+" "+argString
-    val args = (allOpts split "\\s").toList
+    val allOpts = fileManager.SCALAC_OPTS.toList ::: argString.split(' ').toList.filter(_.length > 0)
+    val args = allOpts.toList
 
     NestUI.verbose("scalac options: "+allOpts)
 
@@ -96,6 +97,7 @@ class DirectCompiler(val fileManager: FileManager) extends SimpleCompiler {
       case "scalacheck"   => ScalaCheckTestFile.apply
       case "specialized"  => SpecializedTestFile.apply
       case "presentation" => PresentationTestFile.apply
+      case "ant"          => AntTestFile.apply
     }
     val test: TestFile = testFileFn(files.head, fileManager)
     if (!test.defineSettings(command.settings, out.isEmpty)) {

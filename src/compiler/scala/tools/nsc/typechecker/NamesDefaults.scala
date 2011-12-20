@@ -189,7 +189,7 @@ trait NamesDefaults { self: Analyzer =>
         if (pre == NoType) {
           None
         } else {
-          val module = companionModuleOf(baseFun.symbol.owner, context)
+          val module = companionSymbolOf(baseFun.symbol.owner, context)
           if (module == NoSymbol) None
           else {
             val ref = atPos(pos.focus)(gen.mkAttributedRef(pre, module))
@@ -227,7 +227,7 @@ trait NamesDefaults { self: Analyzer =>
         // super constructor calls
         case Select(sp @ Super(_, _), _) if isConstr =>
           // 'moduleQual' fixes #3207. selection of the companion module of the
-          // superclass needs to have the same prefix as the the superclass.
+          // superclass needs to have the same prefix as the superclass.
           blockWithoutQualifier(moduleQual(baseFun.pos, sp.symbol.tpe.parents.head))
 
         // self constructor calls (in secondary constructors)
@@ -414,7 +414,7 @@ trait NamesDefaults { self: Analyzer =>
     if (i > 0) {
       val defGetterName = nme.defaultGetterName(param.owner.name, i)
       if (param.owner.isConstructor) {
-        val mod = companionModuleOf(param.owner.owner, context)
+        val mod = companionSymbolOf(param.owner.owner, context)
         mod.info.member(defGetterName)
       }
       else {
