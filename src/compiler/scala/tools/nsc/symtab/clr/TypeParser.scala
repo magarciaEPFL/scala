@@ -458,7 +458,7 @@ abstract class TypeParser {
       val theConstr = clazz.info.decls.toList filter (sym => sym.isConstructor && (sym.paramss.head.size == 1) ) head;
       theConstr.setInfo(ORef2ORefOfT(theConstr.info))
       clazz.setInfo(polyType(List(s), clazz.info))
-      scala.Console.println("fabricating info for " + clazz.name)
+      // scala.Console.println("fabricating info for " + clazz.name)
     }
 
     if (typ.IsEnum) {
