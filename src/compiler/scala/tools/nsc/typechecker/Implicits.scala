@@ -1140,10 +1140,9 @@ trait Implicits {
 
         val tp1 = tp0.normalize
         tp1 match {
-          case ThisType(_) | SingleType(_, _) =>
+          case ThisType(_) | SingleType(_, _) if (!containsExistential(tp1)) =>
             // can't generate a reference to a value that's abstracted over by an existential
-            if (containsExistential(tp1)) EmptyTree
-            else manifestFactoryCall("singleType", tp, gen.mkAttributedQualifier(tp1))
+            manifestFactoryCall("singleType", tp, gen.mkAttributedQualifier(tp1))
           case ConstantType(value) =>
             manifestOfType(tp1.deconst, full)
           case TypeRef(pre, sym, args) =>
