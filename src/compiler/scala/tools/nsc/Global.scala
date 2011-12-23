@@ -963,9 +963,12 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
     val icodePhase         = phaseNamed("icode")
     // inliner, closelim, dce
     val jvmPhase           = phaseNamed("jvm")
+    val msilPhase          = phaseNamed("msil")
 
     def runIsAt(ph: Phase)   = globalPhase.id == ph.id
     def runIsPast(ph: Phase) = globalPhase.id > ph.id
+    def runIsAtBytecodeGen   = (runIsAt(jvmPhase)   || runIsAt(msilPhase))
+    def runIsAtOptimiz       = (runIsPast(icodePhase) && !runIsAtBytecodeGen)
 
     isDefined = true
 
@@ -1134,14 +1137,14 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
         informTime(globalPhase.description, startTime)
         phaseTimings(globalPhase) = currentTime - startTime
 
-        // write icode to *.icode files
-        if (opt.writeICode)
-          writeICode()
-
         // print trees
-        if (opt.printPhase || opt.printLate && runIsAt(cleanupPhase)) {
-          if (opt.showTrees) nodePrinters.printAll()
-          else printAllUnits()
+        if (opt.writeICode || opt.printPhase || opt.printLate && runIsAt(cleanupPhase)) {
+          if(runIsAt(icodePhase) || runIsAtOptimiz) {
+            writeICode() // write icode to *.icode files
+          } else {
+            if (opt.showTrees) nodePrinters.printAll()
+            else printAllUnits()
+          }
         }
         // print the symbols presently attached to AST nodes
         if (opt.showSymbols)
