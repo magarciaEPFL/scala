@@ -94,7 +94,7 @@ object MsilClassPath {
          ". Use -Xassem-extdirs or -Xassem-path to specify its location")
     }
     check("mscorlib.dll")
-    check("scalaruntime.dll")
+    // check("scalaruntime.dll")
 
     // 3. Source path
     for (dirName <- expandPath(source, expandStar = false)) {
