@@ -35,6 +35,7 @@ trait JavaPlatform extends Platform {
 
   def platformPhases = List(
     flatten,    // get rid of inner classes
+    inlineExceptionHandlers, // the exception handling model of CLR not suitable for inlineExceptionHandlers
     genJVM      // generate .class files
   ) ++ depAnalysisPhase
 
