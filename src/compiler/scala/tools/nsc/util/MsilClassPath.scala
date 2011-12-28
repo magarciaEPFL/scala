@@ -169,8 +169,8 @@ class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: 
 }
 
 /**
- * The classpath when compiling with target:msil. Binary files are represented as
- * MSILType values.
+ * The classpath when compiling with target:msil.
+ * Binary files are represented as MsilFile values.
  */
 class MsilClassPath(ext: String, user: String, source: String, context: MsilContext)
 extends MergedClassPath[MsilFile](MsilClassPath.assembleEntries(ext, user, source, context), context) { }
