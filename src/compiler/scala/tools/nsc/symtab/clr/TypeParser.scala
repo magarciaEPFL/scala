@@ -135,6 +135,11 @@ abstract class TypeParser {
       val a = attrs(0).asInstanceOf[MSILAttribute];
       assert (a.getConstructor() == clrTypes.SYMTAB_CONSTR);
       val symtab = a.getConstructorArguments()(0).asInstanceOf[Array[Byte]]
+
+      // how-to compare pickles across CLR and JVM
+      //   val strRepr = BitConverter.ToString(symtab)
+      //   val strRepr = symtab.map("%02X" format _).mkString("", "-", "")
+
       unpickler.unpickle(symtab, 0, clazz, staticModule, typ.FullName);
       val mClass = clrTypes.getType(typ.FullName + "$");
       if (mClass != null) {
