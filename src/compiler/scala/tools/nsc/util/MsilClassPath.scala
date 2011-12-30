@@ -54,7 +54,7 @@ object MsilClassPath {
 
   class MsilContext extends ClassPathContext[MsilFile] {
     def toBinaryName(rep: MsilFile) = rep.msilType.Name
-    def newClassPath(assemFile: AbstractFile) = new AssemblyClassPath(MsilClassPath collectTypes assemFile, "", this)
+    def newClassPath(assemFile: AbstractFile) = new AssemblyClassPath(MsilClassPath collectTypes assemFile, "", this, assemFile)
   }
 
   private def assembleEntries(ext: String, user: String, source: String, context: MsilContext): List[ClassPath[MsilFile]] = {
@@ -110,7 +110,7 @@ import MsilClassPath._
 /**
  * A assembly file (dll / exe) containing classes and namespaces
  */
-class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: MsilContext) extends ClassPath[MsilFile] {
+class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: MsilContext, val assemFile: AbstractFile) extends ClassPath[MsilFile] {
   def name = {
     val i = namespace.lastIndexOf('.')
     if (i < 0) namespace
@@ -128,7 +128,8 @@ class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: 
       if (res < 0) m = l + 1
       else n = l
     }
-    if (types(m).FullName.startsWith(namespace)) m else types.length
+    val resFirst = if (types(m).FullName.startsWith(namespace)) m else types.length;
+    resFirst
   }
 
   lazy val classes = {
@@ -140,7 +141,8 @@ class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: 
         cls += ClassRep(Some(new MsilFile(types(i))), None)
       i += 1
     }
-    cls.toIndexedSeq
+    val resClasses = cls.toIndexedSeq;
+    resClasses
   }
 
   lazy val packages = {
@@ -158,14 +160,15 @@ class AssemblyClassPath(types: Array[MSILType], namespace: String, val context: 
       i += 1
     }
     val xs = for (ns <- nsSet.toList)
-      yield new AssemblyClassPath(types, ns, context)
+      yield new AssemblyClassPath(types, ns, context, assemFile)
 
-    xs.toIndexedSeq
+    val resPkgs = xs.toIndexedSeq;
+    resPkgs
   }
 
   val sourcepaths: IndexedSeq[AbstractFile] = IndexedSeq()
 
-  override def toString() = "assembly classpath "+ namespace
+  override def toString() = "AssemCP("+assemFile.name+")"
 }
 
 /**

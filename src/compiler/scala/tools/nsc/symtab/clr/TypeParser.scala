@@ -283,9 +283,9 @@ abstract class TypeParser {
       val name = newTermName(field.Name);
       val fieldType =
         if (field.IsLiteral && !field.FieldType.IsEnum && isDefinedAtgetConstant(getCLRType(field.FieldType)))
-	      ConstantType(getConstant(getCLRType(field.FieldType), field.getValue))
-	    else
-	      getCLRType(field.FieldType)
+	        ConstantType(getConstant(getCLRType(field.FieldType), field.getValue))
+	      else
+	        getCLRType(field.FieldType)
       val owner = if (field.IsStatic()) statics else clazz;
       val sym = owner.newValue(NoPosition, name).setFlag(flags).setInfo(fieldType);
         // TODO: set private within!!! -> look at typechecker/Namers.scala
