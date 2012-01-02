@@ -75,7 +75,8 @@ object NameTransformer {
           buf = new StringBuilder()
           buf.append(name.substring(0, i))
         }
-        buf.append("$u%04X".format(c.toInt))
+        val tmp : String = { val h = java.lang.Integer.toHexString(c.toInt); "$u" + "000".take(4 - h.size) + h }
+        buf.append(tmp)
       }
       else if (buf ne null) {
         buf.append(c)
