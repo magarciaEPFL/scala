@@ -307,13 +307,19 @@ abstract class TypeParser {
 	val getter: MethodInfo = prop.GetGetMethod(true);
 	val setter: MethodInfo = prop.GetSetMethod(true);
 	var gparamsLength: Int = -1;
-	if (!(getter == null || getter.IsPrivate || getter.IsAssembly
-              || getter.IsFamilyAndAssembly || getter.HasPtrParamOrRetType))
+
+  val getterInSight = !(   getter == null || getter.IsPrivate || getter.IsAssembly
+                        || getter.IsFamilyAndAssembly || getter.HasPtrParamOrRetType)
+
+  val setterInSight = !(   setter == null || setter.IsPrivate || setter.IsAssembly
+                        || setter.IsFamilyAndAssembly || setter.HasPtrParamOrRetType)
+
+	if (getterInSight)
 	  {
 	    assert(prop.PropertyType == getter.ReturnType);
 	    val gparams: Array[ParameterInfo] = getter.GetParameters();
 	    gparamsLength = gparams.length;
-	    val name: Name = if (gparamsLength == 0) prop.Name else nme.apply;
+	    val name: Name = if (!setterInSight || gparamsLength == 0) prop.Name else getter.Name;
 	    val flags = translateAttributes(getter);
 	    val owner: Symbol = if (getter.IsStatic) statics else clazz;
 	    val methodSym = owner.newMethod(NoPosition, name).setFlag(flags)
@@ -325,8 +331,8 @@ abstract class TypeParser {
 	    clrTypes.methods(methodSym) = getter;
 	    methodsSet -= getter;
 	  }
-	if (!(setter == null || setter.IsPrivate || setter.IsAssembly
-             || setter.IsFamilyAndAssembly || setter.HasPtrParamOrRetType))
+
+	if (setterInSight)
 	  {
 	    val sparams: Array[ParameterInfo] = setter.GetParameters()
 	    if(getter != null)
@@ -335,8 +341,7 @@ abstract class TypeParser {
 	    if(getter != null)
 	      assert(sparams.length == gparamsLength + 1, "" + getter + "; " + setter);
 
-	    val name: Name = if (gparamsLength == 0) nme.getterToSetter(prop.Name)
-			     else nme.update;
+	    val name: Name = if (gparamsLength == 0) nme.getterToSetter(prop.Name) else setter.Name;
 	    val flags = translateAttributes(setter);
 	    val mtype = methodType(setter, definitions.UnitClass.tpe);
 	    val owner: Symbol = if (setter.IsStatic) statics else clazz;
