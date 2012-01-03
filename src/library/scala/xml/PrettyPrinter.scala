@@ -61,15 +61,21 @@ class PrettyPrinter(width: Int, step: Int) {
       i = s.indexOf(' ', i+1)
     }
     var res: List[Item] = Nil
-    while (Nil != last) try {
-      val b = Box(ind, s.substring(0, last.head))
-      cur = ind
-      res = b :: Break :: cut(s.substring(last.head, s.length), ind)
-       // backtrack
-      last = last.tail
-    } catch {
-      case _:BrokenException => last = last.tail
-    }
+
+      def loopBody() = {
+        try {
+          val b = Box(ind, s.substring(0, last.head))
+          cur = ind
+          res = b :: Break :: cut(s.substring(last.head, s.length), ind)
+          // backtrack
+          last = last.tail
+        } catch {
+          case _:BrokenException => last = last.tail
+        }
+      }
+
+    while (Nil != last) loopBody()
+
     throw new BrokenException()
   }
 
