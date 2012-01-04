@@ -39,6 +39,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
                                                                       with Trees
                                                                       with TreePrinters
                                                                       with DocComments
+                                                                      with MacroContext
                                                                       with symtab.Positions {
 
   override def settings = currentSettings
@@ -151,14 +152,14 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
   /** Register top level class (called on entering the class)
    */
   def registerTopLevelSym(sym: Symbol) {}
-
+  
 // ------------------ Reporting -------------------------------------
 
   // not deprecated yet, but a method called "error" imported into
   // nearly every trait really must go.  For now using globalError.
   def error(msg: String)       = globalError(msg)
   def globalError(msg: String) = reporter.error(NoPosition, msg)
-  def inform(msg: String)      = reporter.info(NoPosition, msg, true)
+  def inform(msg: String)      = reporter.echo(msg)
   def warning(msg: String)     =
     if (opt.fatalWarnings) globalError(msg)
     else reporter.warning(NoPosition, msg)

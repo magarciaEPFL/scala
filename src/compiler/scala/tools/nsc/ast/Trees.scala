@@ -44,6 +44,15 @@ trait Trees extends reflect.internal.Trees { self: Global =>
 
   /** emitted by typer, eliminated by refchecks */
   case class TypeTreeWithDeferredRefCheck()(val check: () => TypeTree) extends TypTree
+  
+  /** Marks underlying reference to id as boxed. 
+   *  @pre: id must refer to a captured variable
+   *  A reference such marked will refer to the boxed entity, no dereferencing
+   *  with `.elem` is done on it.
+   *  This tree node can be emitted by macros such as reify that call markBoxedReference.
+   *  It is eliminated in LambdaLift, where the boxing conversion takes place.
+   */
+  case class ReferenceToBoxed(idt: Ident) extends TermTree
 
   // --- factory methods ----------------------------------------------------------
 
@@ -77,16 +86,17 @@ trait Trees extends reflect.internal.Trees { self: Global =>
         }})
     val (edefs, rest) = body span treeInfo.isEarlyDef
     val (evdefs, etdefs) = edefs partition treeInfo.isEarlyValDef
-    val (lvdefs, gvdefs) = evdefs map {
+    val gvdefs = evdefs map {
       case vdef @ ValDef(mods, name, tpt, rhs) =>
-        val fld = treeCopy.ValDef(
+        treeCopy.ValDef(
           vdef.duplicate, mods, name,
           atPos(focusPos(vdef.pos)) { TypeTree() setOriginal tpt setPos focusPos(tpt.pos) }, // atPos in case
           EmptyTree)
-        val local = treeCopy.ValDef(vdef, Modifiers(PRESUPER), name, tpt, rhs)
-        (local, fld)
-    } unzip
-
+    }
+    val lvdefs = evdefs map {
+      case vdef @ ValDef(mods, name, tpt, rhs) =>
+        treeCopy.ValDef(vdef, Modifiers(PRESUPER), name, tpt, rhs)
+    }
     val constrs = {
       if (constrMods hasFlag TRAIT) {
         if (body forall treeInfo.isInterfaceMember) List()
@@ -151,6 +161,8 @@ trait Trees extends reflect.internal.Trees { self: Global =>
       traverser.traverse(lhs); traverser.traverse(rhs)
     case SelectFromArray(qualifier, selector, erasure) =>
       traverser.traverse(qualifier)
+    case ReferenceToBoxed(idt) =>
+      traverser.traverse(idt)
     case TypeTreeWithDeferredRefCheck() => // TODO: should we traverse the wrapped tree?
       // (and rewrap the result? how to update the deferred check? would need to store wrapped tree instead of returning it from check)
     case _ => super.xtraverse(traverser, tree)
@@ -160,6 +172,7 @@ trait Trees extends reflect.internal.Trees { self: Global =>
     def DocDef(tree: Tree, comment: DocComment, definition: Tree): DocDef
     def AssignOrNamedArg(tree: Tree, lhs: Tree, rhs: Tree): AssignOrNamedArg
     def SelectFromArray(tree: Tree, qualifier: Tree, selector: Name, erasure: Type): SelectFromArray
+    def ReferenceToBoxed(tree: Tree, idt: Ident): ReferenceToBoxed
     def TypeTreeWithDeferredRefCheck(tree: Tree): TypeTreeWithDeferredRefCheck
   }
 
@@ -173,6 +186,8 @@ trait Trees extends reflect.internal.Trees { self: Global =>
       new AssignOrNamedArg(lhs, rhs).copyAttrs(tree)
     def SelectFromArray(tree: Tree, qualifier: Tree, selector: Name, erasure: Type) =
       new SelectFromArray(qualifier, selector, erasure).copyAttrs(tree)
+    def ReferenceToBoxed(tree: Tree, idt: Ident) =
+      new ReferenceToBoxed(idt).copyAttrs(tree)
     def TypeTreeWithDeferredRefCheck(tree: Tree) = tree match {
       case dc@TypeTreeWithDeferredRefCheck() => new TypeTreeWithDeferredRefCheck()(dc.check).copyAttrs(tree)
     }
@@ -193,6 +208,11 @@ trait Trees extends reflect.internal.Trees { self: Global =>
       case t @ SelectFromArray(qualifier0, selector0, _)
       if (qualifier0 == qualifier) && (selector0 == selector) => t
       case _ => this.treeCopy.SelectFromArray(tree, qualifier, selector, erasure)
+    }
+    def ReferenceToBoxed(tree: Tree, idt: Ident) = tree match {
+      case t @ ReferenceToBoxed(idt0) 
+      if (idt0 == idt) => t
+      case _ => this.treeCopy.ReferenceToBoxed(tree, idt)
     }
     def TypeTreeWithDeferredRefCheck(tree: Tree) = tree match {
       case t @ TypeTreeWithDeferredRefCheck() => t
@@ -219,6 +239,9 @@ trait Trees extends reflect.internal.Trees { self: Global =>
     case SelectFromArray(qualifier, selector, erasure) =>
       transformer.treeCopy.SelectFromArray(
         tree, transformer.transform(qualifier), selector, erasure)
+    case ReferenceToBoxed(idt) =>
+      transformer.treeCopy.ReferenceToBoxed(
+        tree, transformer.transform(idt) match { case idt1: Ident => idt1 })
     case TypeTreeWithDeferredRefCheck() =>
       transformer.treeCopy.TypeTreeWithDeferredRefCheck(tree)
   }
