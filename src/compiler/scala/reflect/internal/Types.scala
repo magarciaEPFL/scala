@@ -2993,6 +2993,9 @@ A type's typeSymbol should never be inspected directly.
 
   /** A creator for intersection type where intersections of a single type are
    *  replaced by the type itself, and repeated parent classes are merged.
+   *
+   *  !!! Repeated parent classes are not merged - is this a bug in the
+   *  comment or in the code?
    */
   def intersectionType(tps: List[Type], owner: Symbol): Type = tps match {
     case List(tp) =>
@@ -5455,6 +5458,23 @@ A type's typeSymbol should never be inspected directly.
     val formatted = tableDef.table(transposed)
     println("** Depth is " + depth + "\n" + formatted)
   }
+  
+  /** From a list of types, find any which take type parameters 
+   *  where the type parameter bounds contain references to other
+   *  any types in the list (including itself.)
+   *
+   *  @return List of symbol pairs holding the recursive type
+   *    parameter and the parameter which references it.
+   */
+  def findRecursiveBounds(ts: List[Type]): List[(Symbol, Symbol)] = {
+    if (ts.isEmpty) Nil
+    else {
+      val sym = ts.head.typeSymbol
+      require(ts.tail forall (_.typeSymbol == sym), ts)
+      for (p <- sym.typeParams ; in <- sym.typeParams ; if in.info.bounds contains p) yield
+        p -> in
+    }
+  }
 
   /** Given a matrix `tsBts` whose columns are basetype sequences (and the symbols `tsParams` that should be interpreted as type parameters in this matrix),
    * compute its least sorted upwards closed upper bound relative to the following ordering <= between lists of types:
@@ -5501,6 +5521,19 @@ A type's typeSymbol should never be inspected directly.
         // merging, strip targs that refer to bound tparams (when we're computing the lub of type
         // constructors.) Also filter out all types that are a subtype of some other type.
         if (isUniformFrontier) {
+          if (settings.debug.value || printLubs) {
+            val fbounds = findRecursiveBounds(ts0)
+            if (fbounds.nonEmpty) {
+              println("Encountered " + fbounds.size + " recursive bounds while lubbing " + ts0.size + " types.")
+              for ((p0, p1) <- fbounds) {
+                val desc = if (p0 == p1) "its own bounds" else "the bounds of " + p1
+
+                println("  " + p0.fullLocationString + " appears in " + desc)
+                println("    " + p1 + " " + p1.info.bounds)
+              }
+              println("")
+            }
+          }
           val tails = tsBts map (_.tail)
           mergePrefixAndArgs(elimSub(ts0 map elimHigherOrderTypeParam, depth), 1, depth) match {
             case Some(tp) => tp :: loop(tails)
@@ -5526,7 +5559,7 @@ A type's typeSymbol should never be inspected directly.
       }
     }
 
-    val initialBTSes = ts map (_.baseTypeSeq.toList)
+    val initialBTSes = ts map (_.baseTypeSeq.toList filter (_.typeSymbol.isPublic))
     if (printLubs)
       printLubMatrix(ts zip initialBTSes toMap, depth)
 
@@ -5719,9 +5752,16 @@ A type's typeSymbol should never be inspected directly.
       val lubType =
         if (phase.erasedTypes || depth == 0) lubBase
         else {
-          val lubRefined = refinedType(lubParents, lubOwner)
+          val lubRefined  = refinedType(lubParents, lubOwner)
           val lubThisType = lubRefined.typeSymbol.thisType
-          val narrowts = ts map (_.narrow)
+          val narrowts    = ts map (_.narrow)
+          def excludeFromLub(sym: Symbol) = (
+               sym.isClass
+            || sym.isConstructor
+            || !sym.isPublic
+            || isGetClass(sym)
+            || narrowts.exists(t => !refines(t, sym))
+          )
           def lubsym(proto: Symbol): Symbol = {
             val prototp = lubThisType.memberInfo(proto)
             val syms = narrowts map (t =>
@@ -5750,16 +5790,15 @@ A type's typeSymbol should never be inspected directly.
               // efficiency.
               alt != sym && !specializesSym(lubThisType, sym, tp, alt)))
           }
-          for (sym <- lubBase.nonPrivateMembers) {
-            // add a refinement symbol for all non-class members of lubBase
-            // which are refined by every type in ts.
-            if (!sym.isClass && !sym.isConstructor && !isGetClass(sym) && (narrowts forall (t => refines(t, sym))))
-              try {
-                val lsym = lubsym(sym)
-                if (lsym != NoSymbol) addMember(lubThisType, lubRefined, lubsym(sym))
-              } catch {
-                case ex: NoCommonType =>
-              }
+          // add a refinement symbol for all non-class members of lubBase
+          // which are refined by every type in ts.
+          for (sym <- lubBase.nonPrivateMembers ; if !excludeFromLub(sym)) {
+            try {
+              val lsym = lubsym(sym)
+              if (lsym != NoSymbol) addMember(lubThisType, lubRefined, lsym)
+            } catch {
+              case ex: NoCommonType =>
+            }
           }
           if (lubRefined.decls.isEmpty) lubBase
           else if (!verifyLubs) lubRefined
@@ -5977,7 +6016,7 @@ A type's typeSymbol should never be inspected directly.
                 // conforming to bounds.
                 val bounds0 = sym.typeParams map (_.info.bounds.hi) filterNot (_.typeSymbol == AnyClass)
                 if (bounds0.isEmpty) AnyClass.tpe
-                else intersectionType(bounds0)
+                else intersectionType(bounds0 map (b => b.asSeenFrom(tps.head, sym)))
               }
               else if (tparam.variance == -variance) NothingClass.tpe
               else NoType
