@@ -1296,7 +1296,7 @@ abstract class GenICode extends SubComponent  {
 
     /** The Object => String overload.
      */
-    private lazy val String_valueOf: Symbol = getMember(StringModule, "valueOf") filter (sym =>
+    private lazy val String_valueOf: Symbol = getMember(StringModule, nme.valueOf) filter (sym =>
       sym.info.paramTypes match {
         case List(pt) => pt.typeSymbol == ObjectClass
         case _        => false
@@ -1308,7 +1308,7 @@ abstract class GenICode extends SubComponent  {
     // case we want to get more precise.
     //
     // private def valueOfForType(tp: Type): Symbol = {
-    //   val xs = getMember(StringModule, "valueOf") filter (sym =>
+    //   val xs = getMember(StringModule, nme.valueOf) filter (sym =>
     //     // We always exclude the Array[Char] overload because java throws an NPE if
     //     // you pass it a null.  It will instead find the Object one, which doesn't.
     //     sym.info.paramTypes match {
@@ -1355,7 +1355,7 @@ abstract class GenICode extends SubComponent  {
     def genScalaHash(tree: Tree, ctx: Context): Context = {
       val hashMethod = {
         ctx.bb.emit(LOAD_MODULE(ScalaRunTimeModule))
-        getMember(ScalaRunTimeModule, "hash")
+        getMember(ScalaRunTimeModule, nme.hash_)
       }
 
       val ctx1 = genLoad(tree, ctx, ObjectReference)
@@ -1962,7 +1962,7 @@ abstract class GenICode extends SubComponent  {
        */
       private def newExceptionHandler(cls: Symbol, resultKind: TypeKind, pos: Position): ExceptionHandler = {
         handlerCount += 1
-        val exh = new ExceptionHandler(method, "" + handlerCount, cls, pos)
+        val exh = new ExceptionHandler(method, newTermNameCached("" + handlerCount), cls, pos)
         exh.resultKind = resultKind
         method.addHandler(exh)
         handlers = exh :: handlers

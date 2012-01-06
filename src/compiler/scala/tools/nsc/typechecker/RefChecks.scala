@@ -154,7 +154,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
     def isJavaVarargsAncestor(clazz: Symbol) = (
          clazz.isClass
       && clazz.isJavaDefined
-      && (clazz.info.nonPrivateMembers exists isJavaVarArgsMethod)
+      && (clazz.info.nonPrivateDecls exists isJavaVarArgsMethod)
     )
 
     /** Add bridges for vararg methods that extend Java vararg methods
@@ -1347,7 +1347,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
       }
 
       // types of the value parameters
-      member.paramss.flatten foreach (p => checkAccessibilityOfType(p.tpe))
+      mapParamss(member)(p => checkAccessibilityOfType(p.tpe))
       // upper bounds of type parameters
       member.typeParams.map(_.info.bounds.hi.widen) foreach checkAccessibilityOfType
     }

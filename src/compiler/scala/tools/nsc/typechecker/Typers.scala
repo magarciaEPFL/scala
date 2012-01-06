@@ -3468,7 +3468,7 @@ trait Typers extends Modes with Adaptations with PatMatVirtualiser {
             case ex: TypeError =>
               fun match {
                 case Select(qual, name)
-                if !isPatternMode && nme.isOpAssignmentName(name.decode) =>
+                if !isPatternMode && nme.isOpAssignmentName(newTermName(name.decode)) =>
                   val qual1 = typedQualifier(qual)
                   if (treeInfo.isVariableOrGetter(qual1)) {
                     stopTimer(failedOpEqNanos, opeqStart)

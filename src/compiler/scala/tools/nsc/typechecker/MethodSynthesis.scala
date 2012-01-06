@@ -9,22 +9,6 @@ import symtab.Flags._
 import scala.collection.{ mutable, immutable }
 import scala.tools.util.StringOps.{ ojoin }
 
-object listutil {
-  def mexists[T](xss: List[List[T]])(p: T => Boolean) =
-    xss exists (_ exists p)
-  def mmap[T, U](xss: List[List[T]])(f: T => U) =
-    xss map (_ map f)
-  def mforeach[T](xss: List[List[T]])(f: T => Unit) =
-    xss foreach (_ foreach f)
-  def mfind[T](xss: List[List[T]])(p: T => Boolean): Option[T] = {
-    for (xs <- xss; x <- xs)
-      if (p(x)) return Some(x)
-    None
-  }
-  def mfilter[T](xss: List[List[T]])(p: T => Boolean) =
-    for (xs <- xss; x <- xs; if p(x)) yield x
-}
-
 /** Logic related to method synthesis which involves cooperation between
  *  Namer and Typer.
  */
@@ -264,7 +248,7 @@ trait MethodSynthesis {
     }
 
     sealed abstract class BeanAccessor(bean: String) extends DerivedFromValDef {
-      def name       = bean + tree.name.toString.capitalize
+      val name       = newTermName(bean + tree.name.toString.capitalize)
       def flagsMask  = BeanPropertyFlags
       def flagsExtra = 0
       override def derivedSym = enclClass.info decl name

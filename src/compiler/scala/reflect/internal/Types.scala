@@ -499,6 +499,9 @@ trait Types extends api.Types { self: SymbolTable =>
      *  Alternatives of overloaded symbol appear in the order they are declared.
      */
     def decl(name: Name): Symbol = findDecl(name, 0)
+    
+    /** A list of all non-private members defined or declared in this type. */
+    def nonPrivateDecls: List[Symbol] = decls filter (x => !x.isPrivate) toList
 
     /** The non-private defined or declared members with name `name` in this type;
      *  an OverloadedSymbol if several exist, NoSymbol if none exist.
@@ -537,6 +540,16 @@ trait Types extends api.Types { self: SymbolTable =>
      */
     def nonPrivateMember(name: Name): Symbol =
       memberBasedOnName(name, BridgeAndPrivateFlags)
+      
+    /** All members with the given flags, excluding bridges.
+     */
+    def membersWithFlags(requiredFlags: Long): List[Symbol] =
+      membersBasedOnFlags(BridgeFlags, requiredFlags)
+
+    /** All non-private members with the given flags, excluding bridges.
+     */
+    def nonPrivateMembersWithFlags(requiredFlags: Long): List[Symbol] =
+      membersBasedOnFlags(BridgeAndPrivateFlags, requiredFlags)
 
     /** The non-private member with given name, admitting members with given flags `admit`.
      *  "Admitting" refers to the fact that members with a PRIVATE, BRIDGE, or VBRIDGE
@@ -552,7 +565,10 @@ trait Types extends api.Types { self: SymbolTable =>
      *  an OverloadedSymbol if several exist, NoSymbol if none exist */
     def nonLocalMember(name: Name): Symbol =
       memberBasedOnName(name, BridgeFlags | LOCAL)
-      
+    
+    /** Members excluding and requiring the given flags.
+     *  Note: unfortunately it doesn't work to exclude DEFERRED this way.
+     */
     def membersBasedOnFlags(excludedFlags: Long, requiredFlags: Long): List[Symbol] =
       findMember(nme.ANYNAME, excludedFlags, requiredFlags, false).alternatives
 
@@ -1017,7 +1033,6 @@ trait Types extends api.Types { self: SymbolTable =>
         baseClasses.head.newOverloaded(this, members.toList)
       }
     }
-
     /** The existential skolems and existentially quantified variables which are free in this type */
     def existentialSkolems: List[Symbol] = {
       var boundSyms: List[Symbol] = List()
@@ -2436,9 +2451,29 @@ A type's typeSymbol should never be inspected directly.
 */
     def unapply(tv: TypeVar): Some[(Type, TypeConstraint)] = Some((tv.origin, tv.constr))
     def apply(origin: Type, constr: TypeConstraint) = new TypeVar(origin, constr, List(), List())
-    // TODO why not initialise TypeConstraint with bounds of tparam?
-    // @PP: I tried that, didn't work out so well for me.
-    def apply(tparam: Symbol) = new TypeVar(tparam.tpeHK, new TypeConstraint, List(), tparam.typeParams)
+    // See pos/tcpoly_infer_implicit_tuple_wrapper for the test which
+    // fails if I initialize the type constraint with the type parameter
+    // bounds. It seems that in that instance it interferes with the
+    // inference.  Thus, the isHigherOrderTypeParameter condition.
+    def apply(tparam: Symbol) = {
+      val constr = (
+        if (tparam.isAbstractType && tparam.typeParams.nonEmpty) {
+          // Force the info of a higher-order tparam's parameters.
+          // Otherwise things don't end well.  See SI-5359.
+          val info = tparam.info
+          if (info.bounds exists (t => t.typeSymbol.isHigherOrderTypeParameter)) {
+            log("TVar(" + tparam + ") receives empty constraint due to higher order type parameter in bounds " + info.bounds)
+            new TypeConstraint
+          }
+          else {
+            log("TVar(" + tparam + ") constraint initialized with bounds " + info.bounds)
+            new TypeConstraint(info.bounds)
+          }
+        }
+        else new TypeConstraint
+      )
+      new TypeVar(tparam.tpeHK, constr, Nil, tparam.typeParams)
+    }
     def apply(origin: Type, constr: TypeConstraint, args: List[Type], params: List[Symbol]) =
       new TypeVar(origin, constr, args, params)
   }
@@ -2480,10 +2515,9 @@ A type's typeSymbol should never be inspected directly.
     override val typeArgs: List[Type],
     override val params: List[Symbol]
   ) extends Type {
-    private val numArgs = typeArgs.length
     // params are needed to keep track of variance (see mapOverArgs in SubstMap)
-    assert(typeArgs.isEmpty || sameLength(typeArgs, params))
-    // var tid = { tidCount += 1; tidCount } //DEBUG
+    assert(typeArgs.isEmpty || sameLength(typeArgs, params),
+      "%s / params=%s / args=%s".format(origin, params, typeArgs))
 
     /** The constraint associated with the variable */
     var constr = constr0
@@ -2725,11 +2759,12 @@ A type's typeSymbol should never be inspected directly.
     override def isVolatile = origin.isVolatile
 
     private def levelString = if (settings.explaintypes.value) level else ""
-    override def safeToString = constr.inst match {
-      case null   => "<null " + origin + ">"
-      case NoType => "?" + levelString + origin + typeArgsString(this)
-      case x      => "" + x
-    }
+    override def safeToString = (
+      if (constr eq null) "TVar<%s,constr=null>".format(origin)
+      else if (constr.inst eq null) "TVar<%s,constr.inst=null>".format(origin)
+      else if (constr.inst eq NoType) "?" + levelString + origin + typeArgsString(this)
+      else "" + constr.inst
+    )
     override def kind = "TypeVar"
 
     def cloneInternal = {
@@ -3190,7 +3225,7 @@ A type's typeSymbol should never be inspected directly.
         val isType = pnames.head.isTypeName
         val newParams = for (name <- pnames) yield
           if (isType) owner.newTypeParameter(NoPosition, name.toTypeName)
-          else owner.newValueParameter(NoPosition, name)
+          else owner.newValueParameter(NoPosition, name.toTermName)
         paramStack = newParams :: paramStack
         try {
           (newParams, ptypes).zipped foreach ((p, t) => p setInfo this(t))
@@ -3233,6 +3268,7 @@ A type's typeSymbol should never be inspected directly.
    */
   class TypeConstraint(lo0: List[Type], hi0: List[Type], numlo0: Type, numhi0: Type, avoidWidening0: Boolean = false) {
     def this(lo0: List[Type], hi0: List[Type]) = this(lo0, hi0, NoType, NoType)
+    def this(bounds: TypeBounds) = this(List(bounds.lo), List(bounds.hi))
     def this() = this(List(), List())
 
     private var lobounds = lo0
@@ -4144,7 +4180,7 @@ A type's typeSymbol should never be inspected directly.
       case WildcardType =>
         TypeVar(tp, new TypeConstraint)
       case BoundedWildcardType(bounds) =>
-        TypeVar(tp, new TypeConstraint(List(bounds.lo), List(bounds.hi)))
+        TypeVar(tp, new TypeConstraint(bounds))
       case _ =>
         mapOver(tp)
     }
