@@ -13,7 +13,7 @@ import io.{ AbstractFile, MsilFile }
 
 trait MSILPlatform extends Platform {
   import global._
-  import definitions.{ ComparatorClass, BoxedNumberClass, getMember }
+  import definitions.{ ObjectClass, ValueTypeClass, ComparatorClass, BoxedNumberClass, getMember }
 
   type BinaryRepr = MsilFile
 
@@ -36,7 +36,11 @@ trait MSILPlatform extends Platform {
   )
 
   lazy val externalEquals = getMember(ComparatorClass.companionModule, nme.equals_)
-  def isMaybeBoxed(sym: Symbol) = sym isNonBottomSubClass BoxedNumberClass
+
+  def isMaybeBoxed(sym: Symbol) = {
+    (sym == ObjectClass) ||
+    (sym isNonBottomSubClass BoxedNumberClass)
+  }
 
   def newClassLoader(bin: MsilFile): loaders.SymbolLoader =  new loaders.MsilFileLoader(bin)
 
