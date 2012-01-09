@@ -98,44 +98,49 @@ class ResizableThreadPoolScheduler(protected val terminate: Boolean,
   }
 
   override def run() {
-    try {
-      while (true) {
-        this.synchronized {
-          try {
-            wait(CHECK_FREQ)
-          } catch {
-            case _: InterruptedException =>
-          }
 
-          if (terminating)
-            throw new QuitControl
-
-          if (!suspending) {
-            gc()
-
-            // check if we need more worker threads
-            val activeBlocked = numWorkersBlocked
-            if (coreSize - activeBlocked < numCores && coreSize < maxSize) {
-              coreSize = numCores + activeBlocked
-              executor.setCorePoolSize(coreSize)
-            } else if (terminate && allActorsTerminated) {
-              // if all worker threads idle terminate
-              if (executor.getActiveCount() == 0) {
-                Debug.info(this+": initiating shutdown...")
-                Debug.info(this+": corePoolSize = "+coreSize+", maxPoolSize = "+maxSize)
-
-                terminating = true
-                throw new QuitControl
-              }
+      def runLoop() { // bc of MSILLinearizer
+        while (true) {
+          this.synchronized {
+            try {
+              wait(CHECK_FREQ)
+            } catch {
+              case _: InterruptedException =>
             }
-          } else {
-            drainedTasks = executor.shutdownNow()
-            Debug.info(this+": drained "+drainedTasks.size()+" tasks")
-            terminating = true
-            throw new QuitControl
-          }
-        } // sync
+
+            if (terminating)
+              throw new QuitControl
+
+            if (!suspending) {
+              gc()
+
+              // check if we need more worker threads
+              val activeBlocked = numWorkersBlocked
+              if (coreSize - activeBlocked < numCores && coreSize < maxSize) {
+                coreSize = numCores + activeBlocked
+                executor.setCorePoolSize(coreSize)
+              } else if (terminate && allActorsTerminated) {
+                // if all worker threads idle terminate
+                if (executor.getActiveCount() == 0) {
+                  Debug.info(this+": initiating shutdown...")
+                  Debug.info(this+": corePoolSize = "+coreSize+", maxPoolSize = "+maxSize)
+
+                  terminating = true
+                  throw new QuitControl
+                }
+              }
+            } else {
+              drainedTasks = executor.shutdownNow()
+              Debug.info(this+": drained "+drainedTasks.size()+" tasks")
+              terminating = true
+              throw new QuitControl
+            }
+          } // sync
+        }
       }
+
+    try {
+      runLoop()
     } catch {
       case _: QuitControl =>
         executor.shutdown()

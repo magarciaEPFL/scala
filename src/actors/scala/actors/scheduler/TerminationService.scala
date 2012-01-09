@@ -35,21 +35,26 @@ private[scheduler] trait TerminationService extends TerminationMonitor {
   def onShutdown(): Unit
 
   override def run() {
-    try {
-      while (true) {
-        this.synchronized {
-          try {
-            wait(CHECK_FREQ)
-          } catch {
-            case _: InterruptedException =>
+
+      def runLoop() { // added bc of MSILLinearizer
+        while (true) {
+          this.synchronized {
+            try {
+              wait(CHECK_FREQ)
+            } catch {
+              case _: InterruptedException =>
+            }
+
+            if (terminating || (terminate && allActorsTerminated))
+              throw new QuitControl
+
+            gc()
           }
-
-          if (terminating || (terminate && allActorsTerminated))
-            throw new QuitControl
-
-          gc()
         }
       }
+
+    try {
+      runLoop()
     } catch {
       case _: QuitControl =>
         Debug.info(this+": initiating shutdown...")

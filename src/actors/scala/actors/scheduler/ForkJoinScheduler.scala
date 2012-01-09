@@ -63,36 +63,42 @@ class ForkJoinScheduler(val initCoreSize: Int, val maxSize: Int, daemon: Boolean
   }
 
   override def run() {
-    try {
-      while (true) {
-        this.synchronized {
-          try {
-            wait(CHECK_FREQ)
-          } catch {
-            case _: InterruptedException =>
-          }
 
-          if (terminating)
-            throw new QuitControl
 
-          if (allActorsTerminated) {
-            Debug.info(this+": all actors terminated")
-            terminating = true
-            throw new QuitControl
-          }
+      def runLoop() { // added bc of MSILLinearizer
+        while (true) {
+          this.synchronized {
+            try {
+              wait(CHECK_FREQ)
+            } catch {
+              case _: InterruptedException =>
+            }
 
-          if (!snapshoting) {
-            gc()
-          } else if (pool.isQuiescent()) {
-            val list = new ArrayList[ForkJoinTask[_]]
-            val num = pool.drainTasksTo(list)
-            Debug.info(this+": drained "+num+" tasks")
-            drainedTasks = list
-            terminating = true
-            throw new QuitControl
+            if (terminating)
+              throw new QuitControl
+
+            if (allActorsTerminated) {
+              Debug.info(this+": all actors terminated")
+              terminating = true
+              throw new QuitControl
+            }
+
+            if (!snapshoting) {
+              gc()
+            } else if (pool.isQuiescent()) {
+              val list = new ArrayList[ForkJoinTask[_]]
+              val num = pool.drainTasksTo(list)
+              Debug.info(this+": drained "+num+" tasks")
+              drainedTasks = list
+              terminating = true
+              throw new QuitControl
+            }
           }
         }
       }
+
+    try {
+      runLoop()
     } catch {
       case _: QuitControl =>
         Debug.info(this+": initiating shutdown...")
