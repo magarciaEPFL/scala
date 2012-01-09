@@ -23,7 +23,7 @@ package scala.actors
 case class UncaughtException(actor: Actor,
                              message: Option[Any],
                              sender: Option[OutputChannel[Any]],
-                             thread: Thread,
+                             thread: java.lang.Thread,
                              cause: Throwable)
 extends Exception(cause) {
 

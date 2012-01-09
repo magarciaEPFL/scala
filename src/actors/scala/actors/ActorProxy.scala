@@ -16,7 +16,7 @@ import java.lang.Thread
  *
  * @author Philipp Haller
  */
-private[actors] class ActorProxy(t: Thread, override final val scheduler: IScheduler) extends Actor {
+private[actors] class ActorProxy(t: java.lang.Thread, override final val scheduler: IScheduler) extends Actor {
 
   def act() {}
 

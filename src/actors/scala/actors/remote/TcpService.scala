@@ -67,7 +67,7 @@ object TcpService {
  * @version 0.9.10
  * @author Philipp Haller
  */
-class TcpService(port: Int, cl: ClassLoader) extends Thread with Service {
+class TcpService(port: Int, cl: java.lang.ClassLoader) extends Thread with Service {
   val serializer: JavaSerializer = new JavaSerializer(this, cl)
 
   private val internalNode = new Node(InetAddress.getLocalHost().getHostAddress(), port)
