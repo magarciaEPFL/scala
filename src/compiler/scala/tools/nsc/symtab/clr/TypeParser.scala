@@ -180,7 +180,7 @@ abstract class TypeParser {
     // first pass
     for (tvarCILDef <- typ.getSortedTVars() ) {
       val tpname = newTypeName(tvarCILDef.Name.replaceAll("!", "")) // TODO are really all type-params named in all assemblies out there? (NO)
-      val tpsym = clazz.newTypeParameter(NoPosition, tpname)
+      val tpsym = clazz.newTypeParameter(tpname)
       classTParams.put(tvarCILDef.Number, tpsym)
       newTParams += tpsym
       // TODO wouldn't the following also be needed later, i.e. during getCLRType
@@ -264,8 +264,8 @@ abstract class TypeParser {
 				                                 || ntype.IsInterface /* TODO why shouldn't nested ifaces be type-parsed too? */ )
       {
         val loader = new loaders.MsilFileLoader(new MsilFile(ntype))
-	val nclazz = statics.newClass(NoPosition, ntype.Name.toTypeName)
-	val nmodule = statics.newModule(NoPosition, ntype.Name)
+	val nclazz = statics.newClass(ntype.Name.toTypeName)
+	val nmodule = statics.newModule(ntype.Name)
 	nclazz.setInfo(loader)
 	nmodule.setInfo(loader)
 	staticDefs.enter(nclazz)
@@ -285,9 +285,9 @@ abstract class TypeParser {
       val name = newTermName(field.Name);
       val fieldType =
         if (field.IsLiteral && !field.FieldType.IsEnum && isDefinedAtgetConstant(getCLRType(field.FieldType)))
-	        ConstantType(getConstant(getCLRType(field.FieldType), field.getValue))
-	      else
-	        getCLRType(field.FieldType)
+	      ConstantType(getConstant(getCLRType(field.FieldType), field.getValue))
+	    else
+	      getCLRType(field.FieldType)
       val owner = if (field.IsStatic()) statics else clazz;
       val sym = owner.newValue(NoPosition, name).setFlag(flags).setInfo(fieldType);
         // TODO: set private within!!! -> look at typechecker/Namers.scala
@@ -451,7 +451,7 @@ abstract class TypeParser {
 
       */
       val tpname = "T".toTypeName
-      val s = clazz.newTypeParameter(NoPosition, tpname)
+      val s = clazz.newTypeParameter(tpname)
 
       val ORef2ORefOfT = new TypeMap {
         def apply(tp: Type): Type = tp match {
@@ -504,7 +504,7 @@ abstract class TypeParser {
       // first pass
       for (mvarCILDef <- method.getSortedMVars() ) {
         val mtpname = newTypeName(mvarCILDef.Name.replaceAll("!", "")) // TODO are really all method-level-type-params named in all assemblies out there? (NO)
-        val mtpsym = methodSym.newTypeParameter(NoPosition, mtpname)
+        val mtpsym = methodSym.newTypeParameter(mtpname)
         methodTParams.put(mvarCILDef.Number, mtpsym)
         newMethodTParams += mtpsym
         // TODO wouldn't the following also be needed later, i.e. during getCLRType
