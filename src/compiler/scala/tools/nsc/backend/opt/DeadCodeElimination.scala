@@ -81,7 +81,7 @@ abstract class DeadCodeElimination extends SubComponent {
     def analyzeClass(cls: IClass) {
       for (m <- cls.methods; if m.hasCode) {
         dieCodeDie(m, lnrzr)
-        peephole(m) // TODO waiting for the peephole instance to get its dedicated LivenessAnalysis instance
+        peephole(m) // TODO check whether peephole.liveness.toString() causes races, check also -Ylog
       }
     }
 
