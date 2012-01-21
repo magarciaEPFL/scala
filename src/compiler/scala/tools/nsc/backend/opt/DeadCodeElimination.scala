@@ -49,35 +49,31 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    // used in collectRDef(), mark(), and sweep()
-    val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
-
-    /** Use-def chain: give the reaching definitions at the beginning of given instruction. */
-    // used in collectRDef() and mark()
-    val defs: mutable.Map[(BasicBlock, Int), immutable.Set[rdef.lattice.Definition]] = mutable.HashMap.empty
-
-    /** Useful instructions which have not been scanned yet. */
-    // used in collectRDef() and mark()
-    val worklist: mutable.Set[(BasicBlock, Int)] = new mutable.LinkedHashSet
-
-    /** what instructions have been marked as useful? */
-    // used in collectRDef(), mark(), and sweep()
-    val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
-
-    /** Map instructions who have a drop on some control path, to that DROP instruction. */
-    // used in collectRDef() and mark()
-    val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
-
     def dieCodeDie(m: IMethod) {
       assert(m.hasCode, m)
       log("dead code elimination on " + m);
+
+      val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
+
+      /** Use-def chain: give the reaching definitions at the beginning of given instruction. */
+      val defs: mutable.Map[(BasicBlock, Int), immutable.Set[rdef.lattice.Definition]] = mutable.HashMap.empty
+
+      /** Useful instructions which have not been scanned yet. */
+      val worklist: mutable.Set[(BasicBlock, Int)] = new mutable.LinkedHashSet
+
+      /** what instructions have been marked as useful? */
+      val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
+
+      /** Map instructions who have a drop on some control path, to that DROP instruction. */
+      val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
+
       dropOf.clear()
       m.code.blocks.clear()
       m.code.blocks ++= linearizer.linearize(m)
-      collectRDef(m)
-      mark(m)
+      collectRDef(m, rdef, defs, worklist, useful, dropOf)
+      mark(m, rdef, defs, worklist, useful, dropOf)
       /** local variables accessed at least once */
-      val accessedLocals: List[Local] = (sweep(m) ::: (m.params.reverse)).distinct
+      val accessedLocals: List[Local] = (sweep(m, rdef, useful) ::: (m.params.reverse)).distinct
       if (m.locals diff accessedLocals nonEmpty) {
         log("Removed dead locals: " + (m.locals diff accessedLocals))
         m.locals = accessedLocals.reverse
@@ -85,7 +81,13 @@ abstract class DeadCodeElimination extends SubComponent {
     }
 
     /** collect reaching definitions and initial useful instructions for this method. */
-    def collectRDef(m: IMethod): Unit = {
+    def collectRDef(m       : IMethod,
+                    rdef    : reachingDefinitions.ReachingDefinitionsAnalysis,
+                    defs    : mutable.Map[(BasicBlock, Int), immutable.Set[reachingDefinitions.rdefLattice.Definition]],
+                    worklist: mutable.Set[(BasicBlock, Int)],
+                    useful  : mutable.Map[BasicBlock, mutable.BitSet],
+                    dropOf  : mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]]
+                   ): Unit = {
       defs.clear(); worklist.clear(); useful.clear();
       rdef.init(m);
       rdef.run;
@@ -127,7 +129,12 @@ abstract class DeadCodeElimination extends SubComponent {
     /** Mark useful instructions. Instructions in the worklist are each inspected and their
      *  dependencies are marked useful too, and added to the worklist.
      */
-    def mark(m: IMethod) {
+    def mark(m       : IMethod,
+             rdef    : reachingDefinitions.ReachingDefinitionsAnalysis,
+             defs    : mutable.Map[(BasicBlock, Int), immutable.Set[reachingDefinitions.rdefLattice.Definition]],
+             worklist: mutable.Set[(BasicBlock, Int)],
+             useful  : mutable.Map[BasicBlock, mutable.BitSet],
+             dropOf  : mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]]) {
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
         val (bb, idx) = worklist.iterator.next
@@ -176,8 +183,10 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    def sweep(m: IMethod): List[Local] = {
-      val compensations = computeCompensations(m)
+    def sweep(m       : IMethod,
+              rdef: reachingDefinitions.ReachingDefinitionsAnalysis,
+              useful  : mutable.Map[BasicBlock, mutable.BitSet]): List[Local] = {
+      val compensations = computeCompensations(m, rdef, useful)
 
       var localUsages: List[Local] = Nil
 
@@ -219,7 +228,10 @@ abstract class DeadCodeElimination extends SubComponent {
       localUsages
     }
 
-    private def computeCompensations(m: IMethod): mutable.Map[(BasicBlock, Int), List[Instruction]] = {
+    private def computeCompensations(m     : IMethod,
+                                     rdef  : reachingDefinitions.ReachingDefinitionsAnalysis,
+                                     useful: mutable.Map[BasicBlock, mutable.BitSet]
+                                    ): mutable.Map[(BasicBlock, Int), List[Instruction]] = {
       val compensations: mutable.Map[(BasicBlock, Int), List[Instruction]] = new mutable.HashMap
 
       m foreachBlock { bb =>
