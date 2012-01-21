@@ -61,13 +61,12 @@ abstract class DeadCodeElimination extends SubComponent {
       /** Useful instructions which have not been scanned yet. */
       val worklist: mutable.Set[(BasicBlock, Int)] = new mutable.LinkedHashSet
 
-      /** what instructions have been marked as useful? */
-      val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
+      /** which instructions have been marked as useful? */
+      val useful: mutable.Map[BasicBlock, mutable.BitSet] = mutable.Map.empty
 
-      /** Map instructions who have a drop on some control path, to that DROP instruction. */
-      val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
+      /** Map instructions that have a drop on some control path, to that DROP instruction. */
+      val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = mutable.Map.empty
 
-      dropOf.clear()
       m.code.blocks.clear()
       m.code.blocks ++= linearizer.linearize(m)
       collectRDef(m, rdef, defs, worklist, useful, dropOf)
@@ -88,7 +87,10 @@ abstract class DeadCodeElimination extends SubComponent {
                     useful  : mutable.Map[BasicBlock, mutable.BitSet],
                     dropOf  : mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]]
                    ): Unit = {
-      defs.clear(); worklist.clear(); useful.clear();
+      assert(defs.isEmpty,     defs)
+      assert(worklist.isEmpty, worklist)
+      assert(useful.isEmpty,   useful)
+
       rdef.init(m);
       rdef.run;
 
@@ -183,9 +185,9 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    def sweep(m       : IMethod,
-              rdef: reachingDefinitions.ReachingDefinitionsAnalysis,
-              useful  : mutable.Map[BasicBlock, mutable.BitSet]): List[Local] = {
+    def sweep(m     : IMethod,
+              rdef  : reachingDefinitions.ReachingDefinitionsAnalysis,
+              useful: mutable.Map[BasicBlock, mutable.BitSet]): List[Local] = {
       val compensations = computeCompensations(m, rdef, useful)
 
       var localUsages: List[Local] = Nil
