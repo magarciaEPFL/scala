@@ -27,45 +27,61 @@ abstract class DeadCodeElimination extends SubComponent {
   class DeadCodeEliminationPhase(prev: Phase) extends ICodePhase(prev) {
 
     def name = phaseName
-    val dce = new DeadCode()
-    val exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(16)
+
+    val MAX_THREADS = 2 * _root_.java.lang.Runtime.getRuntime().availableProcessors()
+    private var q   = new _root_.java.util.concurrent.LinkedBlockingQueue[IClass](2 * MAX_THREADS)
 
     override def apply(c: IClass) {
-      if (settings.Xdce.value) {
-        val task = new _root_.java.lang.Runnable() { def run() { dce.analyzeClass(c) } }
-        exec.execute(task)
-      }
+      if (settings.Xdce.value) { q put c }
     }
 
     override def run() {
-      super.run()
+      val exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(MAX_THREADS)
+      val workers = for(i <- 1 to MAX_THREADS) yield { val t = new DCETask(q); exec.execute(t); t }
+      super.run() // thus unitTimings will be artificially low
       exec.shutdown()
-      while(!exec.isTerminated) { exec.awaitTermination(10, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
+      while(!q.isEmpty) { /* _root_.java.lang.Thread.sleep(10) */ }
+      workers foreach { w => w.stop = true }
+      while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
+      workers foreach { w => liveClosures ++= w.dce.dcLiveClosures }
+    }
+
+  }
+
+  class DCETask(q: _root_.java.util.concurrent.BlockingQueue[IClass]) extends _root_.java.lang.Runnable() {
+    var stop = false // set to true only after all IClasses added and isEmpty returns true
+    val dce = new DeadCode()
+    def run() {
+      while(!stop) {
+        val c: IClass = q.poll(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (c != null) { dce.analyzeClass(c) }
+      }
     }
   }
 
   /** closures that are instantiated at least once, after dead code elimination */
-  val liveClosures: mutable.Set[Symbol] = new mutable.HashSet()
+  val liveClosures: mutable.Set[Symbol] = new mutable.HashSet[Symbol]
 
   /** Remove dead code.
    */
   class DeadCode {
 
+    val lnrzr: Linearizer = settings.Xlinearizer.value match {
+      case "rpo"    => new ReversePostOrderLinearizer()
+      case "dfs"    => new DepthFirstLinerizer()
+      case "normal" => new NormalLinearizer()
+      case "dump"   => new DumpLinearizer()
+      case x        => global.abort("Unknown linearizer: " + x)
+    }
+
+    val peephole = new global.closureElimination.PeepholeSimple
+
+    val dcLiveClosures: mutable.Set[Symbol] = new mutable.HashSet[Symbol]
+
     def analyzeClass(cls: IClass) {
-
-      val lnrzr: Linearizer = settings.Xlinearizer.value match {
-        case "rpo"    => new ReversePostOrderLinearizer()
-        case "dfs"    => new DepthFirstLinerizer()
-        case "normal" => new NormalLinearizer()
-        case "dump"   => new DumpLinearizer()
-        case x        => global.abort("Unknown linearizer: " + x)
-      }
-
-      val peephole = new global.closureElimination.PeepholeSimple
-
       for (m <- cls.methods; if m.hasCode) {
         dieCodeDie(m, lnrzr)
-        // TODO peephole(m) waiting for the peephole instance to get its dedicated LivenessAnalysis instance
+        peephole(m) // TODO waiting for the peephole instance to get its dedicated LivenessAnalysis instance
       }
     }
 
@@ -182,7 +198,7 @@ abstract class DeadCodeElimination extends SubComponent {
               assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
               worklist += findInstruction(lnrzr, m, bb, nw.init)
               if (inliner.isClosureClass(sym)) {
-                liveClosures += sym
+                dcLiveClosures += sym
               }
 
             // it may be better to move static initializers from closures to
@@ -191,7 +207,7 @@ abstract class DeadCodeElimination extends SubComponent {
             // 'symbol literals.
             case LOAD_FIELD(sym, true) if inliner.isClosureClass(sym.owner) =>
               log("added closure class for field " + sym)
-              liveClosures += sym.owner
+              dcLiveClosures += sym.owner
 
             case LOAD_EXCEPTION(_) =>
               ()
