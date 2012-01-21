@@ -8,7 +8,6 @@ package scala.tools.nsc
 package backend.opt
 
 import scala.collection.{ mutable, immutable }
-import symtab._
 
 /**
  */
@@ -44,8 +43,7 @@ abstract class DeadCodeElimination extends SubComponent {
   class DeadCode {
 
     def analyzeClass(cls: IClass) {
-      cls.methods.foreach { m =>
-        this.method = m
+      for (m <- cls.methods; if m.hasCode) {
         dieCodeDie(m)
         global.closureElimination.peephole(m)
       }
@@ -65,32 +63,28 @@ abstract class DeadCodeElimination extends SubComponent {
     /** what local variables have been accessed at least once? */
     var accessedLocals: List[Local] = Nil
 
-    /** the current method. */
-    var method: IMethod = _
-
     /** Map instructions who have a drop on some control path, to that DROP instruction. */
     val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
 
     def dieCodeDie(m: IMethod) {
-      if (m.hasCode) {
-        log("dead code elimination on " + m);
-        dropOf.clear()
-        m.code.blocks.clear()
-        accessedLocals = m.params.reverse
-        m.code.blocks ++= linearizer.linearize(m)
-        collectRDef(m)
-        mark
-        sweep(m)
-        accessedLocals = accessedLocals.distinct
-        if (m.locals diff accessedLocals nonEmpty) {
-          log("Removed dead locals: " + (m.locals diff accessedLocals))
-          m.locals = accessedLocals.reverse
-        }
+      assert(m.hasCode, m)
+      log("dead code elimination on " + m);
+      dropOf.clear()
+      m.code.blocks.clear()
+      accessedLocals = m.params.reverse
+      m.code.blocks ++= linearizer.linearize(m)
+      collectRDef(m)
+      mark(m)
+      sweep(m)
+      accessedLocals = accessedLocals.distinct
+      if (m.locals diff accessedLocals nonEmpty) {
+        log("Removed dead locals: " + (m.locals diff accessedLocals))
+        m.locals = accessedLocals.reverse
       }
     }
 
     /** collect reaching definitions and initial useful instructions for this method. */
-    def collectRDef(m: IMethod): Unit = if (m.hasCode) {
+    def collectRDef(m: IMethod): Unit = {
       defs = immutable.HashMap.empty; worklist.clear(); useful.clear();
       rdef.init(m);
       rdef.run;
@@ -102,7 +96,7 @@ abstract class DeadCodeElimination extends SubComponent {
           i match {
             case LOAD_LOCAL(l) =>
               defs = defs + Pair(((bb, idx)), rd.vars)
-//              Console.println(i + ": " + (bb, idx) + " rd: " + rd + " and having: " + defs)
+              // Console.println(i + ": " + (bb, idx) + " rd: " + rd + " and having: " + defs)
             case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
                  THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
                  LOAD_EXCEPTION(_) | SWITCH(_, _) | MONITOR_ENTER() | MONITOR_EXIT() => worklist += ((bb, idx))
@@ -117,7 +111,7 @@ abstract class DeadCodeElimination extends SubComponent {
                   case LOAD_EXCEPTION(_) | DUP(_) | LOAD_MODULE(_) => true
                   case _ =>
                     dropOf((bb1, idx1)) = (bb,idx) :: dropOf.getOrElse((bb1, idx1), Nil)
-//                    println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
+                    // println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
                     false
                 }
               }
@@ -132,8 +126,8 @@ abstract class DeadCodeElimination extends SubComponent {
     /** Mark useful instructions. Instructions in the worklist are each inspected and their
      *  dependencies are marked useful too, and added to the worklist.
      */
-    def mark() {
-//      log("Starting with worklist: " + worklist)
+    def mark(m: IMethod) {
+      // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
         val (bb, idx) = worklist.iterator.next
         worklist -= ((bb, idx))
@@ -155,7 +149,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
             case nw @ NEW(REFERENCE(sym)) =>
               assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
-              worklist += findInstruction(bb, nw.init)
+              worklist += findInstruction(m, bb, nw.init)
               if (inliner.isClosureClass(sym)) {
                 liveClosures += sym
               }
@@ -185,13 +179,13 @@ abstract class DeadCodeElimination extends SubComponent {
       val compensations = computeCompensations(m)
 
       m foreachBlock { bb =>
-//        Console.println("** Sweeping block " + bb + " **")
+        // Console.println("** Sweeping block " + bb + " **")
         val oldInstr = bb.toList
         bb.open
         bb.clear
         for (Pair(i, idx) <- oldInstr.zipWithIndex) {
           if (useful(bb)(idx)) {
-//            log(" " + i + " is useful")
+            // log(" " + i + " is useful")
             bb.emit(i, i.pos)
             compensations.get(bb, idx) match {
               case Some(is) => is foreach bb.emit
@@ -236,7 +230,7 @@ abstract class DeadCodeElimination extends SubComponent {
                   case DUP(_) if idx > 0 =>
                     bb(idx - 1) match {
                       case nw @ NEW(_) =>
-                        val init = findInstruction(bb, nw.init)
+                        val init = findInstruction(m, bb, nw.init)
                         log("Moving DROP to after <init> call: " + nw.init)
                         compensations(init) = List(DROP(consumedType))
                       case _ =>
@@ -260,13 +254,13 @@ abstract class DeadCodeElimination extends SubComponent {
       res
     }
 
-    private def findInstruction(bb: BasicBlock, i: Instruction): (BasicBlock, Int) = {
-      for (b <- linearizer.linearizeAt(method, bb)) {
+    private def findInstruction(m: IMethod, bb: BasicBlock, i: Instruction): (BasicBlock, Int) = {
+      for (b <- linearizer.linearizeAt(m, bb)) {
         val idx = b.toList indexWhere (_ eq i)
         if (idx != -1)
           return (b, idx)
       }
-      abort("could not find init in: " + method)
+      abort("could not find init in: " + m)
     }
 
     private def isPure(sym: Symbol) = (
