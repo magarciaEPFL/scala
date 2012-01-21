@@ -49,21 +49,23 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
+    // used in collectRDef(), mark(), and sweep()
     val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
 
     /** Use-def chain: give the reaching definitions at the beginning of given instruction. */
-    var defs: immutable.Map[(BasicBlock, Int), immutable.Set[rdef.lattice.Definition]] = immutable.HashMap.empty
+    // used in collectRDef() and mark()
+    val defs: mutable.Map[(BasicBlock, Int), immutable.Set[rdef.lattice.Definition]] = mutable.HashMap.empty
 
     /** Useful instructions which have not been scanned yet. */
+    // used in collectRDef() and mark()
     val worklist: mutable.Set[(BasicBlock, Int)] = new mutable.LinkedHashSet
 
     /** what instructions have been marked as useful? */
+    // used in collectRDef(), mark(), and sweep()
     val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
 
-    /** what local variables have been accessed at least once? */
-    var accessedLocals: List[Local] = Nil
-
     /** Map instructions who have a drop on some control path, to that DROP instruction. */
+    // used in collectRDef() and mark()
     val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
 
     def dieCodeDie(m: IMethod) {
@@ -71,12 +73,11 @@ abstract class DeadCodeElimination extends SubComponent {
       log("dead code elimination on " + m);
       dropOf.clear()
       m.code.blocks.clear()
-      accessedLocals = m.params.reverse
       m.code.blocks ++= linearizer.linearize(m)
       collectRDef(m)
       mark(m)
-      sweep(m)
-      accessedLocals = accessedLocals.distinct
+      /** local variables accessed at least once */
+      val accessedLocals: List[Local] = (sweep(m) ::: (m.params.reverse)).distinct
       if (m.locals diff accessedLocals nonEmpty) {
         log("Removed dead locals: " + (m.locals diff accessedLocals))
         m.locals = accessedLocals.reverse
@@ -85,7 +86,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
     /** collect reaching definitions and initial useful instructions for this method. */
     def collectRDef(m: IMethod): Unit = {
-      defs = immutable.HashMap.empty; worklist.clear(); useful.clear();
+      defs.clear(); worklist.clear(); useful.clear();
       rdef.init(m);
       rdef.run;
 
@@ -95,7 +96,7 @@ abstract class DeadCodeElimination extends SubComponent {
         for (Pair(i, idx) <- bb.toList.zipWithIndex) {
           i match {
             case LOAD_LOCAL(l) =>
-              defs = defs + Pair(((bb, idx)), rd.vars)
+              defs += Pair(((bb, idx)), rd.vars)
               // Console.println(i + ": " + (bb, idx) + " rd: " + rd + " and having: " + defs)
             case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
                  THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
@@ -175,8 +176,10 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    def sweep(m: IMethod) {
+    def sweep(m: IMethod): List[Local] = {
       val compensations = computeCompensations(m)
+
+      var localUsages: List[Local] = Nil
 
       m foreachBlock { bb =>
         // Console.println("** Sweeping block " + bb + " **")
@@ -194,9 +197,9 @@ abstract class DeadCodeElimination extends SubComponent {
             // check for accessed locals
             i match {
               case LOAD_LOCAL(l) if !l.arg =>
-                accessedLocals = l :: accessedLocals
+                localUsages = l :: localUsages
               case STORE_LOCAL(l) if !l.arg =>
-                accessedLocals = l :: accessedLocals
+                localUsages = l :: localUsages
               case _ => ()
             }
           } else {
@@ -212,6 +215,8 @@ abstract class DeadCodeElimination extends SubComponent {
         if (bb.nonEmpty) bb.close
         else log("empty block encountered")
       }
+
+      localUsages
     }
 
     private def computeCompensations(m: IMethod): mutable.Map[(BasicBlock, Int), List[Instruction]] = {
