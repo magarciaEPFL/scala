@@ -43,13 +43,22 @@ abstract class DeadCodeElimination extends SubComponent {
   class DeadCode {
 
     def analyzeClass(cls: IClass) {
+
+      val linearizer: Linearizer = settings.Xlinearizer.value match {
+        case "rpo"    => new ReversePostOrderLinearizer()
+        case "dfs"    => new DepthFirstLinerizer()
+        case "normal" => new NormalLinearizer()
+        case "dump"   => new DumpLinearizer()
+        case x        => global.abort("Unknown linearizer: " + x)
+      }
+
       for (m <- cls.methods; if m.hasCode) {
-        dieCodeDie(m)
+        dieCodeDie(m, linearizer)
         global.closureElimination.peephole(m)
       }
     }
 
-    def dieCodeDie(m: IMethod) {
+    def dieCodeDie(m: IMethod, linearizer: Linearizer) {
       assert(m.hasCode, m)
       log("dead code elimination on " + m);
 
@@ -87,9 +96,9 @@ abstract class DeadCodeElimination extends SubComponent {
                     useful  : mutable.Map[BasicBlock, mutable.BitSet],
                     dropOf  : mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]]
                    ): Unit = {
-      assert(defs.isEmpty,     defs)
-      assert(worklist.isEmpty, worklist)
-      assert(useful.isEmpty,   useful)
+      assert(defs     isEmpty,     defs)
+      assert(worklist isEmpty, worklist)
+      assert(useful   isEmpty,   useful)
 
       rdef.init(m);
       rdef.run;
