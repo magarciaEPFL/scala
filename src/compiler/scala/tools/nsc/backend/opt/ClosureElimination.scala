@@ -22,8 +22,10 @@ abstract class ClosureElimination extends SubComponent {
   /** Create a new phase */
   override def newPhase(p: Phase) = new ClosureEliminationPhase(p)
 
+  val peephole = new PeepholeSimple
+
   /** A simple peephole optimizer. */
-  val peephole = new PeepholeOpt {
+  class PeepholeSimple extends PeepholeOpt {
 
     def peep(bb: BasicBlock, i1: Instruction, i2: Instruction) = (i1, i2) match {
       case (CONSTANT(c), DROP(_)) =>

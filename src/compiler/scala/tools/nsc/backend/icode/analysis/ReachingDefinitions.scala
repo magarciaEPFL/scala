@@ -59,7 +59,22 @@ abstract class ReachingDefinitions {
     }
   }
 
-  class ReachingDefinitionsAnalysis extends DataFlowAnalysis[rdefLattice.type] {
+  class ReachingDefinitionsAnalysis(lnrzr: Linearizer = linearizer) extends DataFlowAnalysis[rdefLattice.type] {
+
+    private def getProduced(i: Instruction): Int = {
+      if(i.isInstanceOf[opcodes.CALL_METHOD]) {
+        global synchronized i.produced // locked because CALL_METHOD.produced() invokes producedType
+      } else i.produced
+    }
+    private def getConsumed(i: Instruction): Int = {
+      def slow1 = i.isInstanceOf[opcodes.RETURN] || (forMSIL && i.isInstanceOf[opcodes.CIL_NEWOBJ])
+      def slow2 = i.isInstanceOf[opcodes.CALL_METHOD] || i.isInstanceOf[opcodes.CALL_PRIMITIVE]
+
+      if(slow1 || slow2) {
+        global synchronized i.consumed // locked bc CIL_NEWOBJ.consumed invokes tpe and RETURN.consumed invokes == on TypeKind
+      } else i.consumed
+    }
+
     type P = BasicBlock
     val lattice = rdefLattice
     import lattice.{ Definition, Stack, Elem, StackPos }
@@ -121,15 +136,15 @@ abstract class ReachingDefinitions {
       for ((instr, idx) <- b.toList.zipWithIndex) {
         instr match {
           case LOAD_EXCEPTION(_)            => ()
-          case _ if instr.consumed > depth  =>
-            drops += (instr.consumed - depth)
+          case _ if getConsumed(instr) > depth  =>
+            drops += (getConsumed(instr) - depth)
             depth = 0
             stackOut = Nil
           case _ =>
-            stackOut = stackOut.drop(instr.consumed)
-            depth -= instr.consumed
+            stackOut = stackOut.drop(getConsumed(instr))
+            depth -= getConsumed(instr)
         }
-        var prod = instr.produced
+        var prod = getProduced(instr)
         depth += prod
         while (prod > 0) {
           stackOut ::= ListSet((b, idx))
@@ -144,7 +159,7 @@ abstract class ReachingDefinitions {
     override def run() {
       forwardAnalysis(blockTransfer)
       if (settings.debug.value) {
-        linearizer.linearize(method).foreach(b => if (b != method.startBlock)
+        lnrzr.linearize(method).foreach(b => if (b != method.startBlock)
           assert(lattice.bottom != in(b),
             "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? " + in(b)
                  + ": bot: " + lattice.bottom
@@ -176,14 +191,14 @@ abstract class ReachingDefinitions {
       instr match {
         case STORE_LOCAL(l1) =>
           locals = updateReachingDefinition(b, idx, locals)
-          stack = stack.drop(instr.consumed)
+          stack = stack.drop(getConsumed(instr))
         case LOAD_EXCEPTION(_) =>
           stack = Nil
         case _ =>
-          stack = stack.drop(instr.consumed)
+          stack = stack.drop(getConsumed(instr))
       }
 
-      var prod = instr.produced
+      var prod = getProduced(instr)
       while (prod > 0) {
         stack ::= ListSet((b, idx))
         prod -= 1
@@ -207,17 +222,17 @@ abstract class ReachingDefinitions {
       // "I look for who produced the 'n' elements below the 'd' topmost slots of the stack"
       while (n > 0 && i > 0) {
         i -= 1
-        val prod = instrs(i).produced
+        val prod = getProduced(instrs(i))
         if (prod > d) {
           res = (bb, i) :: res
           n   = n - (prod - d)
           instrs(i) match {
             case LOAD_EXCEPTION(_)  => ()
-            case _                  => d = instrs(i).consumed
+            case _                  => d = getConsumed(instrs(i))
           }
         } else {
           d -= prod
-          d += instrs(i).consumed
+          d += getConsumed(instrs(i))
         }
       }
 
