@@ -49,7 +49,7 @@ abstract class DeadCodeElimination extends SubComponent {
   }
 
   class DCETask(q: _root_.java.util.concurrent.BlockingQueue[IClass]) extends _root_.java.lang.Runnable() {
-    var stop = false // set to true only after all IClasses added and isEmpty returns true
+    @volatile var stop = false // set to true only after all IClasses added and isEmpty returns true
     val dce = new DeadCode()
     def run() {
       while(!stop) {
