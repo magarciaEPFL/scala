@@ -28,44 +28,37 @@ abstract class DeadCodeElimination extends SubComponent {
 
     def name = phaseName
 
-    val MAX_THREADS = 2 * _root_.java.lang.Runtime.getRuntime().availableProcessors()
-    var exec: _root_.java.util.concurrent.ExecutorService = null
-    var workers: Array[DCETask] = null
-    var assignee = 0
-    val poison  = new IMethod(NoSymbol)
+    val MAX_THREADS    = _root_.java.lang.Runtime.getRuntime().availableProcessors()
+    private var q      = new _root_.java.util.concurrent.LinkedBlockingQueue[IMethod]
+    private val poison = new IMethod(NoSymbol)
 
     override def apply(c: IClass) {
       if (settings.Xdce.value) {
-        for(m <- c.methods; if m.hasCode) {
-          workers(assignee).q.put(m)
-          assignee = (assignee + 1) % MAX_THREADS
+        for (m <- c.methods; if m.hasCode) {
+          q put m
         }
       }
     }
 
     override def run() {
-      exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(MAX_THREADS)
-      workers = new Array[DCETask](MAX_THREADS)
-      for(i <- 0 to (MAX_THREADS - 1)) { workers(i) = new DCETask(poison); exec.execute(workers(i)) }
+      val exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(MAX_THREADS)
+      val workers = for(i <- 1 to MAX_THREADS) yield { val t = new DCETask(q, poison); exec.execute(t); t }
       super.run() // thus unitTimings will be artificially low
-      workers foreach { w => w.q.put(poison) }
+      workers foreach { w => q put poison }
       exec.shutdown()
       while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
       workers foreach { w => liveClosures ++= w.dce.dcLiveClosures }
-      workers = null
-      exec    = null
     }
 
   }
 
-  class DCETask(poison: IMethod) extends _root_.java.lang.Runnable() {
-    var q   = new _root_.java.util.concurrent.LinkedBlockingQueue[IMethod]
+  class DCETask(q: _root_.java.util.concurrent.BlockingQueue[IMethod], poison: IMethod) extends _root_.java.lang.Runnable() {
     val dce = new DeadCode()
     def run() {
       var m: IMethod = null
       while(m ne poison) {
         m = q.take()
-        if (m != poison) { dce.analyzeMethod(m) }
+        if (m ne poison) { dce.analyzeMethod(m) }
       }
     }
   }
@@ -87,7 +80,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
     val peephole = new global.closureElimination.PeepholeSimple
 
-    var dcLiveClosures: List[Symbol] = Nil
+    val dcLiveClosures: mutable.Set[Symbol] = new mutable.HashSet[Symbol]
 
     def analyzeMethod(m: IMethod) {
       dieCodeDie(m, lnrzr)
@@ -207,7 +200,7 @@ abstract class DeadCodeElimination extends SubComponent {
               assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
               worklist += findInstruction(lnrzr, m, bb, nw.init)
               if (inliner.isClosureClass(sym)) {
-                dcLiveClosures = sym :: dcLiveClosures
+                dcLiveClosures += sym
               }
 
             // it may be better to move static initializers from closures to
@@ -216,7 +209,7 @@ abstract class DeadCodeElimination extends SubComponent {
             // 'symbol literals.
             case LOAD_FIELD(sym, true) if inliner.isClosureClass(sym.owner) =>
               log("added closure class for field " + sym)
-              dcLiveClosures = sym.owner :: dcLiveClosures
+              dcLiveClosures += sym.owner
 
             case LOAD_EXCEPTION(_) =>
               ()
