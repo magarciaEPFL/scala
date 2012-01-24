@@ -28,25 +28,27 @@ abstract class DeadCodeElimination extends SubComponent {
 
     def name = phaseName
 
-    private val MAX_THREADS    = _root_.java.lang.Runtime.getRuntime().availableProcessors()
-    private val imc    = new _root_.java.util.Comparator[IMethod] {
-      override def compare(a: IMethod, b: IMethod): Int = { b.code.blockCount.compare(a.code.blockCount) }
-    }
-    private var q      = new _root_.java.util.concurrent.PriorityBlockingQueue[IMethod](MAX_THREADS, imc)
+    private val MAX_THREADS = _root_.java.lang.Runtime.getRuntime().availableProcessors()
+    private var q      = new _root_.java.util.concurrent.LinkedBlockingQueue[IMethod]
     private val poison = new IMethod(NoSymbol)
+    private val jobord = new Ordering[IMethod] {
+      override def compare(a: IMethod, b: IMethod): Int = { a.code.blockCount.compare(b.code.blockCount) }
+    }
+    private var jobs = new collection.mutable.TreeSet[IMethod]()(jobord)
 
     override def apply(c: IClass) {
       if (settings.Xdce.value) {
         for (m <- c.methods; if m.hasCode) {
-          q put m
+          jobs add m
         }
       }
     }
 
     override def run() {
+      super.run() // thus unitTimings will be artificially low
       val exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(MAX_THREADS)
       val workers = for(i <- 1 to MAX_THREADS) yield { val t = new DCETask(q, poison); exec.execute(t); t }
-      super.run() // thus unitTimings will be artificially low
+      for(m <- jobs) { q put m }
       workers foreach { w => q put poison }
       exec.shutdown()
       while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
