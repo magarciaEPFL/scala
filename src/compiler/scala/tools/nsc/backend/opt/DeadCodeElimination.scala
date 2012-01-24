@@ -28,8 +28,11 @@ abstract class DeadCodeElimination extends SubComponent {
 
     def name = phaseName
 
-    val MAX_THREADS    = _root_.java.lang.Runtime.getRuntime().availableProcessors()
-    private var q      = new _root_.java.util.concurrent.LinkedBlockingQueue[IMethod]
+    private val MAX_THREADS    = _root_.java.lang.Runtime.getRuntime().availableProcessors()
+    private val imc    = new _root_.java.util.Comparator[IMethod] {
+      override def compare(a: IMethod, b: IMethod): Int = { b.code.blockCount.compare(a.code.blockCount) }
+    }
+    private var q      = new _root_.java.util.concurrent.PriorityBlockingQueue[IMethod](MAX_THREADS, imc)
     private val poison = new IMethod(NoSymbol)
 
     override def apply(c: IClass) {
