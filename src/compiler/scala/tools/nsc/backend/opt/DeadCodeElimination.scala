@@ -22,6 +22,10 @@ abstract class DeadCodeElimination extends SubComponent {
   /** Create a new phase */
   override def newPhase(p: Phase) = new DeadCodeEliminationPhase(p)
 
+  val stats: Boolean = settings.debug.value && opt.logPhase
+  private var statMillis = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int]
+  private var statThread = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Long]
+
   /** Dead code elimination phase.
    */
   class DeadCodeEliminationPhase(prev: Phase) extends ICodePhase(prev) {
@@ -29,17 +33,21 @@ abstract class DeadCodeElimination extends SubComponent {
     def name = phaseName
 
     private val MAX_THREADS = _root_.java.lang.Runtime.getRuntime().availableProcessors()
-    private var q      = new _root_.java.util.concurrent.LinkedBlockingQueue[IMethod]
     private val poison = new IMethod(NoSymbol)
-    private val jobord = new Ordering[IMethod] {
-      override def compare(a: IMethod, b: IMethod): Int = { a.code.blockCount.compare(b.code.blockCount) }
+
+    private val longestfirst = new _root_.java.util.Comparator[IMethod] {
+      override def compare(a: IMethod, b: IMethod) = {
+        if     (a eq poison)  1
+        else if(b eq poison) -1 // ok not to check for both being poison
+        else (b.code.blockCount - a.code.blockCount)
+      }
     }
-    private var jobs = new collection.mutable.TreeSet[IMethod]()(jobord)
+    private var q = new _root_.java.util.concurrent.PriorityBlockingQueue[IMethod](10, longestfirst)
 
     override def apply(c: IClass) {
       if (settings.Xdce.value) {
         for (m <- c.methods; if m.hasCode) {
-          jobs add m
+          q put m
         }
       }
     }
@@ -48,11 +56,22 @@ abstract class DeadCodeElimination extends SubComponent {
       super.run() // thus unitTimings will be artificially low
       val exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(MAX_THREADS)
       val workers = for(i <- 1 to MAX_THREADS) yield { val t = new DCETask(q, poison); exec.execute(t); t }
-      for(m <- jobs) { q put m }
       workers foreach { w => q put poison }
       exec.shutdown()
       while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
+      assert(q.isEmpty)
       workers foreach { w => liveClosures ++= w.dce.dcLiveClosures }
+      if(stats) {
+        val iter = statMillis.keySet().iterator
+        while(iter.hasNext) {
+          val msym = iter.next
+          inform("[dce][par] elapsed: %9d ms".format(statMillis.get(msym)) +
+                  ", thread: %6d".format(statThread.get(msym)) +
+                  ", method: " + msym.fullName)
+        }
+        statMillis.clear()
+        statThread.clear()
+      }
     }
 
   }
@@ -63,9 +82,25 @@ abstract class DeadCodeElimination extends SubComponent {
       var m: IMethod = null
       while(m ne poison) {
         m = q.take()
-        if (m ne poison) { dce.analyzeMethod(m) }
+        if (m ne poison) {
+          if(stats) timed(m.symbol, dce.analyzeMethod(m))
+          else dce.analyzeMethod(m)
+        }
       }
     }
+
+    /** Debug - for timing dce. */
+    private def timed[T](msym: Symbol, body: => T): T = {
+      val t1 = System.currentTimeMillis()
+      val res = body
+      val t2 = System.currentTimeMillis()
+      val elapsed = (t2 - t1).toInt
+      statMillis.put(msym, elapsed)
+      statThread.put(msym, Thread.currentThread().getId())
+
+      res
+    }
+
   }
 
   /** closures that are instantiated at least once, after dead code elimination */
