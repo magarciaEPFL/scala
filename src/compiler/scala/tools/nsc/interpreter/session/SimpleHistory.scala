@@ -25,7 +25,7 @@ class SimpleHistory extends JLineHistory {
     ""
   }
 
-  case class Entry(index: Int, value: CharSequence) extends JEntry {
+  case class Entry(index: Int, value: java.lang.CharSequence) extends JEntry {
     override def toString = value
   }
 

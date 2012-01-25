@@ -311,7 +311,7 @@ class IMain(initialSettings: Settings, protected val out: JPrintWriter) extends 
     ensureClassLoader()
     _classLoader
   }
-  private class TranslatingClassLoader(parent: ClassLoader) extends AbstractFileClassLoader(virtualDirectory, parent) {
+  private class TranslatingClassLoader(parent: java.lang.ClassLoader) extends AbstractFileClassLoader(virtualDirectory, parent) {
     private[IMain] var traceClassLoading = isReplTrace
     override protected def trace = super.trace || traceClassLoading
 

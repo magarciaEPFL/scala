@@ -266,7 +266,7 @@ class Path private[io] (val jfile: JFile) {
       length == 0
     }
 
-  def touch(modTime: Long = System.currentTimeMillis) = {
+  def touch(modTime: Long = java.lang.System.currentTimeMillis) = {
     createFile()
     if (isFile)
       lastModified = modTime

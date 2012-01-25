@@ -18,7 +18,7 @@ import Line._
  *  waits on a condition indicating that either the line has
  *  completed or failed.
  */
-class Line[+T](val code: String, classLoader: ClassLoader, body: => T) {
+class Line[+T](val code: String, classLoader: java.lang.ClassLoader, body: => T) {
   private var _state: State              = Running
   private var _result: Option[Any]       = None
   private var _caught: Option[Throwable] = None
@@ -75,7 +75,7 @@ object Line {
   case object Cancelled extends State
   case object Done extends State
 
-  class Manager(classLoader: ClassLoader) {
+  class Manager(classLoader: java.lang.ClassLoader) {
     /** Override to add behavior for runaway lines.  This method will
      *  be called if a line thread is still running five seconds after
      *  it has been cancelled.

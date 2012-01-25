@@ -110,7 +110,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
   class ILoopInterpreter extends IMain(settings, out) {
     outer =>
 
-    private class ThreadStoppingLineManager(classLoader: ClassLoader) extends Line.Manager(classLoader) {
+    private class ThreadStoppingLineManager(classLoader: java.lang.ClassLoader) extends Line.Manager(classLoader) {
       override def onRunaway(line: Line[_]): Unit = {
         val template = """
           |// She's gone rogue, captain! Have to take her out!
@@ -126,7 +126,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
     override lazy val formatting = new Formatting {
       def prompt = ILoop.this.prompt
     }
-    override protected def createLineManager(classLoader: ClassLoader): Line.Manager =
+    override protected def createLineManager(classLoader: java.lang.ClassLoader): Line.Manager =
       new ThreadStoppingLineManager(classLoader)
 
     override protected def parentClassLoader =

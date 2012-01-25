@@ -38,11 +38,11 @@ class FrameContext(frame: JavaStackFrame, codeSources: Sources) {
 }
 
 object FrameContext {
-  def apply(elem: StackTraceElement): FrameContext = apply(new JavaStackFrame(elem))
+  def apply(elem: java.lang.StackTraceElement): FrameContext = apply(new JavaStackFrame(elem))
   def apply(frame: JavaStackFrame): FrameContext = new FrameContext(frame, Sources())
 }
 
-class JavaStackFrame(val elem: StackTraceElement) {
+class JavaStackFrame(val elem: java.lang.StackTraceElement) {
   def className: String  = elem.getClassName()
   def methodName: String = elem.getMethodName()
   def fileName: String   = elem.getFileName()
@@ -65,7 +65,7 @@ class JavaStackFrame(val elem: StackTraceElement) {
 }
 
 object JavaStackFrame {
-  def apply(elem: StackTraceElement) = new JavaStackFrame(elem)
-  def frames(xs: Array[StackTraceElement]): Array[JavaStackFrame] = xs map (x => new JavaStackFrame(x))
+  def apply(elem: java.lang.StackTraceElement) = new JavaStackFrame(elem)
+  def frames(xs: Array[java.lang.StackTraceElement]): Array[JavaStackFrame] = xs map (x => new JavaStackFrame(x))
   def frames(t: Throwable): Array[JavaStackFrame]                 = frames(Exceptional.unwrap(t).getStackTrace)
 }

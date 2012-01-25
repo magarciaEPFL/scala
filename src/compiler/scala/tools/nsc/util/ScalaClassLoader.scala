@@ -174,7 +174,7 @@ object ScalaClassLoader {
     def toLongString = urls.mkString("URLClassLoader(id=" + classLoaderUniqueId + "\n  ", "\n  ", "\n)\n")
   }
 
-  def fromURLs(urls: Seq[URL], parent: ClassLoader = null): URLClassLoader =
+  def fromURLs(urls: Seq[URL], parent: java.lang.ClassLoader = null): URLClassLoader =
     new URLClassLoader(urls, parent)
 
   /** True if supplied class exists in supplied path */
