@@ -335,7 +335,7 @@ trait Opcodes { self: ICodes =>
       }
 
       override def produced =
-        if (producedType == UNIT || method.isConstructor) 0
+        if (method.isConstructor || producedType == UNIT) 0
         else 1
 
       private def producedType: TypeKind = toTypeKind(method.info.resultType)

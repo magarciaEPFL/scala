@@ -99,8 +99,8 @@ abstract class Inliners extends SubComponent {
     private var currentIClazz: IClass = _
     private def warn(pos: Position, msg: String) = currentIClazz.cunit.warning(pos, msg)
 
-    val recentTFAs = mutable.Map.empty[Symbol, Tuple2[Boolean, analysis.MethodTFA]]
-    private def getRecentTFA(incm: IMethod): (Boolean, analysis.MethodTFA) = {
+    val recentTFAs = mutable.Map.empty[Symbol, Tuple2[Boolean, analysis.MTFACoarse]]
+    private def getRecentTFA(incm: IMethod): (Boolean, analysis.MTFACoarse) = {
 
         def containsRETURN(blocks: List[BasicBlock]) = blocks exists { bb => bb.lastInstruction.isInstanceOf[RETURN] }
 
@@ -113,8 +113,8 @@ abstract class Inliners extends SubComponent {
       }
 
       val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
-      var a: analysis.MethodTFA = null
-      if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run }
+      var a: analysis.MTFACoarse = null
+      if(hasRETURN) { a = new analysis.MTFACoarse(incm); a.run }
 
       if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 

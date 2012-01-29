@@ -376,6 +376,223 @@ abstract class TypeFlowAnalysis {
 
   }
 
+  class MTFACoarse(m: icodes.IMethod) extends MethodTFA(m) {
+
+    import icodes._
+    import opcodes._
+
+
+    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
+      var visited = mutable.Set.empty[BasicBlock]
+      while (!worklist.isEmpty) {
+        val point = worklist.iterator.next; worklist -= point; visited += point;
+        visited += point
+        val output = f(point, in(point))
+
+        out(point) = output
+        val succs = point.successors filter { toVisit => !visited(toVisit) }
+        succs foreach { p =>
+          if (!worklist(p)) { worklist += p; }
+
+          in(p) = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+        }
+      }
+    }
+
+    override def interpret(in: typeFlowLattice.Elem, i: Instruction): typeFlowLattice.Elem = {
+      val out = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+      val bindings = out.vars
+      val stack = out.stack
+
+      i match {
+
+        case THIS(clasz) =>
+          stack push ObjectReference
+
+        case CONSTANT(const) =>
+          // saves a trip to typer
+          val coarsetk = const.tag match {
+            case UnitTag    => UNIT
+            case BooleanTag => BOOL
+            case ByteTag    => BYTE
+            case ShortTag   => SHORT
+            case CharTag    => CHAR
+            case IntTag     => INT
+            case LongTag    => LONG
+            case FloatTag   => FLOAT
+            case DoubleTag  => DOUBLE
+            case StringTag  => ObjectReference // fine-grained would be StringReference
+            case NullTag    => ObjectReference // fine-grained would be NullReference
+            case ClassTag   => ObjectReference // fine-grained would be REFERENCE(definitions.ClassClass)
+            case EnumTag    =>
+              // given (in java): "class A { enum E { VAL1 } }"
+              //  - symbolValue: the symbol of the actual enumeration value (VAL1)
+              //  - .owner: the ModuleClasSymbol of the enumeration (object E)
+              //  - .linkedClassOfClass: the ClassSymbol of the enumeration (class E)
+              ObjectReference // TODO different in Scala.Net
+          }
+          stack push coarsetk
+
+        case LOAD_ARRAY_ITEM(kind) =>
+          stack.pop2;
+          stack push coarse(kind)
+
+        case LOAD_LOCAL(local) =>
+          stack push coarse(local.kind)
+
+        case LOAD_FIELD(field, isStatic) =>
+          if (!isStatic)
+            stack.pop
+          stack push coarse(toTypeKind(field.tpe)) // TODO need a faster way to find out whether primitive, array, or reference type
+
+        case LOAD_MODULE(module) =>
+          stack push ObjectReference
+
+        case STORE_ARRAY_ITEM(kind) =>
+          stack.pop3
+
+        case STORE_LOCAL(local) =>
+          val t = stack.pop
+          bindings += (local -> coarse(t))
+
+        case STORE_THIS(_) =>
+          stack.pop
+
+        case STORE_FIELD(field, isStatic) =>
+          if (isStatic)
+            stack.pop
+          else
+            stack.pop2
+
+        case CALL_PRIMITIVE(primitive) =>
+          primitive match {
+            case Negation(kind) =>
+              stack.pop; stack.push(kind)
+            case Test(_, kind, zero) =>
+              stack.pop
+              if (!zero) stack.pop
+              stack push BOOL;
+            case Comparison(_, _) =>
+              stack.pop2
+              stack push INT
+
+            case Arithmetic(op, kind) =>
+              stack.pop
+              if (op != NOT)
+                stack.pop
+              val k = kind match {
+                case BYTE | SHORT | CHAR => INT
+                case _ => kind
+              }
+              stack push k
+
+            case Logical(op, kind) =>
+              stack.pop2
+              stack push kind
+
+            case Shift(op, kind) =>
+              stack.pop2
+              stack push kind
+
+            case Conversion(src, dst) =>
+              stack.pop
+              stack push dst
+
+            case ArrayLength(kind) =>
+              stack.pop
+              stack push INT
+
+            case StartConcat =>
+              stack push ObjectReference
+
+            case EndConcat =>
+              stack.pop
+              stack push ObjectReference
+
+            case StringConcat(el) =>
+              stack.pop2
+              stack push ObjectReference
+          }
+
+        case cm @ CALL_METHOD(_, _) =>
+          stack pop cm.consumed
+          cm.producedTypes foreach { pt => stack push coarse(pt) } // TODO need a faster way to find out whether primitive, array, or reference type
+
+        case BOX(kind) =>
+          stack.pop
+          stack push ObjectReference
+
+        case UNBOX(kind) =>
+          stack.pop
+          stack.push(kind)
+
+        case NEW(kind) =>
+          stack push ObjectReference
+
+        case CREATE_ARRAY(elem, dims) =>
+          stack.pop(dims)
+          stack push ObjectReference
+
+        case IS_INSTANCE(tpe) =>
+          stack.pop
+          stack.push(BOOL)
+
+        case CHECK_CAST(tk) =>
+          stack.pop
+          stack push coarse(tk)
+
+        case SWITCH(tags, labels) =>
+          stack.pop
+
+        case JUMP(whereto) =>
+          ()
+
+        case CJUMP(success, failure, cond, kind) =>
+          stack.pop2
+
+        case CZJUMP(success, failure, cond, kind) =>
+          stack.pop
+
+        case RETURN(kind) =>
+          if (kind != UNIT)
+            stack.pop;
+
+        case THROW(_) =>
+          stack.pop
+
+        case DROP(kind) =>
+          stack.pop
+
+        case DUP(kind) =>
+          stack.push(stack.head)
+
+        case MONITOR_ENTER() =>
+          stack.pop
+
+        case MONITOR_EXIT() =>
+          stack.pop
+
+        case SCOPE_ENTER(_) | SCOPE_EXIT(_) =>
+          ()
+
+        case LOAD_EXCEPTION(clasz) =>
+          stack.pop(stack.length)
+          stack push ObjectReference // TODO stack.push(toTypeKind(clasz.tpe))
+
+        case _ =>
+          dumpClassesAndAbort("Unknown instruction: " + i)
+
+      }
+
+      out
+    }
+
+    private def coarse(tk: TypeKind): TypeKind = {
+      if(tk.isRefArrayOrBoxType) icodes.ObjectReference
+      else tk
+    }
+  }
+
   class MTFAGrowable extends MethodTFA {
 
     import icodes._
