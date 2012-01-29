@@ -162,7 +162,7 @@ abstract class TypeFlowAnalysis {
 
     def run = {
       timer.start
-//      icodes.lubs0 = 0
+      // icodes.lubs0 = 0
       forwardAnalysis(blockTransfer)
       val t = timer.stop
       if (settings.debug.value) {
@@ -170,9 +170,9 @@ abstract class TypeFlowAnalysis {
           assert(visited.contains(b),
             "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited));
       }
-//      log("" + method.symbol.fullName + " ["  + method.code.blocks.size + " blocks] "
-//              + "\n\t" + iterations + " iterations: " + t + " ms."
-//              + "\n\tlubs: " + typeFlowLattice.lubs + " out of which " + icodes.lubs0 + " typer lubs")
+      // log("" + method.symbol.fullName + " ["  + method.code.blocks.size + " blocks] "
+      //     + "\n\t" + iterations + " iterations: " + t + " ms."
+      //     + "\n\tlubs: " + typeFlowLattice.lubs + " out of which " + icodes.lubs0 + " typer lubs")
     }
 
     def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
@@ -186,8 +186,8 @@ abstract class TypeFlowAnalysis {
       val stack = out.stack
 
       if (settings.debug.value) {
-//        Console.println("[before] Stack: " + stack);
-//        Console.println(i);
+        // Console.println("[before] Stack: " + stack);
+        // Console.println(i);
       }
       i match {
 
