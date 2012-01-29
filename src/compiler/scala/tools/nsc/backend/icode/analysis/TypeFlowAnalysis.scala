@@ -176,12 +176,23 @@ abstract class TypeFlowAnalysis {
     }
 
     def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
-      b.iterator.foldLeft(in)(interpret)
+      var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+      var instrs = b.toList
+      while(!instrs.isEmpty) {
+        val i  = instrs.head
+        result = mutatingInterpret(result, i)
+        instrs = instrs.tail
+      }
+      result
     }
 
     /** Abstract interpretation for one instruction. */
     def interpret(in: typeFlowLattice.Elem, i: Instruction): typeFlowLattice.Elem = {
       val out = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+      mutatingInterpret(out, i)
+    }
+
+    def mutatingInterpret(out: typeFlowLattice.Elem, i: Instruction): typeFlowLattice.Elem = {
       val bindings = out.vars
       val stack = out.stack
 
