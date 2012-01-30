@@ -425,7 +425,7 @@ abstract class TypeFlowAnalysis {
       // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
     }
 
-    private def inlineCandidates(bb: BasicBlock): List[opcodes.CALL_METHOD] = {
+    private def inlinePreCandidates(bb: BasicBlock): List[opcodes.CALL_METHOD] = {
       bb.toList collect { i =>
         i match {
           case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm
@@ -436,7 +436,7 @@ abstract class TypeFlowAnalysis {
     private def populateCALLs() {
       remainingCALLs.clear()
       for(bb <- method.blocks) {
-        val cands = inlineCandidates(bb)
+        val cands = inlinePreCandidates(bb)
         for(cand <- cands) { remainingCALLs += (cand -> bb) }
       }
     }

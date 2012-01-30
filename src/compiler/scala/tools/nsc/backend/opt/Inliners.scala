@@ -69,6 +69,8 @@ abstract class Inliners extends SubComponent {
       } finally {
         inliner.NonPublicRefs.usesNonPublics.clear()
         inliner.recentTFAs.clear
+        inliner.tfa.relevantBBs.clear()
+        inliner.tfa.remainingCALLs.clear()
       }
     }
   }
@@ -183,7 +185,7 @@ abstract class Inliners extends SubComponent {
       val caller = new IMethodInfo(m)
       var info: tfa.lattice.Elem = null
 
-      def analyzeInc(msym: Symbol, i: Instruction, bb: BasicBlock): Boolean = {
+      def analyzeInc(msym: Symbol, i: CALL_METHOD, bb: BasicBlock): Boolean = {
         var inlined = false
         def paramTypes  = msym.info.paramTypes
         val receiver    = (info.stack.types drop paramTypes.length) match {
@@ -297,9 +299,9 @@ abstract class Inliners extends SubComponent {
               i match {
                 // Dynamic == normal invocations
                 // Static(true) == calls to private members
-                case CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor =>
+                case cm : CALL_METHOD if tfa.remainingCALLs.isDefinedAt(cm) =>
                   pastLastCALL = (i == lastCall)
-                  if (analyzeInc(msym, i, bb) || pastLastCALL) {
+                  if (analyzeInc(cm.method, cm, bb) || pastLastCALL) {
                     break
                   }
                 case _ => ()
