@@ -254,18 +254,21 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        val callerLin = caller.m.linearizedBlocks() filter tfa.relevantBBs
+        val callerLin = caller.m.linearizedBlocks() filter { bb => tfa.lastCALL.isDefinedAt(bb) }
 
-        callerLin foreach { bb =>
+        for(bb <- callerLin) {
           info = tfa in bb
+          val lastCall = tfa.lastCALL(bb)
 
           breakable {
+            var pastLastCALL = false
             for (i <- bb) {
               i match {
                 // Dynamic == normal invocations
                 // Static(true) == calls to private members
                 case CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor =>
-                  if (analyzeInc(msym, i, bb)) {
+                  pastLastCALL = (i == lastCall)
+                  if (analyzeInc(msym, i, bb) || pastLastCALL) {
                     break
                   }
                 case _ => ()

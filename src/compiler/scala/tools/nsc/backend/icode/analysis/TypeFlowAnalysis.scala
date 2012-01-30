@@ -415,6 +415,7 @@ abstract class TypeFlowAnalysis {
     import icodes._
 
     val relevantBBs = mutable.Set.empty[BasicBlock]
+    val lastCALL    = mutable.Map.empty[BasicBlock, opcodes.CALL_METHOD]
 
     private def isCandidate(cm: opcodes.CALL_METHOD): Boolean = {
       val msym = cm.method
@@ -432,8 +433,15 @@ abstract class TypeFlowAnalysis {
 
     private def refresh() {
       relevantBBs.clear()
+      lastCALL.clear()
       var toVisit: List[BasicBlock] = Nil
-      toVisit ++= (for(bb <- method.blocks; if inlineCandidates(bb).nonEmpty) yield bb)
+      for(bb <- method.blocks){
+        val cands = inlineCandidates(bb)
+        if(cands.nonEmpty) {
+          toVisit = bb :: toVisit
+          lastCALL(bb) = cands.last
+        }
+      }
       while(toVisit.nonEmpty) {
         val h   = toVisit.head
         toVisit = toVisit.tail
