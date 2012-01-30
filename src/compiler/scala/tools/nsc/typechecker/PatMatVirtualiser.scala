@@ -81,7 +81,7 @@ trait PatMatVirtualiser extends ast.TreeDSL { self: Analyzer =>
       // we don't transform after typers
       // (that would require much more sophistication when generating trees,
       //  and the only place that emits Matches after typers is for exception handling anyway)
-      assert(phase.id <= currentRun.typerPhase.id)
+      assert(phase.id <= currentRun.typerPhase.id, phase)
 
       val scrutType = repeatedToSeq(elimAnonymousClass(scrut.tpe.widen))
 
@@ -315,7 +315,7 @@ trait PatMatVirtualiser extends ast.TreeDSL { self: Analyzer =>
           val extractorCall = try {
             context.undetparams = Nil
             silent(_.typed(Apply(Select(orig, extractor), List(Ident(nme.SELECTOR_DUMMY) setType fun.tpe.finalResultType)), EXPRmode, WildcardType), reportAmbiguousErrors = false) match {
-              case extractorCall: Tree => extractorCall // if !extractorCall.containsError()
+              case SilentResultValue(extractorCall) => extractorCall // if !extractorCall.containsError()
               case _ =>
                 // this fails to resolve overloading properly...
                 // Apply(typedOperator(Select(orig, extractor)), List(Ident(nme.SELECTOR_DUMMY))) // no need to set the type of the dummy arg, it will be replaced anyway
@@ -876,7 +876,7 @@ defined class Foo */
       private val reusedBy = new collection.mutable.HashSet[Test]
       var reuses: Option[Test] = None
       def registerReuseBy(later: Test): Unit = {
-        assert(later.reuses.isEmpty)
+        assert(later.reuses.isEmpty, later.reuses)
         reusedBy += later
         later.reuses = Some(this)
       }
@@ -1239,7 +1239,7 @@ defined class Foo */
           case d : DefTree if (d.symbol != NoSymbol) && ((d.symbol.owner == NoSymbol) || (d.symbol.owner == origOwner)) => // don't indiscriminately change existing owners! (see e.g., pos/t3440, pos/t3534, pos/unapplyContexts2)
             // println("def: "+ (d, d.symbol.ownerChain, currentOwner.ownerChain))
             if(d.symbol.isLazy) { // for lazy val's accessor -- is there no tree??
-              assert(d.symbol.lazyAccessor != NoSymbol && d.symbol.lazyAccessor.owner == d.symbol.owner)
+              assert(d.symbol.lazyAccessor != NoSymbol && d.symbol.lazyAccessor.owner == d.symbol.owner, d.symbol.lazyAccessor)
               d.symbol.lazyAccessor.owner = currentOwner
             }
             if(d.symbol.moduleClass ne NoSymbol)
@@ -1457,7 +1457,7 @@ defined class Foo */
     def freshSym(pos: Position, tp: Type = NoType, prefix: String = "x") = {ctr += 1;
       // assert(owner ne null)
       // assert(owner ne NoSymbol)
-      new TermSymbol(NoSymbol, pos, vpmName.counted(prefix, ctr)) setInfo repackExistential(tp)
+      NoSymbol.newTermSymbol(vpmName.counted(prefix, ctr), pos) setInfo repackExistential(tp)
     }
 
     def repeatedToSeq(tp: Type): Type = (tp baseType RepeatedParamClass) match {
