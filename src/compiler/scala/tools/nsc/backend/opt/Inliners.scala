@@ -80,6 +80,33 @@ abstract class Inliners extends SubComponent {
   def isClosureClass(cls: Symbol): Boolean =
     cls.isFinal && cls.isSynthetic && !cls.isModuleClass && cls.isAnonymousFunction
 
+  /** Look up implementation of method 'sym in 'clazz'.
+   */
+  def lookupImplFor(sym: Symbol, clazz: Symbol): Symbol = {
+    // TODO: verify that clazz.superClass is equivalent here to clazz.tpe.parents(0).typeSymbol (.tpe vs .info)
+    def needsLookup = (
+         (clazz != NoSymbol)
+      && (clazz != sym.owner)
+      && !sym.isEffectivelyFinal
+      && clazz.isEffectivelyFinal
+    )
+    def lookup(clazz: Symbol): Symbol = {
+      // println("\t\tlooking up " + meth + " in " + clazz.fullName + " meth.owner = " + meth.owner)
+      if (sym.owner == clazz || isBottomType(clazz)) sym
+      else sym.overridingSymbol(clazz) match {
+        case NoSymbol  => if (sym.owner.isTrait) sym else lookup(clazz.superClass)
+        case imp       => imp
+      }
+    }
+    if (needsLookup) {
+      val concreteMethod = lookup(clazz)
+      debuglog("\tlooked up method: " + concreteMethod.fullName)
+
+      concreteMethod
+    }
+    else sym
+  }
+
   /**
    * Simple inliner.
    */
@@ -254,11 +281,15 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        val callerLin = caller.m.linearizedBlocks() filter { bb => tfa.lastCALL.isDefinedAt(bb) }
+        val remainingBBs = tfa.remainingCALLs.values.toSet
+        val callerLin = caller.m.linearizedBlocks() filter remainingBBs
 
         for(bb <- callerLin) {
           info = tfa in bb
-          val lastCall = tfa.lastCALL(bb)
+          val lastCall = bb.toList.filter( {
+            case cm : CALL_METHOD => tfa.remainingCALLs.isDefinedAt(cm)
+            case _  => false
+          } ).last
 
           breakable {
             var pastLastCALL = false
@@ -311,33 +342,6 @@ abstract class Inliners extends SubComponent {
       val res = hasInline(sym) || alwaysLoad || loadCondition
       debuglog("shouldLoadImplFor: " + receiver + "." + sym + ": " + res)
       res
-    }
-
-    /** Look up implementation of method 'sym in 'clazz'.
-     */
-    def lookupImplFor(sym: Symbol, clazz: Symbol): Symbol = {
-      // TODO: verify that clazz.superClass is equivalent here to clazz.tpe.parents(0).typeSymbol (.tpe vs .info)
-      def needsLookup = (
-           (clazz != NoSymbol)
-        && (clazz != sym.owner)
-        && !sym.isEffectivelyFinal
-        && clazz.isEffectivelyFinal
-      )
-      def lookup(clazz: Symbol): Symbol = {
-        // println("\t\tlooking up " + meth + " in " + clazz.fullName + " meth.owner = " + meth.owner)
-        if (sym.owner == clazz || isBottomType(clazz)) sym
-        else sym.overridingSymbol(clazz) match {
-          case NoSymbol  => if (sym.owner.isTrait) sym else lookup(clazz.superClass)
-          case imp       => imp
-        }
-      }
-      if (needsLookup) {
-        val concreteMethod = lookup(clazz)
-        debuglog("\tlooked up method: " + concreteMethod.fullName)
-
-        concreteMethod
-      }
-      else sym
     }
 
     class IMethodInfo(val m: IMethod) {

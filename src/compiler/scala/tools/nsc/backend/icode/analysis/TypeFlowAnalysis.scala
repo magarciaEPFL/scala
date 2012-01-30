@@ -414,55 +414,65 @@ abstract class TypeFlowAnalysis {
 
     import icodes._
 
-    val relevantBBs = mutable.Set.empty[BasicBlock]
-    val lastCALL    = mutable.Map.empty[BasicBlock, opcodes.CALL_METHOD]
+    val relevantBBs    = mutable.Set.empty[BasicBlock]
+    val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, BasicBlock]
 
-    private def isCandidate(cm: opcodes.CALL_METHOD): Boolean = {
-      val msym = cm.method
+    private def isPreCandidate(cm: opcodes.CALL_METHOD): Boolean = {
+      val msym  = cm.method
+      val style = cm.style
 
-      !msym.isConstructor // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
+      !msym.isConstructor && (style.isDynamic || (style.hasInstance && style.isStatic))
+      // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
     }
 
     private def inlineCandidates(bb: BasicBlock): List[opcodes.CALL_METHOD] = {
       bb.toList collect { i =>
         i match {
-          case cm : opcodes.CALL_METHOD if isCandidate(cm) => cm
+          case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm
         }
+      }
+    }
+
+    private def populateCALLs() {
+      remainingCALLs.clear()
+      for(bb <- method.blocks) {
+        val cands = inlineCandidates(bb)
+        for(cand <- cands) { remainingCALLs += (cand -> bb) }
       }
     }
 
     private def refresh() {
       relevantBBs.clear()
-      lastCALL.clear()
-      var toVisit: List[BasicBlock] = Nil
-      for(bb <- method.blocks){
-        val cands = inlineCandidates(bb)
-        if(cands.nonEmpty) {
-          toVisit = bb :: toVisit
-          lastCALL(bb) = cands.last
-        }
-      }
+      var toVisit: List[BasicBlock] = remainingCALLs.values.toList
       while(toVisit.nonEmpty) {
         val h   = toVisit.head
         toVisit = toVisit.tail
         relevantBBs += h
         for(p <- h.predecessors; if !relevantBBs(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
       }
-      assert(relevantBBs.isEmpty || relevantBBs(method.startBlock), "you gave me dead code")
-      // Console.println("discarding: " + (method.blocks.length - relevantBBs.size))
+    }
+
+    def isCandidate(receiver: Symbol, cm: icodes.opcodes.CALL_METHOD) = {
+      val concreteMethod = inliner.lookupImplFor(cm.method, receiver)
+
+      inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal
     }
 
     /** discards what must be discarded, blanks what needs to be blanked out, and keeps the rest. */
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
       if (this.method == null || this.method.symbol != m.symbol) {
         init(m)
+        populateCALLs()
         refresh()
+        assert(relevantBBs.isEmpty || relevantBBs(method.startBlock), "you gave me dead code")
+        // Console.println("discarding: " + (method.blocks.length - relevantBBs.size))
         return
       } else if(staleOut.isEmpty && inlined.isEmpty && staleIn.isEmpty) {
         // this promotes invoking reinit if in doubt, no performance degradation will ensue!
         return;
       }
 
+      populateCALLs()
       refresh()
       reinit {
         // asserts conveying an idea what CFG shapes arrive here.
@@ -493,23 +503,48 @@ abstract class TypeFlowAnalysis {
     }
 
     override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
-      while (!worklist.isEmpty) {
+      while (!worklist.isEmpty && remainingCALLs.nonEmpty) {
         if (stat) iterations += 1
         val point = worklist.iterator.next; worklist -= point; visited += point;
-        val output = f(point, in(point))
+        if(relevantBBs(point)) {
 
-        if ((lattice.bottom == out(point)) || output != out(point)) {
-          out(point) = output
-          val succs = point.successors filter relevantBBs
-          succs foreach { p =>
-            val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
-            if(updated != in(p)) {
-              in(p) = updated
-              if (!worklist(p)) { worklist += p; }
+          val prevUsefulBBs = remainingCALLs.values.toSet.size
+
+          val output = f(point, in(point))
+
+          if ((lattice.bottom == out(point)) || output != out(point)) {
+            out(point) = output
+            val succs = point.successors filter relevantBBs
+            succs foreach { p =>
+              val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+              if(updated != in(p)) {
+                in(p) = updated
+                if (!worklist(p)) { worklist += p; }
+              }
             }
           }
+
+          val currUsefulBBs = remainingCALLs.values.toSet.size
+          if(prevUsefulBBs > currUsefulBBs) { refresh() }
         }
+
       }
+    }
+
+    override def mutatingInterpret(out: typeFlowLattice.Elem, i: Instruction): typeFlowLattice.Elem = {
+      i match {
+        case cm : opcodes.CALL_METHOD if remainingCALLs.isDefinedAt(cm) =>
+          val paramsLength = cm.method.info.paramTypes.size
+          val receiver = out.stack.types.drop(paramsLength).head match {
+            case REFERENCE(s) => s
+            case _            => NoSymbol
+          }
+          if(!isCandidate(receiver, cm)) {
+            remainingCALLs -= cm
+          }
+        case _ => ()
+      }
+      super.mutatingInterpret(out, i)
     }
 
 
