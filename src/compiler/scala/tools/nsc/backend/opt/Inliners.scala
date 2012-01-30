@@ -254,7 +254,9 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        caller.m.linearizedBlocks() foreach { bb =>
+        val callerLin = caller.m.linearizedBlocks() filter tfa.relevantBBs
+
+        callerLin foreach { bb =>
           info = tfa in bb
 
           breakable {

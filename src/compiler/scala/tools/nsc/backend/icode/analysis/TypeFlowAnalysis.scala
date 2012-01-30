@@ -414,16 +414,48 @@ abstract class TypeFlowAnalysis {
 
     import icodes._
 
+    val relevantBBs = mutable.Set.empty[BasicBlock]
+
+    private def isCandidate(cm: opcodes.CALL_METHOD): Boolean = {
+      val msym = cm.method
+
+      !msym.isConstructor // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
+    }
+
+    private def inlineCandidates(bb: BasicBlock): List[opcodes.CALL_METHOD] = {
+      bb.toList collect { i =>
+        i match {
+          case cm : opcodes.CALL_METHOD if isCandidate(cm) => cm
+        }
+      }
+    }
+
+    private def refresh() {
+      relevantBBs.clear()
+      var toVisit: List[BasicBlock] = Nil
+      toVisit ++= (for(bb <- method.blocks; if inlineCandidates(bb).nonEmpty) yield bb)
+      while(toVisit.nonEmpty) {
+        val h   = toVisit.head
+        toVisit = toVisit.tail
+        relevantBBs += h
+        for(p <- h.predecessors; if !relevantBBs(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
+      }
+      assert(relevantBBs.isEmpty || relevantBBs(method.startBlock), "you gave me dead code")
+      // Console.println("discarding: " + (method.blocks.length - relevantBBs.size))
+    }
+
     /** discards what must be discarded, blanks what needs to be blanked out, and keeps the rest. */
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
       if (this.method == null || this.method.symbol != m.symbol) {
         init(m)
+        refresh()
         return
       } else if(staleOut.isEmpty && inlined.isEmpty && staleIn.isEmpty) {
         // this promotes invoking reinit if in doubt, no performance degradation will ensue!
         return;
       }
 
+      refresh()
       reinit {
         // asserts conveying an idea what CFG shapes arrive here.
         // staleIn foreach (p => assert( !in.isDefinedAt(p), p))
@@ -451,6 +483,27 @@ abstract class TypeFlowAnalysis {
         out(b)    = typeFlowLattice.bottom
       }
     }
+
+    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
+      while (!worklist.isEmpty) {
+        if (stat) iterations += 1
+        val point = worklist.iterator.next; worklist -= point; visited += point;
+        val output = f(point, in(point))
+
+        if ((lattice.bottom == out(point)) || output != out(point)) {
+          out(point) = output
+          val succs = point.successors filter relevantBBs
+          succs foreach { p =>
+            val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+            if(updated != in(p)) {
+              in(p) = updated
+              if (!worklist(p)) { worklist += p; }
+            }
+          }
+        }
+      }
+    }
+
 
   }
 
