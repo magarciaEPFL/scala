@@ -127,34 +127,6 @@ abstract class TypeFlowAnalysis {
       }
     }
 
-    /** reinitialize the analysis, keeping around solutions from a previous run. */
-    def reinit(m: icodes.IMethod) {
-      if (this.method == null || this.method.symbol != m.symbol)
-        init(m)
-      else reinit {
-        m foreachBlock { b =>
-          if (!in.contains(b)) {
-            for (p <- b.predecessors) {
-              if (out.isDefinedAt(p)) {
-                in(b) = out(p)
-                worklist += p
-              }
-  /*            else
-                in(b)  = typeFlowLattice.bottom
-  */        }
-            out(b) = typeFlowLattice.bottom
-          }
-        }
-        for (handler <- m.exh) {
-          val start = handler.startBlock
-          if (!in.contains(start)) {
-            worklist += start
-            in(start) = lattice.IState(in(start).vars, typeStackLattice.exceptionHandlerStack)
-          }
-        }
-      }
-    }
-
     def this(m: icodes.IMethod) {
       this()
       init(m)
