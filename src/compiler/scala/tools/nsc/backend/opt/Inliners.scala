@@ -254,8 +254,14 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        caller.m.linearizedBlocks() foreach { bb =>
+        val callerLin = caller.m.linearizedBlocks()  filter { bb => tfa.preCandidates(bb).nonEmpty }
+
+        for(bb <- callerLin) {
           info = tfa in bb
+
+          val realPreCands    = bb.toList collect { case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor => cm }
+          val trackedPreCands = tfa.preCandidates(bb)
+          assert(trackedPreCands == realPreCands.toSet)
 
           breakable {
             for (i <- bb) {
@@ -389,6 +395,7 @@ abstract class Inliners extends SubComponent {
       def doInline(block: BasicBlock, instr: Instruction) {
 
         staleOut += block
+        tfa.remainingCALLs.remove(instr)
 
         val targetPos = instr.pos
         log("Inlining " + inc.m + " in " + caller.m + " at pos: " + posToStr(targetPos))
@@ -550,6 +557,9 @@ abstract class Inliners extends SubComponent {
 
         staleIn        += afterBlock
         splicedBlocks ++= (calleeLin map inlinedBlock)
+        for(ia <- instrAfter; if tfa.remainingCALLs.isDefinedAt(ia)) {
+          tfa.remainingCALLs += Pair(ia, afterBlock)
+        }
 
         // add exception handlers of the callee
         caller addHandlers (inc.handlers map translateExh)

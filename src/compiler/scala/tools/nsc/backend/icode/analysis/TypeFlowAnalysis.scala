@@ -414,6 +414,49 @@ abstract class TypeFlowAnalysis {
 
     import icodes._
 
+    val remainingCALLs = mutable.Map.empty[Instruction, BasicBlock]
+
+    def preCandidates(b: BasicBlock): Set[opcodes.CALL_METHOD] = {
+      for(rc <- remainingCALLs.toSet; if rc._2 == b) yield rc._1.asInstanceOf[opcodes.CALL_METHOD]
+    }
+
+    override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
+      var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+      var instrs = b.toList
+      while(!instrs.isEmpty) {
+        val i  = instrs.head
+
+        if(isPreCandidate(i)) {
+          remainingCALLs += Pair(i, b)
+        }
+
+        result = mutatingInterpret(result, i)
+        instrs = instrs.tail
+      }
+      result
+    }
+
+    private def isPreCandidate(i: Instruction): Boolean = {
+      if(!i.isInstanceOf[opcodes.CALL_METHOD]) { return false }
+      val cm = i.asInstanceOf[opcodes.CALL_METHOD]
+      val msym  = cm.method
+      val style = cm.style
+      // Dynamic == normal invocations
+      // Static(true) == calls to private members
+      !msym.isConstructor && (style.isDynamic || (style.hasInstance && style.isStatic))
+      // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
+    }
+
+    override def init(m: icodes.IMethod) {
+      super.init(m)
+      remainingCALLs.clear()
+    }
+
+
+
+
+
+
     /** discards what must be discarded, blanks what needs to be blanked out, and keeps the rest. */
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
       if (this.method == null || this.method.symbol != m.symbol) {
