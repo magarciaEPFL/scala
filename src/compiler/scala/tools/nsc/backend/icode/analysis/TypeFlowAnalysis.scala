@@ -487,6 +487,9 @@ abstract class TypeFlowAnalysis {
       remainingCALLs.clear()
     }
 
+    private def transitivePreds(starters: List[BasicBlock]): List[BasicBlock] = {
+    }
+
 
 
 
@@ -521,7 +524,18 @@ abstract class TypeFlowAnalysis {
         blankOut(staleIn)
         // no need to add startBlocks from m.exh
       }
-    }
+
+      /* those instructions originally following the inlined callsite (but in the same basic block)
+       * are now contained in the afterBlock created to that effect. Each block in staleIn is one such `afterBlock`. */
+      for(afterBlock <- staleIn) {
+        val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
+        for(ia <- justCALLsAfter; if remainingCALLs.isDefinedAt(ia)) {
+          val updValue = remainingCALLs(ia).copy(bb = afterBlock)
+          remainingCALLs += Pair(ia, updValue)
+        }
+      }
+
+     } // end of method reinit
 
     private def blankOut(blocks: collection.Set[BasicBlock]) {
       blocks foreach { b =>

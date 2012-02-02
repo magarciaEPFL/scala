@@ -539,12 +539,6 @@ abstract class Inliners extends SubComponent {
 
         staleIn        += afterBlock
         splicedBlocks ++= (calleeLin map inlinedBlock)
-        val justCALLsAfter = instrAfter collect { case c : CALL_METHOD => c }
-        for(ia <- justCALLsAfter; if tfa.remainingCALLs.isDefinedAt(ia)) {
-          val analysis.CallsiteInfo(_, rcv, stackLength, concreteMethod) = tfa.remainingCALLs(ia)
-          val updValue = analysis.CallsiteInfo(afterBlock, rcv, stackLength, concreteMethod)
-          tfa.remainingCALLs += Pair(ia, updValue)
-        }
 
         // add exception handlers of the callee
         caller addHandlers (inc.handlers map translateExh)
