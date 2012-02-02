@@ -414,6 +414,34 @@ abstract class TypeFlowAnalysis {
 
   case class TypeFlowInfo(receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
 
+  /*
+
+    Usually, a type-flow analysis on a method computes in- and out-flows for each basic block in the method.
+    For the purposes of Inliner, that's enough to make sure that by the time a inlining candidate (a CALL_METHOD instruction) is visited its abstracted type-stack-slot is known.
+    This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with a difference:
+
+      (a) an early screening is performed while the type-flow is being computed (in an override of `blockTransfer`) testing a subset of the conditions that must be checked later.
+          The reasoning here is: if the early check fails at some iteration, there's no chance a follow-up iteration (with a yet more lub-ed type-stack-slot) will succeed.
+          Failure is sufficient to remove that particular CALL_METHOD from the typeflow's `remainingCALLs`.
+
+      (b) in case the early check does not fail, no conclusive decision can be made, so everything goes on as in the standard version.
+
+    In other words, `remainingCALLs` tracks at any time those callsites that still remain as candidates for inlining
+    (the map also caches info about the receiver so as to spare computing it again in case inlining does occur).
+
+    Besides caching, a further optimization involves skipping visiting those basic blocks whose in-flow and out-flow isn't needed anway (as explained next).
+    A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, will not result in any inlining.
+    But as we know from the way a type-flow is computed, computing the in- and out-flow for a basic block relies on those of other basic blocks.
+    How to keep those, while discarding the rest?
+
+    In detail, we want to focus on that sub-graph of the CFG such that control flow may reach a remaining candidate callsite.
+    Those basic blocks not in that subgraph can be skipped altogether (that's why `forwardAnalysis()` in `MTFAGrowable` now checks for inclusion of a basic block in `relevantBBs`
+    before adding the block to the worklist, and as part of choosing successors).
+    The bookkeeping supporting on-the-fly pruning of irrelevant blocks requires overridding most methods of the dataflow-analysis.
+
+    The rest of the story takes place in Inliner, which does not visit all of the method's basic blocks but only on those represented in `remainingCALLs`.
+
+   */
   class MTFAGrowable extends MethodTFA {
 
     import icodes._
@@ -444,6 +472,7 @@ abstract class TypeFlowAnalysis {
 
     override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
       var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+      var shrinkedWatchlist = false
       var instrs = b.toList
       while(!instrs.isEmpty) {
         val i  = instrs.head
@@ -463,12 +492,24 @@ abstract class TypeFlowAnalysis {
           } else {
             remainingCALLs.remove(cm)
             isOnWatchlist.remove(cm)
+            shrinkedWatchlist = true
           }
         }
 
         result = mutatingInterpret(result, i)
         instrs = instrs.tail
       }
+
+      if(shrinkedWatchlist) {
+        val isWatching = (b.toList exists isOnWatchlist)
+        if(!isWatching) {
+          val watchers = relevantBBs.toSet filter { x => x.toList exists isOnWatchlist }
+          val updated  = transitivePreds(watchers)
+          relevantBBs.clear()
+          relevantBBs ++= updated
+        }
+      }
+
       result
     }
 
