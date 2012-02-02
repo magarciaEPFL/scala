@@ -156,7 +156,7 @@ abstract class Inliners extends SubComponent {
       val caller = new IMethodInfo(m)
       var info: tfa.lattice.Elem = null
 
-      def analyzeInc(msym: Symbol, i: Instruction, bb: BasicBlock): Boolean = {
+      def analyzeInc(msym: Symbol, i: CALL_METHOD, bb: BasicBlock): Boolean = {
         var inlined = false
         def paramTypes  = msym.info.paramTypes
         val receiver    = (info.stack.types drop paramTypes.length) match {
@@ -254,22 +254,22 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        val callerLin = caller.m.linearizedBlocks()  filter { bb => tfa.preCandidates(bb).nonEmpty }
+        val callerLin = caller.m.linearizedBlocks()  filter { bb => tfa.preCandidates.isDefinedAt(bb) }
 
         for(bb <- callerLin) {
           info = tfa in bb
 
           val realPreCands    = bb.toList collect { case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor => cm }
           val trackedPreCands = tfa.preCandidates(bb)
-          assert(trackedPreCands == realPreCands.toSet)
+          assert(trackedPreCands == realPreCands)
 
           breakable {
             for (i <- bb) {
               i match {
                 // Dynamic == normal invocations
                 // Static(true) == calls to private members
-                case CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor =>
-                  if (analyzeInc(msym, i, bb)) {
+                case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor =>
+                  if (analyzeInc(msym, cm, bb)) {
                     break
                   }
                 case _ => ()
@@ -392,7 +392,7 @@ abstract class Inliners extends SubComponent {
       /** Inline 'inc' into 'caller' at the given block and instruction.
        *  The instruction must be a CALL_METHOD.
        */
-      def doInline(block: BasicBlock, instr: Instruction) {
+      def doInline(block: BasicBlock, instr: CALL_METHOD) {
 
         staleOut += block
         tfa.remainingCALLs.remove(instr)
@@ -557,8 +557,11 @@ abstract class Inliners extends SubComponent {
 
         staleIn        += afterBlock
         splicedBlocks ++= (calleeLin map inlinedBlock)
-        for(ia <- instrAfter; if tfa.remainingCALLs.isDefinedAt(ia)) {
-          tfa.remainingCALLs += Pair(ia, afterBlock)
+        val justCALLsAfter = instrAfter collect { case c : CALL_METHOD => c }
+        for(ia <- justCALLsAfter; if tfa.remainingCALLs.isDefinedAt(ia)) {
+          val analysis.CallsiteInfo(_, rcv) = tfa.remainingCALLs(ia)
+          val updValue = analysis.CallsiteInfo(afterBlock, rcv)
+          tfa.remainingCALLs += Pair(ia, updValue)
         }
 
         // add exception handlers of the callee

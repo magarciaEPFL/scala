@@ -410,14 +410,35 @@ abstract class TypeFlowAnalysis {
 	}
   }
 
+  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol)
+
   class MTFAGrowable extends MethodTFA {
 
     import icodes._
+    // import opcodes.CALL_METHOD
 
-    val remainingCALLs = mutable.Map.empty[Instruction, BasicBlock]
+    val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
 
-    def preCandidates(b: BasicBlock): Set[opcodes.CALL_METHOD] = {
-      for(rc <- remainingCALLs.toSet; if rc._2 == b) yield rc._1.asInstanceOf[opcodes.CALL_METHOD]
+    val preCandidates  = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
+    val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, Symbol]
+
+    override def run {
+      super.run
+      // prepare two maps for use by Inliner
+      preCandidates.clear()
+      trackedRCVR.clear()
+      for(rc <- remainingCALLs) {
+        val Pair(cm, CallsiteInfo(bb, receiver)) = rc
+        val preCands = preCandidates.getOrElse(bb, Nil)
+        preCandidates += (bb -> (cm :: preCands))
+        trackedRCVR   += (cm -> receiver)
+      }
+      for(pc <- preCandidates) {
+        val Pair(bb, unsortedPreCands) = pc
+        val sortedPreCands = (bb.toList filter { i => unsortedPreCands contains i }).asInstanceOf[List[opcodes.CALL_METHOD]]
+        preCandidates += (bb -> sortedPreCands)
+        assert(sortedPreCands.nonEmpty)
+      }
     }
 
     override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
@@ -427,7 +448,13 @@ abstract class TypeFlowAnalysis {
         val i  = instrs.head
 
         if(isPreCandidate(i)) {
-          remainingCALLs += Pair(i, b)
+          val cm = i.asInstanceOf[opcodes.CALL_METHOD]
+          val paramsLength = cm.method.info.paramTypes.size
+          val receiver = result.stack.types.drop(paramsLength).head match {
+            case REFERENCE(s) => s
+            case _            => NoSymbol
+          }
+          remainingCALLs += Pair(cm, CallsiteInfo(b, receiver))
         }
 
         result = mutatingInterpret(result, i)
