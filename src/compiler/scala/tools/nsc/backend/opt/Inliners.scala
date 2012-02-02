@@ -154,21 +154,13 @@ abstract class Inliners extends SubComponent {
       val inlinedMethodCount = mutable.HashMap.empty[Symbol, Int] withDefaultValue 0
 
       val caller = new IMethodInfo(m)
-      var info: tfa.lattice.Elem = null
+      // var info: tfa.lattice.Elem = null
 
       def analyzeInc(msym: Symbol, i: CALL_METHOD, bb: BasicBlock): Boolean = {
         var inlined = false
         def paramTypes  = msym.info.paramTypes
-        val receiver    = (info.stack.types drop paramTypes.length) match {
-          case Nil               => log("analyzeInc(" + msym + "), no type on the stack!") ; NoSymbol
-          case REFERENCE(s) :: _ => s
-          case _                 => NoSymbol
-        }
+        val Pair(receiver, stackLength) = tfa.trackedRCVR(i)
         val concreteMethod  = lookupImplFor(msym, receiver)
-
-        val Pair(trackedRcvr, stackLength) = tfa.trackedRCVR(i)
-        assert(receiver == trackedRcvr)
-        assert(stackLength == info.stack.length)
 
         def warnNoInline(reason: String) = {
           if (hasInline(msym) && !caller.isBridge)
@@ -213,7 +205,7 @@ abstract class Inliners extends SubComponent {
               val inc   = new IMethodInfo(callee)
               val pair  = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
 
-              if (pair isStampedForInlining info.stack) {
+              if (pair isStampedForInlining stackLength) {
                 retry = true
                 inlined = true
                 if (isCountable)
@@ -232,9 +224,9 @@ abstract class Inliners extends SubComponent {
               }
               else {
                 if (settings.debug.value)
-                  pair logFailure info.stack
+                  pair logFailure stackLength
 
-                warnNoInline(pair failureReason info.stack)
+                warnNoInline(pair failureReason stackLength)
               }
             case None =>
               warnNoInline("bytecode was not available")
@@ -261,24 +253,16 @@ abstract class Inliners extends SubComponent {
         val callerLin = caller.m.linearizedBlocks()  filter { bb => tfa.preCandidates.isDefinedAt(bb) }
 
         for(bb <- callerLin) {
-          info = tfa in bb
 
-          val realPreCands    = bb.toList collect { case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor => cm }
+          // val realPreCands    = bb.toList collect { case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor => cm }
           val trackedPreCands = tfa.preCandidates(bb)
-          assert(trackedPreCands == realPreCands)
+          // assert(trackedPreCands == realPreCands)
 
           breakable {
-            for (i <- bb) {
-              i match {
-                // Dynamic == normal invocations
-                // Static(true) == calls to private members
-                case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor =>
-                  if (analyzeInc(msym, cm, bb)) {
-                    break
-                  }
-                case _ => ()
+            for (cm <- trackedPreCands) {
+              if (analyzeInc(cm.method, cm, bb)) {
+                break
               }
-              info = tfa.interpret(info, i)
             }
           }
 
@@ -574,10 +558,10 @@ abstract class Inliners extends SubComponent {
         if (settings.debug.value) icodes.checkValid(caller.m)
       }
 
-      def isStampedForInlining(stack: TypeStack) =
-        !sameSymbols && inc.m.hasCode && shouldInline && isSafeToInline(stack)
+      def isStampedForInlining(stackLength: Int) =
+        !sameSymbols && inc.m.hasCode && shouldInline && isSafeToInline(stackLength)
 
-      def logFailure(stack: TypeStack) = log(
+      def logFailure(stackLength: Int) = log(
         """|inline failed for %s:
            |  pair.sameSymbols: %s
            |  inc.numInlined < 2: %s
@@ -586,13 +570,13 @@ abstract class Inliners extends SubComponent {
            |  shouldInline: %s
         """.stripMargin.format(
           inc.m, sameSymbols, inlinedMethodCount(inc.sym) < 2,
-          inc.m.hasCode, isSafeToInline(stack), shouldInline
+          inc.m.hasCode, isSafeToInline(stackLength), shouldInline
         )
       )
 
-      def failureReason(stack: TypeStack) =
+      def failureReason(stackLength: Int) =
         if (!inc.m.hasCode) "bytecode was unavailable"
-        else if (!isSafeToInline(stack)) "it is unsafe (target may reference private fields)"
+        else if (!isSafeToInline(stackLength)) "it is unsafe (target may reference private fields)"
         else "of a bug (run with -Ylog:inline -Ydebug for more information)"
 
       def canAccess(level: NonPublicRefs.Value) = level match {
@@ -612,7 +596,7 @@ abstract class Inliners extends SubComponent {
        * Note:
        *    - synthetic private members are made public in this pass.
        */
-      def isSafeToInline(stack: TypeStack): Boolean = {
+      def isSafeToInline(stackLength: Int): Boolean = {
         def makePublic(f: Symbol): Boolean =
           (inc.m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) && {
             debuglog("Making not-private symbol out of synthetic: " + f)
@@ -659,9 +643,9 @@ abstract class Inliners extends SubComponent {
         })
 
         canAccess(accessNeeded) && {
-          val isIllegalStack = (stack.length > inc.minimumStack && inc.hasNonFinalizerHandler)
+          val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
           !isIllegalStack || {
-            debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.  Stack: " + stack)
+            debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.")
             false
           }
         }
