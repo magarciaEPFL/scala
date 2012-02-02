@@ -166,6 +166,10 @@ abstract class Inliners extends SubComponent {
         }
         val concreteMethod  = lookupImplFor(msym, receiver)
 
+        val Pair(trackedRcvr, stackLength) = tfa.trackedRCVR(i)
+        assert(receiver == trackedRcvr)
+        assert(stackLength == info.stack.length)
+
         def warnNoInline(reason: String) = {
           if (hasInline(msym) && !caller.isBridge)
             warn(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
@@ -559,8 +563,8 @@ abstract class Inliners extends SubComponent {
         splicedBlocks ++= (calleeLin map inlinedBlock)
         val justCALLsAfter = instrAfter collect { case c : CALL_METHOD => c }
         for(ia <- justCALLsAfter; if tfa.remainingCALLs.isDefinedAt(ia)) {
-          val analysis.CallsiteInfo(_, rcv) = tfa.remainingCALLs(ia)
-          val updValue = analysis.CallsiteInfo(afterBlock, rcv)
+          val analysis.CallsiteInfo(_, rcv, stackLength) = tfa.remainingCALLs(ia)
+          val updValue = analysis.CallsiteInfo(afterBlock, rcv, stackLength)
           tfa.remainingCALLs += Pair(ia, updValue)
         }
 

@@ -410,7 +410,7 @@ abstract class TypeFlowAnalysis {
 	}
   }
 
-  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol)
+  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int)
 
   class MTFAGrowable extends MethodTFA {
 
@@ -420,7 +420,7 @@ abstract class TypeFlowAnalysis {
     val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
 
     val preCandidates  = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
-    val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, Symbol]
+    val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, Tuple2[Symbol, Int]]
 
     override def run {
       super.run
@@ -428,10 +428,10 @@ abstract class TypeFlowAnalysis {
       preCandidates.clear()
       trackedRCVR.clear()
       for(rc <- remainingCALLs) {
-        val Pair(cm, CallsiteInfo(bb, receiver)) = rc
+        val Pair(cm, CallsiteInfo(bb, receiver, stackLength)) = rc
         val preCands = preCandidates.getOrElse(bb, Nil)
         preCandidates += (bb -> (cm :: preCands))
-        trackedRCVR   += (cm -> receiver)
+        trackedRCVR   += (cm -> Pair(receiver, stackLength))
       }
       for(pc <- preCandidates) {
         val Pair(bb, unsortedPreCands) = pc
@@ -454,7 +454,7 @@ abstract class TypeFlowAnalysis {
             case REFERENCE(s) => s
             case _            => NoSymbol
           }
-          remainingCALLs += Pair(cm, CallsiteInfo(b, receiver))
+          remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length))
         }
 
         result = mutatingInterpret(result, i)
