@@ -448,7 +448,7 @@ abstract class TypeFlowAnalysis {
       while(!instrs.isEmpty) {
         val i  = instrs.head
 
-        if(isPreCandidate(i)) {
+        if(isOnWatchlist(i)) {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
           val paramsLength = msym.info.paramTypes.size
@@ -462,6 +462,7 @@ abstract class TypeFlowAnalysis {
             remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod))
           } else {
             remainingCALLs.remove(cm)
+            isOnWatchlist.remove(cm)
           }
         }
 
@@ -470,6 +471,11 @@ abstract class TypeFlowAnalysis {
       }
       result
     }
+
+    val isOnWatchlist = mutable.Set.empty[Instruction]
+
+    // those basic blocks with a pre-candidate (as well as all of their predecessors) will be visited by the TFA, the rest will be skipped.
+    val relevantBBs   = mutable.Set.empty[BasicBlock]
 
     private def isPreCandidate(i: Instruction): Boolean = {
       if(!i.isInstanceOf[opcodes.CALL_METHOD]) { return false }
@@ -485,9 +491,41 @@ abstract class TypeFlowAnalysis {
     override def init(m: icodes.IMethod) {
       super.init(m)
       remainingCALLs.clear()
+      // initially populate the watchlist with any callsite that stands a chance of being inlined
+      isOnWatchlist.clear()
+      putOnRadar(m.blocks)
+      relevantBBs.clear()
+      relevantBBs ++= m.blocks
     }
 
-    private def transitivePreds(starters: List[BasicBlock]): List[BasicBlock] = {
+    private def putOnRadar(blocks: Traversable[BasicBlock]) {
+      for(bb <- blocks; val preCands = bb.toList filter isPreCandidate; if preCands.nonEmpty) {
+        isOnWatchlist ++= preCands
+      }
+    }
+
+    private def transitivePreds(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
+      val result = mutable.Set.empty[BasicBlock]
+      var toVisit: List[BasicBlock] = starters.toList.distinct
+      while(toVisit.nonEmpty) {
+        val h   = toVisit.head
+        toVisit = toVisit.tail
+        result += h
+        for(p <- h.predecessors; if !result(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
+      }
+      result.toSet
+    }
+
+    private def transitiveSuccs(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
+      val result = mutable.Set.empty[BasicBlock]
+      var toVisit: List[BasicBlock] = starters.toList.distinct
+      while(toVisit.nonEmpty) {
+        val h   = toVisit.head
+        toVisit = toVisit.tail
+        result += h
+        for(p <- h.successors; if !result(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
+      }
+      result.toSet
     }
 
 
@@ -534,6 +572,12 @@ abstract class TypeFlowAnalysis {
           remainingCALLs += Pair(ia, updValue)
         }
       }
+
+      // don't forget watching those new precandidates
+      val shadow = transitiveSuccs(inlined ++ staleIn)
+      putOnRadar(shadow)
+      relevantBBs ++= staleOut
+      relevantBBs ++= shadow
 
      } // end of method reinit
 

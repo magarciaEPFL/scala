@@ -94,8 +94,7 @@ abstract class Inliners extends SubComponent {
       try {
         super.run()
       } finally {
-        inliner.NonPublicRefs.usesNonPublics.clear()
-        inliner.recentTFAs.clear
+        inliner.clearCaches()
       }
     }
   }
@@ -146,6 +145,16 @@ abstract class Inliners extends SubComponent {
       if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
       (hasRETURN, a)
+    }
+
+    def clearCaches() {
+      NonPublicRefs.usesNonPublics.clear()
+      recentTFAs.clear
+      tfa.remainingCALLs.clear()
+      tfa.preCandidates.clear()
+      tfa.trackedRCVR.clear()
+      tfa.isOnWatchlist.clear()
+      tfa.relevantBBs.clear()
     }
 
     def analyzeClass(cls: IClass): Unit =
@@ -377,7 +386,9 @@ abstract class Inliners extends SubComponent {
       def doInline(block: BasicBlock, instr: CALL_METHOD) {
 
         staleOut += block
-        tfa.remainingCALLs.remove(instr)
+
+        tfa.remainingCALLs.remove(instr) // this bookkpeeping is done here and not in MTFAGrowable.reinit due to (1st) convenience and (2nd) necessity.
+        tfa.isOnWatchlist.remove(instr)  // ditto
 
         val targetPos = instr.pos
         log("Inlining " + inc.m + " in " + caller.m + " at pos: " + posToStr(targetPos))
