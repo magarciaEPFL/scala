@@ -410,28 +410,29 @@ abstract class TypeFlowAnalysis {
 	}
   }
 
-  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int)
+  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
+
+  case class TypeFlowInfo(receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
 
   class MTFAGrowable extends MethodTFA {
 
     import icodes._
-    // import opcodes.CALL_METHOD
 
     val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
 
     val preCandidates  = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
-    val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, Tuple2[Symbol, Int]]
+    val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, TypeFlowInfo]
 
     override def run {
       super.run
-      // prepare two maps for use by Inliner
+      // prepare two maps (`preCandidates` and `trackedRCVR`) for use by Inliner by reshuffling the contents of `remainingCALLs`
       preCandidates.clear()
       trackedRCVR.clear()
       for(rc <- remainingCALLs) {
-        val Pair(cm, CallsiteInfo(bb, receiver, stackLength)) = rc
+        val Pair(cm, CallsiteInfo(bb, receiver, stackLength, concreteMethod)) = rc
         val preCands = preCandidates.getOrElse(bb, Nil)
         preCandidates += (bb -> (cm :: preCands))
-        trackedRCVR   += (cm -> Pair(receiver, stackLength))
+        trackedRCVR   += (cm -> TypeFlowInfo(receiver, stackLength, concreteMethod))
       }
       for(pc <- preCandidates) {
         val Pair(bb, unsortedPreCands) = pc
@@ -458,7 +459,7 @@ abstract class TypeFlowAnalysis {
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val isCandidate = ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal )
           if(isCandidate) {
-            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length))
+            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod))
           } else {
             remainingCALLs.remove(cm)
           }

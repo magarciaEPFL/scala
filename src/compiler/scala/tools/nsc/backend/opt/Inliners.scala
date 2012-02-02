@@ -185,9 +185,8 @@ abstract class Inliners extends SubComponent {
 
       def analyzeInc(i: CALL_METHOD, bb: BasicBlock): Boolean = {
         var inlined = false
-        val Pair(receiver, stackLength) = tfa.trackedRCVR(i)
+        val analysis.TypeFlowInfo(receiver, stackLength, concreteMethod) = tfa.trackedRCVR(i)
         val msym = i.method
-        val concreteMethod  = lookupImplFor(msym, receiver)
 
         def warnNoInline(reason: String) = {
           if (hasInline(msym) && !caller.isBridge)
@@ -542,8 +541,8 @@ abstract class Inliners extends SubComponent {
         splicedBlocks ++= (calleeLin map inlinedBlock)
         val justCALLsAfter = instrAfter collect { case c : CALL_METHOD => c }
         for(ia <- justCALLsAfter; if tfa.remainingCALLs.isDefinedAt(ia)) {
-          val analysis.CallsiteInfo(_, rcv, stackLength) = tfa.remainingCALLs(ia)
-          val updValue = analysis.CallsiteInfo(afterBlock, rcv, stackLength)
+          val analysis.CallsiteInfo(_, rcv, stackLength, concreteMethod) = tfa.remainingCALLs(ia)
+          val updValue = analysis.CallsiteInfo(afterBlock, rcv, stackLength, concreteMethod)
           tfa.remainingCALLs += Pair(ia, updValue)
         }
 
