@@ -493,17 +493,22 @@ abstract class TypeFlowAnalysis {
       remainingCALLs.clear()
       // initially populate the watchlist with any callsite that stands a chance of being inlined
       isOnWatchlist.clear()
-      putOnRadar(m.blocks)
+      val bbsWithPreCands = putOnRadar(m.blocks)
       relevantBBs.clear()
-      relevantBBs ++= m.blocks
+      relevantBBs ++= transitivePreds(bbsWithPreCands)
+      assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
 
-    private def putOnRadar(blocks: Traversable[BasicBlock]) {
+    private def putOnRadar(blocks: Traversable[BasicBlock]): List[BasicBlock] = {
+      var bbsWithPreCands: List[BasicBlock] = Nil
       for(bb <- blocks; val preCands = bb.toList filter isPreCandidate; if preCands.nonEmpty) {
+        bbsWithPreCands = bb :: bbsWithPreCands
         isOnWatchlist ++= preCands
       }
+      bbsWithPreCands
     }
 
+    /* those BBs in the argument are also included in the result */
     private def transitivePreds(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
       val result = mutable.Set.empty[BasicBlock]
       var toVisit: List[BasicBlock] = starters.toList.distinct
@@ -516,6 +521,7 @@ abstract class TypeFlowAnalysis {
       result.toSet
     }
 
+    /* those BBs in the argument are also included in the result */
     private def transitiveSuccs(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
       val result = mutable.Set.empty[BasicBlock]
       var toVisit: List[BasicBlock] = starters.toList.distinct
@@ -575,9 +581,10 @@ abstract class TypeFlowAnalysis {
 
       // don't forget watching those new precandidates
       val shadow = transitiveSuccs(inlined ++ staleIn)
-      putOnRadar(shadow)
+      val bbsWithPreCands = putOnRadar(shadow)
+      val feeders = transitivePreds(bbsWithPreCands)
       relevantBBs ++= staleOut
-      relevantBBs ++= shadow
+      relevantBBs ++= (feeders intersect shadow)
 
      } // end of method reinit
 
@@ -585,6 +592,27 @@ abstract class TypeFlowAnalysis {
       blocks foreach { b =>
         in(b)     = typeFlowLattice.bottom
         out(b)    = typeFlowLattice.bottom
+      }
+    }
+
+    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
+      while (!worklist.isEmpty && relevantBBs.nonEmpty) {
+        if (stat) iterations += 1
+        val point = worklist.iterator.next; worklist -= point; visited += point;
+        if(relevantBBs(point)) {
+          val output = f(point, in(point))
+          if ((lattice.bottom == out(point)) || output != out(point)) {
+            out(point) = output
+            val succs = point.successors filter relevantBBs
+            succs foreach { p =>
+              val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+              if(updated != in(p)) {
+                in(p) = updated
+                if (!worklist(p)) { worklist += p; }
+              }
+            }
+          }
+        }
       }
     }
 
