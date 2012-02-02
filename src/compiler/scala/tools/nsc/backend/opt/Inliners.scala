@@ -38,6 +38,33 @@ abstract class Inliners extends SubComponent {
     res
   }
 
+  /** Look up implementation of method 'sym in 'clazz'.
+   */
+  def lookupImplFor(sym: Symbol, clazz: Symbol): Symbol = {
+    // TODO: verify that clazz.superClass is equivalent here to clazz.tpe.parents(0).typeSymbol (.tpe vs .info)
+    def needsLookup = (
+         (clazz != NoSymbol)
+      && (clazz != sym.owner)
+      && !sym.isEffectivelyFinal
+      && clazz.isEffectivelyFinal
+    )
+    def lookup(clazz: Symbol): Symbol = {
+      // println("\t\tlooking up " + meth + " in " + clazz.fullName + " meth.owner = " + meth.owner)
+      if (sym.owner == clazz || isBottomType(clazz)) sym
+      else sym.overridingSymbol(clazz) match {
+        case NoSymbol  => if (sym.owner.isTrait) sym else lookup(clazz.superClass)
+        case imp       => imp
+      }
+    }
+    if (needsLookup) {
+      val concreteMethod = lookup(clazz)
+      debuglog("\tlooked up method: " + concreteMethod.fullName)
+
+      concreteMethod
+    }
+    else sym
+  }
+
   /* A warning threshold */
   private final val MAX_INLINE_MILLIS = 2000
 
@@ -156,10 +183,10 @@ abstract class Inliners extends SubComponent {
       val caller = new IMethodInfo(m)
       // var info: tfa.lattice.Elem = null
 
-      def analyzeInc(msym: Symbol, i: CALL_METHOD, bb: BasicBlock): Boolean = {
+      def analyzeInc(i: CALL_METHOD, bb: BasicBlock): Boolean = {
         var inlined = false
-        def paramTypes  = msym.info.paramTypes
         val Pair(receiver, stackLength) = tfa.trackedRCVR(i)
+        val msym = i.method
         val concreteMethod  = lookupImplFor(msym, receiver)
 
         def warnNoInline(reason: String) = {
@@ -253,19 +280,14 @@ abstract class Inliners extends SubComponent {
         val callerLin = caller.m.linearizedBlocks()  filter { bb => tfa.preCandidates.isDefinedAt(bb) }
 
         for(bb <- callerLin) {
-
-          // val realPreCands    = bb.toList collect { case cm @ CALL_METHOD(msym, Dynamic | Static(true)) if !msym.isConstructor => cm }
           val trackedPreCands = tfa.preCandidates(bb)
-          // assert(trackedPreCands == realPreCands)
-
           breakable {
             for (cm <- trackedPreCands) {
-              if (analyzeInc(cm.method, cm, bb)) {
+              if (analyzeInc(cm, bb)) {
                 break
               }
             }
           }
-
         }
 
         if (tfa.stat)
@@ -300,33 +322,6 @@ abstract class Inliners extends SubComponent {
       val res = hasInline(sym) || alwaysLoad || loadCondition
       debuglog("shouldLoadImplFor: " + receiver + "." + sym + ": " + res)
       res
-    }
-
-    /** Look up implementation of method 'sym in 'clazz'.
-     */
-    def lookupImplFor(sym: Symbol, clazz: Symbol): Symbol = {
-      // TODO: verify that clazz.superClass is equivalent here to clazz.tpe.parents(0).typeSymbol (.tpe vs .info)
-      def needsLookup = (
-           (clazz != NoSymbol)
-        && (clazz != sym.owner)
-        && !sym.isEffectivelyFinal
-        && clazz.isEffectivelyFinal
-      )
-      def lookup(clazz: Symbol): Symbol = {
-        // println("\t\tlooking up " + meth + " in " + clazz.fullName + " meth.owner = " + meth.owner)
-        if (sym.owner == clazz || isBottomType(clazz)) sym
-        else sym.overridingSymbol(clazz) match {
-          case NoSymbol  => if (sym.owner.isTrait) sym else lookup(clazz.superClass)
-          case imp       => imp
-        }
-      }
-      if (needsLookup) {
-        val concreteMethod = lookup(clazz)
-        debuglog("\tlooked up method: " + concreteMethod.fullName)
-
-        concreteMethod
-      }
-      else sym
     }
 
     class IMethodInfo(val m: IMethod) {

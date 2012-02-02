@@ -449,12 +449,19 @@ abstract class TypeFlowAnalysis {
 
         if(isPreCandidate(i)) {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
-          val paramsLength = cm.method.info.paramTypes.size
+          val msym = cm.method
+          val paramsLength = msym.info.paramTypes.size
           val receiver = result.stack.types.drop(paramsLength).head match {
             case REFERENCE(s) => s
-            case _            => NoSymbol
+            case _            => NoSymbol // e.g. BOX(s)
           }
-          remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length))
+          val concreteMethod = inliner.lookupImplFor(msym, receiver)
+          val isCandidate = ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal )
+          if(isCandidate) {
+            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length))
+          } else {
+            remainingCALLs.remove(cm)
+          }
         }
 
         result = mutatingInterpret(result, i)
