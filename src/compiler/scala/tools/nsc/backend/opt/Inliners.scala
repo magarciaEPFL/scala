@@ -162,6 +162,8 @@ abstract class Inliners extends SubComponent {
       tfa.trackedRCVR.clear()
       tfa.isOnWatchlist.clear()
       tfa.relevantBBs.clear()
+      tfa.knownUnsafe.clear()
+      tfa.knownSafe.clear()
     }
 
     def analyzeClass(cls: IClass): Unit =
@@ -303,6 +305,12 @@ abstract class Inliners extends SubComponent {
         inlined
       }
 
+      /* Pre-inlining consists in invoking the usual inlining subroutine with (receiver class, concrete method) pairs as input
+       * where both method and receiver are final, which implies that the receiver computed via TFA will always match `concreteMethod.owner`.
+       * As with any invocation of `analyzeInc()` the inlining outcome is based on heuristics which favor inlining an isMonadicMethod before other methods.
+       * As a whole, both `preInline()` invocations below amount to priming the inlining process,
+       * so that the first TFA run afterwards is able to gain more information as compared to a "cold-start".
+       */
       val totalPreInlines = preInline(true) + preInline(false)
 
       do {
@@ -619,8 +627,7 @@ abstract class Inliners extends SubComponent {
       private def sameOwner   = caller.owner == inc.owner
 
       /** A method is safe to inline when:
-       *    - it does not contain calls to private methods when
-       *      called from another class
+       *    - it does not contain calls to private methods when called from another class
        *    - it is not inlined into a position with non-empty stack,
        *      while having a top-level finalizer (see liftedTry problem)
        *    - it is not recursive
@@ -628,6 +635,18 @@ abstract class Inliners extends SubComponent {
        *    - synthetic private members are made public in this pass.
        */
       def isSafeToInline(stackLength: Int): Boolean = {
+
+        if(tfa.knownUnsafe(inc.sym)) { return false }
+        if(tfa.knownSafe(inc.sym))   { return true  }
+
+        if(helperIsSafeToInline(stackLength)) {
+          tfa.knownSafe += inc.sym;   true
+        } else {
+          tfa.knownUnsafe += inc.sym; false
+        }
+      }
+
+      private def helperIsSafeToInline(stackLength: Int): Boolean = {
         def makePublic(f: Symbol): Boolean =
           (inc.m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) && {
             debuglog("Making not-private symbol out of synthetic: " + f)

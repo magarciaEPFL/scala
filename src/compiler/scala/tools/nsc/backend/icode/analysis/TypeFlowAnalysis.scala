@@ -416,17 +416,17 @@ abstract class TypeFlowAnalysis {
 
   /*
 
-    Usually, a type-flow analysis on a method computes in- and out-flows for each basic block in the method.
-    For the purposes of Inliner, doing so guarantees that an abstract type-stack-slot is available by the time an inlining candidate (a CALL_METHOD instruction) is visited.
+    A full type-flow analysis on a method computes in- and out-flows for each basic block in the method.
+    For the purposes of Inliner, doing so guarantees that an abstract typestack-slot is available by the time an inlining candidate (a CALL_METHOD instruction) is visited.
     This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with some differences:
 
       (a) early screening is performed while the type-flow is being computed (in an override of `blockTransfer`) by testing a subset of the conditions that Inliner checks later.
-          The reasoning here is: if the early check fails at some iteration, there's no chance a follow-up iteration (with a yet more lub-ed type-stack-slot) will succeed.
+          The reasoning here is: if the early check fails at some iteration, there's no chance a follow-up iteration (with a yet more lub-ed typestack-slot) will succeed.
           Failure is sufficient to remove that particular CALL_METHOD from the typeflow's `remainingCALLs`.
           A forward note: in case inlining occurs at some basic block B, all successors of B get their CALL_METHOD instruction considered again as candidates
-          (because of the more precise types that can -- perhaps -- be computed).
+          (because of the more precise types that -- perhaps -- can be computed).
 
-      (b) in case the early check does not fail, no conclusive decision can be made, so everything goes on as in the standard version.
+      (b) in case the early check does not fail, no conclusive decision can be made, thus the CALL_METHOD is left for on the `isOnwatchlist`.
 
     In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining
     (the map also caches info about the receiver so as to spare computing it again at inlining time).
@@ -495,7 +495,10 @@ abstract class TypeFlowAnalysis {
             case _            => NoSymbol // e.g. BOX(s)
           }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
-          val isCandidate = ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal )
+          val isCandidate = {
+            ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal ) &&
+            !knownUnsafe(concreteMethod)
+          }
           if(isCandidate) {
             remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod))
           } else {
@@ -525,6 +528,14 @@ abstract class TypeFlowAnalysis {
 
     val isOnWatchlist = mutable.Set.empty[Instruction]
 
+    /* Each time CallerCalleeInfo.isSafeToInline determines a concrete callee is unsafe to inline in the current caller,
+       the fact is recorded in this TFA instance for the purpose of avoiding devoting processing to that callsite a next time.
+       The condition of "being unsafe to inline in the current caller" sticks across inlinings and TFA re-inits
+       because it depends on the instructions of the callee, which stay unchanged during the course of `analyzeInc(caller)`
+       (with the caveat of the side-effecting `makePublic` in `helperIsSafeToInline`).*/
+    val knownUnsafe = mutable.Set.empty[Symbol]
+    val knownSafe   = mutable.Set.empty[Symbol]
+
     // those basic blocks with a pre-candidate (as well as all of their predecessors) will be visited by the TFA, the rest will be skipped.
     val relevantBBs   = mutable.Set.empty[BasicBlock]
 
@@ -533,7 +544,8 @@ abstract class TypeFlowAnalysis {
       val style = cm.style
       // Dynamic == normal invocations
       // Static(true) == calls to private members
-      !msym.isConstructor && (style.isDynamic || (style.hasInstance && style.isStatic))
+      !msym.isConstructor && !knownUnsafe(msym) &&
+      (style.isDynamic || (style.hasInstance && style.isStatic))
       // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
     }
 
@@ -541,6 +553,8 @@ abstract class TypeFlowAnalysis {
       super.init(m)
       remainingCALLs.clear()
       isOnWatchlist.clear()
+      knownUnsafe.clear()
+      knownSafe.clear()
       // initially populate the watchlist with all callsites standing a chance of being inlined
       val bbsWithPreCands = putOnRadar(m.linearizedBlocks(linearizer))
       relevantBBs.clear()
