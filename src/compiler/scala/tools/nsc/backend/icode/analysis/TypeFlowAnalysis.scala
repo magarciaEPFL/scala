@@ -528,9 +528,7 @@ abstract class TypeFlowAnalysis {
     // those basic blocks with a pre-candidate (as well as all of their predecessors) will be visited by the TFA, the rest will be skipped.
     val relevantBBs   = mutable.Set.empty[BasicBlock]
 
-    private def isPreCandidate(i: Instruction): Boolean = {
-      if(!i.isInstanceOf[opcodes.CALL_METHOD]) { return false }
-      val cm = i.asInstanceOf[opcodes.CALL_METHOD]
+    private def isPreCandidate(cm: opcodes.CALL_METHOD): Boolean = {
       val msym  = cm.method
       val style = cm.style
       // Dynamic == normal invocations
@@ -544,17 +542,29 @@ abstract class TypeFlowAnalysis {
       remainingCALLs.clear()
       isOnWatchlist.clear()
       // initially populate the watchlist with all callsites standing a chance of being inlined
-      val bbsWithPreCands = putOnRadar(m.blocks)
+      val bbsWithPreCands = putOnRadar(m.linearizedBlocks(linearizer))
       relevantBBs.clear()
       relevantBBs ++= transitivePreds(bbsWithPreCands)
       // TODO populatePerimeter() based on relevantBBs
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
 
+    def conclusives(b: BasicBlock): List[opcodes.CALL_METHOD] = {
+      knownBeforehand(b) filter { cm => inliner.isMonadicMethod(cm.method) || inliner.hasInline(cm.method) }
+    }
+
+    def knownBeforehand(b: BasicBlock): List[opcodes.CALL_METHOD] = {
+      b.toList collect { case c : opcodes.CALL_METHOD => c } filter isKnownBeforehand
+    }
+
+    private def isKnownBeforehand(cm: opcodes.CALL_METHOD): Boolean = {
+      isPreCandidate(cm) && cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal // not checking @noinline on purpose
+    }
+
     private def putOnRadar(blocks: Traversable[BasicBlock]): List[BasicBlock] = {
       var bbsWithPreCands: List[BasicBlock] = Nil
       for(bb <- blocks;
-          val preCands = bb.toList filter { i => isPreCandidate(i) };
+          val preCands = bb.toList collect { case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm };
           if preCands.nonEmpty) {
         bbsWithPreCands = bb :: bbsWithPreCands
         isOnWatchlist ++= preCands;

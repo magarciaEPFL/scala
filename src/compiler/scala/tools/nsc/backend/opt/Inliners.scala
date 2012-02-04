@@ -106,6 +106,16 @@ abstract class Inliners extends SubComponent {
   def isClosureClass(cls: Symbol): Boolean =
     cls.isFinal && cls.isSynthetic && !cls.isModuleClass && cls.isAnonymousFunction
 
+  def isMonadicMethod(sym: Symbol) = {
+    nme.unspecializedName(sym.name) match {
+      case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
+      case _                                                                 => false
+    }
+  }
+
+  def hasInline(sym: Symbol)    = sym hasAnnotation ScalaInlineClass
+  def hasNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
+
   /**
    * Simple inliner.
    */
@@ -117,9 +127,6 @@ abstract class Inliners extends SubComponent {
       val usesNonPublics = mutable.Map.empty[IMethod, Value]
     }
     import NonPublicRefs._
-
-    private def hasInline(sym: Symbol)    = sym hasAnnotation ScalaInlineClass
-    private def hasNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
 
     /** The current iclass */
     private var currentIClazz: IClass = _
@@ -191,9 +198,30 @@ abstract class Inliners extends SubComponent {
 
       val caller = new IMethodInfo(m)
 
-      def analyzeInc(i: CALL_METHOD, bb: BasicBlock): Boolean = {
+      /* inline straightforward callsites (those that can be inlined without a TFA) */
+      def preInline(isFirstRound: Boolean): Int = {
+        var preInlineCount = 0
+        import scala.util.control.Breaks._
+        do {
+          retry = false
+          for(x <- caller.m.linearizedBlocks();
+              val easyCake = if(isFirstRound) tfa.conclusives(x) else tfa.knownBeforehand(x);
+              if easyCake.nonEmpty) {
+            breakable {
+              for(ocm <- easyCake) {
+                if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
+                  preInlineCount += 1
+                  break
+                }
+              }
+            }
+          }
+        } while(retry && preInlineCount < 5 * MAX_INLINE_RETRY)
+        preInlineCount
+      }
+
+      def analyzeInc(i: CALL_METHOD, bb: BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol): Boolean = {
         var inlined = false
-        val analysis.TypeFlowInfo(receiver, stackLength, concreteMethod) = tfa.trackedRCVR(i)
         val msym = i.method
 
         def warnNoInline(reason: String) = {
@@ -275,6 +303,8 @@ abstract class Inliners extends SubComponent {
         inlined
       }
 
+      val totalPreInlines = preInline(true) + preInline(false)
+
       do {
         retry = false
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
@@ -299,7 +329,8 @@ abstract class Inliners extends SubComponent {
           val trackedPreCands = tfa.preCandidates(bb)
           breakable {
             for (cm <- trackedPreCands) {
-              if (analyzeInc(cm, bb)) {
+              val analysis.TypeFlowInfo(receiver, stackLength, concreteMethod) = tfa.trackedRCVR(cm)
+              if (analyzeInc(cm, bb, receiver, stackLength, concreteMethod)) {
                 break
               }
             }
@@ -317,13 +348,6 @@ abstract class Inliners extends SubComponent {
         val prefix = if ((instrAfterInlining > 2 * instrBeforeInlining) && (instrAfterInlining > 200)) " !! " else ""
         log(prefix + " %s blocks before inlining: %d (%d) after: %d (%d)".format(
           m.symbol.fullName, sizeBeforeInlining, instrBeforeInlining, m.code.blockCount, instrAfterInlining))
-      }
-    }
-
-    private def isMonadicMethod(sym: Symbol) = {
-      nme.unspecializedName(sym.name) match {
-        case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
-        case _                                                                 => false
       }
     }
 
