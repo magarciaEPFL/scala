@@ -190,7 +190,6 @@ abstract class Inliners extends SubComponent {
       val inlinedMethodCount = mutable.HashMap.empty[Symbol, Int] withDefaultValue 0
 
       val caller = new IMethodInfo(m)
-      // var info: tfa.lattice.Elem = null
 
       def analyzeInc(i: CALL_METHOD, bb: BasicBlock): Boolean = {
         var inlined = false
@@ -272,10 +271,10 @@ abstract class Inliners extends SubComponent {
           if (!isAvailable) "bytecode was not available"
           else "it can be overridden"
         )
+
         inlined
       }
 
-      import scala.util.control.Breaks._
       do {
         retry = false
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
@@ -285,8 +284,17 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        val callerLin = caller.m.linearizedBlocks()  filter { bb => tfa.preCandidates.isDefinedAt(bb) }
+        for(pc <- tfa.preCandidates) {
+          val Pair(bb, unsortedPreCands) = pc
+          val sortedPreCands = (bb.toList filter { i => unsortedPreCands contains i }).asInstanceOf[List[opcodes.CALL_METHOD]]
+          tfa.preCandidates += (bb -> sortedPreCands)
+          assert(sortedPreCands.nonEmpty)
+        }
 
+        // it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones.
+        val callerLin = caller.m.linearizedBlocks() filter { bb => tfa.preCandidates.isDefinedAt(bb) }
+
+        import scala.util.control.Breaks._
         for(bb <- callerLin) {
           val trackedPreCands = tfa.preCandidates(bb)
           breakable {
@@ -643,6 +651,7 @@ abstract class Inliners extends SubComponent {
 
         canAccess(accessNeeded) && {
           val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
+
           !isIllegalStack || {
             debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.")
             false

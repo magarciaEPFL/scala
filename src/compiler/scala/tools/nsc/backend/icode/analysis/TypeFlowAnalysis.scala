@@ -417,19 +417,21 @@ abstract class TypeFlowAnalysis {
   /*
 
     Usually, a type-flow analysis on a method computes in- and out-flows for each basic block in the method.
-    For the purposes of Inliner, that's enough to make sure that by the time a inlining candidate (a CALL_METHOD instruction) is visited its abstracted type-stack-slot is known.
-    This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with a difference:
+    For the purposes of Inliner, doing so guarantees that an abstract type-stack-slot is available by the time an inlining candidate (a CALL_METHOD instruction) is visited.
+    This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with some differences:
 
-      (a) an early screening is performed while the type-flow is being computed (in an override of `blockTransfer`) testing a subset of the conditions that must be checked later.
+      (a) early screening is performed while the type-flow is being computed (in an override of `blockTransfer`) by testing a subset of the conditions that Inliner checks later.
           The reasoning here is: if the early check fails at some iteration, there's no chance a follow-up iteration (with a yet more lub-ed type-stack-slot) will succeed.
           Failure is sufficient to remove that particular CALL_METHOD from the typeflow's `remainingCALLs`.
+          A forward note: in case inlining occurs at some basic block B, all successors of B get their CALL_METHOD instruction considered again as candidates
+          (because of the more precise types that can -- perhaps -- be computed).
 
       (b) in case the early check does not fail, no conclusive decision can be made, so everything goes on as in the standard version.
 
-    In other words, `remainingCALLs` tracks at any time those callsites that still remain as candidates for inlining
-    (the map also caches info about the receiver so as to spare computing it again in case inlining does occur).
+    In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining
+    (the map also caches info about the receiver so as to spare computing it again at inlining time).
 
-    Besides caching, a further optimization involves skipping visiting those basic blocks whose in-flow and out-flow isn't needed anway (as explained next).
+    Besides caching, a further optimization involves skipping those basic blocks whose in-flow and out-flow isn't needed anway (as explained next).
     A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, will not result in any inlining.
     But as we know from the way a type-flow is computed, computing the in- and out-flow for a basic block relies on those of other basic blocks.
     How to keep those, while discarding the rest?
@@ -452,22 +454,29 @@ abstract class TypeFlowAnalysis {
     val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, TypeFlowInfo]
 
     override def run {
-      super.run
-      // prepare two maps (`preCandidates` and `trackedRCVR`) for use by Inliner by reshuffling the contents of `remainingCALLs`
+
+      timer.start
+      val prevRelevant = relevantBBs.toSet // before they are shrinked on-the-fly
+      forwardAnalysis(blockTransfer)
+      val t = timer.stop
+
+      // prepare two maps (`preCandidates` and `trackedRCVR`) for use by Inliner. Basically, the contents of `remainingCALLs` are reshuffled.
       preCandidates.clear()
       trackedRCVR.clear()
       for(rc <- remainingCALLs) {
         val Pair(cm, CallsiteInfo(bb, receiver, stackLength, concreteMethod)) = rc
         val preCands = preCandidates.getOrElse(bb, Nil)
-        preCandidates += (bb -> (cm :: preCands))
+        preCandidates += (bb -> (cm :: preCands)) // values don't necessarily show up in the same order as in bb.toList
         trackedRCVR   += (cm -> TypeFlowInfo(receiver, stackLength, concreteMethod))
       }
-      for(pc <- preCandidates) {
-        val Pair(bb, unsortedPreCands) = pc
-        val sortedPreCands = (bb.toList filter { i => unsortedPreCands contains i }).asInstanceOf[List[opcodes.CALL_METHOD]]
-        preCandidates += (bb -> sortedPreCands)
-        assert(sortedPreCands.nonEmpty)
+
+      if (settings.debug.value) {
+        for(b <- linearizer.linearize(method); if (b != method.startBlock) && preCandidates.isDefinedAt(b)) {
+          assert(visited.contains(b),
+                 "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited)
+        }
       }
+
     }
 
     override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
@@ -503,6 +512,7 @@ abstract class TypeFlowAnalysis {
       if(shrinkedWatchlist) {
         val isWatching = (b.toList exists isOnWatchlist)
         if(!isWatching) {
+          // TODO remove from perimeter
           val watchers = relevantBBs.toSet filter { x => x.toList exists isOnWatchlist }
           val updated  = transitivePreds(watchers)
           relevantBBs.clear()
@@ -532,20 +542,24 @@ abstract class TypeFlowAnalysis {
     override def init(m: icodes.IMethod) {
       super.init(m)
       remainingCALLs.clear()
-      // initially populate the watchlist with any callsite that stands a chance of being inlined
       isOnWatchlist.clear()
+      // initially populate the watchlist with all callsites standing a chance of being inlined
       val bbsWithPreCands = putOnRadar(m.blocks)
       relevantBBs.clear()
       relevantBBs ++= transitivePreds(bbsWithPreCands)
+      // TODO populatePerimeter() based on relevantBBs
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
 
     private def putOnRadar(blocks: Traversable[BasicBlock]): List[BasicBlock] = {
       var bbsWithPreCands: List[BasicBlock] = Nil
-      for(bb <- blocks; val preCands = bb.toList filter isPreCandidate; if preCands.nonEmpty) {
+      for(bb <- blocks;
+          val preCands = bb.toList filter { i => isPreCandidate(i) };
+          if preCands.nonEmpty) {
         bbsWithPreCands = bb :: bbsWithPreCands
-        isOnWatchlist ++= preCands
+        isOnWatchlist ++= preCands;
       }
+
       bbsWithPreCands
     }
 
@@ -590,25 +604,25 @@ abstract class TypeFlowAnalysis {
         return;
       }
 
-      reinit {
-        // asserts conveying an idea what CFG shapes arrive here.
-        // staleIn foreach (p => assert( !in.isDefinedAt(p), p))
-        // staleIn foreach (p => assert(!out.isDefinedAt(p), p))
-        // inlined foreach (p => assert( !in.isDefinedAt(p), p))
-        // inlined foreach (p => assert(!out.isDefinedAt(p), p))
-        // inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
-        // staleOut foreach (p => assert(  in.isDefinedAt(p), p))
+      worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
 
-        // never rewrite in(m.startBlock)
-        staleOut foreach { b =>
-          if(!inlined.contains(b)) { worklist += b }
-          out(b)    = typeFlowLattice.bottom
-        }
-        // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
-        blankOut(inlined)
-        blankOut(staleIn)
-        // no need to add startBlocks from m.exh
+      // asserts conveying an idea what CFG shapes arrive here.
+      // staleIn foreach (p => assert( !in.isDefinedAt(p), p))
+      // staleIn foreach (p => assert(!out.isDefinedAt(p), p))
+      // inlined foreach (p => assert( !in.isDefinedAt(p), p))
+      // inlined foreach (p => assert(!out.isDefinedAt(p), p))
+      // inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
+      // staleOut foreach (p => assert(  in.isDefinedAt(p), p))
+
+      // never rewrite in(m.startBlock)
+      staleOut foreach { b =>
+        if(!worklist.contains(b)) { worklist += b }
+        out(b)    = typeFlowLattice.bottom
       }
+      // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
+      blankOut(inlined)
+      blankOut(staleIn)
+      // no need to add startBlocks from m.exh
 
       /* those instructions originally following the inlined callsite (but in the same basic block)
        * are now contained in the afterBlock created to that effect. Each block in staleIn is one such `afterBlock`. */
@@ -626,25 +640,28 @@ abstract class TypeFlowAnalysis {
       val feeders = transitivePreds(bbsWithPreCands)
       relevantBBs ++= staleOut
       relevantBBs ++= (feeders intersect shadow)
+      // TODO populatePerimeter() based on relevantBBs
 
      } // end of method reinit
 
     private def blankOut(blocks: collection.Set[BasicBlock]) {
       blocks foreach { b =>
-        in(b)     = typeFlowLattice.bottom
-        out(b)    = typeFlowLattice.bottom
+        in(b)  = typeFlowLattice.bottom
+        out(b) = typeFlowLattice.bottom
       }
     }
 
     override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
       while (!worklist.isEmpty && relevantBBs.nonEmpty) {
         if (stat) iterations += 1
-        val point = worklist.iterator.next; worklist -= point; visited += point;
+        val point = worklist.iterator.next; worklist -= point;
         if(relevantBBs(point)) {
           val output = f(point, in(point))
+          visited += point;
           if ((lattice.bottom == out(point)) || output != out(point)) {
             out(point) = output
             val succs = point.successors filter relevantBBs
+            // TODO if succs isEmpty and some isOnWatchlist, add to perimeter. Update lastToInterpret instruction. If none on watchlist, the perim (if any) based on direct preds.
             succs foreach { p =>
               val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
               if(updated != in(p)) {
