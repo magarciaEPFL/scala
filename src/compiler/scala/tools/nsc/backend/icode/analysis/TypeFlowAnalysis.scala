@@ -477,6 +477,20 @@ abstract class TypeFlowAnalysis {
 
     var shrinkedWatchlist = false
 
+    /*
+      This is the method where information cached elsewhere is put to use. References are given those other places that populate those caches.
+
+      The goal is to avoid computing type-flows for blocks we don't need (ie blocks not tracked in `relevantBBs`). The method used to add to `relevantBBs` is `putOnRadar`.
+
+      Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
+      There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
+      The reasoning behind this decsision is described in `populatePerimeter()`. All `blockTransfer()` needs to do is query the `isOnPerimeter` set to know when to stop.
+
+      Upon visiting a CALL_METHOD that's an inlining candidate, the relevant pieces of information about the pre-instruction typestack are collected for future use.
+      That is, unless the candidacy test fails. The reasoning here is: if such early check fails at some iteration, there's no chance a follow-up iteration
+      (with a yet more lub-ed typestack-slot) will succeed. In case of failure we can safely remove the CALL_METHOD from both `isOnWatchlist` and `remainingCALLs`.
+
+     */
     override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
       var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
 
@@ -551,7 +565,7 @@ abstract class TypeFlowAnalysis {
       // initially populate the watchlist with all callsites standing a chance of being inlined
       isOnWatchlist.clear()
       relevantBBs.clear()
-      relevantBBs ++= putOnRadar(m.linearizedBlocks(linearizer))
+      putOnRadar(m.linearizedBlocks(linearizer))
       populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
@@ -568,16 +582,13 @@ abstract class TypeFlowAnalysis {
       isPreCandidate(cm) && cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal // not checking @noinline on purpose
     }
 
-    private def putOnRadar(blocks: Traversable[BasicBlock]): Traversable[BasicBlock] = {
-      var bbsWithPreCands: List[BasicBlock] = Nil
+    private def putOnRadar(blocks: Traversable[BasicBlock]) {
       for(bb <- blocks;
           val preCands = bb.toList collect { case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm };
           if preCands.nonEmpty) {
-        bbsWithPreCands = bb :: bbsWithPreCands
         isOnWatchlist ++= preCands;
       }
-
-      blocks // TODO bbsWithPreCands
+      relevantBBs ++= blocks
     }
 
     /* those BBs in the argument are also included in the result */
@@ -612,7 +623,7 @@ abstract class TypeFlowAnalysis {
       }
 
       // assertion: "no relevant block can have a predecessor that is on perimeter"
-      // TODO assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty)
+      // assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty)
     }
 
     private val isOnPerimeter   = mutable.Set.empty[BasicBlock]
@@ -667,10 +678,7 @@ abstract class TypeFlowAnalysis {
 
       isOnWatchlist.clear()
       relevantBBs.clear()
-      for(so <- staleOut) {
-        relevantBBs ++= putOnRadar(linearizer linearizeAt (m, so))
-      }
-      // assert(staleOut forall relevantBBs)
+      staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }
       populatePerimeter()
     } // end of method reinit
 

@@ -308,11 +308,17 @@ abstract class Inliners extends SubComponent {
 
       /* Pre-inlining consists in invoking the usual inlining subroutine with (receiver class, concrete method) pairs as input
        * where both method and receiver are final, which implies that the receiver computed via TFA will always match `concreteMethod.owner`.
+       *
        * As with any invocation of `analyzeInc()` the inlining outcome is based on heuristics which favor inlining an isMonadicMethod before other methods.
+       * That's why preInline() is invoked twice: any inlinings downplayed by the heuristics during the first run get an opportunity to rank higher during the second.
+       *
        * As a whole, both `preInline()` invocations below amount to priming the inlining process,
        * so that the first TFA run afterwards is able to gain more information as compared to a "cold-start".
        */
-      val totalPreInlines = preInline(true) + preInline(false)
+      val totalPreInlines = {
+        val firstRound = preInline(true)
+        if(firstRound == 0) 0 else (firstRound + preInline(false))
+      }
 
       do {
         retry = false
