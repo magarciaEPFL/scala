@@ -159,7 +159,6 @@ abstract class Inliners extends SubComponent {
       recentTFAs.clear
       tfa.remainingCALLs.clear()
       tfa.preCandidates.clear()
-      tfa.trackedRCVR.clear()
       tfa.isOnWatchlist.clear()
       tfa.relevantBBs.clear()
       tfa.knownUnsafe.clear()
@@ -339,7 +338,7 @@ abstract class Inliners extends SubComponent {
           val trackedPreCands = tfa.preCandidates(bb)
           breakable {
             for (cm <- trackedPreCands) {
-              val analysis.TypeFlowInfo(receiver, stackLength, concreteMethod) = tfa.trackedRCVR(cm)
+              val analysis.CallsiteInfo(_, receiver, stackLength, concreteMethod) = tfa.remainingCALLs(cm)
               if (analyzeInc(cm, bb, receiver, stackLength, concreteMethod)) {
                 break
               }

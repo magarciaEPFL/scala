@@ -412,11 +412,9 @@ abstract class TypeFlowAnalysis {
 
   case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
 
-  case class TypeFlowInfo(receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
-
   /*
 
-    A full type-flow analysis on a method computes in- and out-flows for each basic block in the method.
+    A full type-flow analysis on a method computes in- and out-flows for each basic block.
     For the purposes of Inliner, doing so guarantees that an abstract typestack-slot is available by the time an inlining candidate (a CALL_METHOD instruction) is visited.
     This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with some differences:
 
@@ -429,7 +427,7 @@ abstract class TypeFlowAnalysis {
       (b) in case the early check does not fail, no conclusive decision can be made, thus the CALL_METHOD is left for on the `isOnwatchlist`.
 
     In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining
-    (the map also caches info about the receiver so as to spare computing it again at inlining time).
+    (the map also caches info about the typestack just before the callsite , so as to spare computing it again at inlining time).
 
     Besides caching, a further optimization involves skipping those basic blocks whose in-flow and out-flow isn't needed anway (as explained next).
     A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, will not result in any inlining.
@@ -451,23 +449,21 @@ abstract class TypeFlowAnalysis {
     val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
 
     val preCandidates  = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
-    val trackedRCVR    = mutable.Map.empty[opcodes.CALL_METHOD, TypeFlowInfo]
 
     override def run {
 
       timer.start
-      val prevRelevant = relevantBBs.toSet // before they are shrinked on-the-fly
       forwardAnalysis(blockTransfer)
       val t = timer.stop
 
-      // prepare two maps (`preCandidates` and `trackedRCVR`) for use by Inliner. Basically, the contents of `remainingCALLs` are reshuffled.
+      /* Now that `forwardAnalysis(blockTransfer)` has finished, all inlining candidates can be found in `remainingCALLs`,
+         whose keys are callsites and whose values are pieces of information about the typestack just before the callsite in question.
+         To simplify `analyzeMethod()` further, we group in map `preCandidates` those callsites by their containing basic block. */
       preCandidates.clear()
-      trackedRCVR.clear()
       for(rc <- remainingCALLs) {
         val Pair(cm, CallsiteInfo(bb, receiver, stackLength, concreteMethod)) = rc
         val preCands = preCandidates.getOrElse(bb, Nil)
-        preCandidates += (bb -> (cm :: preCands)) // values don't necessarily show up in the same order as in bb.toList
-        trackedRCVR   += (cm -> TypeFlowInfo(receiver, stackLength, concreteMethod))
+        preCandidates += (bb -> (cm :: preCands)) // values don't necessarily show up in the same order as in bb.toList, that will be fixed in `analyzeMethod()`
       }
 
       if (settings.debug.value) {
@@ -479,12 +475,12 @@ abstract class TypeFlowAnalysis {
 
     }
 
+    var shrinkedWatchlist = false
+
     override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
       var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
 
-      var shrinkedWatchlist = false
-
-      val isPerimBB  = isOnPerimeter(b)
+      val stopAt = if(isOnPerimeter(b)) lastInstruction(b) else null;
       var isPastLast = false
 
       var instrs = b.toList
@@ -497,7 +493,7 @@ abstract class TypeFlowAnalysis {
           val paramsLength = msym.info.paramTypes.size
           val receiver = result.stack.types.drop(paramsLength).head match {
             case REFERENCE(s) => s
-            case _            => NoSymbol // e.g. BOX(s)
+            case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
           }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val isCandidate = {
@@ -513,15 +509,13 @@ abstract class TypeFlowAnalysis {
           }
         }
 
-        if(isPerimBB) { isPastLast = (i eq lastInstruction(b)) }
+        isPastLast = (i eq stopAt)
 
         if(!isPastLast) {
           result = mutatingInterpret(result, i)
           instrs = instrs.tail
         }
       }
-
-      // TODO BOOM if(shrinkedWatchlist && !isWatching(b) && isOnPerimeter(b)) { populatePerimeter() }
 
       result
     } // end of method blockTransfer
@@ -595,19 +589,6 @@ abstract class TypeFlowAnalysis {
         toVisit = toVisit.tail
         result += h
         for(p <- h.predecessors; if !result(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
-      }
-      result.toSet
-    }
-
-    /* those BBs in the argument are also included in the result */
-    private def transitiveSuccs(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
-      val result = mutable.Set.empty[BasicBlock]
-      var toVisit: List[BasicBlock] = starters.toList.distinct
-      while(toVisit.nonEmpty) {
-        val h   = toVisit.head
-        toVisit = toVisit.tail
-        result += h
-        for(p <- h.successors; if !result(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
       }
       result.toSet
     }
@@ -705,10 +686,11 @@ abstract class TypeFlowAnalysis {
         if (stat) iterations += 1
         val point = worklist.iterator.next; worklist -= point;
         if(relevantBBs(point)) {
+          shrinkedWatchlist = false
           val output = f(point, in(point))
           visited += point;
           if(isOnPerimeter(point)) {
-            if(!isWatching(point)) {
+            if(shrinkedWatchlist && !isWatching(point)) {
               relevantBBs -= point;
               populatePerimeter()
             }
