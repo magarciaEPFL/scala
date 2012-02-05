@@ -312,17 +312,23 @@ abstract class Inliners extends SubComponent {
        * As with any invocation of `analyzeInc()` the inlining outcome is based on heuristics which favor inlining an isMonadicMethod before other methods.
        * That's why preInline() is invoked twice: any inlinings downplayed by the heuristics during the first run get an opportunity to rank higher during the second.
        *
-       * As a whole, both `preInline()` invocations below amount to priming the inlining process,
-       * so that the first TFA run afterwards is able to gain more information as compared to a "cold-start".
+       * As a whole, both `preInline()` invocations amount to priming the inlining process,
+       * so that the first TFA run afterwards is able to gain more information as compared to a cold-start.
        */
       val totalPreInlines = {
         val firstRound = preInline(true)
         if(firstRound == 0) 0 else (firstRound + preInline(false))
       }
+      staleOut.clear()
+      splicedBlocks.clear()
+      staleIn.clear()
 
       do {
         retry = false
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
+
+        /* it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones. */
+        tfa.callerLin = caller.m.linearizedBlocks()
         tfa.reinit(m, staleOut.toList, splicedBlocks, staleIn)
         tfa.run
         staleOut.clear()
@@ -336,11 +342,10 @@ abstract class Inliners extends SubComponent {
           assert(sortedPreCands.nonEmpty)
         }
 
-        // it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones.
-        val callerLin = caller.m.linearizedBlocks() filter { bb => tfa.preCandidates.isDefinedAt(bb) }
+        val trackedBBs = tfa.callerLin filter { bb => tfa.preCandidates.isDefinedAt(bb) }
 
         import scala.util.control.Breaks._
-        for(bb <- callerLin) {
+        for(bb <- trackedBBs) {
           val trackedPreCands = tfa.preCandidates(bb)
           breakable {
             for (cm <- trackedPreCands) {

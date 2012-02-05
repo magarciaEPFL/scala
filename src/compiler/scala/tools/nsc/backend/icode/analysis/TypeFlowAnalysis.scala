@@ -450,6 +450,8 @@ abstract class TypeFlowAnalysis {
 
     val preCandidates  = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
 
+    var callerLin: Traversable[BasicBlock] = null
+
     override def run {
 
       timer.start
@@ -467,7 +469,7 @@ abstract class TypeFlowAnalysis {
       }
 
       if (settings.debug.value) {
-        for(b <- linearizer.linearize(method); if (b != method.startBlock) && preCandidates.isDefinedAt(b)) {
+        for(b <- callerLin; if (b != method.startBlock) && preCandidates.isDefinedAt(b)) {
           assert(visited.contains(b),
                  "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited)
         }
@@ -575,21 +577,27 @@ abstract class TypeFlowAnalysis {
     }
 
     def knownBeforehand(b: BasicBlock): List[opcodes.CALL_METHOD] = {
-      b.toList collect { case c : opcodes.CALL_METHOD => c } filter isKnownBeforehand
+      b.toList collect { case c : opcodes.CALL_METHOD => c } filter { cm => isPreCandidate(cm) && isReceiverKnown(cm) }
     }
 
-    private def isKnownBeforehand(cm: opcodes.CALL_METHOD): Boolean = {
-      isPreCandidate(cm) && cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal // not checking @noinline on purpose
+    private def isReceiverKnown(cm: opcodes.CALL_METHOD): Boolean = {
+      cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal
     }
 
-    private def putOnRadar(blocks: Traversable[BasicBlock]) {
-      for(bb <- blocks;
-          val preCands = bb.toList collect { case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm };
-          if preCands.nonEmpty) {
-        isOnWatchlist ++= preCands;
+    private def putOnRadar(blocks: Traversable[BasicBlock]) { // not checking @noinline on purpose
+      for(bb <- blocks) {
+        val preCands = bb.toList collect {
+          case cm : opcodes.CALL_METHOD
+            if isPreCandidate(cm) /* && !isReceiverKnown(cm) */
+          => cm
+        }
+        isOnWatchlist ++= preCands
       }
       relevantBBs ++= blocks
     }
+
+    /* the argument is also included in the result */
+    private def transitivePreds(b: BasicBlock): Set[BasicBlock] = { transitivePreds(List(b)) }
 
     /* those BBs in the argument are also included in the result */
     private def transitivePreds(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
@@ -600,6 +608,19 @@ abstract class TypeFlowAnalysis {
         toVisit = toVisit.tail
         result += h
         for(p <- h.predecessors; if !result(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
+      }
+      result.toSet
+    }
+
+    /* those BBs in the argument are also included in the result */
+    private def transitiveSuccs(starters: Traversable[BasicBlock]): Set[BasicBlock] = {
+      val result = mutable.Set.empty[BasicBlock]
+      var toVisit: List[BasicBlock] = starters.toList.distinct
+      while(toVisit.nonEmpty) {
+        val h   = toVisit.head
+        toVisit = toVisit.tail
+        result += h
+        for(p <- h.successors; if !result(p) && !toVisit.contains(p)) { toVisit = p :: toVisit }
       }
       result.toSet
     }
@@ -623,7 +644,7 @@ abstract class TypeFlowAnalysis {
       }
 
       // assertion: "no relevant block can have a predecessor that is on perimeter"
-      // assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty)
+      assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty)
     }
 
     private val isOnPerimeter   = mutable.Set.empty[BasicBlock]
@@ -680,7 +701,37 @@ abstract class TypeFlowAnalysis {
       relevantBBs.clear()
       staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }
       populatePerimeter()
+
     } // end of method reinit
+
+    private def localMinima(blocks: Traversable[BasicBlock]): Set[BasicBlock] = {
+
+      val result = mutable.Set.empty[BasicBlock]
+
+        def hasNonSelfLocalPreds(x: BasicBlock) = ( (x.predecessors.toSet - x) exists result)
+
+      result ++= blocks
+      var done = true
+      do {
+        done = true
+        val current = result.toSet
+        for(b <- current; if hasNonSelfLocalPreds(b)) {
+          result -= b;
+          done = false
+        }
+      } while(!done)
+
+      result.toSet
+    }
+
+    private def enqueue(b: BasicBlock) {
+      assert(in(b) ne typeFlowLattice.bottom)
+      if(!worklist.contains(b)) { worklist += b }
+    }
+
+    private def enqueue(bs: Traversable[BasicBlock]) {
+      bs foreach enqueue
+    }
 
     private def blankOut(blocks: collection.Set[BasicBlock]) {
       blocks foreach { b =>
