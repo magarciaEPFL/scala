@@ -188,6 +188,8 @@ abstract class Inliners extends SubComponent {
     val staleIn       = mutable.Set.empty[BasicBlock]
 
     def analyzeMethod(m: IMethod): Unit = {
+      // m.normalize
+
       var sizeBeforeInlining  = m.code.blockCount
       var instrBeforeInlining = m.code.instructionCount
       var retry = false

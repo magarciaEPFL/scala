@@ -481,9 +481,14 @@ abstract class TypeFlowAnalysis {
 
     override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
       var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+
       var shrinkedWatchlist = false
+
+      val isPerimBB  = isOnPerimeter(b)
+      var isPastLast = false
+
       var instrs = b.toList
-      while(!instrs.isEmpty) {
+      while(!isPastLast && !instrs.isEmpty) {
         val i  = instrs.head
 
         if(isOnWatchlist(i)) {
@@ -508,23 +513,18 @@ abstract class TypeFlowAnalysis {
           }
         }
 
-        result = mutatingInterpret(result, i)
-        instrs = instrs.tail
-      }
+        if(isPerimBB) { isPastLast = (i eq lastInstruction(b)) }
 
-      if(shrinkedWatchlist) {
-        val isWatching = (b.toList exists isOnWatchlist)
-        if(!isWatching) {
-          // TODO remove from perimeter
-          val watchers = relevantBBs.toSet filter { x => x.toList exists isOnWatchlist }
-          val updated  = transitivePreds(watchers)
-          relevantBBs.clear()
-          relevantBBs ++= updated
+        if(!isPastLast) {
+          result = mutatingInterpret(result, i)
+          instrs = instrs.tail
         }
       }
 
+      // TODO BOOM if(shrinkedWatchlist && !isWatching(b) && isOnPerimeter(b)) { populatePerimeter() }
+
       result
-    }
+    } // end of method blockTransfer
 
     val isOnWatchlist = mutable.Set.empty[Instruction]
 
@@ -552,14 +552,13 @@ abstract class TypeFlowAnalysis {
     override def init(m: icodes.IMethod) {
       super.init(m)
       remainingCALLs.clear()
-      isOnWatchlist.clear()
       knownUnsafe.clear()
       knownSafe.clear()
       // initially populate the watchlist with all callsites standing a chance of being inlined
-      val bbsWithPreCands = putOnRadar(m.linearizedBlocks(linearizer))
+      isOnWatchlist.clear()
       relevantBBs.clear()
-      relevantBBs ++= transitivePreds(bbsWithPreCands)
-      // TODO populatePerimeter() based on relevantBBs
+      relevantBBs ++= putOnRadar(m.linearizedBlocks(linearizer))
+      populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
 
@@ -575,7 +574,7 @@ abstract class TypeFlowAnalysis {
       isPreCandidate(cm) && cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal // not checking @noinline on purpose
     }
 
-    private def putOnRadar(blocks: Traversable[BasicBlock]): List[BasicBlock] = {
+    private def putOnRadar(blocks: Traversable[BasicBlock]): Traversable[BasicBlock] = {
       var bbsWithPreCands: List[BasicBlock] = Nil
       for(bb <- blocks;
           val preCands = bb.toList collect { case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm };
@@ -584,7 +583,7 @@ abstract class TypeFlowAnalysis {
         isOnWatchlist ++= preCands;
       }
 
-      bbsWithPreCands
+      blocks // TODO bbsWithPreCands
     }
 
     /* those BBs in the argument are also included in the result */
@@ -613,7 +612,34 @@ abstract class TypeFlowAnalysis {
       result.toSet
     }
 
+    /* A basic block B is "on the perimeter" of the current control-flow subgraph if none of its successors belong to that subgraph.
+     * In that case, for the purposes of inlining, we're interested in the typestack right before the last inline candidate in B, not in those afterwards.
+     * In particular we can do without computing the outflow at B. */
+    private def populatePerimeter() {
+      isOnPerimeter.clear()
+      var done = true
+      do {
+        val (frontier, toPrune) = (relevantBBs filter hasNoRelevantSuccs) partition isWatching
+        isOnPerimeter ++= frontier
+        relevantBBs   --= toPrune
+        done = toPrune.isEmpty
+      } while(!done)
 
+      lastInstruction.clear()
+      for(b <- isOnPerimeter; val lastIns = b.toList.reverse find isOnWatchlist) {
+        lastInstruction += (b -> lastIns.get.asInstanceOf[opcodes.CALL_METHOD])
+      }
+
+      // assertion: "no relevant block can have a predecessor that is on perimeter"
+      // TODO assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty)
+    }
+
+    private val isOnPerimeter   = mutable.Set.empty[BasicBlock]
+    private val lastInstruction = mutable.Map.empty[BasicBlock, opcodes.CALL_METHOD]
+
+    def hasNoRelevantSuccs(x: BasicBlock): Boolean = { !(x.successors exists relevantBBs) }
+
+    def isWatching(x: BasicBlock): Boolean = (x.toList exists isOnWatchlist)
 
 
 
@@ -658,15 +684,14 @@ abstract class TypeFlowAnalysis {
         }
       }
 
-      // don't forget watching those new precandidates
-      val shadow = transitiveSuccs(inlined ++ staleIn)
-      val bbsWithPreCands = putOnRadar(shadow)
-      val feeders = transitivePreds(bbsWithPreCands)
-      relevantBBs ++= staleOut
-      relevantBBs ++= (feeders intersect shadow)
-      // TODO populatePerimeter() based on relevantBBs
-
-     } // end of method reinit
+      isOnWatchlist.clear()
+      relevantBBs.clear()
+      for(so <- staleOut) {
+        relevantBBs ++= putOnRadar(linearizer linearizeAt (m, so))
+      }
+      // assert(staleOut forall relevantBBs)
+      populatePerimeter()
+    } // end of method reinit
 
     private def blankOut(blocks: collection.Set[BasicBlock]) {
       blocks foreach { b =>
@@ -682,15 +707,23 @@ abstract class TypeFlowAnalysis {
         if(relevantBBs(point)) {
           val output = f(point, in(point))
           visited += point;
-          if ((lattice.bottom == out(point)) || output != out(point)) {
-            out(point) = output
-            val succs = point.successors filter relevantBBs
-            // TODO if succs isEmpty and some isOnWatchlist, add to perimeter. Update lastToInterpret instruction. If none on watchlist, the perim (if any) based on direct preds.
-            succs foreach { p =>
-              val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
-              if(updated != in(p)) {
-                in(p) = updated
-                if (!worklist(p)) { worklist += p; }
+          if(isOnPerimeter(point)) {
+            if(!isWatching(point)) {
+              relevantBBs -= point;
+              populatePerimeter()
+            }
+          } else {
+            val propagate = ((lattice.bottom == out(point)) || output != out(point))
+            if (propagate) {
+              out(point) = output
+              val succs = point.successors filter relevantBBs
+              succs foreach { p =>
+                assert((p.predecessors filter isOnPerimeter).isEmpty)
+                val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+                if(updated != in(p)) {
+                  in(p) = updated
+                  if (!worklist(p)) { worklist += p; }
+                }
               }
             }
           }
