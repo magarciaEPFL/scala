@@ -202,26 +202,34 @@ abstract class Inliners extends SubComponent {
 
       val caller = new IMethodInfo(m)
 
-      /* inline straightforward callsites (those that can be inlined without a TFA) */
       def preInline(isFirstRound: Boolean): Int = {
-        var preInlineCount = 0
+        val inputBlocks = caller.m.linearizedBlocks()
+        val callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]] = {
+          if(isFirstRound) tfa.conclusives else tfa.knownBeforehand
+        }
+        inlineWithoutTFA(inputBlocks, callsites)
+      }
+
+      /* inline straightforward callsites (those that can be inlined without a TFA) */
+      def inlineWithoutTFA(inputBlocks: Traversable[BasicBlock], callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]]): Int = {
+        var inlineCount = 0
         import scala.util.control.Breaks._
         do {
           retry = false
-          for(x <- caller.m.linearizedBlocks();
-              val easyCake = if(isFirstRound) tfa.conclusives(x) else tfa.knownBeforehand(x);
+          for(x <- inputBlocks;
+              val easyCake = callsites(x);
               if easyCake.nonEmpty) {
             breakable {
               for(ocm <- easyCake) {
                 if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
-                  preInlineCount += 1
+                  inlineCount += 1
                   break
                 }
               }
             }
           }
-        } while(retry && preInlineCount < 5 * MAX_INLINE_RETRY)
-        preInlineCount
+        } while(retry && inlineCount < 5 * MAX_INLINE_RETRY)
+        inlineCount
       }
 
       def analyzeInc(i: CALL_METHOD, bb: BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol): Boolean = {
@@ -357,6 +365,22 @@ abstract class Inliners extends SubComponent {
             }
           }
         }
+
+        /*
+        if(splicedBlocks.nonEmpty) { TODO explore because it saves 8 sec
+          // opportunistically perform straightforward inlinings before the next typeflow round
+          val savedRetry = retry
+          val savedStaleOut = staleOut.toSet; staleOut.clear()
+          val savedStaleIn  = staleIn.toSet ; staleIn.clear()
+          val howmany = inlineWithoutTFA(splicedBlocks, tfa.knownBeforehand)
+          if(howmany > 0) println("inlineWithoutTFA: " + howmany);
+          splicedBlocks ++= (staleOut filter savedStaleOut)
+          splicedBlocks ++= staleIn
+          staleOut.clear(); staleOut ++= savedStaleOut;
+          staleIn.clear();  staleIn  ++= savedStaleIn;
+          retry = savedRetry
+        }
+        */
 
         if (tfa.stat)
           log(m.symbol.fullName + " iterations: " + tfa.iterations + " (size: " + caller.length + ")")

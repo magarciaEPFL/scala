@@ -681,7 +681,7 @@ abstract class TypeFlowAnalysis {
 
       // never rewrite in(m.startBlock)
       staleOut foreach { b =>
-        if(!worklist.contains(b)) { worklist += b }
+        enqueue(b)
         out(b)    = typeFlowLattice.bottom
       }
       // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
@@ -765,7 +765,7 @@ abstract class TypeFlowAnalysis {
                 val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
                 if(updated != in(p)) {
                   in(p) = updated
-                  if (!worklist(p)) { worklist += p; }
+                  enqueue(p)
                 }
               }
             }
