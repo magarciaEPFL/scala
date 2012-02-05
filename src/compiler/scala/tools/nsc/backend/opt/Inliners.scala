@@ -163,6 +163,7 @@ abstract class Inliners extends SubComponent {
       tfa.relevantBBs.clear()
       tfa.knownUnsafe.clear()
       tfa.knownSafe.clear()
+      tfa.knownNever.clear()
     }
 
     def analyzeClass(cls: IClass): Unit =
@@ -721,7 +722,9 @@ abstract class Inliners extends SubComponent {
        *   - it's good to inline closures functions.
        *   - it's bad (useless) to inline inside bridge methods
        */
-      private def neverInline   = caller.isBridge || !inc.m.hasCode || inc.noinline
+      private def neverInline   = {
+        (!inc.m.hasCode || inc.noinline) && { tfa.knownNever += inc.m.symbol; true }
+      }
       private def alwaysInline  = inc.inline
 
       def shouldInline: Boolean = !neverInline && (alwaysInline || {

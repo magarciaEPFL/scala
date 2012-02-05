@@ -514,7 +514,7 @@ abstract class TypeFlowAnalysis {
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val isCandidate = {
             ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal ) &&
-            !knownUnsafe(concreteMethod)
+            !blackballed(concreteMethod)
           }
           if(isCandidate) {
             remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod))
@@ -545,6 +545,8 @@ abstract class TypeFlowAnalysis {
        (with the caveat of the side-effecting `makePublic` in `helperIsSafeToInline`).*/
     val knownUnsafe = mutable.Set.empty[Symbol]
     val knownSafe   = mutable.Set.empty[Symbol]
+    val knownNever  = mutable.Set.empty[Symbol] // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `knownUnsafe` and `knownSafe`)
+    @inline private final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever(msym) }
 
     // those basic blocks with a pre-candidate (as well as all of their predecessors) will be visited by the TFA, the rest will be skipped.
     val relevantBBs   = mutable.Set.empty[BasicBlock]
@@ -554,7 +556,7 @@ abstract class TypeFlowAnalysis {
       val style = cm.style
       // Dynamic == normal invocations
       // Static(true) == calls to private members
-      !msym.isConstructor && !knownUnsafe(msym) &&
+      !msym.isConstructor && !blackballed(msym) &&
       (style.isDynamic || (style.hasInstance && style.isStatic))
       // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
     }
