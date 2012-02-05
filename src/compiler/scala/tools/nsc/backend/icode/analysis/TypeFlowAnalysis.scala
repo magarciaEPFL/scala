@@ -671,13 +671,13 @@ abstract class TypeFlowAnalysis {
 
       worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
 
-      // asserts conveying an idea what CFG shapes arrive here.
-      // staleIn foreach (p => assert( !in.isDefinedAt(p), p))
-      // staleIn foreach (p => assert(!out.isDefinedAt(p), p))
-      // inlined foreach (p => assert( !in.isDefinedAt(p), p))
-      // inlined foreach (p => assert(!out.isDefinedAt(p), p))
-      // inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
-      // staleOut foreach (p => assert(  in.isDefinedAt(p), p))
+      // asserts conveying an idea what CFG shapes arrive here:
+      //   staleIn foreach (p => assert( !in.isDefinedAt(p), p))
+      //   staleIn foreach (p => assert(!out.isDefinedAt(p), p))
+      //   inlined foreach (p => assert( !in.isDefinedAt(p), p))
+      //   inlined foreach (p => assert(!out.isDefinedAt(p), p))
+      //   inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
+      //   staleOut foreach (p => assert(  in.isDefinedAt(p), p))
 
       // never rewrite in(m.startBlock)
       staleOut foreach { b =>
@@ -689,8 +689,10 @@ abstract class TypeFlowAnalysis {
       blankOut(staleIn)
       // no need to add startBlocks from m.exh
 
-      /* those instructions originally following the inlined callsite (but in the same basic block)
-       * are now contained in the afterBlock created to that effect. Each block in staleIn is one such `afterBlock`. */
+      /* Some instructions have moved to a new block! We'd better update their entry in `remainingCALLs`, as follows.
+       * The instructions in question originally appeared after the (by now inlined) callsite
+       * (ie the entry in remainingCALLs still tracks them as belongin to the basic block where the callsite existed).
+       * Their new home is an `afterBlock` created by `doInline()` to that effect. Each block in staleIn is one such `afterBlock`. */
       for(afterBlock <- staleIn) {
         val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
         for(ia <- justCALLsAfter; if remainingCALLs.isDefinedAt(ia)) {
@@ -705,26 +707,6 @@ abstract class TypeFlowAnalysis {
       populatePerimeter()
 
     } // end of method reinit
-
-    private def localMinima(blocks: Traversable[BasicBlock]): Set[BasicBlock] = {
-
-      val result = mutable.Set.empty[BasicBlock]
-
-        def hasNonSelfLocalPreds(x: BasicBlock) = ( (x.predecessors.toSet - x) exists result)
-
-      result ++= blocks
-      var done = true
-      do {
-        done = true
-        val current = result.toSet
-        for(b <- current; if hasNonSelfLocalPreds(b)) {
-          result -= b;
-          done = false
-        }
-      } while(!done)
-
-      result.toSet
-    }
 
     private def enqueue(b: BasicBlock) {
       assert(in(b) ne typeFlowLattice.bottom)
