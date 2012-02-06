@@ -319,7 +319,7 @@ abstract class Inliners extends SubComponent {
        * where both method and receiver are final, which implies that the receiver computed via TFA will always match `concreteMethod.owner`.
        *
        * As with any invocation of `analyzeInc()` the inlining outcome is based on heuristics which favor inlining an isMonadicMethod before other methods.
-       * That's why preInline() is invoked twice: any inlinings downplayed by the heuristics during the first run get an opportunity to rank higher during the second.
+       * That's why preInline() is invoked twice: any inlinings downplayed by the heuristics during the first round get an opportunity to rank higher during the second.
        *
        * As a whole, both `preInline()` invocations amount to priming the inlining process,
        * so that the first TFA run afterwards is able to gain more information as compared to a cold-start.
@@ -344,10 +344,8 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        val trackedBBs = tfa.callerLin filter { bb => tfa.preCandidates(bb) }
-
         import scala.util.control.Breaks._
-        for(bb <- trackedBBs) {
+        for(bb <- tfa.callerLin; if tfa.preCandidates(bb)) {
           val cms = bb.toList collect { case cm : CALL_METHOD => cm }
           breakable {
             for (cm <- cms; if tfa.remainingCALLs.isDefinedAt(cm)) {
@@ -360,7 +358,7 @@ abstract class Inliners extends SubComponent {
         }
 
         /*
-        if(splicedBlocks.nonEmpty) { TODO explore because it saves 8 sec
+        if(splicedBlocks.nonEmpty) { TODO explore because this saves 8 sec
           // opportunistically perform straightforward inlinings before the next typeflow round
           val savedRetry = retry
           val savedStaleOut = staleOut.toSet; staleOut.clear()

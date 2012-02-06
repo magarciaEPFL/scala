@@ -414,7 +414,8 @@ abstract class TypeFlowAnalysis {
 
   /*
 
-    A full type-flow analysis on a method computes in- and out-flows for each basic block.
+    A full type-flow analysis on a method computes in- and out-flows for each basic block (that's what MethodTFA does).
+
     For the purposes of Inliner, doing so guarantees that an abstract typestack-slot is available by the time an inlining candidate (a CALL_METHOD instruction) is visited.
     This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with some differences:
 
@@ -426,17 +427,16 @@ abstract class TypeFlowAnalysis {
 
       (b) in case the early check does not fail, no conclusive decision can be made, thus the CALL_METHOD is left for on the `isOnwatchlist`.
 
-    In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining
-    (the map also caches info about the typestack just before the callsite , so as to spare computing it again at inlining time).
+    In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining, so that Inliner can focus on those.
+    `remainingCALLs` also caches info about the typestack just before the callsite, so as to spare computing them again at inlining time.
 
-    Besides caching, a further optimization involves skipping those basic blocks whose in-flow and out-flow isn't needed anway (as explained next).
-    A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, will not result in any inlining.
-    But as we know from the way a type-flow is computed, computing the in- and out-flow for a basic block relies on those of other basic blocks.
-    How to keep those, while discarding the rest?
-
+    Besides caching, a further optimization involves skipping those basic blocks whose in-flow and out-flow isn't needed anyway (as explained next).
+    A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, won't cause any inlining.
+    But as we know from the way a type-flow is computed, computing the in- and out-flow for a basic block relies in general on those of other basic blocks.
     In detail, we want to focus on that sub-graph of the CFG such that control flow may reach a remaining candidate callsite.
-    Those basic blocks not in that subgraph can be skipped altogether (that's why `forwardAnalysis()` in `MTFAGrowable` now checks for inclusion of a basic block in `relevantBBs`
-    before adding the block to the worklist, and as part of choosing successors).
+    Those basic blocks not in that subgraph can be skipped altogether. That's why:
+       - `forwardAnalysis()` in `MTFAGrowable` now checks for inclusion of a basic block in `relevantBBs`
+       - same check is performed before adding the block to the worklist, and as part of choosing successors.
     The bookkeeping supporting on-the-fly pruning of irrelevant blocks requires overridding most methods of the dataflow-analysis.
 
     The rest of the story takes place in Inliner, which does not visit all of the method's basic blocks but only on those represented in `remainingCALLs`.
@@ -463,7 +463,7 @@ abstract class TypeFlowAnalysis {
          To simplify `analyzeMethod()` further, we group in map `preCandidates` those callsites by their containing basic block. */
       preCandidates.clear()
       for(rc <- remainingCALLs) {
-        val Pair(cm, CallsiteInfo(bb, _, _, _)) = rc
+        val Pair(_, CallsiteInfo(bb, _, _, _)) = rc
         preCandidates += bb
       }
 
@@ -485,7 +485,8 @@ abstract class TypeFlowAnalysis {
 
       Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
       There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
-      The reasoning behind this decsision is described in `populatePerimeter()`. All `blockTransfer()` needs to do is query the `isOnPerimeter` set to know when to stop.
+      The reasoning behind this decsision is described in `populatePerimeter()`. All `blockTransfer()` needs to do (in order to know at which instruction it can stop)
+      is querying `isOnPerimeter`.
 
       Upon visiting a CALL_METHOD that's an inlining candidate, the relevant pieces of information about the pre-instruction typestack are collected for future use.
       That is, unless the candidacy test fails. The reasoning here is: if such early check fails at some iteration, there's no chance a follow-up iteration
@@ -538,7 +539,7 @@ abstract class TypeFlowAnalysis {
     val isOnWatchlist = mutable.Set.empty[Instruction]
 
     /* Each time CallerCalleeInfo.isSafeToInline determines a concrete callee is unsafe to inline in the current caller,
-       the fact is recorded in this TFA instance for the purpose of avoiding devoting processing to that callsite a next time.
+       the fact is recorded in this TFA instance for the purpose of avoiding devoting processing to that callsite next time.
        The condition of "being unsafe to inline in the current caller" sticks across inlinings and TFA re-inits
        because it depends on the instructions of the callee, which stay unchanged during the course of `analyzeInc(caller)`
        (with the caveat of the side-effecting `makePublic` in `helperIsSafeToInline`).*/
@@ -547,7 +548,6 @@ abstract class TypeFlowAnalysis {
     val knownNever  = mutable.Set.empty[Symbol] // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `knownUnsafe` and `knownSafe`)
     @inline private final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever(msym) }
 
-    // those basic blocks with a pre-candidate (as well as all of their predecessors) will be visited by the TFA, the rest will be skipped.
     val relevantBBs   = mutable.Set.empty[BasicBlock]
 
     private def isPreCandidate(cm: opcodes.CALL_METHOD): Boolean = {
@@ -585,7 +585,7 @@ abstract class TypeFlowAnalysis {
       cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal
     }
 
-    private def putOnRadar(blocks: Traversable[BasicBlock]) { // not checking @noinline on purpose
+    private def putOnRadar(blocks: Traversable[BasicBlock]) {
       for(bb <- blocks) {
         val preCands = bb.toList collect {
           case cm : opcodes.CALL_METHOD
@@ -626,7 +626,7 @@ abstract class TypeFlowAnalysis {
       result.toSet
     }
 
-    /* A basic block B is "on the perimeter" of the current control-flow subgraph if none of its successors belong to that subgraph.
+    /* A basic block B is "on the perimeter" of the current control-flow subgraph if none of its successors belongs to that subgraph.
      * In that case, for the purposes of inlining, we're interested in the typestack right before the last inline candidate in B, not in those afterwards.
      * In particular we can do without computing the outflow at B. */
     private def populatePerimeter() {
@@ -658,7 +658,39 @@ abstract class TypeFlowAnalysis {
 
 
 
-    /** discards what must be discarded, blanks what needs to be blanked out, and keeps the rest. */
+    /**
+
+      This method is invoked after one or more inlinings have been performed in basic blocks whose in-flow is non-bottom (this makes a difference later).
+      What we know about those inlinings is given by:
+
+        - `staleOut`: These are the blocks where a callsite was inlined.
+                      For each callsite, all instructions in that block before the callsite were left in the block, and the rest moved to an `afterBlock`.
+                      The out-flow of these basic blocks is thus in general stale, that's why we'll add them to the TFA worklist.
+
+        - `inlined` : These blocks were spliced into the method's CFG as part of inlining. Being new blocks, they haven't been visited yet by the typeflow analysis.
+
+        - `staleIn` : These blocks are what `doInline()` calls `afterBlock`s, ie the new home for instructions that previously appearead
+                      after a callsite in a `staleOut` block.
+
+      Based on the above information, we have to bring up-to-date the caches that `forwardAnalysis` and `blockTransfer` use to skip blocks and instructions.
+      Those caches are `relevantBBs` and `isOnPerimeter` (for blocks) and `isOnWatchlist` and `lastInstruction` (for CALL_METHODs).
+      Please notice that all `inlined` and `staleIn` blocks are reachable from `staleOut` blocks.
+
+      The update takes place in two steps:
+
+        (1) `staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }`
+            This results in initial populations for `relevantBBs` and `isOnWatchlist`.
+            Because of the way `isPreCandidate` reuses previous decision-outcomes that are still valid,
+            this already prunes some candidates standing no chance of being inlined.
+
+        (2) `populatePerimeter()`
+            Based on the CFG-subgraph determined in (1) as reflected in `relevantBBs`,
+            this method detects some blocks whose typeflow aren't needed past a certain CALL_METHOD
+            (not needed because none of its successors is relevant for the purposes of inlining, see `hasNoRelevantSuccs`).
+            The blocks thus chosen are said to be "on the perimeter" of the CFG-subgraph.
+            For each of them, its `lastInstruction` (after which no more typeflows are needed) is found.
+
+     */
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
       if (this.method == null || this.method.symbol != m.symbol) {
         init(m)
@@ -678,20 +710,11 @@ abstract class TypeFlowAnalysis {
       //   inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
       //   staleOut foreach (p => assert(  in.isDefinedAt(p), p))
 
-      // never rewrite in(m.startBlock)
-      staleOut foreach { b =>
-        enqueue(b)
-        out(b)    = typeFlowLattice.bottom
-      }
-      // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
-      blankOut(inlined)
-      blankOut(staleIn)
-      // no need to add startBlocks from m.exh
-
       /* Some instructions have moved to a new block! We'd better update their entry in `remainingCALLs`, as follows.
        * The instructions in question originally appeared after the (by now inlined) callsite
-       * (ie the entry in remainingCALLs still tracks them as belongin to the basic block where the callsite existed).
-       * Their new home is an `afterBlock` created by `doInline()` to that effect. Each block in staleIn is one such `afterBlock`. */
+       * (ie the entry in remainingCALLs still tracks them as belonging to the basic block where that callsite existed).
+       * That was then. Now, their new home is an `afterBlock` created by `doInline()` to that effect.
+       * Each block in staleIn is one such `afterBlock` so, for those instructions, we have to update their entries in `remainingCALLs`. */
       for(afterBlock <- staleIn) {
         val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
         for(ia <- justCALLsAfter; if remainingCALLs.isDefinedAt(ia)) {
@@ -702,16 +725,31 @@ abstract class TypeFlowAnalysis {
 
       isOnWatchlist.clear()
       relevantBBs.clear()
+
+      // never rewrite in(m.startBlock)
+      staleOut foreach { b =>
+        enqueue(b)
+        out(b)    = typeFlowLattice.bottom
+      }
+      // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
+      blankOut(inlined)
+      blankOut(staleIn)
+      // no need to add startBlocks from m.exh
+
       staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }
       populatePerimeter()
 
     } // end of method reinit
 
+    /* this is not a general purpose method to add to the worklist,
+     * because the assert is expected to hold only when called from MTFAGrowable.reinit() */
     private def enqueue(b: BasicBlock) {
       assert(in(b) ne typeFlowLattice.bottom)
       if(!worklist.contains(b)) { worklist += b }
     }
 
+    /* this is not a general purpose method to add to the worklist,
+     * because the assert is expected to hold only when called from MTFAGrowable.reinit() */
     private def enqueue(bs: Traversable[BasicBlock]) {
       bs foreach enqueue
     }
