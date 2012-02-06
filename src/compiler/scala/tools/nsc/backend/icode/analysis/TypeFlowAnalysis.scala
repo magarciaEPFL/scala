@@ -761,6 +761,24 @@ abstract class TypeFlowAnalysis {
       }
     }
 
+    /*
+      This is basically the plain-old forward-analysis part of a dataflow algorithm,
+      adapted to skip non-relevant blocks (as determined by `reinit()` via `populatePerimeter()`).
+
+      The adaptations are:
+
+        - only relevant blocks dequeued from the worklist move on to have the transfer function applied
+
+        - `visited` now means the transfer function was applied to the block,
+          but please notice that this does not imply anymore its out-flow to be different from bottom,
+          because a block on the perimeter will have per-instruction typeflows computed only up to its `lastInstruction`.
+          In case you need to know whether a visted block `v` has been "fully visited", evaluate `out(v) ne typeflowLattice.bottom`
+
+        - given that the transfer function may remove callsite-candidates from the watchlist (thus, they are not candidates anymore)
+          there's an opportunity to detect whether a previously relevant block has been left without candidates.
+          That's what `shrinkedWatchlist` detects. Provided the block was on the perimeter, we know we can skip it from now now,
+          and we can also constrain the CFG-subgraph by finding a new perimeter (thus the invocation to `populatePerimeter()`).
+     */
     override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
       while (!worklist.isEmpty && relevantBBs.nonEmpty) {
         if (stat) iterations += 1
