@@ -448,7 +448,7 @@ abstract class TypeFlowAnalysis {
 
     val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
 
-    val preCandidates  = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
+    val preCandidates  = mutable.Set.empty[BasicBlock]
 
     var callerLin: Traversable[BasicBlock] = null
 
@@ -463,13 +463,12 @@ abstract class TypeFlowAnalysis {
          To simplify `analyzeMethod()` further, we group in map `preCandidates` those callsites by their containing basic block. */
       preCandidates.clear()
       for(rc <- remainingCALLs) {
-        val Pair(cm, CallsiteInfo(bb, receiver, stackLength, concreteMethod)) = rc
-        val preCands = preCandidates.getOrElse(bb, Nil)
-        preCandidates += (bb -> (cm :: preCands)) // values don't necessarily show up in the same order as in bb.toList, that will be fixed in `analyzeMethod()`
+        val Pair(cm, CallsiteInfo(bb, _, _, _)) = rc
+        preCandidates += bb
       }
 
       if (settings.debug.value) {
-        for(b <- callerLin; if (b != method.startBlock) && preCandidates.isDefinedAt(b)) {
+        for(b <- callerLin; if (b != method.startBlock) && preCandidates(b)) {
           assert(visited.contains(b),
                  "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited)
         }

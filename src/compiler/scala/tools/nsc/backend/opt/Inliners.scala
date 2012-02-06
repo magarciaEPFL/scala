@@ -344,20 +344,13 @@ abstract class Inliners extends SubComponent {
         splicedBlocks.clear()
         staleIn.clear()
 
-        for(pc <- tfa.preCandidates) {
-          val Pair(bb, unsortedPreCands) = pc
-          val sortedPreCands = (bb.toList filter { i => unsortedPreCands contains i }).asInstanceOf[List[opcodes.CALL_METHOD]]
-          tfa.preCandidates += (bb -> sortedPreCands)
-          assert(sortedPreCands.nonEmpty)
-        }
-
-        val trackedBBs = tfa.callerLin filter { bb => tfa.preCandidates.isDefinedAt(bb) }
+        val trackedBBs = tfa.callerLin filter { bb => tfa.preCandidates(bb) }
 
         import scala.util.control.Breaks._
         for(bb <- trackedBBs) {
-          val trackedPreCands = tfa.preCandidates(bb)
+          val cms = bb.toList collect { case cm : CALL_METHOD => cm }
           breakable {
-            for (cm <- trackedPreCands) {
+            for (cm <- cms; if tfa.remainingCALLs.isDefinedAt(cm)) {
               val analysis.CallsiteInfo(_, receiver, stackLength, concreteMethod) = tfa.remainingCALLs(cm)
               if (analyzeInc(cm, bb, receiver, stackLength, concreteMethod)) {
                 break
