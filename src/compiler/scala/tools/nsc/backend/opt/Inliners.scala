@@ -85,7 +85,7 @@ abstract class Inliners extends SubComponent {
      ------------------------------------------------------------------------------------------
    */
 
-  // TODO clear cache
+  // TODO clear inlineAnnCache
   private val inlineAnnCache = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // key encodes whether @inline (+1), @noinline (0), or none of the above.
 
   private def addToInlineCache(sym: Symbol): Int = {
@@ -116,6 +116,34 @@ abstract class Inliners extends SubComponent {
   }
 
   @inline private final def gLocked[T](f: => T): T = { global synchronized { f } }
+
+  /* ------------------------------------------------------------------------------------------
+     thread-pool-wide cache of type-flow analyses of external methods marked as @inline
+     ------------------------------------------------------------------------------------------
+   */
+
+  // TODO clear recentTFAs
+  val recentTFAs = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Tuple2[Boolean, analysis.MethodTFA]]
+  def getRecentTFA(incm: IMethod): (Boolean, analysis.MethodTFA) = {
+
+      def containsRETURN(blocks: List[BasicBlock]) = blocks exists { bb => bb.lastInstruction.isInstanceOf[RETURN] }
+
+    val opt = recentTFAs.get(incm.symbol)
+    if(opt != null) {
+      // FYI val cachedBBs = opt.get._2.in.keySet
+      // FYI assert(incm.blocks.toSet == cachedBBs)
+      // incm.code.touched plays no role here
+      return opt
+    }
+
+    val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
+    var a: analysis.MethodTFA = null
+    if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run }
+
+    if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
+
+    (hasRETURN, a)
+  }
 
   /** The Inlining phase.
    */
@@ -170,28 +198,6 @@ abstract class Inliners extends SubComponent {
     /** The current iclass */
     private var currentIClazz: IClass = _
     private def warn(pos: Position, msg: String) = currentIClazz.cunit.warning(pos, msg)
-
-    val recentTFAs = mutable.Map.empty[Symbol, Tuple2[Boolean, analysis.MethodTFA]]
-    private def getRecentTFA(incm: IMethod): (Boolean, analysis.MethodTFA) = {
-
-        def containsRETURN(blocks: List[BasicBlock]) = blocks exists { bb => bb.lastInstruction.isInstanceOf[RETURN] }
-
-      val opt = recentTFAs.get(incm.symbol)
-      if(opt.isDefined) {
-        // FYI val cachedBBs = opt.get._2.in.keySet
-        // FYI assert(incm.blocks.toSet == cachedBBs)
-        // incm.code.touched plays no role here
-        return opt.get
-      }
-
-      val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
-      var a: analysis.MethodTFA = null
-      if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run }
-
-      if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
-
-      (hasRETURN, a)
-    }
 
     def clearCaches() {
       NonPublicRefs.usesNonPublics.clear()
@@ -350,7 +356,7 @@ abstract class Inliners extends SubComponent {
                  * might have changed after the inlining.
                  */
                 usesNonPublics -= m
-                recentTFAs     -= m.symbol
+                recentTFAs.remove(m.symbol)
               }
               else {
                 if (settings.debug.value)
