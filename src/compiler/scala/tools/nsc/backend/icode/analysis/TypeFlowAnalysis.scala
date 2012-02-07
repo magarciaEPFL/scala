@@ -460,7 +460,7 @@ abstract class TypeFlowAnalysis {
 
       /* Now that `forwardAnalysis(blockTransfer)` has finished, all inlining candidates can be found in `remainingCALLs`,
          whose keys are callsites and whose values are pieces of information about the typestack just before the callsite in question.
-         To simplify `analyzeMethod()` further, we group in map `preCandidates` those callsites by their containing basic block. */
+         In order to keep `analyzeMethod()` simple, we collect in `preCandidates` those basic blocks containing at least one candidate. */
       preCandidates.clear()
       for(rc <- remainingCALLs) {
         val Pair(_, CallsiteInfo(bb, _, _, _)) = rc
@@ -685,7 +685,7 @@ abstract class TypeFlowAnalysis {
 
         (2) `populatePerimeter()`
             Based on the CFG-subgraph determined in (1) as reflected in `relevantBBs`,
-            this method detects some blocks whose typeflow aren't needed past a certain CALL_METHOD
+            this method detects some blocks whose typeflows aren't needed past a certain CALL_METHOD
             (not needed because none of its successors is relevant for the purposes of inlining, see `hasNoRelevantSuccs`).
             The blocks thus chosen are said to be "on the perimeter" of the CFG-subgraph.
             For each of them, its `lastInstruction` (after which no more typeflows are needed) is found.
@@ -714,7 +714,7 @@ abstract class TypeFlowAnalysis {
        * The instructions in question originally appeared after the (by now inlined) callsite
        * (ie the entry in remainingCALLs still tracks them as belonging to the basic block where that callsite existed).
        * That was then. Now, their new home is an `afterBlock` created by `doInline()` to that effect.
-       * Each block in staleIn is one such `afterBlock` so, for those instructions, we have to update their entries in `remainingCALLs`. */
+       * Each block in staleIn is one such `afterBlock`. For those instructions we update their entries in `remainingCALLs`. */
       for(afterBlock <- staleIn) {
         val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
         for(ia <- justCALLsAfter; if remainingCALLs.isDefinedAt(ia)) {
