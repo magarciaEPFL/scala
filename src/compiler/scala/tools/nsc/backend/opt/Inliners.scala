@@ -80,6 +80,43 @@ abstract class Inliners extends SubComponent {
   /** Create a new phase */
   override def newPhase(p: Phase) = new InliningPhase(p)
 
+  /* ------------------------------------------------------------------------------------------
+     utilities and statistics
+     ------------------------------------------------------------------------------------------
+   */
+
+  // TODO clear cache
+  private val inlineAnnCache = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // key encodes whether @inline (+1), @noinline (0), or none of the above.
+
+  private def addToInlineCache(sym: Symbol): Int = {
+    var res = 0
+    gLocked {
+      if     (sym hasAnnotation ScalaInlineClass)   res =  1
+      else if(sym hasAnnotation ScalaNoInlineClass) res = -1
+    }
+    inlineAnnCache.put(sym, res)
+
+    res
+  }
+
+  def hasInline(sym: Symbol): Boolean   = {
+    val res =
+      if(!inlineAnnCache.containsKey(sym)) addToInlineCache(sym)
+      else                                 inlineAnnCache.get(sym)
+
+    res == 1
+  }
+
+  def hasNoInline(sym: Symbol): Boolean   = {
+    val res =
+      if(!inlineAnnCache.containsKey(sym)) addToInlineCache(sym)
+      else                                 inlineAnnCache.get(sym)
+
+    res == -1
+  }
+
+  @inline private final def gLocked[T](f: => T): T = { global synchronized { f } }
+
   /** The Inlining phase.
    */
   class InliningPhase(prev: Phase) extends ICodePhase(prev) {
@@ -117,9 +154,6 @@ abstract class Inliners extends SubComponent {
       case _                                                                 => false
     }
   }
-
-  def hasInline(sym: Symbol)    = sym hasAnnotation ScalaInlineClass
-  def hasNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
 
   /**
    * Simple inliner.
