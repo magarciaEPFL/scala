@@ -26,21 +26,48 @@ abstract class Inliners extends SubComponent {
 
   val phaseName = "inliner"
 
-  /** Debug - for timing the inliner. */
-  private def timed[T](s: String, body: => T): T = {
-    val t1 = System.currentTimeMillis()
-    val res = body
-    val t2 = System.currentTimeMillis()
-    val ms = (t2 - t1).toInt
-    if (ms >= MAX_INLINE_MILLIS)
-      println("%s: %d milliseconds".format(s, ms))
+  /* A warning threshold */
+  private final val MAX_INLINE_MILLIS = 2000
 
-    res
+  /** The maximum size in basic blocks of methods considered for inlining. */
+  final val MAX_INLINE_SIZE = 16
+
+  /** Maximum loop iterations. */
+  final val MAX_INLINE_RETRY = 15
+
+  /** Small method size (in blocks) */
+  val SMALL_METHOD_SIZE = 1
+
+  /** Create a new phase */
+  override def newPhase(p: Phase) = new InliningPhase(p)
+
+  /* ------------------------------------------------------------------------------------------
+     inspector methods also used from TypeFlowAnalysis
+     ------------------------------------------------------------------------------------------
+   */
+
+  def isBottomType(sym: Symbol) = sym == NullClass || sym == NothingClass
+  def posToStr(pos: util.Position) = if (pos.isDefined) pos.point.toString else "<nopos>"
+
+  /** Is the given class a closure? */
+  def isClosureClass(cls: Symbol): Boolean =
+    cls.isFinal && cls.isSynthetic && !cls.isModuleClass && cls.isAnonymousFunction
+
+  /*
+      TODO now that Inliner runs faster we could consider additional "monadic methods" (in the limit, all those taking a closure as last arg)
+      Any "monadic method" occurring in a given caller C that is not `isMonadicMethod()` will prevent CloseElim from eliminating
+      any anonymous-closure-class any whose instances are given as argument to C invocations.
+   */
+  def isMonadicMethod(sym: Symbol) = {
+    nme.unspecializedName(sym.name) match {
+      case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
+      case _                                                                 => false
+    }
   }
 
   /** Look up implementation of method 'sym in 'clazz'.
    */
-  def lookupImplFor(sym: Symbol, clazz: Symbol): Symbol = {
+  def lookupImplFor(sym: Symbol, clazz: Symbol): Symbol = gLocked {
     // TODO: verify that clazz.superClass is equivalent here to clazz.tpe.parents(0).typeSymbol (.tpe vs .info)
     def needsLookup = (
          (clazz != NoSymbol)
@@ -64,21 +91,6 @@ abstract class Inliners extends SubComponent {
     }
     else sym
   }
-
-  /* A warning threshold */
-  private final val MAX_INLINE_MILLIS = 2000
-
-  /** The maximum size in basic blocks of methods considered for inlining. */
-  final val MAX_INLINE_SIZE = 16
-
-  /** Maximum loop iterations. */
-  final val MAX_INLINE_RETRY = 15
-
-  /** Small method size (in blocks) */
-  val SMALL_METHOD_SIZE = 1
-
-  /** Create a new phase */
-  override def newPhase(p: Phase) = new InliningPhase(p)
 
   /* ------------------------------------------------------------------------------------------
      thread-pool-wide cache of @inline vs @noinline status of methods
@@ -115,7 +127,55 @@ abstract class Inliners extends SubComponent {
     res == -1
   }
 
+  /* ------------------------------------------------------------------------------------------
+     Single entry point for locking purposes during inlining
+     ------------------------------------------------------------------------------------------
+   */
+
   @inline private final def gLocked[T](f: => T): T = { global synchronized { f } }
+
+  /* ------------------------------------------------------------------------------------------
+     mechanism for multiple readers and multiple writers of the BasicBlock s held by different IMethod s
+     ------------------------------------------------------------------------------------------
+   */
+
+  // private val writeLocks = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Long] // (value, key) denotes (method symbol, thread-id owning for write)
+  private val rwLocks  = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, _root_.java.util.concurrent.atomic.AtomicInteger] // (value, key) denotes (method symbol, number of times it's been read-locked)
+
+  private def canWriteLock(msym: Symbol): Boolean = {
+    var ai   = new _root_.java.util.concurrent.atomic.AtomicInteger(0)
+    val prev = rwLocks.putIfAbsent(msym, ai)
+    if(prev != null) { ai = prev}
+    ai.compareAndSet(0, -1)
+  }
+
+  private def canReadLock(msym: Symbol): Boolean = {
+    var ai   = new _root_.java.util.concurrent.atomic.AtomicInteger(0)
+    val prev = rwLocks.putIfAbsent(msym, ai)
+    if(prev != null) { ai = prev }
+    var success = false
+    val cnt = ai.get()
+    if(cnt >= 0) {
+      success = ai.compareAndSet(cnt, cnt + 1)
+    }
+    success
+  }
+
+  private def releaseWriteLock(msym: Symbol) {
+    val ai = rwLocks.get(msym)
+    val isOK = ai.compareAndSet(-1, 0)
+    assert(isOK)
+  }
+
+  private def releaseReadLock(msym: Symbol) {
+    val ai  = rwLocks.get(msym)
+    var success = false
+    while(!success) {
+      val cnt = ai.get()
+      assert(cnt > 0)
+      success = ai.compareAndSet(cnt, cnt - 1)
+    }
+  }
 
   /* ------------------------------------------------------------------------------------------
      thread-pool-wide cache of type-flow analyses of external methods that have been marked as @inline
@@ -221,25 +281,6 @@ abstract class Inliners extends SubComponent {
       } finally {
         inliner.clearCaches()
       }
-    }
-  }
-
-  def isBottomType(sym: Symbol) = sym == NullClass || sym == NothingClass
-  def posToStr(pos: util.Position) = if (pos.isDefined) pos.point.toString else "<nopos>"
-
-  /** Is the given class a closure? */
-  def isClosureClass(cls: Symbol): Boolean =
-    cls.isFinal && cls.isSynthetic && !cls.isModuleClass && cls.isAnonymousFunction
-
-  /*
-      TODO now that Inliner runs faster we could consider additional "monadic methods" (in the limit, all those taking a closure as last arg)
-      Any "monadic method" occurring in a given caller C that is not `isMonadicMethod()` will prevent CloseElim from eliminating
-      any anonymous-closure-class any whose instances are given as argument to C invocations.
-   */
-  def isMonadicMethod(sym: Symbol) = {
-    nme.unspecializedName(sym.name) match {
-      case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
-      case _                                                                 => false
     }
   }
 
