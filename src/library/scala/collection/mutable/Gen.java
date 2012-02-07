@@ -13,6 +13,6 @@ package scala.collection.mutable;
 
 
 
-final class Gen {
+public final class Gen {
 }
 

@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 
 
-abstract class INodeBase<K, V> extends BasicNode {
+public abstract class INodeBase<K, V> extends BasicNode {
     
     public static final AtomicReferenceFieldUpdater<INodeBase, MainNode> updater = AtomicReferenceFieldUpdater.newUpdater(INodeBase.class, MainNode.class, "mainnode");
     
