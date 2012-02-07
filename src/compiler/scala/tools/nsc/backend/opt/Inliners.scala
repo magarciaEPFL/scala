@@ -106,6 +106,11 @@ abstract class Inliners extends SubComponent {
   def isClosureClass(cls: Symbol): Boolean =
     cls.isFinal && cls.isSynthetic && !cls.isModuleClass && cls.isAnonymousFunction
 
+  /*
+      TODO now that Inliner runs faster we could consider additional "monadic methods" (in the limit, all those taking a closure as last arg)
+      Any "monadic method" occurring in a given caller C that is not `isMonadicMethod()` will prevent CloseElim from eliminating
+      any anonymous-closure-class any whose instances are given as argument to C invocations.
+   */
   def isMonadicMethod(sym: Symbol) = {
     nme.unspecializedName(sym.name) match {
       case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
@@ -210,7 +215,18 @@ abstract class Inliners extends SubComponent {
         inlineWithoutTFA(inputBlocks, callsites)
       }
 
-      /* inline straightforward callsites (those that can be inlined without a TFA) */
+      /**
+       *  Inline straightforward callsites (those that can be inlined without a TFA).
+       *
+       *  To perform inlining, all we need to know is listed as formal params in `analyzeInc()`:
+       *    - callsite and block containing it
+       *    - actual (ie runtime) class of the receiver
+       *    - actual (ie runtime) method being invoked
+       *    - stack length just before the callsite (to check whether enough arguments have been pushed).
+       *  The assert below lists the conditions under which "no TFA is needed"
+       *  (the statically known receiver and method are both final, thus, at runtime they can't be any others than those).
+       *
+       */
       def inlineWithoutTFA(inputBlocks: Traversable[BasicBlock], callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]]): Int = {
         var inlineCount = 0
         import scala.util.control.Breaks._
@@ -221,6 +237,7 @@ abstract class Inliners extends SubComponent {
               if easyCake.nonEmpty) {
             breakable {
               for(ocm <- easyCake) {
+                assert(ocm.method.isEffectivelyFinal && ocm.method.owner.isEffectivelyFinal)
                 if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
                   inlineCount += 1
                   break
@@ -232,6 +249,11 @@ abstract class Inliners extends SubComponent {
         inlineCount
       }
 
+      /**
+          Decides whether it's feasible and desirable to inline the body of the method given by `concreteMethod`
+          at the program point given by `i` (a callsite). The boolean result indicates whether inlining was performed.
+
+       */
       def analyzeInc(i: CALL_METHOD, bb: BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol): Boolean = {
         var inlined = false
         val msym = i.method
