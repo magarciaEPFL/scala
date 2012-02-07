@@ -47,8 +47,8 @@ abstract class TypeFlowAnalysis {
       else if (s2 eq bottom) s1
       else if ((s1 eq exceptionHandlerStack) || (s2 eq exceptionHandlerStack)) sys.error("merging with exhan stack")
       else {
-//        if (s1.length != s2.length)
-//          throw new CheckerException("Incompatible stacks: " + s1 + " and " + s2);
+        // if (s1.length != s2.length)
+        //   throw new CheckerException("Incompatible stacks: " + s1 + " and " + s2);
         new TypeStack((s1.types, s2.types).zipped map icodes.lub)
       }
     }
@@ -338,36 +338,6 @@ abstract class TypeFlowAnalysis {
       out
     } // interpret
 
-
-    class SimulatedStack {
-      private var types: List[InferredType] = Nil
-      private var depth = 0
-
-      /** Remove and return the topmost element on the stack. If the
-       *  stack is empty, return a reference to a negative index on the
-       *  stack, meaning it refers to elements pushed by a predecessor block.
-       */
-      def pop: InferredType = types match {
-        case head :: rest =>
-          types = rest
-          head
-        case _ =>
-          depth -= 1
-          TypeOfStackPos(depth)
-      }
-
-      def pop2: (InferredType, InferredType) = {
-        (pop, pop)
-      }
-
-      def push(t: InferredType) {
-        depth += 1
-        types = types ::: List(t)
-      }
-
-      def push(k: TypeKind) { push(Const(k)) }
-    }
-
 	abstract class InferredType {
       /** Return the type kind pointed by this inferred type. */
       def getKind(in: lattice.Elem): icodes.TypeKind = this match {
@@ -387,27 +357,6 @@ abstract class TypeFlowAnalysis {
 	/** The type found at a stack position. */
 	case class TypeOfStackPos(n: Int) extends InferredType
 
-	abstract class Gen
-	case class Bind(l: icodes.Local, t: InferredType) extends Gen
-	case class Push(t: InferredType) extends Gen
-
-    /** A flow transfer function of a basic block. */
-	class TransferFunction(consumed: Int, gens: List[Gen]) extends (lattice.Elem => lattice.Elem) {
-	  def apply(in: lattice.Elem): lattice.Elem = {
-        val out = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
-        val bindings = out.vars
-        val stack = out.stack
-
-        out.stack.pop(consumed)
-        for (g <- gens) g match {
-          case Bind(l, t) =>
-            out.vars += (l -> t.getKind(in))
-          case Push(t) =>
-            stack.push(t.getKind(in))
-        }
-        out
-      }
-	}
   }
 
   case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol)

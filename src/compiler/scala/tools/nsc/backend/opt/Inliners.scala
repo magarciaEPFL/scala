@@ -471,7 +471,6 @@ abstract class Inliners extends SubComponent {
       }
 
       /** Inline 'inc' into 'caller' at the given block and instruction.
-       *  The instruction must be a CALL_METHOD.
        */
       def doInline(block: BasicBlock, instr: CALL_METHOD) {
 
