@@ -159,17 +159,19 @@ trait TypeKinds { self: ICodes =>
       (b == INT && a.isIntSizedType)
     )
 
-    if (a == b) a
-    else if (a.isNothingType) b
-    else if (b.isNothingType) a
-    else if (a.isBoxedType || b.isBoxedType) AnyRefReference  // we should do better
-    else if (isIntLub) INT
-    else if (a.isRefOrArrayType && b.isRefOrArrayType) {
-      if (a.isNullType) b
-      else if (b.isNullType) a
-      else toTypeKind(lub0(a, b))
+    global synchronized { // TODO less coarse would be to sync only for some of the cases below. Correct or not?
+      if (a == b) a
+      else if (a.isNothingType) b
+      else if (b.isNothingType) a
+      else if (a.isBoxedType || b.isBoxedType) AnyRefReference  // we should do better
+      else if (isIntLub) INT
+      else if (a.isRefOrArrayType && b.isRefOrArrayType) {
+        if (a.isNullType) b
+        else if (b.isNullType) a
+        else toTypeKind(lub0(a, b))
+      }
+      else throw new CheckerException("Incompatible types: " + a + " with " + b)
     }
-    else throw new CheckerException("Incompatible types: " + a + " with " + b)
   }
 
   /** The unit value */
@@ -367,7 +369,7 @@ trait TypeKinds { self: ICodes =>
    *  Call to .normalize fixes #3003 (follow type aliases). Otherwise,
    *  arrayOrClassType below would return ObjectReference.
    */
-  def toTypeKind(t: Type): TypeKind = t.normalize match {
+  def toTypeKind(t: Type): TypeKind = global synchronized { t.normalize match {
     case ThisType(ArrayClass)            => ObjectReference
     case ThisType(sym)                   => REFERENCE(sym)
     case SingleType(_, sym)              => primitiveOrRefType(sym)
@@ -391,7 +393,7 @@ trait TypeKinds { self: ICodes =>
         t, norm, t.getClass, norm.getClass, t.isInstanceOf[TypeRef]
       )
     )
-  }
+  }}
 
   /** Return the type kind of a class, possibly an array type.
    */
