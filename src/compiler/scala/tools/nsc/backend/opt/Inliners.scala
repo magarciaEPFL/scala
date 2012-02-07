@@ -81,7 +81,7 @@ abstract class Inliners extends SubComponent {
   override def newPhase(p: Phase) = new InliningPhase(p)
 
   /* ------------------------------------------------------------------------------------------
-     utilities and statistics
+     thread-pool-wide cache of @inline vs @noinline status of methods
      ------------------------------------------------------------------------------------------
    */
 
@@ -118,7 +118,7 @@ abstract class Inliners extends SubComponent {
   @inline private final def gLocked[T](f: => T): T = { global synchronized { f } }
 
   /* ------------------------------------------------------------------------------------------
-     thread-pool-wide cache of type-flow analyses of external methods marked as @inline
+     thread-pool-wide cache of type-flow analyses of external methods that have been marked as @inline
      ------------------------------------------------------------------------------------------
    */
 
@@ -143,6 +143,66 @@ abstract class Inliners extends SubComponent {
     if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
     (hasRETURN, a)
+  }
+
+  /* ------------------------------------------------------------------------------------------
+     job priority queue
+     ------------------------------------------------------------------------------------------
+   */
+
+  private class QElem(val im: IMethod, val pastAttempts: Int)
+  private object poison extends QElem(null, -1)
+
+  private val MAX_THREADS = 1 // _root_.java.lang.Runtime.getRuntime().availableProcessors()
+
+  private val oldestlast = new _root_.java.util.Comparator[QElem] {
+    override def compare(a: QElem, b: QElem) = {
+      if     (a eq poison)  1
+      else if(b eq poison) -1 // ok not to check for both being poison
+      else {
+        a.pastAttempts - b.pastAttempts
+      }
+    }
+  }
+
+  // private val q = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](10, oldestlast)
+  private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+
+  /* ------------------------------------------------------------------------------------------
+     Worker
+     ------------------------------------------------------------------------------------------
+   */
+
+  var stats: Boolean     = false // actually initialized in InliningPhase
+  private val statMillis = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int]
+  private val statThread = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Long]
+
+  class InlinerTask extends _root_.java.lang.Runnable() {
+
+    val inliner = new Inliner()
+
+    def run() {
+      var j: QElem = null
+      while(j ne poison) {
+        j = q.take()
+        if (j ne poison) {
+          val m = j.im
+          if(stats) timed(m.symbol, inliner.analyzeMethod(m))
+          else inliner.analyzeMethod(m)
+        }
+      }
+    }
+
+    private def timed[T](msym: Symbol, body: => T): T = {
+      val t1  = System.currentTimeMillis()
+      val res = body
+      val t2  = System.currentTimeMillis()
+      val elapsed = (t2 - t1).toInt
+      statMillis.put(msym, elapsed)
+      statThread.put(msym, Thread.currentThread().getId())
+
+      res
+    }
   }
 
   /** The Inlining phase.
