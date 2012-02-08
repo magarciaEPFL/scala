@@ -10,6 +10,7 @@ package backend.opt
 import scala.collection.mutable
 import scala.tools.nsc.symtab._
 import scala.tools.nsc.util.{ NoSourceFile }
+import java.util.concurrent.PriorityBlockingQueue
 
 /**
  *  @author Iulian Dragos
@@ -195,8 +196,8 @@ abstract class Inliners extends SubComponent {
   // thread-pool-wide cache of type-flow analyses of external methods that have been marked as @inline
   // ------------------------------------------------------------------------------------------
 
-  val recentTFAs = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Tuple2[Boolean, analysis.MethodTFA]]
-  def getRecentTFA(incm: IMethod): (Boolean, analysis.MethodTFA) = {
+  val recentTFAs = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Tuple2[Boolean, analysis.MTFACoarse]]
+  def getRecentTFA(incm: IMethod): (Boolean, analysis.MTFACoarse) = {
 
       def containsRETURN(blocks: List[BasicBlock]) = blocks exists { bb => bb.lastInstruction.isInstanceOf[RETURN] }
 
@@ -209,8 +210,8 @@ abstract class Inliners extends SubComponent {
     }
 
     val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
-    var a: analysis.MethodTFA = null
-    if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run } // TODO use MTFACoarse
+    var a: analysis.MTFACoarse = null
+    if(hasRETURN) { a = new analysis.MTFACoarse(incm); a.run } // TODO use MTFACoarse
 
     if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
@@ -221,11 +222,11 @@ abstract class Inliners extends SubComponent {
   // job priority queue
   // ------------------------------------------------------------------------------------------
 
-  private class  QElem(val im: IMethod, val pastAttempts: Int)
-  private object poison extends QElem(null, -1)
+  private class  QElem(val im: IMethod, val blockCount: Int, val pastAttempts: Int)
+  private object poison extends QElem(null, 0, -1)
 
   private val MAX_THREADS = scala.math.min(
-    4,
+    16,
     _root_.java.lang.Runtime.getRuntime().availableProcessors()
   )
 
@@ -239,8 +240,18 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  private var q         = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
-  private var spillover = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+  private val largemethodsfirst = new _root_.java.util.Comparator[QElem] {
+    override def compare(a: QElem, b: QElem) = {
+      if     (a eq poison)  1
+      else if(b eq poison) -1 // ok not to check for both being poison
+      else {
+        a.blockCount - b.blockCount
+      }
+    }
+  }
+
+  private var q         = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodsfirst)
+  private var spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodsfirst)
   // private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
 
   // ------------------------------------------------------------------------------------------
@@ -295,7 +306,7 @@ abstract class Inliners extends SubComponent {
           if(hasInline(im.symbol)) {
             log("Not inlining into " + im.symbol.originalName.decode + " because it is marked @inline.")
           } else if(im.hasCode && !im.symbol.isBridge) {
-            q put new QElem(im, 0)
+            q put new QElem(im, im.code.blockCount, 0)
           }
         }
       }
@@ -321,14 +332,15 @@ abstract class Inliners extends SubComponent {
           workers foreach { w => q put poison }
           exec.shutdown()
           while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
+          // TODO assert(q.isEmpty)
           if(!spillover.isEmpty) {
             anotherRound = true
             q = spillover
-            spillover = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+            spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodsfirst)
           }
         } while (anotherRound)
 
-        assert(q.isEmpty)
+        // TODO assert(q.isEmpty)
         assert(allLocksFreed)
 
         if(stats) {
@@ -383,7 +395,7 @@ abstract class Inliners extends SubComponent {
       } else {
         // resubmit m with priority one below its current (up to some threshold)
         if (workItem.pastAttempts < MAX_INLINE_RETRY) {
-          spillover put new QElem(m, workItem.pastAttempts + 1)
+          spillover put new QElem(m, workItem.blockCount, workItem.pastAttempts + 1)
         }
       }
     }
@@ -594,7 +606,7 @@ abstract class Inliners extends SubComponent {
         */
 
         if (tfa.stat)
-          log(m.symbol.fullName + " iterations: " + tfa.iterations + " (size: " + caller.length + ")")
+          log(caller.fullName + " iterations: " + tfa.iterations + " (size: " + caller.length + ")")
       }
       while (retry && count < MAX_INLINE_RETRY)
 
@@ -603,7 +615,7 @@ abstract class Inliners extends SubComponent {
         val instrAfterInlining = m.code.instructionCount
         val prefix = if ((instrAfterInlining > 2 * instrBeforeInlining) && (instrAfterInlining > 200)) " !! " else ""
         log(prefix + " %s blocks before inlining: %d (%d) after: %d (%d)".format(
-          m.symbol.fullName, sizeBeforeInlining, instrBeforeInlining, m.code.blockCount, instrAfterInlining))
+          caller.fullName, sizeBeforeInlining, instrBeforeInlining, m.code.blockCount, instrAfterInlining))
       }
     }
 
@@ -624,6 +636,7 @@ abstract class Inliners extends SubComponent {
     class IMethodInfo(val m: IMethod) {
       val sym           = m.symbol
       val name          = sym.name
+      val fullName      = sym.fullName
       val owner         = sym.owner
       val minimumStack  = sym.info.paramTypes.length + 1
 
