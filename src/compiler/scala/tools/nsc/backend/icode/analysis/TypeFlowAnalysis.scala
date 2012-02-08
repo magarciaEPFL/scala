@@ -68,7 +68,6 @@ abstract class TypeFlowAnalysis {
    *  names to types and a type stack.
    */
   object typeFlowLattice extends SemiLattice {
-    import icodes._
     type Elem = IState[VarBinding, icodes.TypeStack]
 
     val top    = new Elem(new VarBinding, typeStackLattice.top)
@@ -95,6 +94,13 @@ abstract class TypeFlowAnalysis {
 
   val timer = new Timer
 
+  /* Each InlinerTask owns an Inliner instance, which in turn instantiates and owns an MTFAGrowable instance.
+   * That way, no method of MTFAGrowable will be invoked on the same MTFAGrowable instance from different threads.
+   * That does not rule out that synchronization is needed: those methods may invoke typer operations,
+   * and for similar reasons a dedicated linearizer (not the global one) should be available to each MethodTFA instance.
+   * Additionally to the MTFAGrowable instance owned by an Inliner, a MethodTFA is instantiated and run in getRecentTFA
+   * (for the purpose of analyzing callees which are inlining candidates). Again, the same MethodTFA instance will never have methods
+   * invoked from different threads, but the access of those methods (in MethodTFA) to global resources should also be considered. */
   class MethodTFA extends DataFlowAnalysis[typeFlowLattice.type] {
     import icodes._
     import icodes.opcodes._
@@ -108,7 +114,6 @@ abstract class TypeFlowAnalysis {
     /** Initialize the in/out maps for the analysis of the given method. */
     def init(m: icodes.IMethod) {
       this.method = m
-      //typeFlowLattice.lubs = 0
       init {
         worklist += m.startBlock
         worklist ++= (m.exh map (_.startBlock))
@@ -132,13 +137,20 @@ abstract class TypeFlowAnalysis {
       init(m)
     }
 
+    val lnrzr: Linearizer = settings.Xlinearizer.value match {
+      case "rpo"    => new ReversePostOrderLinearizer()
+      case "dfs"    => new DepthFirstLinerizer()
+      case "normal" => new NormalLinearizer()
+      case "dump"   => new DumpLinearizer()
+      case x        => TypeFlowAnalysis.this.global.abort("Unknown linearizer: " + x)
+    }
+
     def run = {
       timer.start
-      // icodes.lubs0 = 0
       forwardAnalysis(blockTransfer)
       val t = timer.stop
       if (settings.debug.value) {
-        linearizer.linearize(method).foreach(b => if (b != method.startBlock)
+        lnrzr.linearize(method).foreach(b => if (b != method.startBlock)
           assert(visited.contains(b),
             "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited));
       }
@@ -158,6 +170,8 @@ abstract class TypeFlowAnalysis {
       result
     }
 
+    @inline final def gLocked[T](f: => T): T = { TypeFlowAnalysis.this.global synchronized { f } }
+
     /** Abstract interpretation for one instruction. */
     def interpret(in: typeFlowLattice.Elem, i: Instruction): typeFlowLattice.Elem = {
       val out = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
@@ -175,10 +189,10 @@ abstract class TypeFlowAnalysis {
       i match {
 
         case THIS(clasz) =>
-          stack push toTypeKind(clasz.tpe)
+          stack push gLocked { toTypeKind(clasz.tpe) }
 
         case CONSTANT(const) =>
-          stack push toTypeKind(const.tpe)
+          stack push gLocked { toTypeKind(const.tpe) }
 
         case LOAD_ARRAY_ITEM(kind) =>
           stack.pop2 match {
@@ -196,10 +210,10 @@ abstract class TypeFlowAnalysis {
         case LOAD_FIELD(field, isStatic) =>
           if (!isStatic)
             stack.pop
-          stack push toTypeKind(field.tpe)
+          stack push gLocked { toTypeKind(field.tpe) }
 
         case LOAD_MODULE(module) =>
-          stack push toTypeKind(module.tpe)
+          stack push gLocked { toTypeKind(module.tpe) }
 
         case STORE_ARRAY_ITEM(kind) =>
           stack.pop3
@@ -268,8 +282,10 @@ abstract class TypeFlowAnalysis {
           }
 
         case cm @ CALL_METHOD(_, _) =>
-          stack pop cm.consumed
-          cm.producedTypes foreach (stack push _)
+          gLocked {
+            stack pop cm.consumed
+            cm.producedTypes foreach (stack push _)
+          }
 
         case BOX(kind) =>
           stack.pop
@@ -307,8 +323,9 @@ abstract class TypeFlowAnalysis {
           stack.pop
 
         case RETURN(kind) =>
-          if (kind != UNIT)
-            stack.pop;
+          gLocked {
+            if (kind != UNIT) {stack.pop }
+          }
 
         case THROW(_) =>
           stack.pop
@@ -330,7 +347,7 @@ abstract class TypeFlowAnalysis {
 
         case LOAD_EXCEPTION(clasz) =>
           stack.pop(stack.length)
-          stack.push(toTypeKind(clasz.tpe))
+          stack.push( gLocked { toTypeKind(clasz.tpe) } )
 
         case _ =>
           dumpClassesAndAbort("Unknown instruction: " + i)
@@ -391,7 +408,7 @@ abstract class TypeFlowAnalysis {
     The rest of the story takes place in Inliner, which does not visit all of the method's basic blocks but only on those represented in `remainingCALLs`.
 
    */
-  class MTFAGrowable extends MethodTFA {
+  class MTFAGrowable(knownNever: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int]) extends MethodTFA {
 
     import icodes._
 
@@ -430,7 +447,7 @@ abstract class TypeFlowAnalysis {
     /*
       This is the method where information cached elsewhere is put to use. References are given those other places that populate those caches.
 
-      The goal is to avoid computing type-flows for blocks we don't need (ie blocks not tracked in `relevantBBs`). The method used to add to `relevantBBs` is `putOnRadar`.
+      The goal is avoiding computing type-flows for blocks we don't need (ie blocks not tracked in `relevantBBs`). The method used to add to `relevantBBs` is `putOnRadar`.
 
       Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
       There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
@@ -455,7 +472,7 @@ abstract class TypeFlowAnalysis {
         if(isOnWatchlist(i)) {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
-          val paramsLength = msym.info.paramTypes.size
+          val paramsLength = gLocked { msym.info.paramTypes.size }
           val receiver = result.stack.types.drop(paramsLength).head match {
             case REFERENCE(s) => s
             case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
@@ -494,8 +511,8 @@ abstract class TypeFlowAnalysis {
        (with the caveat of the side-effecting `makePublic` in `helperIsSafeToInline`).*/
     val knownUnsafe = mutable.Set.empty[Symbol]
     val knownSafe   = mutable.Set.empty[Symbol]
-    val knownNever  = mutable.Set.empty[Symbol] // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `knownUnsafe` and `knownSafe`)
-    @inline private final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever(msym) }
+
+    @inline final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever.containsKey(msym) }
 
     val relevantBBs   = mutable.Set.empty[BasicBlock]
 
@@ -509,15 +526,23 @@ abstract class TypeFlowAnalysis {
       // && !(msym hasAnnotation definitions.ScalaNoInlineClass)
     }
 
-    override def init(m: icodes.IMethod) {
-      super.init(m)
+    def clearCaches() { // TODO backport
+      // callsites
       remainingCALLs.clear()
+      isOnWatchlist.clear()
+      // basic blocks
+      preCandidates.clear()
+      relevantBBs.clear()
+      isOnPerimeter.clear()
       knownUnsafe.clear()
       knownSafe.clear()
+    }
+
+    override def init(m: icodes.IMethod) {
+      super.init(m)
+      clearCaches()
       // initially populate the watchlist with all callsites standing a chance of being inlined
-      isOnWatchlist.clear()
-      relevantBBs.clear()
-      putOnRadar(m.linearizedBlocks(linearizer))
+      putOnRadar(m.linearizedBlocks(lnrzr))
       populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
@@ -530,7 +555,7 @@ abstract class TypeFlowAnalysis {
       b.toList collect { case c : opcodes.CALL_METHOD => c } filter { cm => isPreCandidate(cm) && isReceiverKnown(cm) }
     }
 
-    private def isReceiverKnown(cm: opcodes.CALL_METHOD): Boolean = {
+    private def isReceiverKnown(cm: opcodes.CALL_METHOD): Boolean = gLocked {
       cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal
     }
 
@@ -685,7 +710,7 @@ abstract class TypeFlowAnalysis {
       blankOut(staleIn)
       // no need to add startBlocks from m.exh
 
-      staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }
+      staleOut foreach { so => putOnRadar(lnrzr linearizeAt (m, so)) }
       populatePerimeter()
 
     } // end of method reinit

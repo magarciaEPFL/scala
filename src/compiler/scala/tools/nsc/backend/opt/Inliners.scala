@@ -41,23 +41,36 @@ abstract class Inliners extends SubComponent {
   /** Create a new phase */
   override def newPhase(p: Phase) = new InliningPhase(p)
 
-  /* ------------------------------------------------------------------------------------------
-     inspector methods also used from TypeFlowAnalysis
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // Single entry point for locking purposes during inlining
+  // ------------------------------------------------------------------------------------------
 
-  def isBottomType(sym: Symbol) = sym == NullClass || sym == NothingClass
+  @inline private final def gLocked[T](f: => T): T = { global synchronized { f } }
+
+  // ------------------------------------------------------------------------------------------
+  // thread-safe logging
+  // ------------------------------------------------------------------------------------------
+
+  var isLogActive      = false // actually initialized in InliningPhase
+  var isDebugLogActive = false // actually initialized in InliningPhase
+  @inline final def debuglog(msg: => String) { if(isDebugLogActive) { gLocked { global.debuglog(msg) } } }
+  @inline final def log     (msg: => AnyRef) { if(isLogActive)      { gLocked { global.log(msg)      } } }
+  @inline final def warning (pos: Position, msg: => String) { gLocked { reporter.warning(pos, msg) } }
+
+  // ------------------------------------------------------------------------------------------
+  // inspector methods also used from TypeFlowAnalysis
+  // ------------------------------------------------------------------------------------------
+
+  def isBottomType(sym: Symbol)    = sym == NullClass || sym == NothingClass
   def posToStr(pos: util.Position) = if (pos.isDefined) pos.point.toString else "<nopos>"
 
   /** Is the given class a closure? */
   def isClosureClass(cls: Symbol): Boolean =
     cls.isFinal && cls.isSynthetic && !cls.isModuleClass && cls.isAnonymousFunction
 
-  /*
-      TODO now that Inliner runs faster we could consider additional "monadic methods" (in the limit, all those taking a closure as last arg)
-      Any "monadic method" occurring in a given caller C that is not `isMonadicMethod()` will prevent CloseElim from eliminating
-      any anonymous-closure-class any whose instances are given as argument to C invocations.
-   */
+  //  TODO now that Inliner runs faster we could consider additional "monadic methods" (in the limit, all those taking a closure as last arg)
+  //  Any "monadic method" occurring in a given caller C that is not `isMonadicMethod()` will prevent CloseElim from eliminating
+  //  any anonymous-closure-class any whose instances are given as argument to invocations of C.
   def isMonadicMethod(sym: Symbol) = {
     nme.unspecializedName(sym.name) match {
       case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
@@ -92,13 +105,11 @@ abstract class Inliners extends SubComponent {
     else sym
   }
 
-  /* ------------------------------------------------------------------------------------------
-     thread-pool-wide cache of @inline vs @noinline status of methods
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // thread-pool-wide cache of @inline vs @noinline status of methods
+  // ------------------------------------------------------------------------------------------
 
-  // TODO clear inlineAnnCache
-  private val inlineAnnCache = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // key encodes whether @inline (+1), @noinline (0), or none of the above.
+  private val inlineAnnCache = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // value encodes whether @inline (+1), @noinline (-1), or none of the previous (0).
 
   private def addToInlineCache(sym: Symbol): Int = {
     var res = 0
@@ -127,20 +138,23 @@ abstract class Inliners extends SubComponent {
     res == -1
   }
 
-  /* ------------------------------------------------------------------------------------------
-     Single entry point for locking purposes during inlining
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // thread-pool-wide cache of method known to be never inlinale
+  // ------------------------------------------------------------------------------------------
 
-  @inline private final def gLocked[T](f: => T): T = { global synchronized { f } }
+  // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `tfa.knownUnsafe` and `tfa.knownSafe`)
+  val knownNever = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // used as a set: values are dummies
 
-  /* ------------------------------------------------------------------------------------------
-     mechanism for multiple readers and multiple writers of the BasicBlock s held by different IMethod s
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // mechanism for multiple readers and multiple writers of the basic blocks owned by different IMethod s
+  // ------------------------------------------------------------------------------------------
 
-  // private val writeLocks = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Long] // (value, key) denotes (method symbol, thread-id owning for write)
-  private val rwLocks  = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, _root_.java.util.concurrent.atomic.AtomicInteger] // (value, key) denotes (method symbol, number of times it's been read-locked)
+  /* (value, key) denotes (method symbol, N) where N encodes:
+   *    -1 : the method is write-locked (by a single writer)
+   *     0 : the method has no locks whatsoever on it
+   *   > 0 : number of readers each holding a read-lock
+   * */
+  private val rwLocks  = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, _root_.java.util.concurrent.atomic.AtomicInteger]
 
   private def canWriteLock(msym: Symbol): Boolean = {
     var ai   = new _root_.java.util.concurrent.atomic.AtomicInteger(0)
@@ -172,17 +186,15 @@ abstract class Inliners extends SubComponent {
     var success = false
     while(!success) {
       val cnt = ai.get()
-      assert(cnt > 0)
       success = ai.compareAndSet(cnt, cnt - 1)
+      assert(cnt > 0)
     }
   }
 
-  /* ------------------------------------------------------------------------------------------
-     thread-pool-wide cache of type-flow analyses of external methods that have been marked as @inline
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // thread-pool-wide cache of type-flow analyses of external methods that have been marked as @inline
+  // ------------------------------------------------------------------------------------------
 
-  // TODO clear recentTFAs
   val recentTFAs = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Tuple2[Boolean, analysis.MethodTFA]]
   def getRecentTFA(incm: IMethod): (Boolean, analysis.MethodTFA) = {
 
@@ -190,7 +202,7 @@ abstract class Inliners extends SubComponent {
 
     val opt = recentTFAs.get(incm.symbol)
     if(opt != null) {
-      // FYI val cachedBBs = opt.get._2.in.keySet
+      // FYI val cachedBBs = opt._2.in.keySet
       // FYI assert(incm.blocks.toSet == cachedBBs)
       // incm.code.touched plays no role here
       return opt
@@ -198,22 +210,24 @@ abstract class Inliners extends SubComponent {
 
     val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
     var a: analysis.MethodTFA = null
-    if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run }
+    if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run } // TODO use MTFACoarse
 
     if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
     (hasRETURN, a)
   }
 
-  /* ------------------------------------------------------------------------------------------
-     job priority queue
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // job priority queue
+  // ------------------------------------------------------------------------------------------
 
-  private class QElem(val im: IMethod, val pastAttempts: Int)
+  private class  QElem(val im: IMethod, val pastAttempts: Int)
   private object poison extends QElem(null, -1)
 
-  private val MAX_THREADS = 1 // _root_.java.lang.Runtime.getRuntime().availableProcessors()
+  private val MAX_THREADS = scala.math.min(
+    4,
+    _root_.java.lang.Runtime.getRuntime().availableProcessors()
+  )
 
   private val oldestlast = new _root_.java.util.Comparator[QElem] {
     override def compare(a: QElem, b: QElem) = {
@@ -225,13 +239,13 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  // private val q = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](10, oldestlast)
-  private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+  private var q         = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+  private var spillover = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+  // private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
 
-  /* ------------------------------------------------------------------------------------------
-     Worker
-     ------------------------------------------------------------------------------------------
-   */
+  // ------------------------------------------------------------------------------------------
+  // Worker
+  // ------------------------------------------------------------------------------------------
 
   var stats: Boolean     = false // actually initialized in InliningPhase
   private val statMillis = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int]
@@ -246,11 +260,11 @@ abstract class Inliners extends SubComponent {
       while(j ne poison) {
         j = q.take()
         if (j ne poison) {
-          val m = j.im
-          if(stats) timed(m.symbol, inliner.analyzeMethod(m))
-          else inliner.analyzeMethod(m)
+          if(stats) timed(j.im.symbol, inliner.analyzeMethod(j))
+          else inliner.analyzeMethod(j)
         }
       }
+      inliner.tfa.clearCaches()
     }
 
     private def timed[T](msym: Symbol, body: => T): T = {
@@ -269,20 +283,74 @@ abstract class Inliners extends SubComponent {
    */
   class InliningPhase(prev: Phase) extends ICodePhase(prev) {
     def name = phaseName
-    val inliner = new Inliner
 
-    override def apply(c: IClass) {
-      inliner analyzeClass c
+    isLogActive      = (settings.log.containsPhase(this))
+    isDebugLogActive = (isLogActive && settings.debug.value)
+    stats            = (isLogActive && opt.printStats)
+
+    override def apply(cls: IClass) {
+      if (settings.inline.value) {
+        val ms = cls.methods filterNot { _.symbol.isConstructor }
+        ms foreach { im =>
+          if(hasInline(im.symbol)) {
+            log("Not inlining into " + im.symbol.originalName.decode + " because it is marked @inline.")
+          } else if(im.hasCode && !im.symbol.isBridge) {
+            q put new QElem(im, 0)
+          }
+        }
+      }
+    }
+
+    private def allLocksFreed: Boolean = {
+      val iter = rwLocks.entrySet().iterator()
+      while(iter.hasNext) {
+        val e = iter.next
+        if(e.getValue().get() != 0) { return false }
+      }
+      true
     }
 
     override def run() {
       try {
-        super.run()
+        super.run() // not nice: unitTimings will be artificially low
+        var anotherRound = false
+        do {
+          anotherRound = false
+          val exec = _root_.java.util.concurrent.Executors.newFixedThreadPool(MAX_THREADS)
+          val workers = for(i <- 1 to MAX_THREADS) yield { val t = new InlinerTask; exec.execute(t); t }
+          workers foreach { w => q put poison }
+          exec.shutdown()
+          while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
+          if(!spillover.isEmpty) {
+            anotherRound = true
+            q = spillover
+            spillover = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+          }
+        } while (anotherRound)
+
+        assert(q.isEmpty)
+        assert(allLocksFreed)
+
+        if(stats) {
+          val iter = statMillis.entrySet().iterator
+          while(iter.hasNext) {
+            val e    = iter.next
+            val msym = e.getKey()
+            inform("[inliner][par] elapsed: %9d ms".format(e.getValue()) +
+                   " , thread: %6d".format(statThread.get(msym)) +
+                   " , method: " + msym.fullName)
+           }
+        }
       } finally {
-        inliner.clearCaches()
+        statMillis.clear()
+        statThread.clear()
+        recentTFAs.clear
+        inlineAnnCache.clear()
+        knownNever.clear()
       }
     }
-  }
+
+  } // end of class InliningPhase
 
   /**
    * Simple inliner.
@@ -290,66 +358,51 @@ abstract class Inliners extends SubComponent {
   class Inliner {
     object NonPublicRefs extends Enumeration {
       val Private, Protected, Public = Value
-
-      /** Cache whether a method calls private members. */
-      val usesNonPublics = mutable.Map.empty[IMethod, Value]
     }
     import NonPublicRefs._
 
-    /** The current iclass */
-    private var currentIClazz: IClass = _
-    private def warn(pos: Position, msg: String) = currentIClazz.cunit.warning(pos, msg)
-
-    def clearCaches() {
-      NonPublicRefs.usesNonPublics.clear()
-      recentTFAs.clear
-      tfa.remainingCALLs.clear()
-      tfa.preCandidates.clear()
-      tfa.isOnWatchlist.clear()
-      tfa.relevantBBs.clear()
-      tfa.knownUnsafe.clear()
-      tfa.knownSafe.clear()
-      tfa.knownNever.clear()
-    }
-
-    def analyzeClass(cls: IClass): Unit =
-      if (settings.inline.value) {
-        debuglog("Analyzing " + cls)
-
-        this.currentIClazz = cls
-        val ms = cls.methods filterNot { _.symbol.isConstructor }
-        ms foreach { im =>
-          if(hasInline(im.symbol)) {
-            log("Not inlining into " + im.symbol.originalName.decode + " because it is marked @inline.")
-          } else if(im.hasCode && !im.symbol.isBridge) {
-            analyzeMethod(im)
-          }
-        }
-      }
-
-    val tfa   = new analysis.MTFAGrowable()
+    val tfa   = new analysis.MTFAGrowable(knownNever)
     tfa.stat  = global.opt.printStats
     val staleOut      = new mutable.ListBuffer[BasicBlock]
     val splicedBlocks = mutable.Set.empty[BasicBlock]
     val staleIn       = mutable.Set.empty[BasicBlock]
 
-    def analyzeMethod(m: IMethod): Unit = {
-      // m.normalize
+    val lnrzr: Linearizer = settings.Xlinearizer.value match {
+      case "rpo"    => new ReversePostOrderLinearizer()
+      case "dfs"    => new DepthFirstLinerizer()
+      case "normal" => new NormalLinearizer()
+      case "dump"   => new DumpLinearizer()
+      case x        => global.abort("Unknown linearizer: " + x)
+    }
 
-      var sizeBeforeInlining  = m.code.blockCount
-      var instrBeforeInlining = m.code.instructionCount
+    def analyzeMethod(workItem: QElem): Unit = {
+      val m = workItem.im
+      if(canWriteLock(m.symbol)) {
+        try     analyzeMethod0(m)
+        finally releaseWriteLock(m.symbol)
+      } else {
+        // resubmit m with priority one below its current (up to some threshold)
+        if (workItem.pastAttempts < MAX_INLINE_RETRY) {
+          spillover put new QElem(m, workItem.pastAttempts + 1)
+        }
+      }
+    }
+
+    private def analyzeMethod0(m: IMethod): Unit = {
+      val sizeBeforeInlining  = m.code.blockCount
+      val instrBeforeInlining = m.code.instructionCount
       var retry = false
       var count = 0
 
       // fresh name counter
       val fresh = mutable.HashMap.empty[String, Int] withDefaultValue 0
-      // how many times have we already inlined this method here?
+      // how many times have we already inlined methods given by keys in `m`?
       val inlinedMethodCount = mutable.HashMap.empty[Symbol, Int] withDefaultValue 0
 
-      val caller = new IMethodInfo(m)
+      val caller = gLocked { new IMethodInfo(m) } // we don't lock each RHSs of IMethodInfo's val, thus we have to lock while its constructor runs.
 
       def preInline(isFirstRound: Boolean): Int = {
-        val inputBlocks = caller.m.linearizedBlocks()
+        val inputBlocks = caller.m.linearizedBlocks(lnrzr)
         val callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]] = {
           if(isFirstRound) tfa.conclusives else tfa.knownBeforehand
         }
@@ -371,22 +424,24 @@ abstract class Inliners extends SubComponent {
       def inlineWithoutTFA(inputBlocks: Traversable[BasicBlock], callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]]): Int = {
         var inlineCount = 0
         import scala.util.control.Breaks._
-        do {
-          retry = false
-          for(x <- inputBlocks;
-              val easyCake = callsites(x);
-              if easyCake.nonEmpty) {
-            breakable {
-              for(ocm <- easyCake) {
-                assert(ocm.method.isEffectivelyFinal && ocm.method.owner.isEffectivelyFinal)
-                if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
-                  inlineCount += 1
-                  break
-                }
+        for(x <- inputBlocks; val easyCake = callsites(x); if easyCake.nonEmpty) { // TODO backport (single pass now instead of retries)
+          breakable {
+            for(ocm <- easyCake) {
+              var receiver: Symbol       = NoSymbol
+              var concreteMethod: Symbol = NoSymbol
+              gLocked {
+                receiver       = ocm.method.owner
+                concreteMethod = ocm.method
+                assert(concreteMethod.isEffectivelyFinal && receiver.isEffectivelyFinal)
+              }
+              if(analyzeInc(ocm, x, receiver, -1, concreteMethod)) {
+                inlineCount += 1
+                break
               }
             }
           }
-        } while(retry && inlineCount < 5 * MAX_INLINE_RETRY)
+        }
+
         inlineCount
       }
 
@@ -401,21 +456,23 @@ abstract class Inliners extends SubComponent {
 
         def warnNoInline(reason: String) = {
           if (hasInline(msym) && !caller.isBridge)
-            warn(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
+            warning(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
         }
 
-        def isAvailable = icodes available concreteMethod.enclClass
+        def isAvailable = { gLocked { icodes available concreteMethod.enclClass } }
 
-        if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
-          // Until r22824 this line was:
-          //   icodes.icode(concreteMethod.enclClass, true)
-          //
-          // Changing it to
-          //   icodes.load(concreteMethod.enclClass)
-          // was the proximate cause for SI-3882:
-          //   error: Illegal index: 0 overlaps List((variable par1,LONG))
-          //   error: Illegal index: 0 overlaps List((variable par1,LONG))
-          icodes.load(concreteMethod.enclClass)
+        gLocked {
+          if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
+            // Until r22824 this line was:
+            //   icodes.icode(concreteMethod.enclClass, true)
+            //
+            // Changing it to
+            //   icodes.load(concreteMethod.enclClass)
+            // was the proximate cause for SI-3882:
+            //   error: Illegal index: 0 overlaps List((variable par1,LONG))
+            //   error: Illegal index: 0 overlaps List((variable par1,LONG))
+            icodes.load(concreteMethod.enclClass)
+          }
         }
 
         def isCandidate = (
@@ -428,7 +485,7 @@ abstract class Inliners extends SubComponent {
              isClosureClass(receiver)
           || isApply
           || isMonadicMethod(concreteMethod)
-          || receiver.enclosingPackage == definitions.RuntimePackage
+          || gLocked { receiver.enclosingPackage == definitions.RuntimePackage }
         )   // only count non-closures
 
         debuglog("Treating " + i
@@ -439,41 +496,42 @@ abstract class Inliners extends SubComponent {
         if (isAvailable && isCandidate) {
           lookupIMethod(concreteMethod, receiver) match {
             case Some(callee) =>
-              val inc   = new IMethodInfo(callee)
-              val pair  = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
+              // isExternal implies no need to read-lock callee's symbol
+              // val isExternal = gLocked { icodes.loaded.contains(callee.symbol.enclClass) }
 
-              if (pair isStampedForInlining stackLength) {
-                retry = true
-                inlined = true
-                if (isCountable)
-                  count += 1
+              if( /* isExternal || */ canReadLock(callee.symbol)) {
+                try {
+                  val inc   = gLocked { new IMethodInfo(callee) }
+                  val pair  = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
 
-                pair.doInline(bb, i)
-                if (!inc.inline || inc.isMonadic)
-                  caller.inlinedCalls += 1
-                inlinedMethodCount(inc.sym) += 1
-
-                /* Remove this method from the cache, as the calls-private relation
-                 * might have changed after the inlining.
-                 */
-                usesNonPublics -= m
-                recentTFAs.remove(m.symbol)
+                  if (pair isStampedForInlining stackLength) {
+                    retry = true
+                    inlined = true
+                    if (isCountable) { count += 1 }
+                    pair.doInline(bb, i)
+                    if (!inc.inline || inc.isMonadic) { caller.inlinedCalls += 1 }
+                    inlinedMethodCount(inc.sym) += 1
+                    // The calls-private relation might have changed due to the inlining.
+                    recentTFAs.remove(m.symbol)
+                  }
+                  else {
+                    if (settings.debug.value) { pair logFailure stackLength }
+                    warnNoInline(pair failureReason stackLength)
+                  }
+                } finally {
+                  /* if(!isExternal) */ releaseReadLock(callee.symbol)
+                }
+              } else {
+                // TODO add this block to a analyzeMethod0-local queue for bounded retry
               }
-              else {
-                if (settings.debug.value)
-                  pair logFailure stackLength
 
-                warnNoInline(pair failureReason stackLength)
-              }
             case None =>
               warnNoInline("bytecode was not available")
               debuglog("could not find icode\n\treceiver: " + receiver + "\n\tmethod: " + concreteMethod)
           }
+        } else {
+          warnNoInline( if (!isAvailable) "bytecode was not available" else "it can be overridden" )
         }
-        else warnNoInline(
-          if (!isAvailable) "bytecode was not available"
-          else "it can be overridden"
-        )
 
         inlined
       }
@@ -500,7 +558,7 @@ abstract class Inliners extends SubComponent {
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
 
         /* it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones. */
-        tfa.callerLin = caller.m.linearizedBlocks()
+        tfa.callerLin = caller.m.linearizedBlocks(lnrzr)
         tfa.reinit(m, staleOut.toList, splicedBlocks, staleIn)
         tfa.run
         staleOut.clear()
@@ -528,7 +586,6 @@ abstract class Inliners extends SubComponent {
           val savedStaleIn  = staleIn.toSet ; staleIn.clear()
           val howmany = inlineWithoutTFA(splicedBlocks, tfa.knownBeforehand)
           if(howmany > 0) println("inlineWithoutTFA: " + howmany);
-          splicedBlocks ++= (staleOut filter savedStaleOut)
           splicedBlocks ++= staleIn
           staleOut.clear(); staleOut ++= savedStaleOut;
           staleIn.clear();  staleIn  ++= savedStaleIn;
@@ -550,11 +607,12 @@ abstract class Inliners extends SubComponent {
       }
     }
 
-    private def isHigherOrderMethod(sym: Symbol) =
+    private def isHigherOrderMethod(sym: Symbol) = gLocked {
       sym.isMethod && atPhase(currentRun.erasurePhase.prev)(sym.info.paramTypes exists isFunctionType)
+    }
 
     /** Should method 'sym' being called in 'receiver' be loaded from disk? */
-    def shouldLoadImplFor(sym: Symbol, receiver: Symbol): Boolean = {
+    private def shouldLoadImplFor(sym: Symbol, receiver: Symbol): Boolean = {
       def alwaysLoad    = (receiver.enclosingPackage == RuntimePackage) || (receiver == PredefModule.moduleClass)
       def loadCondition = sym.isEffectivelyFinal && isMonadicMethod(sym) && isHigherOrderMethod(sym)
 
@@ -566,17 +624,16 @@ abstract class Inliners extends SubComponent {
     class IMethodInfo(val m: IMethod) {
       val sym           = m.symbol
       val name          = sym.name
-      def owner         = sym.owner
-      def paramTypes    = sym.info.paramTypes
-      def minimumStack  = paramTypes.length + 1
+      val owner         = sym.owner
+      val minimumStack  = sym.info.paramTypes.length + 1
 
-      def inline        = hasInline(sym)
-      def noinline      = hasNoInline(sym)
+      val inline        = hasInline(sym)
+      val noinline      = hasNoInline(sym)
 
-      def isBridge      = sym.isBridge
-      def isInClosure   = isClosureClass(owner)
+      val isBridge      = sym.isBridge
+      val isInClosure   = isClosureClass(owner)
       val isHigherOrder = isHigherOrderMethod(sym)
-      def isMonadic     = isMonadicMethod(sym)
+      val isMonadic     = isMonadicMethod(sym)
 
       def handlers      = m.exh
       def blocks        = m.blocks
@@ -584,7 +641,6 @@ abstract class Inliners extends SubComponent {
       def length        = blocks.length
       def openBlocks    = blocks filterNot (_.closed)
       def instructions  = m.code.instructions
-      // def linearized    = linearizer linearize m
 
       def isSmall       = (length <= SMALL_METHOD_SIZE) && blocks(0).length < 10
       def isLarge       = length > MAX_INLINE_SIZE
@@ -601,6 +657,56 @@ abstract class Inliners extends SubComponent {
       def addLocals(ls: List[Local])  = m.locals ++= ls
       def addLocal(l: Local)          = addLocals(List(l))
       def addHandlers(exhs: List[ExceptionHandler]) = m.exh = exhs ::: m.exh
+
+      private var toBecomePublic: List[Symbol] = Nil
+
+      lazy val accessNeeded: NonPublicRefs.Value = gLocked {
+
+        def check(sym: Symbol, cond: Boolean) =
+          if (cond) Private
+          else if (sym.isProtected) Protected
+          else Public
+
+        def canMakePublic(f: Symbol): Boolean =
+          (m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) &&
+          { toBecomePublic = f :: toBecomePublic; true }
+
+        def checkField(f: Symbol)   = check(f, f.isPrivate && !canMakePublic(f))
+        def checkSuper(n: Symbol)   = check(n, n.isPrivate || !n.isClassConstructor)
+        def checkMethod(n: Symbol)  = check(n, n.isPrivate)
+
+        def getAccess(i: Instruction) = i match {
+          case CALL_METHOD(n, SuperCall(_)) => checkSuper(n)
+          case CALL_METHOD(n, _)            => checkMethod(n)
+          case LOAD_FIELD(f, _)             => checkField(f)
+          case STORE_FIELD(f, _)            => checkField(f)
+          case _                            => Public
+        }
+
+        toBecomePublic = Nil
+        var seen = Public
+        val iter = instructions.iterator
+        while((seen ne Private) && iter.hasNext) {
+          val i = iter.next()
+          getAccess(i) match {
+            case Private    => seen = Private ; log("instruction " + i + " requires private access.")
+            case Protected  => seen = Protected
+            case _          => ()
+          }
+        }
+
+        seen
+      }
+
+      def doMakePublic(): Boolean = {
+        for(f <- toBecomePublic) {
+          debuglog("Making not-private symbol out of synthetic: " + f)
+          f setNotFlag Flags.PRIVATE
+        }
+        toBecomePublic = Nil
+        true
+      }
+
     }
 
     class CallerCalleeInfo(val caller: IMethodInfo, val inc: IMethodInfo, fresh: mutable.Map[String, Int], inlinedMethodCount: collection.Map[Symbol, Int]) {
@@ -625,7 +731,7 @@ abstract class Inliners extends SubComponent {
 
         def blockEmit(i: Instruction) = block.emit(i, targetPos)
         def newLocal(baseName: String, kind: TypeKind) =
-          new Local(caller.sym.newVariable(freshName(baseName), targetPos), kind, false)
+          gLocked { new Local(caller.sym.newVariable(freshName(baseName), targetPos), kind, false) }
 
         val (hasRETURN, a) = getRecentTFA(inc.m)
 
@@ -651,10 +757,13 @@ abstract class Inliners extends SubComponent {
         val inlinedThis = newLocal("$inlThis", REFERENCE(ObjectClass))
 
         /** buffer for the returned value */
-        val retVal = inc.m.returnType match {
-          case UNIT  => null
-          case x     => newLocal("$retVal", x)
-        }
+        val retVal =
+          gLocked {
+            inc.m.returnType match {
+              case UNIT  => null
+              case x     => newLocal("$retVal", x)
+            }
+          }
 
         val inlinedLocals = mutable.HashMap.empty[Local, Local]
 
@@ -663,7 +772,7 @@ abstract class Inliners extends SubComponent {
           val b = caller.m.code.newBlock
           activeHandlers foreach (_ addCoveredBlock b)
           if (retVal ne null) b.varsInScope += retVal
-          b.varsInScope += inlinedThis
+          b.varsInScope  += inlinedThis
           b.varsInScope ++= varsInScope
           b
         }
@@ -676,7 +785,7 @@ abstract class Inliners extends SubComponent {
         }
 
         /** alfa-rename `l` in caller's context. */
-        def dupLocal(l: Local): Local = {
+        def dupLocal(l: Local): Local = { // rather than locking here, we lock its single invoker
           val sym = caller.sym.newVariable(freshName(l.sym.name.toString), l.sym.pos)
           // sym.setInfo(l.sym.tpe)
           val dupped = new Local(sym, l.kind, false)
@@ -727,7 +836,7 @@ abstract class Inliners extends SubComponent {
           newInstr
         }
 
-        caller addLocals (inc.locals map dupLocal)
+        gLocked { caller addLocals (inc.locals map dupLocal) }
         caller addLocal inlinedThis
 
         if (retVal ne null)
@@ -752,7 +861,7 @@ abstract class Inliners extends SubComponent {
         block.close
 
         // duplicate the other blocks in the callee
-        val calleeLin = inc.m.linearizedBlocks()
+        val calleeLin = inc.m.linearizedBlocks(lnrzr)
         calleeLin foreach { bb =>
           var info = if(hasRETURN) (a in bb) else null
           def emitInlined(i: Instruction) = inlinedBlock(bb).emit(i, targetPos)
@@ -788,7 +897,10 @@ abstract class Inliners extends SubComponent {
       }
 
       def isStampedForInlining(stackLength: Int) =
-        !sameSymbols && inc.m.hasCode && shouldInline && isSafeToInline(stackLength)
+        !sameSymbols && inc.m.hasCode && shouldInline && isSafeToInline(stackLength) &&
+        inc.doMakePublic() // isSafeToInline(stack) is invoked a few times,
+        // however doMakePublic() should be invoked just once (here) if isSafeToInline(stack) succeeds.
+        // Because doMakePublic() is side-effecting.
 
       def logFailure(stackLength: Int) = log(
         """|inline failed for %s:
@@ -814,7 +926,6 @@ abstract class Inliners extends SubComponent {
         case Public     => true
       }
       private def sameSymbols = caller.sym == inc.sym
-      private def sameOwner   = caller.owner == inc.owner
 
       /** A method is safe to inline when:
        *    - it does not contain calls to private methods when called from another class
@@ -826,70 +937,33 @@ abstract class Inliners extends SubComponent {
        */
       def isSafeToInline(stackLength: Int): Boolean = {
 
-        if(tfa.knownUnsafe(inc.sym)) { return false }
+        if(tfa.blackballed(inc.sym)) { return false } // TODO backport
         if(tfa.knownSafe(inc.sym))   { return true  }
 
         if(helperIsSafeToInline(stackLength)) {
-          tfa.knownSafe += inc.sym;   true
+          tfa.knownSafe   += inc.sym; true
         } else {
           tfa.knownUnsafe += inc.sym; false
         }
       }
 
       private def helperIsSafeToInline(stackLength: Int): Boolean = {
-        def makePublic(f: Symbol): Boolean =
-          (inc.m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) && {
-            debuglog("Making not-private symbol out of synthetic: " + f)
 
-            f setNotFlag Flags.PRIVATE
-            true
-          }
+        if (!inc.m.hasCode || inc.isRecursive) { return false }
 
-        if (!inc.m.hasCode || inc.isRecursive)
-          return false
-
-        val accessNeeded = usesNonPublics.getOrElseUpdate(inc.m, {
+        if(!inc.openBlocks.isEmpty) {
           // Avoiding crashing the compiler if there are open blocks.
-          inc.openBlocks foreach { b =>
-            warn(inc.sym.pos,
-                "Encountered open block in isSafeToInline: this indicates a bug in the optimizer!\n" +
-                "  caller = " + caller.m + ", callee = " + inc.m
-              )
-            return false
-          }
-          def check(sym: Symbol, cond: Boolean) =
-            if (cond) Private
-            else if (sym.isProtected) Protected
-            else Public
-
-          def checkField(f: Symbol)   = check(f, f.isPrivate && !makePublic(f))
-          def checkSuper(m: Symbol)   = check(m, m.isPrivate || !m.isClassConstructor)
-          def checkMethod(m: Symbol)  = check(m, m.isPrivate)
-
-          def getAccess(i: Instruction) = i match {
-            case CALL_METHOD(m, SuperCall(_)) => checkSuper(m)
-            case CALL_METHOD(m, _)            => checkMethod(m)
-            case LOAD_FIELD(f, _)             => checkField(f)
-            case STORE_FIELD(f, _)            => checkField(f)
-            case _                            => Public
-          }
-
-          def iterate(): NonPublicRefs.Value = inc.instructions.foldLeft(Public)((res, inc) => getAccess(inc) match {
-            case Private    => log("instruction " + inc + " requires private access.") ; return Private
-            case Protected  => Protected
-            case Public     => res
-          })
-          iterate()
-        })
-
-        canAccess(accessNeeded) && {
-          val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
-
-          !isIllegalStack || {
-            debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.")
-            false
-          }
+          warning(inc.sym.pos,
+            "Encountered one or more open blocks in isSafeToInline: this indicates a bug in the optimizer!\n" +
+            "  caller = " + caller.m + ", callee = " + inc.m)
+          return false
         }
+
+        val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
+        if(isIllegalStack) { debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.") }
+
+        !isIllegalStack && canAccess(inc.accessNeeded)
+
       }
 
       /** Decide whether to inline or not. Heuristics:
@@ -900,7 +974,7 @@ abstract class Inliners extends SubComponent {
        *   - it's bad (useless) to inline inside bridge methods
        */
       private def neverInline   = {
-        (!inc.m.hasCode || inc.noinline) && { tfa.knownNever += inc.m.symbol; true }
+        (!inc.m.hasCode || inc.noinline || inc.isRecursive) && { knownNever.put(inc.m.symbol, 0); true } // TODO backport added inc.isRecursive as rule-out criterium
       }
       private def alwaysInline  = inc.inline
 
@@ -932,7 +1006,7 @@ abstract class Inliners extends SubComponent {
       })
     }
 
-    def lookupIMethod(meth: Symbol, receiver: Symbol): Option[IMethod] = {
+    def lookupIMethod(meth: Symbol, receiver: Symbol): Option[IMethod] = gLocked {
       def tryParent(sym: Symbol) = icodes icode sym flatMap (_ lookupMethod meth)
 
       receiver.info.baseClasses.iterator map tryParent find (_.isDefined) flatten
