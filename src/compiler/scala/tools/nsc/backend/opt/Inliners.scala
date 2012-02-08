@@ -226,7 +226,7 @@ abstract class Inliners extends SubComponent {
   private object poison extends QElem(null, 0, -1)
 
   private val MAX_THREADS = scala.math.min(
-    16,
+    2,
     _root_.java.lang.Runtime.getRuntime().availableProcessors()
   )
 
@@ -240,18 +240,21 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  private val largemethodsfirst = new _root_.java.util.Comparator[QElem] {
+  private val largemethodslast = new _root_.java.util.Comparator[QElem] {
     override def compare(a: QElem, b: QElem) = {
       if     (a eq poison)  1
       else if(b eq poison) -1 // ok not to check for both being poison
       else {
-        a.blockCount - b.blockCount
+        val crit1 = b.blockCount - a.blockCount
+        if(crit1 == 0) {
+          a.pastAttempts - b.pastAttempts // oldestlast
+        } else crit1
       }
     }
   }
 
-  private var q         = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodsfirst)
-  private var spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodsfirst)
+  private var q         = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodslast)
+  private var spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodslast)
   // private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
 
   // ------------------------------------------------------------------------------------------
@@ -332,15 +335,15 @@ abstract class Inliners extends SubComponent {
           workers foreach { w => q put poison }
           exec.shutdown()
           while(!exec.isTerminated) { exec.awaitTermination(1, _root_.java.util.concurrent.TimeUnit.MILLISECONDS) }
-          // TODO assert(q.isEmpty)
+          assert(q.isEmpty)
           if(!spillover.isEmpty) {
             anotherRound = true
             q = spillover
-            spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodsfirst)
+            spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodslast)
           }
         } while (anotherRound)
 
-        // TODO assert(q.isEmpty)
+        assert(q.isEmpty)
         assert(allLocksFreed)
 
         if(stats) {
@@ -590,20 +593,17 @@ abstract class Inliners extends SubComponent {
           }
         }
 
-        /*
-        if(splicedBlocks.nonEmpty) { TODO explore because this saves 8 sec
+        if(splicedBlocks.nonEmpty) { // TODO explore because this saves 8 sec
           // opportunistically perform straightforward inlinings before the next typeflow round
           val savedRetry = retry
           val savedStaleOut = staleOut.toSet; staleOut.clear()
           val savedStaleIn  = staleIn.toSet ; staleIn.clear()
-          val howmany = inlineWithoutTFA(splicedBlocks, tfa.knownBeforehand)
-          if(howmany > 0) println("inlineWithoutTFA: " + howmany);
+          inlineWithoutTFA(splicedBlocks, tfa.knownBeforehand)
           splicedBlocks ++= staleIn
           staleOut.clear(); staleOut ++= savedStaleOut;
           staleIn.clear();  staleIn  ++= savedStaleIn;
           retry = savedRetry
         }
-        */
 
         if (tfa.stat)
           log(caller.fullName + " iterations: " + tfa.iterations + " (size: " + caller.length + ")")
