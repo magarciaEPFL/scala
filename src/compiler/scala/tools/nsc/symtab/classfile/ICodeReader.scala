@@ -720,7 +720,7 @@ abstract class ICodeReader extends ClassfileParser {
     def resolveDups() {
       import opcodes._
 
-      val tfa = new analysis.MethodTFA() {
+      val tfa = new analysis.MethodTFA(null) {
         import analysis._
         import analysis.typeFlowLattice.IState
 

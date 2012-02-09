@@ -107,6 +107,12 @@ abstract class Inliners extends SubComponent {
   }
 
   // ------------------------------------------------------------------------------------------
+  // thread-pool-wide cache of toTypeKind(sym.tpe) results for sym keys
+  // ------------------------------------------------------------------------------------------
+
+  val symTKCache = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]
+
+  // ------------------------------------------------------------------------------------------
   // thread-pool-wide cache of @inline vs @noinline status of methods
   // ------------------------------------------------------------------------------------------
 
@@ -211,7 +217,7 @@ abstract class Inliners extends SubComponent {
 
     val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
     var a: analysis.MTFACoarse = null
-    if(hasRETURN) { a = new analysis.MTFACoarse(incm); a.run } // TODO use MTFACoarse
+    if(hasRETURN) { a = new analysis.MTFACoarse(incm, symTKCache); a.run }
 
     if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
@@ -379,6 +385,7 @@ abstract class Inliners extends SubComponent {
         recentTFAs.clear
         inlineAnnCache.clear()
         knownNever.clear()
+        symTKCache.clear()
       }
     }
 
@@ -393,7 +400,7 @@ abstract class Inliners extends SubComponent {
     }
     import NonPublicRefs._
 
-    val tfa   = new analysis.MTFAGrowable(knownNever)
+    val tfa   = new analysis.MTFAGrowable(knownNever, symTKCache)
     tfa.stat  = global.opt.printStats
     val staleOut      = new mutable.ListBuffer[BasicBlock]
     val splicedBlocks = mutable.Set.empty[BasicBlock]
@@ -948,11 +955,14 @@ abstract class Inliners extends SubComponent {
         else if (!isSafeToInline(stackLength)) "it is unsafe (target may reference private fields)"
         else "of a bug (run with -Ylog:inline -Ydebug for more information)"
 
-      def canAccess(level: NonPublicRefs.Value) = level match {
-        case Private    => caller.owner == inc.owner
-        case Protected  => caller.owner.tpe <:< inc.owner.tpe
-        case Public     => true
+      def canAccess(level: NonPublicRefs.Value) = gLocked {
+        level match {
+          case Private    => caller.owner == inc.owner
+          case Protected  => caller.owner.tpe <:< inc.owner.tpe
+          case Public     => true
+        }
       }
+
       private def sameSymbols = caller.sym == inc.sym
 
       /** A method is safe to inline when:

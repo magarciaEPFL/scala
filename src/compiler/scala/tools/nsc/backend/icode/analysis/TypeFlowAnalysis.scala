@@ -101,7 +101,7 @@ abstract class TypeFlowAnalysis {
    * Additionally to the MTFAGrowable instance owned by an Inliner, a MethodTFA is instantiated and run in getRecentTFA
    * (for the purpose of analyzing callees which are inlining candidates). Again, the same MethodTFA instance will never have methods
    * invoked from different threads, but the access of those methods (in MethodTFA) to global resources should also be considered. */
-  class MethodTFA extends DataFlowAnalysis[typeFlowLattice.type] {
+  class MethodTFA(symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) extends DataFlowAnalysis[typeFlowLattice.type] {
     import icodes._
     import icodes.opcodes._
 
@@ -132,8 +132,9 @@ abstract class TypeFlowAnalysis {
       }
     }
 
-    def this(m: icodes.IMethod) {
-      this()
+    def this(m: icodes.IMethod,
+             symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) {
+      this(symTKCache)
       init(m)
     }
 
@@ -189,10 +190,23 @@ abstract class TypeFlowAnalysis {
       i match {
 
         case THIS(clasz) =>
-          stack push gLocked { toTypeKind(clasz.tpe) }
+          stack push symTK(clasz)
 
         case CONSTANT(const) =>
-          stack push gLocked { toTypeKind(const.tpe) }
+          // saves a trip to typer
+          val tk = const.tag match {
+            case UnitTag    => UNIT
+            case BooleanTag => BOOL
+            case ByteTag    => BYTE
+            case ShortTag   => SHORT
+            case CharTag    => CHAR
+            case IntTag     => INT
+            case LongTag    => LONG
+            case FloatTag   => FLOAT
+            case DoubleTag  => DOUBLE
+            case _          => gLocked { toTypeKind(const.tpe) } // TODO cache
+          }
+          stack push tk
 
         case LOAD_ARRAY_ITEM(kind) =>
           stack.pop2 match {
@@ -210,10 +224,10 @@ abstract class TypeFlowAnalysis {
         case LOAD_FIELD(field, isStatic) =>
           if (!isStatic)
             stack.pop
-          stack push gLocked { toTypeKind(field.tpe) }
+          stack push symTK(field)
 
         case LOAD_MODULE(module) =>
-          stack push gLocked { toTypeKind(module.tpe) }
+          stack push symTK(module)
 
         case STORE_ARRAY_ITEM(kind) =>
           stack.pop3
@@ -323,9 +337,9 @@ abstract class TypeFlowAnalysis {
           stack.pop
 
         case RETURN(kind) =>
-          gLocked {
+          // gLocked {
             if (kind != UNIT) {stack.pop }
-          }
+          // }
 
         case THROW(_) =>
           stack.pop
@@ -347,7 +361,7 @@ abstract class TypeFlowAnalysis {
 
         case LOAD_EXCEPTION(clasz) =>
           stack.pop(stack.length)
-          stack.push( gLocked { toTypeKind(clasz.tpe) } )
+          stack push symTK(clasz)
 
         case _ =>
           dumpClassesAndAbort("Unknown instruction: " + i)
@@ -355,24 +369,38 @@ abstract class TypeFlowAnalysis {
       out
     } // interpret
 
-	abstract class InferredType {
-      /** Return the type kind pointed by this inferred type. */
-      def getKind(in: lattice.Elem): icodes.TypeKind = this match {
-        case Const(k) =>
-          k
-        case TypeOfVar(l: icodes.Local) =>
-          if (in.vars.isDefinedAt(l)) in.vars(l) else l.kind
-        case TypeOfStackPos(n: Int) =>
-          assert(in.stack.length >= n)
-          in.stack(n)
+    def symTK(sym: Symbol): TypeKind = {
+      if(symTKCache eq null) {
+        toTypeKind(sym.tpe) // sequential scenario
+      } else {
+        var res = symTKCache.get(sym)
+        if(res ne null) { res  }
+        else {
+          res = gLocked { toTypeKind(sym.tpe) }
+          symTKCache.put(sym, res)
+          res
+        }
       }
     }
-	/** A type that does not depend on input to the transfer function. */
-	case class Const(t: icodes.TypeKind) extends InferredType
-	/** The type of a given local variable. */
-	case class TypeOfVar(l: icodes.Local) extends InferredType
-	/** The type found at a stack position. */
-	case class TypeOfStackPos(n: Int) extends InferredType
+
+    abstract class InferredType {
+        /** Return the type kind pointed by this inferred type. */
+        def getKind(in: lattice.Elem): icodes.TypeKind = this match {
+          case Const(k) =>
+            k
+          case TypeOfVar(l: icodes.Local) =>
+            if (in.vars.isDefinedAt(l)) in.vars(l) else l.kind
+          case TypeOfStackPos(n: Int) =>
+            assert(in.stack.length >= n)
+            in.stack(n)
+        }
+      }
+    /** A type that does not depend on input to the transfer function. */
+    case class Const(t: icodes.TypeKind) extends InferredType
+    /** The type of a given local variable. */
+    case class TypeOfVar(l: icodes.Local) extends InferredType
+    /** The type found at a stack position. */
+    case class TypeOfStackPos(n: Int) extends InferredType
 
   }
 
@@ -408,7 +436,8 @@ abstract class TypeFlowAnalysis {
     The rest of the story takes place in Inliner, which does not visit all of the method's basic blocks but only on those represented in `remainingCALLs`.
 
    */
-  class MTFAGrowable(knownNever: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int]) extends MethodTFA {
+  class MTFAGrowable(knownNever: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int],
+                     symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) extends MethodTFA(symTKCache) {
 
     import icodes._
 
@@ -787,7 +816,7 @@ abstract class TypeFlowAnalysis {
 
   }
 
-  class MTFACoarse(m: icodes.IMethod) extends MethodTFA(m) {
+  class MTFACoarse(m: icodes.IMethod, symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) extends MethodTFA(m, symTKCache) {
 
     import icodes._
     import opcodes._
@@ -836,7 +865,7 @@ abstract class TypeFlowAnalysis {
         case LOAD_FIELD(field, isStatic) =>
           if (!isStatic)
             stack.pop
-          stack push coarse( gLocked { toTypeKind(field.tpe) } ) // TODO need a faster way to find out whether primitive, array, or reference type
+          stack push coarse( symTK(field) ) // TODO need a faster way to find out whether primitive, array, or reference type
 
         case LOAD_MODULE(module) =>
           stack push ObjectReference

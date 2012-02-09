@@ -77,7 +77,7 @@ abstract class InlineExceptionHandlers extends SubComponent {
       for (v <- handlerCopies get bb ; (local, block) <- v ; l <- local) yield l
 
     /* Type Flow Analysis */
-    private val tfa: analysis.MethodTFA = new analysis.MethodTFA()
+    private val tfa: analysis.MethodTFA = new analysis.MethodTFA(null)
     private var tfaCache: Map[Int, tfa.lattice.Elem] = Map.empty
     private var analyzedMethod: IMethod = NoIMethod
 
