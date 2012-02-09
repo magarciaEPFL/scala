@@ -146,11 +146,15 @@ abstract class Inliners extends SubComponent {
   }
 
   // ------------------------------------------------------------------------------------------
-  // thread-pool-wide cache of method known to be never inlinale
+  // thread-pool-wide caches of:
+  //   - knownNever       : methods known to be never inlinable
+  //   - knownAvailability: methods whose ICode is known to be available
   // ------------------------------------------------------------------------------------------
 
   // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `tfa.knownUnsafe` and `tfa.knownSafe`)
   val knownNever = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // used as a set: values are dummies
+
+  val knownAvailability = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // value -1 means known not to available, value +1 known to be available.
 
   // ------------------------------------------------------------------------------------------
   // mechanism for multiple readers and multiple writers of the basic blocks owned by different IMethod s
@@ -496,20 +500,34 @@ abstract class Inliners extends SubComponent {
             warning(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
         }
 
-        def isAvailable = { gLocked { icodes available concreteMethod.enclClass } }
+        val concreteEnclClass = gLocked { concreteMethod.enclClass } // TODO assert(concreteEnclClass eq receiver)
 
-        gLocked {
-          if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
-            // Until r22824 this line was:
-            //   icodes.icode(concreteMethod.enclClass, true)
-            //
-            // Changing it to
-            //   icodes.load(concreteMethod.enclClass)
-            // was the proximate cause for SI-3882:
-            //   error: Illegal index: 0 overlaps List((variable par1,LONG))
-            //   error: Illegal index: 0 overlaps List((variable par1,LONG))
-            icodes.load(concreteMethod.enclClass)
+        def isAvailable = {
+          val ka = knownAvailability.get(concreteEnclClass)
+          ka match {
+            case -1 => false
+            case  0 =>
+              val res = gLocked { icodes available concreteEnclClass }
+              if(res) { knownAvailability.put(concreteEnclClass, +1) }
+              res // we persistently record non-availability only after icodes.load below
+            case  1 => true
           }
+        }
+
+        if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
+          // Until r22824 this line was:
+          //   icodes.icode(concreteMethod.enclClass, true)
+          //
+          // Changing it to
+          //   icodes.load(concreteMethod.enclClass)
+          // was the proximate cause for SI-3882:
+          //   error: Illegal index: 0 overlaps List((variable par1,LONG))
+          //   error: Illegal index: 0 overlaps List((variable par1,LONG))
+          gLocked { icodes.load(concreteEnclClass) }
+
+          if(isAvailable) { knownAvailability.put(concreteEnclClass, +1) }
+          else            { knownAvailability.put(concreteEnclClass, -1) }
+
         }
 
         def isCandidate = (
@@ -646,7 +664,7 @@ abstract class Inliners extends SubComponent {
     }
 
     /** Should method 'sym' being called in 'receiver' be loaded from disk? */
-    private def shouldLoadImplFor(sym: Symbol, receiver: Symbol): Boolean = {
+    private def shouldLoadImplFor(sym: Symbol, receiver: Symbol): Boolean = gLocked {
       def alwaysLoad    = (receiver.enclosingPackage == RuntimePackage) || (receiver == PredefModule.moduleClass)
       def loadCondition = sym.isEffectivelyFinal && isMonadicMethod(sym) && isHigherOrderMethod(sym)
 
