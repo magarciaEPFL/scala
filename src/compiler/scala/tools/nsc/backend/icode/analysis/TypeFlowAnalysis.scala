@@ -792,24 +792,6 @@ abstract class TypeFlowAnalysis {
     import icodes._
     import opcodes._
 
-
-    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
-      var visited = mutable.Set.empty[BasicBlock]
-      while (!worklist.isEmpty) {
-        val point = worklist.iterator.next; worklist -= point; visited += point;
-        visited += point
-        val output = f(point, in(point))
-
-        out(point) = output
-        val succs = point.successors filter { toVisit => !visited(toVisit) }
-        succs foreach { p =>
-          if (!worklist(p)) { worklist += p; }
-
-          in(p) = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
-        }
-      }
-    }
-
     override def interpret(in: typeFlowLattice.Elem, i: Instruction): typeFlowLattice.Elem = {
       val out = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
       val bindings = out.vars

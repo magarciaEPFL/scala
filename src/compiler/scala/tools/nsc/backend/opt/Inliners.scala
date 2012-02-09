@@ -10,7 +10,7 @@ package backend.opt
 import scala.collection.mutable
 import scala.tools.nsc.symtab._
 import scala.tools.nsc.util.{ NoSourceFile }
-import java.util.concurrent.PriorityBlockingQueue
+import java.util.concurrent.{ConcurrentHashMap, PriorityBlockingQueue}
 
 /**
  *  @author Iulian Dragos
@@ -226,7 +226,7 @@ abstract class Inliners extends SubComponent {
   private object poison extends QElem(null, 0, -1)
 
   private val MAX_THREADS = scala.math.min(
-    2,
+    4,
     _root_.java.lang.Runtime.getRuntime().availableProcessors()
   )
 
@@ -253,9 +253,20 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  private var q         = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodslast)
-  private var spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodslast)
+  private var q         = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem] // (1000, largemethodslast)
+  private var spillover = new _root_.java.util.concurrent.ConcurrentHashMap[IMethod, Int]() // value denotes QElem.pastAttempts
   // private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
+
+  /* resubmit m with priority one below its current (up to some threshold) */
+  private def resubmit(workItem: QElem): Boolean = {
+    if (workItem.pastAttempts < MAX_INLINE_RETRY) {
+      spillover.put(workItem.im, workItem.pastAttempts + 1)
+      true
+    } else {
+      false
+    }
+
+  }
 
   // ------------------------------------------------------------------------------------------
   // Worker
@@ -338,8 +349,14 @@ abstract class Inliners extends SubComponent {
           assert(q.isEmpty)
           if(!spillover.isEmpty) {
             anotherRound = true
-            q = spillover
-            spillover = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](100, largemethodslast)
+            val iter = spillover.entrySet().iterator()
+            while(iter.hasNext()) {
+              val extra        = iter.next()
+              val im           = extra.getKey()
+              val pastAttempts = extra.getValue()
+              q put new QElem(im, im.code.blockCount, pastAttempts + 1)
+            }
+            spillover.clear()
           }
         } while (anotherRound)
 
@@ -393,17 +410,15 @@ abstract class Inliners extends SubComponent {
     def analyzeMethod(workItem: QElem): Unit = {
       val m = workItem.im
       if(canWriteLock(m.symbol)) {
-        try     analyzeMethod0(m)
+        try     analyzeMethod0(workItem)
         finally releaseWriteLock(m.symbol)
       } else {
-        // resubmit m with priority one below its current (up to some threshold)
-        if (workItem.pastAttempts < MAX_INLINE_RETRY) {
-          spillover put new QElem(m, workItem.blockCount, workItem.pastAttempts + 1)
-        }
+        resubmit(workItem)
       }
     }
 
-    private def analyzeMethod0(m: IMethod): Unit = {
+    private def analyzeMethod0(workItem: QElem): Unit = {
+      val m = workItem.im
       val sizeBeforeInlining  = m.code.blockCount
       val instrBeforeInlining = m.code.instructionCount
       var retry = false
@@ -537,7 +552,7 @@ abstract class Inliners extends SubComponent {
                   /* if(!isExternal) */ releaseReadLock(callee.symbol)
                 }
               } else {
-                // TODO add this block to a analyzeMethod0-local queue for bounded retry
+                resubmit(workItem)
               }
 
             case None =>
