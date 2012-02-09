@@ -296,10 +296,9 @@ abstract class TypeFlowAnalysis {
           }
 
         case cm @ CALL_METHOD(_, _) =>
-          gLocked {
-            stack pop cm.consumed
-            cm.producedTypes foreach (stack push _)
-          }
+          val (consumed, producedTypes) = inliner.interpretInfo(cm)
+          stack pop consumed
+          producedTypes foreach { pt => stack push pt }
 
         case BOX(kind) =>
           stack.pop
@@ -945,10 +944,9 @@ abstract class TypeFlowAnalysis {
           }
 
         case cm @ CALL_METHOD(_, _) =>
-          gLocked {
-            stack pop cm.consumed
-            cm.producedTypes foreach { pt => stack push coarse(pt) } // TODO need a faster way to find out whether primitive, array, or reference type
-          }
+          val (consumed, producedTypes) = inliner.interpretInfo(cm)
+          stack pop consumed
+          producedTypes foreach { pt => stack push coarse(pt) }
 
         case BOX(kind) =>
           stack.pop

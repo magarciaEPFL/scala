@@ -113,6 +113,20 @@ abstract class Inliners extends SubComponent {
   val symTKCache = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]
 
   // ------------------------------------------------------------------------------------------
+  // thread-pool-wide cache of CALL_METHOD.{consumed, producedTypes}
+  // ------------------------------------------------------------------------------------------
+
+  private val cmConsumedAndProduced = new _root_.java.util.concurrent.ConcurrentHashMap[CALL_METHOD, Tuple2[Int, List[TypeKind]]]
+
+  def interpretInfo(cm: CALL_METHOD): Tuple2[Int, List[TypeKind]] = {
+    var res = cmConsumedAndProduced.get(cm)
+    if(res eq null) {
+      res = gLocked { Pair(cm.consumed, cm.producedTypes) }
+      cmConsumedAndProduced.put(cm, res)
+    }
+    res
+  }
+  // ------------------------------------------------------------------------------------------
   // thread-pool-wide cache of @inline vs @noinline status of methods
   // ------------------------------------------------------------------------------------------
 
@@ -440,6 +454,7 @@ abstract class Inliners extends SubComponent {
       val sizeBeforeInlining  = m.code.blockCount
       val instrBeforeInlining = m.code.instructionCount
       var retry = false
+      var retryDueToReadLock = false
       var count = 0
 
       // fresh name counter
@@ -565,13 +580,14 @@ abstract class Inliners extends SubComponent {
         if (isAvailable && isCandidate) {
           lookupIMethod(concreteMethod, receiver) match {
             case Some(callee) =>
-              if(caller.sym eq callee.symbol) {
-                warnNoInline("same symbols") // don't bother locking
-              } else if(canReadLock(callee.symbol)) {
+              // early checks to avoid locking if unsuccessful
+              if(caller.sym eq callee.symbol)         { warnNoInline("same symbols")       }
+              else if(!callee.hasCode)                { warnNoInline("callee as no code")  }
+              else if(tfa.blackballed(callee.symbol)) { warnNoInline("callee blackballed") }
+              else if(canReadLock(callee.symbol)) {
                 try {
-                  val inc   = gLocked { new IMethodInfo(callee) }
-                  val pair  = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
-
+                  var inc  = gLocked { new IMethodInfo(callee) }
+                  var pair = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
                   if (pair isStampedForInlining stackLength) {
                     retry = true
                     inlined = true
@@ -590,8 +606,7 @@ abstract class Inliners extends SubComponent {
                   releaseReadLock(callee.symbol)
                 }
               } else {
-                count += 1
-                retry  = true
+                retryDueToReadLock = true
                 // Alternatively, one could try resubmit(workItem) but that's even slower
               }
 
@@ -625,6 +640,7 @@ abstract class Inliners extends SubComponent {
 
       do {
         retry = false
+        retryDueToReadLock = false
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
 
         /* it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones. */
@@ -648,7 +664,7 @@ abstract class Inliners extends SubComponent {
           }
         }
 
-        if(splicedBlocks.nonEmpty) { // TODO explore because this saves 8 sec
+        if(splicedBlocks.nonEmpty) { // TODO backport
           // opportunistically perform straightforward inlinings before the next typeflow round
           val savedRetry = retry
           val savedStaleOut = staleOut.toSet; staleOut.clear()
@@ -658,6 +674,11 @@ abstract class Inliners extends SubComponent {
           staleOut.clear(); staleOut ++= savedStaleOut;
           staleIn.clear();  staleIn  ++= savedStaleIn;
           retry = savedRetry
+        }
+
+        if(retryDueToReadLock && !retry) {
+          count += 1
+          retry  = true
         }
 
         if (tfa.stat)
@@ -778,6 +799,7 @@ abstract class Inliners extends SubComponent {
     }
 
     class CallerCalleeInfo(val caller: IMethodInfo, val inc: IMethodInfo, fresh: mutable.Map[String, Int], inlinedMethodCount: collection.Map[Symbol, Int]) {
+
       def isLargeSum  = caller.length + inc.length - 1 > SMALL_METHOD_SIZE
 
       private def freshName(s: String): TermName = {
@@ -965,7 +987,7 @@ abstract class Inliners extends SubComponent {
       }
 
       def isStampedForInlining(stackLength: Int) =
-        !sameSymbols && inc.m.hasCode && shouldInline && isSafeToInline(stackLength) &&
+        shouldInline && isSafeToInline(stackLength) &&
         inc.doMakePublic() // isSafeToInline(stack) is invoked a few times,
         // however doMakePublic() should be invoked just once (here) if isSafeToInline(stack) succeeds.
         // Because doMakePublic() is side-effecting.
@@ -988,10 +1010,10 @@ abstract class Inliners extends SubComponent {
         else if (!isSafeToInline(stackLength)) "it is unsafe (target may reference private fields)"
         else "of a bug (run with -Ylog:inline -Ydebug for more information)"
 
-      def canAccess(level: NonPublicRefs.Value) = gLocked {
+      def canAccess(level: NonPublicRefs.Value) = {
         level match {
           case Private    => caller.owner == inc.owner
-          case Protected  => caller.owner.tpe <:< inc.owner.tpe
+          case Protected  => gLocked { caller.owner.tpe <:< inc.owner.tpe }
           case Public     => true
         }
       }
