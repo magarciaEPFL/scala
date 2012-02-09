@@ -217,7 +217,7 @@ abstract class Inliners extends SubComponent {
 
     val hasRETURN = containsRETURN(incm.code.blocksList) || (incm.exh exists { eh => containsRETURN(eh.blocks) })
     var a: analysis.MTFACoarse = null
-    if(hasRETURN) { a = new analysis.MTFACoarse(incm, symTKCache); a.run }
+    if(hasRETURN) { a = new analysis.MTFACoarse(incm); a.run }
 
     if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
@@ -246,7 +246,7 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  private val largemethodslast = new _root_.java.util.Comparator[QElem] {
+  private val largemethodsfirst = new _root_.java.util.Comparator[QElem] {
     override def compare(a: QElem, b: QElem) = {
       if     (a eq poison)  1
       else if(b eq poison) -1 // ok not to check for both being poison
@@ -259,8 +259,8 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  private var q         = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem] // (1000, largemethodslast)
-  private var spillover = new _root_.java.util.concurrent.ConcurrentHashMap[IMethod, Int]() // value denotes QElem.pastAttempts
+  private val q         = new _root_.java.util.concurrent.PriorityBlockingQueue[QElem](1000, largemethodsfirst)
+  private val spillover = new _root_.java.util.concurrent.ConcurrentHashMap[IMethod, Int]() // value denotes QElem.pastAttempts
   // private val q = new _root_.java.util.concurrent.LinkedBlockingQueue[QElem]
 
   /* resubmit m with priority one below its current (up to some threshold) */
@@ -400,7 +400,7 @@ abstract class Inliners extends SubComponent {
     }
     import NonPublicRefs._
 
-    val tfa   = new analysis.MTFAGrowable(knownNever, symTKCache)
+    val tfa   = new analysis.MTFAGrowable
     tfa.stat  = global.opt.printStats
     val staleOut      = new mutable.ListBuffer[BasicBlock]
     val splicedBlocks = mutable.Set.empty[BasicBlock]
@@ -695,7 +695,7 @@ abstract class Inliners extends SubComponent {
 
       private var toBecomePublic: List[Symbol] = Nil
 
-      lazy val accessNeeded: NonPublicRefs.Value = gLocked {
+      lazy val accessNeeded: NonPublicRefs.Value = /* gLocked */ {
 
         def check(sym: Symbol, cond: Boolean) =
           if (cond) Private

@@ -94,6 +94,7 @@ abstract class TypeFlowAnalysis {
 
   val timer = new Timer
 
+
   /* Each InlinerTask owns an Inliner instance, which in turn instantiates and owns an MTFAGrowable instance.
    * That way, no method of MTFAGrowable will be invoked on the same MTFAGrowable instance from different threads.
    * That does not rule out that synchronization is needed: those methods may invoke typer operations,
@@ -101,7 +102,7 @@ abstract class TypeFlowAnalysis {
    * Additionally to the MTFAGrowable instance owned by an Inliner, a MethodTFA is instantiated and run in getRecentTFA
    * (for the purpose of analyzing callees which are inlining candidates). Again, the same MethodTFA instance will never have methods
    * invoked from different threads, but the access of those methods (in MethodTFA) to global resources should also be considered. */
-  class MethodTFA(symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) extends DataFlowAnalysis[typeFlowLattice.type] {
+  class MethodTFA extends DataFlowAnalysis[typeFlowLattice.type] {
     import icodes._
     import icodes.opcodes._
 
@@ -132,9 +133,8 @@ abstract class TypeFlowAnalysis {
       }
     }
 
-    def this(m: icodes.IMethod,
-             symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) {
-      this(symTKCache)
+    def this(m: icodes.IMethod) {
+      this()
       init(m)
     }
 
@@ -370,14 +370,14 @@ abstract class TypeFlowAnalysis {
     } // interpret
 
     def symTK(sym: Symbol): TypeKind = {
-      if(symTKCache eq null) {
+      if(inliner.symTKCache eq null) {
         toTypeKind(sym.tpe) // sequential scenario
       } else {
-        var res = symTKCache.get(sym)
+        var res = inliner.symTKCache.get(sym)
         if(res ne null) { res  }
         else {
           res = gLocked { toTypeKind(sym.tpe) }
-          symTKCache.put(sym, res)
+          inliner.symTKCache.put(sym, res)
           res
         }
       }
@@ -436,8 +436,7 @@ abstract class TypeFlowAnalysis {
     The rest of the story takes place in Inliner, which does not visit all of the method's basic blocks but only on those represented in `remainingCALLs`.
 
    */
-  class MTFAGrowable(knownNever: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int],
-                     symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) extends MethodTFA(symTKCache) {
+  class MTFAGrowable extends MethodTFA {
 
     import icodes._
 
@@ -541,7 +540,7 @@ abstract class TypeFlowAnalysis {
     val knownUnsafe = mutable.Set.empty[Symbol]
     val knownSafe   = mutable.Set.empty[Symbol]
 
-    @inline final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever.containsKey(msym) }
+    @inline final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || inliner.knownNever.containsKey(msym) }
 
     val relevantBBs   = mutable.Set.empty[BasicBlock]
 
@@ -816,7 +815,7 @@ abstract class TypeFlowAnalysis {
 
   }
 
-  class MTFACoarse(m: icodes.IMethod, symTKCache: _root_.java.util.concurrent.ConcurrentHashMap[Symbol, icodes.TypeKind]) extends MethodTFA(m, symTKCache) {
+  class MTFACoarse(m: icodes.IMethod) extends MethodTFA(m) {
 
     import icodes._
     import opcodes._
