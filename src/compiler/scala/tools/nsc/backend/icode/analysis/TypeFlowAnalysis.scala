@@ -499,7 +499,7 @@ abstract class TypeFlowAnalysis {
         if(isOnWatchlist(i)) {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
-          val paramsLength = gLocked { msym.info.paramTypes.size }
+          val paramsLength = inliner.getParamsLength(msym)
           val receiver = result.stack.types.drop(paramsLength).head match {
             case REFERENCE(s) => s
             case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY

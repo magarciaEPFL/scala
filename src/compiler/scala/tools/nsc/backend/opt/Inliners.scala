@@ -163,6 +163,9 @@ abstract class Inliners extends SubComponent {
   // thread-pool-wide caches of:
   //   - knownNever       : methods known to be never inlinable
   //   - knownAvailability: methods whose ICode is known to be available
+  //   - knownReceiver    : TODO
+  //   - knownHiO         : TODO
+  //   - paramsLength     : TODO
   // ------------------------------------------------------------------------------------------
 
   // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `tfa.knownUnsafe` and `tfa.knownSafe`)
@@ -173,6 +176,20 @@ abstract class Inliners extends SubComponent {
   val knownEnclClass = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Symbol] // entries denote (concreteMethod, concreteMethod.enclClass)
 
   val knownReceiver = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // value -1 means TFA needed, value +1 means receiver is known without TFA.
+
+  val knownHiO = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // value -1 means false, value +1 means true.
+
+  val paramsLength = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int]
+
+  def getParamsLength(msym: Symbol): Int = {
+    if(paramsLength.containsKey(msym)) {
+      paramsLength.get(msym)
+    } else {
+      val res = gLocked { msym.info.paramTypes.size }
+      paramsLength.put(msym, res)
+      res
+    }
+  }
 
   // ------------------------------------------------------------------------------------------
   // mechanism for multiple readers and multiple writers of the basic blocks owned by different IMethod s
@@ -410,6 +427,8 @@ abstract class Inliners extends SubComponent {
         knownAvailability.clear()
         knownEnclClass.clear()
         knownReceiver.clear()
+        knownHiO.clear()
+        paramsLength.clear()
         symTKCache.clear()
       }
     }
@@ -695,8 +714,17 @@ abstract class Inliners extends SubComponent {
       }
     }
 
-    private def isHigherOrderMethod(sym: Symbol) = gLocked {
-      sym.isMethod && atPhase(currentRun.erasurePhase.prev)(sym.info.paramTypes exists isFunctionType)
+    private def isHigherOrderMethod(sym: Symbol) = {
+      val res = knownHiO.get(sym)
+      res match {
+        case -1 => false
+        case  0 =>
+          val b = gLocked { sym.isMethod && atPhase(currentRun.erasurePhase.prev)(sym.info.paramTypes exists isFunctionType) }
+          if(b) { knownHiO.put(sym,  1) }
+          else  { knownHiO.put(sym, -1) }
+          b
+        case  1 => true
+      }
     }
 
     /** Should method 'sym' being called in 'receiver' be loaded from disk? */
