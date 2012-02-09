@@ -583,8 +583,17 @@ abstract class TypeFlowAnalysis {
       b.toList collect { case c : opcodes.CALL_METHOD => c } filter { cm => isPreCandidate(cm) && isReceiverKnown(cm) }
     }
 
-    private def isReceiverKnown(cm: opcodes.CALL_METHOD): Boolean = gLocked {
-      cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal
+    private def isReceiverKnown(cm: opcodes.CALL_METHOD): Boolean = {
+      var res = inliner.knownReceiver.get(cm.method)
+      res match {
+        case -1 => false
+        case  0 =>
+          val b = gLocked { cm.method.isEffectivelyFinal && cm.method.owner.isEffectivelyFinal }
+          if(b) { inliner.knownReceiver.put(cm.method, +1) }
+          else  { inliner.knownReceiver.put(cm.method, -1) }
+          b
+        case  1 => true
+      }
     }
 
     private def putOnRadar(blocks: Traversable[BasicBlock]) {

@@ -156,6 +156,10 @@ abstract class Inliners extends SubComponent {
 
   val knownAvailability = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // value -1 means known not to available, value +1 known to be available.
 
+  val knownEnclClass = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Symbol] // entries denote (concreteMethod, concreteMethod.enclClass)
+
+  val knownReceiver = new _root_.java.util.concurrent.ConcurrentHashMap[Symbol, Int] // value -1 means TFA needed, value +1 means receiver is known without TFA.
+
   // ------------------------------------------------------------------------------------------
   // mechanism for multiple readers and multiple writers of the basic blocks owned by different IMethod s
   // ------------------------------------------------------------------------------------------
@@ -389,6 +393,9 @@ abstract class Inliners extends SubComponent {
         recentTFAs.clear
         inlineAnnCache.clear()
         knownNever.clear()
+        knownAvailability.clear()
+        knownEnclClass.clear()
+        knownReceiver.clear()
         symTKCache.clear()
       }
     }
@@ -500,7 +507,14 @@ abstract class Inliners extends SubComponent {
             warning(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
         }
 
-        val concreteEnclClass = gLocked { concreteMethod.enclClass } // TODO assert(concreteEnclClass eq receiver)
+        val concreteEnclClass = {
+          var res = knownEnclClass.get(concreteMethod)
+          if(res eq null) {
+            res = gLocked { concreteMethod.enclClass } // TODO assert(concreteEnclClass eq receiver)
+            knownEnclClass.put(concreteMethod, res)
+          }
+          res
+        }
 
         def isAvailable = {
           val ka = knownAvailability.get(concreteEnclClass)
@@ -551,10 +565,9 @@ abstract class Inliners extends SubComponent {
         if (isAvailable && isCandidate) {
           lookupIMethod(concreteMethod, receiver) match {
             case Some(callee) =>
-              // isExternal implies no need to read-lock callee's symbol
-              // val isExternal = gLocked { icodes.loaded.contains(callee.symbol.enclClass) }
-
-              if( /* isExternal || */ canReadLock(callee.symbol)) {
+              if(caller.sym eq callee.symbol) {
+                warnNoInline("same symbols") // don't bother locking
+              } else if(canReadLock(callee.symbol)) {
                 try {
                   val inc   = gLocked { new IMethodInfo(callee) }
                   val pair  = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
@@ -574,10 +587,12 @@ abstract class Inliners extends SubComponent {
                     warnNoInline(pair failureReason stackLength)
                   }
                 } finally {
-                  /* if(!isExternal) */ releaseReadLock(callee.symbol)
+                  releaseReadLock(callee.symbol)
                 }
               } else {
-                resubmit(workItem)
+                count += 1
+                retry  = true
+                // Alternatively, one could try resubmit(workItem) but that's even slower
               }
 
             case None =>
