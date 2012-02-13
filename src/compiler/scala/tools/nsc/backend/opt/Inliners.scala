@@ -160,15 +160,18 @@ abstract class Inliners extends SubComponent {
     }
 
     def clearCaches() {
+      // methods
       NonPublicRefs.usesNonPublics.clear()
       recentTFAs.clear
-      tfa.remainingCALLs.clear()
-      tfa.preCandidates.clear()
-      tfa.isOnWatchlist.clear()
-      tfa.relevantBBs.clear()
       tfa.knownUnsafe.clear()
       tfa.knownSafe.clear()
       tfa.knownNever.clear()
+      // basic blocks
+      tfa.preCandidates.clear()
+      tfa.relevantBBs.clear()
+      // callsites
+      tfa.remainingCALLs.clear()
+      tfa.isOnWatchlist.clear()
     }
 
     def analyzeClass(cls: IClass): Unit =
@@ -686,7 +689,7 @@ abstract class Inliners extends SubComponent {
        */
       def isSafeToInline(stackLength: Int): Boolean = {
 
-        if(tfa.knownUnsafe(inc.sym)) { return false }
+        if(tfa.blackballed(inc.sym)) { return false }
         if(tfa.knownSafe(inc.sym))   { return true  }
 
         if(helperIsSafeToInline(stackLength)) {
@@ -760,7 +763,7 @@ abstract class Inliners extends SubComponent {
        *   - it's bad (useless) to inline inside bridge methods
        */
       private def neverInline   = {
-        (!inc.m.hasCode || inc.noinline) && { tfa.knownNever += inc.m.symbol; true }
+        (!inc.m.hasCode || inc.noinline || inc.isRecursive) && { tfa.knownNever += inc.m.symbol; true }
       }
       private def alwaysInline  = inc.inline
 
