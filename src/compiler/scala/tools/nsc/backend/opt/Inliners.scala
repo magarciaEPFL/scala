@@ -233,22 +233,18 @@ abstract class Inliners extends SubComponent {
       def inlineWithoutTFA(inputBlocks: Traversable[BasicBlock], callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]]): Int = {
         var inlineCount = 0
         import scala.util.control.Breaks._
-        do {
-          retry = false
-          for(x <- inputBlocks;
-              val easyCake = callsites(x);
-              if easyCake.nonEmpty) {
-            breakable {
-              for(ocm <- easyCake) {
-                assert(ocm.method.isEffectivelyFinal && ocm.method.owner.isEffectivelyFinal)
-                if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
-                  inlineCount += 1
-                  break
-                }
+        for(x <- inputBlocks; val easyCake = callsites(x); if easyCake.nonEmpty) {
+          breakable {
+            for(ocm <- easyCake) {
+              assert(ocm.method.isEffectivelyFinal && ocm.method.owner.isEffectivelyFinal)
+              if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
+                inlineCount += 1
+                break
               }
             }
           }
-        } while(retry && inlineCount < 5 * MAX_INLINE_RETRY)
+        }
+
         inlineCount
       }
 
@@ -383,14 +379,12 @@ abstract class Inliners extends SubComponent {
         }
 
         /*
-        if(splicedBlocks.nonEmpty) { TODO explore because this saves 8 sec
+        if(splicedBlocks.nonEmpty) { // TODO explore (saves time but leads to slightly different inlining decisions)
           // opportunistically perform straightforward inlinings before the next typeflow round
           val savedRetry = retry
           val savedStaleOut = staleOut.toSet; staleOut.clear()
           val savedStaleIn  = staleIn.toSet ; staleIn.clear()
           val howmany = inlineWithoutTFA(splicedBlocks, tfa.knownBeforehand)
-          if(howmany > 0) println("inlineWithoutTFA: " + howmany);
-          splicedBlocks ++= (staleOut filter savedStaleOut)
           splicedBlocks ++= staleIn
           staleOut.clear(); staleOut ++= savedStaleOut;
           staleIn.clear();  staleIn  ++= savedStaleIn;
