@@ -799,7 +799,7 @@ abstract class TypeFlowAnalysis {
               val succs = point.successors filter relevantBBs
               succs foreach { p =>
                 assert((p.predecessors filter isOnPerimeter).isEmpty)
-                val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+                val updated = lattice.lub(List(output, in(p)), p.exceptionHandlerStart)
                 if(updated != in(p)) {
                   in(p) = updated
                   enqueue(p)
