@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 
 
-abstract class CNodeBase<K, V> extends MainNode<K, V> {
+public abstract class CNodeBase<K, V> extends MainNode<K, V> {
     
     public static final AtomicIntegerFieldUpdater<CNodeBase> updater = AtomicIntegerFieldUpdater.newUpdater(CNodeBase.class, "csize");
     
