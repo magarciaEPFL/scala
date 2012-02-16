@@ -359,6 +359,10 @@ abstract class Inliners extends SubComponent {
 
         /* it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones. */
         tfa.callerLin = caller.m.linearizedBlocks()
+           /* TODO Do we want to perform inlining in exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed).
+            * The alternative above would be `linearizer.linearizeAt(caller.m, caller.m.startBlock)`.
+            * See also comment on the same topic in TypeFlowAnalysis. */
+
         tfa.reinit(m, staleOut.toList, splicedBlocks, staleIn)
         tfa.run
         staleOut.clear()

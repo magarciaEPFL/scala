@@ -568,6 +568,9 @@ abstract class TypeFlowAnalysis {
       // initially populate the watchlist with all callsites standing a chance of being inlined
       isOnWatchlist.clear()
       relevantBBs.clear()
+        /* TODO Do we want to perform inlining in exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed.
+         * It's not that putting on radar only `linearizer linearizeAt (m, m.startBlock)` makes for much shorter inlining times (a minor speedup nonetheless)
+         * but the effect on method size could be explored.  */
       putOnRadar(m.linearizedBlocks(linearizer))
       populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
