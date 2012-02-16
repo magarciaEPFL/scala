@@ -422,21 +422,21 @@ abstract class TypeFlowAnalysis {
       (a) early screening is performed while the type-flow is being computed (in an override of `blockTransfer`) by testing a subset of the conditions that Inliner checks later.
           The reasoning here is: if the early check fails at some iteration, there's no chance a follow-up iteration (with a yet more lub-ed typestack-slot) will succeed.
           Failure is sufficient to remove that particular CALL_METHOD from the typeflow's `remainingCALLs`.
-          A forward note: in case inlining occurs at some basic block B, all successors of B get their CALL_METHOD instruction considered again as candidates
+          A forward note: in case inlining occurs at some basic block B, all blocks reachable from B get their CALL_METHOD instructions considered again as candidates
           (because of the more precise types that -- perhaps -- can be computed).
 
-      (b) in case the early check does not fail, no conclusive decision can be made, thus the CALL_METHOD is left for on the `isOnwatchlist`.
+      (b) in case the early check does not fail, no conclusive decision can be made, thus the CALL_METHOD stays `isOnwatchlist`.
 
     In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining, so that Inliner can focus on those.
     `remainingCALLs` also caches info about the typestack just before the callsite, so as to spare computing them again at inlining time.
 
     Besides caching, a further optimization involves skipping those basic blocks whose in-flow and out-flow isn't needed anyway (as explained next).
     A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, won't cause any inlining.
-    But as we know from the way a type-flow is computed, computing the in- and out-flow for a basic block relies in general on those of other basic blocks.
+    But as we know from the way type-flows are computed, computing the in- and out-flow for a basic block relies in general on those of other basic blocks.
     In detail, we want to focus on that sub-graph of the CFG such that control flow may reach a remaining candidate callsite.
     Those basic blocks not in that subgraph can be skipped altogether. That's why:
        - `forwardAnalysis()` in `MTFAGrowable` now checks for inclusion of a basic block in `relevantBBs`
-       - same check is performed before adding the block to the worklist, and as part of choosing successors.
+       - same check is performed before adding a block to the worklist, and as part of choosing successors.
     The bookkeeping supporting on-the-fly pruning of irrelevant blocks requires overridding most methods of the dataflow-analysis.
 
     The rest of the story takes place in Inliner, which does not visit all of the method's basic blocks but only on those represented in `remainingCALLs`.
@@ -481,7 +481,7 @@ abstract class TypeFlowAnalysis {
     /*
       This is the method where information cached elsewhere is put to use. References are given those other places that populate those caches.
 
-      The goal is to avoid computing type-flows for blocks we don't need (ie blocks not tracked in `relevantBBs`). The method used to add to `relevantBBs` is `putOnRadar`.
+      The goal is avoiding computing type-flows for blocks we don't need (ie blocks not tracked in `relevantBBs`). The method used to add to `relevantBBs` is `putOnRadar`.
 
       Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
       There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
