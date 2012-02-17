@@ -567,7 +567,8 @@ abstract class TypeFlowAnalysis {
       // initially populate the watchlist with all callsites standing a chance of being inlined
       isOnWatchlist.clear()
       relevantBBs.clear()
-        /* TODO Do we want to perform inlining in non-finally exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed.
+        /* TODO Do we want to perform inlining in non-finally exception handlers?
+         * Seems counterproductive (the larger the method the less likely it will be JITed.
          * It's not that putting on radar only `linearizer linearizeAt (m, m.startBlock)` makes for much shorter inlining times (a minor speedup nonetheless)
          * but the effect on method size could be explored.  */
       putOnRadar(m.linearizedBlocks(linearizer))
@@ -712,7 +713,7 @@ abstract class TypeFlowAnalysis {
       //   inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
       //   staleOut foreach (p => assert(  in.isDefinedAt(p), p))
 
-      remainingCALLs.clear()
+      // remainingCALLs.clear()
       isOnWatchlist.clear()
       relevantBBs.clear()
 

@@ -195,6 +195,35 @@ abstract class Inliners extends SubComponent {
     val splicedBlocks = mutable.Set.empty[BasicBlock]
     val staleIn       = mutable.Set.empty[BasicBlock]
 
+    /**
+     * A transformation local to the body of the argument.
+     * An linining decision consists in replacing a callsite with the body of the callee.
+     * Please notice that, because `analyzeMethod()` itself may modify a method body,
+     * the particular callee bodies that end up being inlined depend on the particular order in which methods are visited
+     * (no topological ordering over the call-graph is attempted).
+     *
+     * Making an inlining decision requires type-flow information for both caller and callee.
+     * Regarding the caller, such information is needed only for basic blocks containing inlining candidates
+     * (and their transitive predecessors). This observation leads to using a custom type-flow analysis (MTFAGrowable)
+     * that can be re-inited, i.e. that reuses lattice elements (type-flow information) computed in a previous iteration
+     * as starting point for faster convergence in a new iteration.
+     *
+     * The mechanics of inlining are iterative for a given invocation of `analyzeMethod(m)`,
+     * thus considering the basic blocks that successful inlining added in a previous iteration:
+     *
+     *   (1) before the iterations proper start, so-called preinlining is performed.
+     *       Those callsites whose (receiver, concreteMethod) are both known statically
+     *       can be analyzed for inlining before computing a type-flow. Details in `preInline()`
+     *
+     *   (2) the first iteration computes type-flow information for basic blocks containing inlining candidates
+     *       (and their transitive predecessors), so called `relevantBBs`.
+     *       The ensuing analysis of each candidate (performed by `analyzeInc()`)
+     *       may result in a CFG isomorphic to that of the callee being inserted where the callsite was
+     *       (i.e. a CALL_METHOD instruction is replaced with a single-entry single-exit CFG, which we call "successful inlining").
+     *
+     *   (3) following iterations have their relevant basic blocks updated to focus
+     *       on the inlined basic blocks and their successors only. Details in `MTFAGrowable.reinit()`
+     * */
     def analyzeMethod(m: IMethod): Unit = {
       // m.normalize
 
@@ -359,7 +388,8 @@ abstract class Inliners extends SubComponent {
 
         /* it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones. */
         tfa.callerLin = caller.m.linearizedBlocks()
-           /* TODO Do we want to perform inlining in non-finally exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed).
+           /* TODO Do we want to perform inlining in non-finally exception handlers?
+           *  Seems counterproductive (the larger the method the less likely it will be JITed).
             * The alternative above would be `linearizer.linearizeAt(caller.m, caller.m.startBlock)`.
             * See also comment on the same topic in TypeFlowAnalysis. */
 
