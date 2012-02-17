@@ -359,7 +359,7 @@ abstract class Inliners extends SubComponent {
 
         /* it's important not to inline in unreachable basic blocks. linearizedBlocks() returns only reachable ones. */
         tfa.callerLin = caller.m.linearizedBlocks()
-           /* TODO Do we want to perform inlining in exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed).
+           /* TODO Do we want to perform inlining in non-finally exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed).
             * The alternative above would be `linearizer.linearizeAt(caller.m, caller.m.startBlock)`.
             * See also comment on the same topic in TypeFlowAnalysis. */
 
@@ -380,6 +380,30 @@ abstract class Inliners extends SubComponent {
               }
             }
           }
+        }
+
+        /* As part of inlining, some instructions are moved to a new block.
+         *     In detail: the instructions moved to a new block originally appeared after a (by now inlined) callsite.
+         *     Their new home is an `afterBlock` created by `doInline()` to that effect.
+         *     Each block in staleIn is one such `afterBlock`.
+         *
+         * Some of those instructions may be CALL_METHOD possibly tracked in `remainingCALLs`
+         * (with an entry still noting the old containing block). However, that causes no problem:
+         *
+         *   (1) such callsites won't be analyzed for inlining by `analyzeInc()`
+         *       because of the `break` that abandons the original basic block where it was contained.
+         *   (2) Additionally, its new containing block won't be visited either
+         *       because the new blocks don't show up in the linearization computed before inlinings started:
+         *       `for(bb <- tfa.callerLin; if tfa.preCandidates(bb)) {`
+         *
+         * From (1) and (2) above, a moved callsite won't be visited even if left in `remainingCALLs`.
+         * For clarity however we remove it.
+         *
+         */
+        for(afterBlock <- staleIn) {
+          assert(!tfa.preCandidates(afterBlock))
+          val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
+          for(ia <- justCALLsAfter) { tfa.remainingCALLs.remove(ia) }
         }
 
         /*

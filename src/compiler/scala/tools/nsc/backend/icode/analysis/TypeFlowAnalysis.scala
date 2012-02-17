@@ -463,8 +463,7 @@ abstract class TypeFlowAnalysis {
          In order to keep `analyzeMethod()` simple, we collect in `preCandidates` those basic blocks containing at least one candidate. */
       preCandidates.clear()
       for(rc <- remainingCALLs) {
-        val Pair(_, CallsiteInfo(bb, _, _, _)) = rc
-        preCandidates += bb
+        preCandidates += rc._2.bb
       }
 
       if (settings.debug.value) {
@@ -568,7 +567,7 @@ abstract class TypeFlowAnalysis {
       // initially populate the watchlist with all callsites standing a chance of being inlined
       isOnWatchlist.clear()
       relevantBBs.clear()
-        /* TODO Do we want to perform inlining in exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed.
+        /* TODO Do we want to perform inlining in non-finally exception handlers? Seems counterproductive (the larger the method the less likely it will be JITed.
          * It's not that putting on radar only `linearizer linearizeAt (m, m.startBlock)` makes for much shorter inlining times (a minor speedup nonetheless)
          * but the effect on method size could be explored.  */
       putOnRadar(m.linearizedBlocks(linearizer))
@@ -713,19 +712,7 @@ abstract class TypeFlowAnalysis {
       //   inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
       //   staleOut foreach (p => assert(  in.isDefinedAt(p), p))
 
-      /* Some instructions have moved to a new block! We'd better update their entry in `remainingCALLs`, as follows.
-       * The instructions in question originally appeared after the (by now inlined) callsite
-       * (ie the entry in remainingCALLs still tracks them as belonging to the basic block where that callsite existed).
-       * That was then. Now, their new home is an `afterBlock` created by `doInline()` to that effect.
-       * Each block in staleIn is one such `afterBlock`. For those instructions we update their entries in `remainingCALLs`. */
-      for(afterBlock <- staleIn) {
-        val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
-        for(ia <- justCALLsAfter; if remainingCALLs.isDefinedAt(ia)) {
-          val updValue = remainingCALLs(ia).copy(bb = afterBlock)
-          remainingCALLs += Pair(ia, updValue)
-        }
-      }
-
+      remainingCALLs.clear()
       isOnWatchlist.clear()
       relevantBBs.clear()
 
