@@ -420,20 +420,22 @@ abstract class Inliners extends SubComponent {
          * Some of those instructions may be CALL_METHOD possibly tracked in `remainingCALLs`
          * (with an entry still noting the old containing block). However, that causes no problem:
          *
-         *   (1) such callsites won't be analyzed for inlining by `analyzeInc()`
+         *   (1) such callsites won't be analyzed for inlining by `analyzeInc()` (*in this iteration*)
          *       because of the `break` that abandons the original basic block where it was contained.
-         *   (2) Additionally, its new containing block won't be visited either
+         *
+         *   (2) Additionally, its new containing block won't be visited either (*in this iteration*)
          *       because the new blocks don't show up in the linearization computed before inlinings started:
          *       `for(bb <- tfa.callerLin; if tfa.preCandidates(bb)) {`
          *
-         * From (1) and (2) above, a moved callsite won't be visited even if left in `remainingCALLs`.
-         * For clarity however we remove it.
+         * For a next iteration, the new home of any instructions that have moved
+         * will be tracked properly in `remainingCALLs` after `MTFAGrowable.reinit()` puts on radar their new homes.
          *
          */
-        for(afterBlock <- staleIn) {
-          assert(!tfa.preCandidates(afterBlock))
-          val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
-          for(ia <- justCALLsAfter) { tfa.remainingCALLs.remove(ia) }
+        if(retry) {
+          for(afterBlock <- staleIn) {
+            val justCALLsAfter = afterBlock.toList collect { case c : opcodes.CALL_METHOD => c }
+            for(ia <- justCALLsAfter) { tfa.remainingCALLs.remove(ia) }
+          }
         }
 
         /*
