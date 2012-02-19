@@ -291,7 +291,7 @@ abstract class Inliners extends SubComponent {
             warn(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
         }
 
-        def isAvailable = icodes available concreteMethod.enclClass
+        var isAvailable = icodes available concreteMethod.enclClass
 
         if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
           // Until r22824 this line was:
@@ -302,7 +302,7 @@ abstract class Inliners extends SubComponent {
           // was the proximate cause for SI-3882:
           //   error: Illegal index: 0 overlaps List((variable par1,LONG))
           //   error: Illegal index: 0 overlaps List((variable par1,LONG))
-          icodes.load(concreteMethod.enclClass)
+          isAvailable = icodes.load(concreteMethod.enclClass)
         }
 
         def isCandidate = (
