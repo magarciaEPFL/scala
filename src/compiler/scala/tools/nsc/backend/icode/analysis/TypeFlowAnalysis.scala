@@ -573,7 +573,7 @@ abstract class TypeFlowAnalysis {
          * Seems counterproductive (the larger the method the less likely it will be JITed.
          * It's not that putting on radar only `linearizer linearizeAt (m, m.startBlock)` makes for much shorter inlining times (a minor speedup nonetheless)
          * but the effect on method size could be explored.  */
-      putOnRadar(m.linearizedBlocks(linearizer))
+      putOnRadar(callerLin)
       populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
@@ -729,7 +729,7 @@ abstract class TypeFlowAnalysis {
       blankOut(staleIn)
       // no need to add startBlocks from m.exh
 
-      staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }
+      staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) } // TODO Do we want to perform inlining in non-finally exception handlers?
       populatePerimeter()
 
     } // end of method reinit
