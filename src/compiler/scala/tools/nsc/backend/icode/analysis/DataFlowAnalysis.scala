@@ -66,7 +66,7 @@ trait DataFlowAnalysis[L <: SemiLattice] {
         out(point) = output
         val succs = point.successors
         succs foreach { p =>
-          val updated = lattice.lub(in(p) :: (p.predecessors map out.apply), p.exceptionHandlerStart)
+          val updated = lattice.lub(List(output, in(p)), p.exceptionHandlerStart)
           if(updated != in(p)) {
             in(p) = updated
             if (!worklist(p)) { worklist += p; }
