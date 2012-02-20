@@ -41,18 +41,16 @@ abstract class ReachingDefinitions {
 
     /** The least upper bound is set inclusion for locals, and pairwise set inclusion for stacks. */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
-      if (bottom == a) {
-        if(bottom == b) bottom
+      if (bottom eq a) {
+        if(bottom eq b) bottom
         else if(exceptional) IState(b.vars, exceptionHandlerStack)
         else b
-      } else if (bottom == b) {
+      } else if (bottom eq b) {
         if(exceptional) IState(a.vars, exceptionHandlerStack)
         else a
       } else {
-
-        val lubbedVars  = a.vars ++ b.vars
-
         assert(exceptional || (a.stack.size == b.stack.size), "Mismatched stacks in ReachingDefinitions.")
+        val lubbedVars  = a.vars ++ b.vars
         val lubbedStack =
           if (exceptional) exceptionHandlerStack
           else (a.stack, b.stack).zipped map (_ ++ _)
@@ -104,7 +102,7 @@ abstract class ReachingDefinitions {
         }
 
         m.exh foreach { e =>
-          in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack) // TODO cf. typeStackLattice.exceptionHandlerStack WAS WRONG: List(new StackPos)
+          in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack) // unlike typeStackLattice.exceptionHandlerStack, we use Nil
         }
       }
 
@@ -134,13 +132,16 @@ abstract class ReachingDefinitions {
       for ((instr, idx) <- b.toList.zipWithIndex) {
         instr match {
           case LOAD_EXCEPTION(_)            => () // the while loop below will push (b, idx) for this pseudo-instruction (on an empty abstract stack)
-          case _ if instr.consumed > depth  =>
-            drops += (instr.consumed - depth)
-            depth = 0
-            stackOut = Nil
           case _ =>
-            stackOut = stackOut.drop(instr.consumed)
-            depth -= instr.consumed
+            val consum = instr.consumed
+            if(consum > depth) {
+              drops += (consum - depth);
+              depth = 0;
+              stackOut = Nil;
+            } else {
+              stackOut = stackOut.drop(consum);
+              depth -= consum;
+            }
         }
         var prod = instr.produced
         depth += prod
