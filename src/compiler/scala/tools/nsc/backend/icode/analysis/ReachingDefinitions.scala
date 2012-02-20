@@ -66,10 +66,10 @@ abstract class ReachingDefinitions {
     import lattice.{ Definition, Stack, Elem, StackPos }
     var method: IMethod = _
 
-    val gen      = mutable.Map[BasicBlock, ListSet[Definition]]()
-    val kill     = mutable.Map[BasicBlock, ListSet[Local]]()
-    val drops    = mutable.Map[BasicBlock, Int]()
-    val outStack = mutable.Map[BasicBlock, Stack]()
+    private val gen      = mutable.Map[BasicBlock, ListSet[Definition]]()
+    private val kill     = mutable.Map[BasicBlock, ListSet[Local]]()
+    private val drops    = mutable.Map[BasicBlock, Int]()
+    private val outStack = mutable.Map[BasicBlock, Stack]()
 
     // for debug: var yardstick: global.analysis.MethodTFA = null;
 
@@ -82,12 +82,12 @@ abstract class ReachingDefinitions {
       outStack.clear()
 
       m foreachBlock { b =>
-        val (g, k) = genAndKill(b)
+        val (g, k)  = genAndKill(b)
         val (d, st) = dropsAndGen(b)
 
-        gen  += (b -> g)
-        kill += (b -> k)
-        drops += (b -> d)
+        gen      += (b -> g)
+        kill     += (b -> k)
+        drops    += (b -> d)
         outStack += (b -> st)
       }
 
@@ -171,8 +171,8 @@ abstract class ReachingDefinitions {
     import lattice.IState
     def updateReachingDefinition(b: BasicBlock, idx: Int, rd: ListSet[Definition]): ListSet[Definition] = {
       val STORE_LOCAL(local) = b(idx)
-      var tmp = local
-      (rd filter { case (l, _, _) => l != tmp }) + ((tmp, b, idx))
+
+      (rd filter { case (l, _, _) => l != local }) + ((local, b, idx))
     }
 
     private def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {

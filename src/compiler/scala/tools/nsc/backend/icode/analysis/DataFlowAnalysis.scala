@@ -59,7 +59,8 @@ trait DataFlowAnalysis[L <: SemiLattice] {
       //Console.println("taking out point: " + point + " worklist out: " + worklist);
       val output = f(point, in(point))
 
-      if ((lattice.bottom == out(point)) || output != out(point)) {
+      val propagate = ((lattice.bottom == out(point)) || (output != out(point)))
+      if (propagate) {
         // Console.println("Output changed at " + point
         //                 + " from: " + out(point) + " to: " + output
         //                 + " for input: " + in(point) + " and they are different: " + (output != out(point)))
