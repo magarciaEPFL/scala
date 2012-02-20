@@ -37,25 +37,28 @@ abstract class ReachingDefinitions {
     val top: Elem    = IState(referenceEqualSet("top"), Nil)
     val bottom: Elem = IState(referenceEqualSet("bottom"), Nil)
 
+    val exceptionHandlerStack = Nil
+
     /** The least upper bound is set inclusion for locals, and pairwise set inclusion for stacks. */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
-      if (bottom == a) b
-      else if (bottom == b) a
-      else IState(a.vars ++ b.vars,
-        if (a.stack.isEmpty) b.stack
-        else if (b.stack.isEmpty) a.stack
-        else {
-          // !!! These stacks are with some frequency not of the same size.
-          // I can't reverse engineer the logic well enough to say whether this
-          // indicates a problem.  Even if it doesn't indicate a problem,
-          // it'd be nice not to call zip with mismatched sequences because
-          // it makes it harder to spot the real problems.
-          val result = (a.stack, b.stack).zipped map (_ ++ _)
-          if (settings.debug.value && (a.stack.length != b.stack.length))
-            debugwarn("Mismatched stacks in ReachingDefinitions#lub2: " + a.stack + ", " + b.stack + ", returning " + result)
-          result
-        }
-      )
+      if (bottom == a) {
+        if(bottom == b) bottom
+        else if(exceptional) IState(b.vars, exceptionHandlerStack)
+        else b
+      } else if (bottom == b) {
+        if(exceptional) IState(a.vars, exceptionHandlerStack)
+        else a
+      } else {
+
+        val lubbedVars  = a.vars ++ b.vars
+
+        assert(exceptional || (a.stack.size == b.stack.size), "Mismatched stacks in ReachingDefinitions.")
+        val lubbedStack =
+          if (exceptional) exceptionHandlerStack
+          else (a.stack, b.stack).zipped map (_ ++ _)
+
+        IState(lubbedVars, lubbedStack)
+      }
     }
   }
 
@@ -69,6 +72,8 @@ abstract class ReachingDefinitions {
     val kill     = mutable.Map[BasicBlock, ListSet[Local]]()
     val drops    = mutable.Map[BasicBlock, Int]()
     val outStack = mutable.Map[BasicBlock, Stack]()
+
+    // for debug: var yardstick: global.analysis.MethodTFA = null;
 
     def init(m: IMethod) {
       this.method = m
@@ -89,15 +94,23 @@ abstract class ReachingDefinitions {
       }
 
       init {
+
+        worklist += m.startBlock
+        worklist ++= (m.exh map (_.startBlock))
+
         m foreachBlock { b =>
-          worklist += b
           in(b)  = lattice.bottom
           out(b) = lattice.bottom
         }
+
         m.exh foreach { e =>
-          in(e.startBlock) = lattice.IState(new ListSet[Definition], List(new StackPos))
+          in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack) // TODO cf. typeStackLattice.exceptionHandlerStack WAS WRONG: List(new StackPos)
         }
       }
+
+      // for debug: yardstick = new global.analysis.MethodTFA(m)
+      // for debug: yardstick.run
+
     }
 
     import opcodes._
@@ -120,7 +133,7 @@ abstract class ReachingDefinitions {
 
       for ((instr, idx) <- b.toList.zipWithIndex) {
         instr match {
-          case LOAD_EXCEPTION(_)            => ()
+          case LOAD_EXCEPTION(_)            => () // the while loop below will push (b, idx) for this pseudo-instruction (on an empty abstract stack)
           case _ if instr.consumed > depth  =>
             drops += (instr.consumed - depth)
             depth = 0
@@ -136,8 +149,8 @@ abstract class ReachingDefinitions {
           prod -= 1
         }
       }
-//      Console.println("drops(" + b + ") = " + drops)
-//      Console.println("stackout(" + b + ") = " + stackOut)
+      // Console.println("drops(" + b + ") = " + drops)
+      // Console.println("stackout(" + b + ") = " + stackOut)
       (drops, stackOut)
     }
 
@@ -162,9 +175,19 @@ abstract class ReachingDefinitions {
     }
 
     private def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
+
+      /* typeStackLattice.exceptionHandlerStack has size 1, while for ReachingDefinitionAnalysis that should be zero
+       * (due to differences in the way LOAD_EXCEPTION is handled by blockTransfer() in TypeFlowAnalysis and ReachingDefinitionAnalysis).  */
+      // for debug: if(b.exceptionHandlerStart) assert(in.stack.size == 0, "gotcha0a")
+      // for debug: else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
+
       var locals: ListSet[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ gen(b)
       if (locals eq lattice.bottom.vars) locals = new ListSet[Definition]
-      IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
+      val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
+
+      // for debug: assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
+
+      res
     }
 
     /** Return the reaching definitions corresponding to the point after idx. */
@@ -178,7 +201,7 @@ abstract class ReachingDefinitions {
           locals = updateReachingDefinition(b, idx, locals)
           stack = stack.drop(instr.consumed)
         case LOAD_EXCEPTION(_) =>
-          stack = Nil
+          stack = lattice.exceptionHandlerStack // ListSet((b, idx)) will be pushed below
         case _ =>
           stack = stack.drop(instr.consumed)
       }
@@ -247,5 +270,6 @@ abstract class ReachingDefinitions {
         "   exit(%s) = %s\n".format(b, out(b))
       } mkString ("ReachingDefinitions {\n", "\n", "\n}")
     }
+
   }
 }
