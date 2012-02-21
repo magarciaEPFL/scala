@@ -9,7 +9,6 @@ package backend.icode
 package analysis
 
 import scala.collection.{ mutable, immutable }
-import immutable.ListSet
 
 /** Compute reaching definitions. We are only interested in reaching
  *  definitions for local variables, since values on the stack
@@ -28,7 +27,7 @@ abstract class ReachingDefinitions {
   object rdefLattice extends SemiLattice {
     type Definition = (Local, BasicBlock, Int)
     type Elem       = IState[collection.Map[Local, collection.Set[InstrPos]], Stack]
-    type StackPos   = collection.Set[(BasicBlock, Int)]
+    type StackPos   = collection.Set[InstrPos]
     type Stack      = List[StackPos]
 
     def emptyLocals() = mutable.Map.empty[Local, collection.Set[InstrPos]]
@@ -71,14 +70,11 @@ abstract class ReachingDefinitions {
   class ReachingDefinitionsAnalysis extends DataFlowAnalysis[rdefLattice.type] {
     type P = BasicBlock
     val lattice = rdefLattice
-    import lattice.{ Definition, Stack, Elem }
+    import lattice.{ Stack, Elem }
     private var method: IMethod = _
 
     // in a map entry, its value (loc -> idx) denotes the last assignment in block `b` to local `loc`. The index of that STORE_LOCAL instruction in `b` is `idx`.
     private val gen      = mutable.Map[BasicBlock, collection.Map[Local, Int]]()
-
-    // in a map entry, its value denotes the locals being assigned in block `b`
-    private val kill     = mutable.Map[BasicBlock, collection.Set[Local]]()
 
     private val drops    = mutable.Map[BasicBlock, Int]()
     private val outStack = mutable.Map[BasicBlock, Stack]()
@@ -150,7 +146,7 @@ abstract class ReachingDefinitions {
         var prod = instr.produced
         depth += prod
         while (prod > 0) {
-          stackOut ::= ListSet((b, idx))
+          stackOut ::= Set(InstrPos(b, idx))
           prod -= 1
         }
       }
@@ -208,7 +204,7 @@ abstract class ReachingDefinitions {
 
       var prod = instr.produced
       while (prod > 0) {
-        stack ::= ListSet((b, idx))
+        stack ::= Set(InstrPos(b, idx))
         prod -= 1
       }
 
@@ -219,11 +215,11 @@ abstract class ReachingDefinitions {
      *  for instance, findefs(bb, idx, 1, 1) returns the instructions that might have produced the
      *  value found below the topmost element of the stack.
      */
-    def findDefs(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[(BasicBlock, Int)] = if (idx > 0) {
+    def findDefs(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[(BasicBlock, Int)] = if (idx > 0) { // TODO return collection.Set[InstrPos]
       assert(bb.closed, bb)
 
       var instrs = bb.getArray
-      var res: List[(BasicBlock, Int)] = Nil
+      var res: collection.Set[InstrPos] = Set()
       var i = idx
       var n = m
       var d = depth
@@ -232,7 +228,7 @@ abstract class ReachingDefinitions {
         i -= 1
         val prod = instrs(i).produced
         if (prod > d) {
-          res = (bb, i) :: res
+          res = res + InstrPos(bb, i)
           n   = n - (prod - d)
           instrs(i) match {
             case LOAD_EXCEPTION(_)  => ()
@@ -248,14 +244,14 @@ abstract class ReachingDefinitions {
         val stack = this.in(bb).stack
         assert(stack.length >= n, "entry stack is too small, expected: " + n + " found: " + stack)
         stack.drop(d).take(n) foreach { defs =>
-          res = defs.toList ::: res
+          res = defs ++ res
         }
       }
-      res
+      for(ip <- res.toList) yield ((ip.bb, ip.idx))
     } else {
       val stack = this.in(bb).stack
       assert(stack.length >= m, "entry stack is too small, expected: " + m + " found: " + stack)
-      stack.drop(depth).take(m) flatMap (_.toList)
+      for(sip <- stack.drop(depth).take(m); ip <- sip) yield ((ip.bb, ip.idx))
     }
 
     /** Return the definitions that produced the topmost 'm' elements on the stack,
