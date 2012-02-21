@@ -85,12 +85,9 @@ abstract class ReachingDefinitions {
       outStack.clear()
 
       m foreachBlock { b =>
-        val g = genAndKill(b)
-        val k = g.keySet
-        val (d, st) = dropsAndGen(b)
-
+        val (g, d, st) = genAndKill(b)
         gen      += (b -> g)
-        kill     += (b -> k)
+        kill     += (b -> g.keySet)
         drops    += (b -> d)
         outStack += (b -> st)
       }
@@ -122,32 +119,27 @@ abstract class ReachingDefinitions {
 
     import opcodes._
 
-    private def genAndKill(b: BasicBlock): collection.Map[Local, Int] = {
-      val genSet  = mutable.Map.empty[Local, Int]
-      for ((i, idx) <- b.toList.zipWithIndex) i match {
-        case STORE_LOCAL(local) => genSet += (local -> idx)
-        case _ => ()
-      }
-      genSet
-    }
-
-    private def dropsAndGen(b: BasicBlock): (Int, Stack) = {
+    private def genAndKill(b: BasicBlock): (collection.Map[Local, Int], Int, Stack) = {
       var depth, drops = 0
       var stackOut: Stack = Nil
+      val genSet  = mutable.Map.empty[Local, Int]
 
       for ((instr, idx) <- b.toList.zipWithIndex) {
         instr match {
-          case LOAD_EXCEPTION(_)            => () // the while loop below will push (b, idx) for this pseudo-instruction (on an empty abstract stack)
-          case _ =>
-            val consum = instr.consumed
-            if(consum > depth) {
-              drops += (consum - depth);
-              depth = 0;
-              stackOut = Nil;
-            } else {
-              stackOut = stackOut.drop(consum);
-              depth -= consum;
-            }
+          case STORE_LOCAL(local) => genSet += (local -> idx)
+          case _                  => ()
+        }
+        if(!instr.isInstanceOf[LOAD_EXCEPTION]) {
+          /* For a LOAD_EXCEPTION pseudo-instruction, the while loop below will push (b, idx) for it (on an empty abstract stack) */
+          val consum = instr.consumed
+          if(consum > depth) {
+            drops += (consum - depth);
+            depth = 0;
+            stackOut = Nil;
+          } else {
+            stackOut = stackOut.drop(consum);
+            depth -= consum;
+          }
         }
         var prod = instr.produced
         depth += prod
@@ -156,9 +148,8 @@ abstract class ReachingDefinitions {
           prod -= 1
         }
       }
-      // Console.println("drops(" + b + ") = " + drops)
-      // Console.println("stackout(" + b + ") = " + stackOut)
-      (drops, stackOut)
+
+      (genSet, drops, stackOut)
     }
 
     override def run() {
