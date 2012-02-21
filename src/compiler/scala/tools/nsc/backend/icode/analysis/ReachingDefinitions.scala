@@ -101,6 +101,10 @@ abstract class ReachingDefinitions {
           out(b) = lattice.bottom
         }
 
+        // a parameter won't be a STORE_LOCAL argument, but the start block requires a non-bottom lattice elem as starting point
+        val entryBindings = new ListSet[Definition]
+        in(m.startBlock)  = lattice.IState(entryBindings, Nil)
+
         m.exh foreach { e =>
           in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack) // unlike typeStackLattice.exceptionHandlerStack, we use Nil
         }
@@ -183,7 +187,9 @@ abstract class ReachingDefinitions {
       // for debug: else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
 
       var locals: ListSet[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ gen(b)
-      if (locals eq lattice.bottom.vars) locals = new ListSet[Definition]
+
+      assert(in.vars ne lattice.bottom.vars) // TODO can't happen
+
       val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
 
       // for debug: assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
