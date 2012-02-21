@@ -65,8 +65,12 @@ abstract class ReachingDefinitions {
     import lattice.{ Definition, Stack, Elem }
     private var method: IMethod = _
 
-    private val gen      = mutable.Map[BasicBlock, Set[Definition]]()
-    private val kill     = mutable.Map[BasicBlock, Set[Local]]()
+    // in a map entry, its value (loc -> idx) denotes the last assignment in block `b` to local `loc`. The index of that STORE_LOCAL instruction in `b` is `idx`.
+    private val gen      = mutable.Map[BasicBlock, collection.Map[Local, Int]]()
+
+    // in a map entry, its value denotes the locals being assigned in block `b`
+    private val kill     = mutable.Map[BasicBlock, collection.Set[Local]]()
+
     private val drops    = mutable.Map[BasicBlock, Int]()
     private val outStack = mutable.Map[BasicBlock, Stack]()
 
@@ -81,7 +85,8 @@ abstract class ReachingDefinitions {
       outStack.clear()
 
       m foreachBlock { b =>
-        val (g, k)  = genAndKill(b)
+        val g = genAndKill(b)
+        val k = g.keySet
         val (d, st) = dropsAndGen(b)
 
         gen      += (b -> g)
@@ -117,16 +122,13 @@ abstract class ReachingDefinitions {
 
     import opcodes._
 
-    private def genAndKill(b: BasicBlock): (Set[Definition], Set[Local]) = {
-      var genSet  = Set[Definition]()
-      var killSet = Set[Local]()
+    private def genAndKill(b: BasicBlock): collection.Map[Local, Int] = {
+      val genSet  = mutable.Map.empty[Local, Int]
       for ((i, idx) <- b.toList.zipWithIndex) i match {
-        case STORE_LOCAL(local) =>
-          killSet = killSet + local
-          genSet  = updateReachingDefinition(b, idx, genSet)
+        case STORE_LOCAL(local) => genSet += (local -> idx)
         case _ => ()
       }
-      (genSet, killSet)
+      genSet
     }
 
     private def dropsAndGen(b: BasicBlock): (Int, Stack) = {
@@ -189,7 +191,7 @@ abstract class ReachingDefinitions {
        *  else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
        *
        * */
-      var locals: Set[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ gen(b)
+      var locals: Set[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ ( gen(b) map { p => (p._1, b,  p._2) } )
       val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
       // assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
       res
