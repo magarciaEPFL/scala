@@ -93,7 +93,7 @@ abstract class ReachingDefinitions {
 
       init {
 
-        worklist += m.startBlock
+        worklist  += m.startBlock
         worklist ++= (m.exh map (_.startBlock))
 
         m foreachBlock { b =>
@@ -117,7 +117,7 @@ abstract class ReachingDefinitions {
 
     import opcodes._
 
-    def genAndKill(b: BasicBlock): (ListSet[Definition], ListSet[Local]) = {
+    private def genAndKill(b: BasicBlock): (ListSet[Definition], ListSet[Local]) = {
       var genSet  = ListSet[Definition]()
       var killSet = ListSet[Local]()
       for ((i, idx) <- b.toList.zipWithIndex) i match {
@@ -173,7 +173,8 @@ abstract class ReachingDefinitions {
 
     import opcodes._
     import lattice.IState
-    def updateReachingDefinition(b: BasicBlock, idx: Int, rd: ListSet[Definition]): ListSet[Definition] = {
+
+    private def updateReachingDefinition(b: BasicBlock, idx: Int, rd: ListSet[Definition]): ListSet[Definition] = {
       val STORE_LOCAL(local) = b(idx)
 
       (rd filter { case (l, _, _) => l != local }) + ((local, b, idx))
