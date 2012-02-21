@@ -85,9 +85,6 @@ trait Opcodes { self: ICodes =>
 
     def pos: Position = _pos
 
-    /** Used by dead code elimination. */
-    var useful: Boolean = false
-
     def setPos(p: Position): this.type = {
       _pos = p
       this

@@ -96,8 +96,10 @@ abstract class DeadCodeElimination extends SubComponent {
       m foreachBlock { bb =>
         useful(bb) = new mutable.BitSet(bb.size)
         var rd = rdef.in(bb);
-        for (Pair(i, idx) <- bb.toList.zipWithIndex) {
-          i match {
+        var idx = 0
+        val instrs = bb.getArray
+        while (idx < instrs.size) {
+          instrs(idx) match {
             case LOAD_LOCAL(l) =>
               defs = defs + Pair(((bb, idx)), rd.vars)
               // Console.println(i + ": " + (bb, idx) + " rd: " + rd + " and having: " + defs)
@@ -122,7 +124,8 @@ abstract class DeadCodeElimination extends SubComponent {
               if (necessary) worklist += ((bb, idx))
             case _ => ()
           }
-          rd = rdef.interpret(bb, idx, rd)
+          rd   = rdef.interpret(bb, idx, rd)
+          idx += 1
         }
       }
     }
@@ -258,7 +261,7 @@ abstract class DeadCodeElimination extends SubComponent {
       res
     }
 
-    private def findInstruction(bb: BasicBlock, i: Instruction): (BasicBlock, Int) = {
+    private def findInstruction(bb: BasicBlock, i: CALL_METHOD): (BasicBlock, Int) = {
       for (b <- linearizer.linearizeAt(method, bb)) {
         val idx = b.toList indexWhere (_ eq i)
         if (idx != -1)
