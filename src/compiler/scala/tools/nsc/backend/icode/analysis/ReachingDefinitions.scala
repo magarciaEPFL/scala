@@ -21,20 +21,20 @@ abstract class ReachingDefinitions {
   import global._
   import icodes._
 
+  sealed case class InstrPos(bb: BasicBlock, idx: Int)
+
   /** The lattice for reaching definitions.
    */
   object rdefLattice extends SemiLattice {
     type Definition = (Local, BasicBlock, Int)
-    type Elem       = IState[Set[Definition], Stack]
-    type StackPos   = Set[(BasicBlock, Int)]
+    type Elem       = IState[collection.Map[Local, collection.Set[InstrPos]], Stack]
+    type StackPos   = collection.Set[(BasicBlock, Int)]
     type Stack      = List[StackPos]
 
-    private def referenceEqualSet(name: String) = new ListSet[Definition] with ReferenceEquality {
-      override def toString = "<" + name + ">"
-    }
+    def emptyLocals() = mutable.Map.empty[Local, collection.Set[InstrPos]]
 
-    val top: Elem    = IState(referenceEqualSet("top"), Nil)
-    val bottom: Elem = IState(referenceEqualSet("bottom"), Nil)
+    val top: Elem    = IState(null, Nil)
+    val bottom: Elem = IState(null, Nil)
 
     val exceptionHandlerStack = Nil
 
@@ -49,7 +49,16 @@ abstract class ReachingDefinitions {
         else a
       } else {
         assert(exceptional || (a.stack.size == b.stack.size), "Mismatched stacks.")
-        val lubbedVars  = a.vars ++ b.vars
+        val lubbedVars  = {
+          val lv = emptyLocals()
+          val vset = a.vars.keySet ++ b.vars.keySet
+          for(v <- vset) {
+            val stores1 = a.vars.getOrElse(v, Set())
+            val stores2 = b.vars.getOrElse(v, Set())
+            lv += (v -> (stores1 ++ stores2))
+          }
+          lv
+        }
         val lubbedStack =
           if (exceptional) exceptionHandlerStack
           else (a.stack, b.stack).zipped map (_ ++ _)
@@ -101,12 +110,11 @@ abstract class ReachingDefinitions {
         }
 
         // a parameter won't be a STORE_LOCAL argument, but the start block requires a non-bottom lattice elem as starting point
-        val entryBindings = new ListSet[Definition]
-        in(m.startBlock)  = lattice.IState(entryBindings, Nil)
+        in(m.startBlock)  = lattice.IState(lattice.emptyLocals(), Nil)
 
         m.exh foreach { e =>
           // unlike typeStackLattice.exceptionHandlerStack, we use Nil instead. A comment in blockTransfer() mentions why.
-          in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack)
+          in(e.startBlock) = lattice.IState(lattice.emptyLocals(), lattice.exceptionHandlerStack)
         }
       }
 
@@ -165,12 +173,6 @@ abstract class ReachingDefinitions {
     import opcodes._
     import lattice.IState
 
-    private def updateReachingDefinition(b: BasicBlock, idx: Int, rd: Set[Definition]): Set[Definition] = {
-      val STORE_LOCAL(local) = b(idx)
-
-      (rd filter { case (l, _, _) => l != local }) + ((local, b, idx))
-    }
-
     private def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
       /*
        * Although typeStackLattice.exceptionHandlerStack has size 1, its ReachingDefinitionAnalysis counterpart is empty
@@ -180,22 +182,23 @@ abstract class ReachingDefinitions {
        *  else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
        *
        */
-      val killSet = gen(b).keySet
-      var locals: Set[Definition] = (in.vars filter { case (l, _, _) => !killSet(l) }) ++ ( gen(b) map { p => (p._1, b,  p._2) } )
-      val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
+      // FYI killSet == gen(b).keySet
+      val updLocals = in.vars ++ ( gen(b) map { p => (p._1 -> Set(InstrPos(b,  p._2))) } )
+
+      val res = IState(updLocals, outStack(b) ::: in.stack.drop(drops(b)))
       // assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
       res
     }
 
     /** Return the reaching definitions corresponding to the point after idx. */
     def interpret(b: BasicBlock, idx: Int, in: lattice.Elem): Elem = {
-      var locals = in.vars
+      var locals: collection.Map[Local, collection.Set[InstrPos]] = in.vars
       var stack  = in.stack
       val instr  = b(idx)
 
       instr match {
-        case STORE_LOCAL(l1) =>
-          locals = updateReachingDefinition(b, idx, locals)
+        case STORE_LOCAL(loc) =>
+          locals = (locals ++ Map(loc -> Set(InstrPos(b, idx))))
           stack = stack.drop(instr.consumed)
         case LOAD_EXCEPTION(_) =>
           stack = lattice.exceptionHandlerStack // ListSet((b, idx)) will be pushed below

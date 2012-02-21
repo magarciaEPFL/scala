@@ -101,7 +101,8 @@ abstract class DeadCodeElimination extends SubComponent {
         while (idx < instrs.size) {
           instrs(idx) match {
             case LOAD_LOCAL(l) =>
-              defs = defs + Pair(((bb, idx)), rd.vars)
+              val reachers: immutable.Set[rdef.lattice.Definition] = (for(e <- rd.vars; ip <- e._2) yield ((e._1, ip.bb, ip.idx))).toSet
+              defs = defs + Pair(((bb, idx)), reachers)
               // Console.println(i + ": " + (bb, idx) + " rd: " + rd + " and having: " + defs)
             case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
                  THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
