@@ -25,8 +25,8 @@ abstract class ReachingDefinitions {
    */
   object rdefLattice extends SemiLattice {
     type Definition = (Local, BasicBlock, Int)
-    type Elem       = IState[ListSet[Definition], Stack]
-    type StackPos   = ListSet[(BasicBlock, Int)]
+    type Elem       = IState[Set[Definition], Stack]
+    type StackPos   = Set[(BasicBlock, Int)]
     type Stack      = List[StackPos]
 
     private def referenceEqualSet(name: String) = new ListSet[Definition] with ReferenceEquality {
@@ -48,7 +48,7 @@ abstract class ReachingDefinitions {
         if(exceptional) IState(a.vars, exceptionHandlerStack)
         else a
       } else {
-        assert(exceptional || (a.stack.size == b.stack.size), "Mismatched stacks in ReachingDefinitions.")
+        assert(exceptional || (a.stack.size == b.stack.size), "Mismatched stacks.")
         val lubbedVars  = a.vars ++ b.vars
         val lubbedStack =
           if (exceptional) exceptionHandlerStack
@@ -63,10 +63,10 @@ abstract class ReachingDefinitions {
     type P = BasicBlock
     val lattice = rdefLattice
     import lattice.{ Definition, Stack, Elem }
-    var method: IMethod = _
+    private var method: IMethod = _
 
-    private val gen      = mutable.Map[BasicBlock, ListSet[Definition]]()
-    private val kill     = mutable.Map[BasicBlock, ListSet[Local]]()
+    private val gen      = mutable.Map[BasicBlock, Set[Definition]]()
+    private val kill     = mutable.Map[BasicBlock, Set[Local]]()
     private val drops    = mutable.Map[BasicBlock, Int]()
     private val outStack = mutable.Map[BasicBlock, Stack]()
 
@@ -117,9 +117,9 @@ abstract class ReachingDefinitions {
 
     import opcodes._
 
-    private def genAndKill(b: BasicBlock): (ListSet[Definition], ListSet[Local]) = {
-      var genSet  = ListSet[Definition]()
-      var killSet = ListSet[Local]()
+    private def genAndKill(b: BasicBlock): (Set[Definition], Set[Local]) = {
+      var genSet  = Set[Definition]()
+      var killSet = Set[Local]()
       for ((i, idx) <- b.toList.zipWithIndex) i match {
         case STORE_LOCAL(local) =>
           killSet = killSet + local
@@ -174,7 +174,7 @@ abstract class ReachingDefinitions {
     import opcodes._
     import lattice.IState
 
-    private def updateReachingDefinition(b: BasicBlock, idx: Int, rd: ListSet[Definition]): ListSet[Definition] = {
+    private def updateReachingDefinition(b: BasicBlock, idx: Int, rd: Set[Definition]): Set[Definition] = {
       val STORE_LOCAL(local) = b(idx)
 
       (rd filter { case (l, _, _) => l != local }) + ((local, b, idx))
@@ -189,7 +189,7 @@ abstract class ReachingDefinitions {
        *  else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
        *
        * */
-      var locals: ListSet[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ gen(b)
+      var locals: Set[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ gen(b)
       val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
       // assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
       res
