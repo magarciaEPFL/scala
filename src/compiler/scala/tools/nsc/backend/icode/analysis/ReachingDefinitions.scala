@@ -21,8 +21,7 @@ abstract class ReachingDefinitions {
   import global._
   import icodes._
 
-  /** The lattice for reaching definitions. Elements are
-   *  a triple (local variable, basic block, index of instruction of that basic block)
+  /** The lattice for reaching definitions.
    */
   object rdefLattice extends SemiLattice {
     type Definition = (Local, BasicBlock, Int)
@@ -63,7 +62,7 @@ abstract class ReachingDefinitions {
   class ReachingDefinitionsAnalysis extends DataFlowAnalysis[rdefLattice.type] {
     type P = BasicBlock
     val lattice = rdefLattice
-    import lattice.{ Definition, Stack, Elem, StackPos }
+    import lattice.{ Definition, Stack, Elem }
     var method: IMethod = _
 
     private val gen      = mutable.Map[BasicBlock, ListSet[Definition]]()
@@ -71,7 +70,7 @@ abstract class ReachingDefinitions {
     private val drops    = mutable.Map[BasicBlock, Int]()
     private val outStack = mutable.Map[BasicBlock, Stack]()
 
-    // for debug: var yardstick: global.analysis.MethodTFA = null;
+    // var yardstick: global.analysis.MethodTFA = null;
 
     def init(m: IMethod) {
       this.method = m
@@ -106,12 +105,13 @@ abstract class ReachingDefinitions {
         in(m.startBlock)  = lattice.IState(entryBindings, Nil)
 
         m.exh foreach { e =>
-          in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack) // unlike typeStackLattice.exceptionHandlerStack, we use Nil
+          // unlike typeStackLattice.exceptionHandlerStack, we use Nil instead. A comment in blockTransfer() mentions why.
+          in(e.startBlock) = lattice.IState(new ListSet[Definition], lattice.exceptionHandlerStack)
         }
       }
 
-      // for debug: yardstick = new global.analysis.MethodTFA(m)
-      // for debug: yardstick.run
+      // yardstick = new global.analysis.MethodTFA(m)
+      // yardstick.run
 
     }
 
@@ -181,20 +181,17 @@ abstract class ReachingDefinitions {
     }
 
     private def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
-
-      /* typeStackLattice.exceptionHandlerStack has size 1, while for ReachingDefinitionAnalysis that should be zero
-       * (due to differences in the way LOAD_EXCEPTION is handled by blockTransfer() in TypeFlowAnalysis and ReachingDefinitionAnalysis).  */
-      // for debug: if(b.exceptionHandlerStart) assert(in.stack.size == 0, "gotcha0a")
-      // for debug: else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
-
+      /*
+       * Although typeStackLattice.exceptionHandlerStack has size 1, its ReachingDefinitionAnalysis counterpart is empty,
+       * due to differences in the way LOAD_EXCEPTION is handled by blockTransfer() in TypeFlowAnalysis and ReachingDefinitionAnalysis.
+       *
+       *  if(b.exceptionHandlerStart) assert(in.stack.size == 0, "gotcha0a")
+       *  else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
+       *
+       * */
       var locals: ListSet[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ gen(b)
-
-      assert(in.vars ne lattice.bottom.vars) // TODO can't happen
-
       val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
-
-      // for debug: assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
-
+      // assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
       res
     }
 
