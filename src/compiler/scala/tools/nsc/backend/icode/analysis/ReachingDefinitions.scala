@@ -80,14 +80,12 @@ abstract class ReachingDefinitions {
       this.method = m
 
       gen.clear()
-      kill.clear()
       drops.clear()
       outStack.clear()
 
       m foreachBlock { b =>
         val (g, d, st) = genAndKill(b)
         gen      += (b -> g)
-        kill     += (b -> g.keySet)
         drops    += (b -> d)
         outStack += (b -> st)
       }
@@ -175,14 +173,15 @@ abstract class ReachingDefinitions {
 
     private def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
       /*
-       * Although typeStackLattice.exceptionHandlerStack has size 1, its ReachingDefinitionAnalysis counterpart is empty,
+       * Although typeStackLattice.exceptionHandlerStack has size 1, its ReachingDefinitionAnalysis counterpart is empty
        * due to differences in the way LOAD_EXCEPTION is handled by blockTransfer() in TypeFlowAnalysis and ReachingDefinitionAnalysis.
        *
        *  if(b.exceptionHandlerStart) assert(in.stack.size == 0, "gotcha0a")
        *  else assert(in.stack.size == yardstick.in(b).stack.length, "gotcha1")
        *
-       * */
-      var locals: Set[Definition] = (in.vars filter { case (l, _, _) => !kill(b)(l) }) ++ ( gen(b) map { p => (p._1, b,  p._2) } )
+       */
+      val killSet = gen(b).keySet
+      var locals: Set[Definition] = (in.vars filter { case (l, _, _) => !killSet(l) }) ++ ( gen(b) map { p => (p._1, b,  p._2) } )
       val res = IState(locals, outStack(b) ::: in.stack.drop(drops(b)))
       // assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
       res
