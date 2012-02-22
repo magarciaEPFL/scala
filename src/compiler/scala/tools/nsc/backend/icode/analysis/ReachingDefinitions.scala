@@ -133,7 +133,10 @@ abstract class ReachingDefinitions {
       var stackOut: Stack = Nil
       var genSet  = Map.empty[Local, Int]
 
-      for ((instr, idx) <- b.toList.zipWithIndex) {
+      var instrs = b.getArray
+      var idx = 0
+      while (idx < instrs.size) {
+        val instr = instrs(idx)
         instr match {
           case STORE_LOCAL(local) => genSet += (local -> idx)
           case _                  => ()
@@ -156,6 +159,7 @@ abstract class ReachingDefinitions {
           stackOut ::= Set(InstrPos(b, idx))
           prod -= 1
         }
+        idx += 1
       }
 
       (genSet, drops, stackOut)
@@ -208,7 +212,7 @@ abstract class ReachingDefinitions {
 
       instr match {
         case STORE_LOCAL(loc) =>
-          locals = (locals ++ Map(loc -> Set(InstrPos(b, idx))))
+          locals = (locals + (loc -> Set(InstrPos(b, idx))))
           stack = stack.drop(instr.consumed)
         case LOAD_EXCEPTION(_) =>
           stack = lattice.exceptionHandlerStack // Set(InstrPos(b, idx)) will be pushed for this instruction in a moment
@@ -233,7 +237,7 @@ abstract class ReachingDefinitions {
       assert(bb.closed, bb)
 
       var instrs = bb.getArray
-      var res: collection.Set[InstrPos] = Set()
+      var res: immutable.Set[InstrPos] = Set()
       var i = idx
       var n = m
       var d = depth
@@ -258,7 +262,7 @@ abstract class ReachingDefinitions {
         val stack = this.in(bb).stack
         assert(stack.length >= n, "entry stack is too small, expected: " + n + " found: " + stack)
         stack.drop(d).take(n) foreach { defs =>
-          res = defs ++ res
+          res = res ++ defs
         }
       }
       for(ip <- res.toList) yield ((ip.bb, ip.idx))
