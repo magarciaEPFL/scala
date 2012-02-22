@@ -27,8 +27,7 @@ abstract class ReachingDefinitions {
   object rdefLattice extends SemiLattice {
     type Definition = (Local, BasicBlock, Int)
     type Elem       = IState[collection.Map[Local, collection.Set[InstrPos]], Stack]
-    type StackPos   = collection.Set[InstrPos]
-    type Stack      = List[StackPos]
+    type Stack      = List[collection.Set[InstrPos]]
 
     def emptyLocals() = mutable.Map.empty[Local, collection.Set[InstrPos]]
 
@@ -37,7 +36,10 @@ abstract class ReachingDefinitions {
 
     val exceptionHandlerStack = Nil
 
-    /** The least upper bound is set inclusion for locals, and pairwise set inclusion for stacks. */
+    /** The least upper bound is:
+     *    - local-wise union of sets of store instructions (for locals), and
+     *    - pairwise union of push instrctions (for stacks).
+     */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
       if (bottom eq a) {
         if(bottom eq b) bottom
@@ -76,6 +78,11 @@ abstract class ReachingDefinitions {
     // in a map entry, its value (loc -> idx) denotes the last assignment in block `b` to local `loc`. The index of that STORE_LOCAL instruction in `b` is `idx`.
     private val gen      = mutable.Map[BasicBlock, collection.Map[Local, Int]]()
 
+    /*
+     * Regarding the operand stack, the summary information computed by `genAndKill()` consists of
+     * a "stack delta" (possibly empty) placed on top of (the entry stack with some slots dropped).
+     * The first piece of information (stack delta) is tracked in `outStack` while the latter (number of slots to drop) is tracked in `drops`.
+     */
     private val drops    = mutable.Map[BasicBlock, Int]()
     private val outStack = mutable.Map[BasicBlock, Stack]()
 
@@ -124,7 +131,7 @@ abstract class ReachingDefinitions {
     private def genAndKill(b: BasicBlock): (collection.Map[Local, Int], Int, Stack) = {
       var depth, drops = 0
       var stackOut: Stack = Nil
-      val genSet  = mutable.Map.empty[Local, Int]
+      val genSet  = mutable.Map.empty[Local, Int] // TODO use persistent data structure instead
 
       for ((instr, idx) <- b.toList.zipWithIndex) {
         instr match {
@@ -156,8 +163,13 @@ abstract class ReachingDefinitions {
 
     override def run() {
       forwardAnalysis(blockTransfer)
+
+      gen.clear()      // initialized in init() and used (only) in blockTransfer()
+      drops.clear()    // ditto
+      outStack.clear() // ditto
+
       if (settings.debug.value) {
-        linearizer.linearize(method).foreach(b => if (b != method.startBlock)
+        linearizer.linearize(method).foreach(b =>
           assert(lattice.bottom != in(b),
             "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? " + in(b)
                  + ": bot: " + lattice.bottom
@@ -197,7 +209,7 @@ abstract class ReachingDefinitions {
           locals = (locals ++ Map(loc -> Set(InstrPos(b, idx))))
           stack = stack.drop(instr.consumed)
         case LOAD_EXCEPTION(_) =>
-          stack = lattice.exceptionHandlerStack // ListSet((b, idx)) will be pushed below
+          stack = lattice.exceptionHandlerStack // Set(InstrPos(b, idx)) will be pushed for this instruction in a moment
         case _ =>
           stack = stack.drop(instr.consumed)
       }
