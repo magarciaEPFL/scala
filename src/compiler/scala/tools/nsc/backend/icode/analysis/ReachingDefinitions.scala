@@ -131,7 +131,7 @@ abstract class ReachingDefinitions {
     private def genAndKill(b: BasicBlock): (collection.Map[Local, Int], Int, Stack) = {
       var depth, drops = 0
       var stackOut: Stack = Nil
-      val genSet  = mutable.Map.empty[Local, Int] // TODO use persistent data structure instead
+      var genSet  = Map.empty[Local, Int]
 
       for ((instr, idx) <- b.toList.zipWithIndex) {
         instr match {
@@ -191,9 +191,11 @@ abstract class ReachingDefinitions {
        *
        */
       // FYI killSet == gen(b).keySet
-      val updLocals = in.vars ++ ( gen(b) map { p => (p._1 -> Set(InstrPos(b,  p._2))) } )
+      val mostRecentDefs = for( (loc, idx) <- gen(b) ) yield (loc -> Set(InstrPos(b,  idx)))
+      val updLocals = in.vars ++ mostRecentDefs
+      val updStack  = outStack(b) ::: in.stack.drop(drops(b))
 
-      val res = IState(updLocals, outStack(b) ::: in.stack.drop(drops(b)))
+      val res = IState(updLocals, updStack)
       // assert(res.stack.size == yardstick.out(b).stack.length, "gotcha2")
       res
     }
