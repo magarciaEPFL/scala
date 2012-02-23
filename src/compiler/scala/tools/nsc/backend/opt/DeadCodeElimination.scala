@@ -52,6 +52,8 @@ abstract class DeadCodeElimination extends SubComponent {
 
     val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
 
+    val altrdef = new reachingDefinitions.ReachingDefinitionsAnalysisAlt;
+
     /** the current method. */
     var method: IMethod = _
 
@@ -76,9 +78,17 @@ abstract class DeadCodeElimination extends SubComponent {
       m.code.blocks.clear()
       accessedLocals = m.params.reverse
       m.code.blocks ++= linearizer.linearize(m)
+
+      rdef.init(m);
+      rdef.run;
+
+      altrdef.init(m);
+      altrdef.run;
+
       collectRDef(m)
       mark
       sweep(m)
+
       accessedLocals = accessedLocals.distinct
       if (m.locals diff accessedLocals nonEmpty) {
         log("Removed dead locals: " + (m.locals diff accessedLocals))
@@ -89,8 +99,6 @@ abstract class DeadCodeElimination extends SubComponent {
     /** collect reaching definitions and initial useful instructions for this method. */
     def collectRDef(m: IMethod): Unit = {
       defs = immutable.HashMap.empty; worklist.clear(); useful.clear();
-      rdef.init(m);
-      rdef.run;
 
       m foreachBlock { bb =>
         useful(bb) = new mutable.BitSet(bb.size)
@@ -110,7 +118,13 @@ abstract class DeadCodeElimination extends SubComponent {
             case CALL_METHOD(m1, SuperCall(_)) =>
               worklist += ((bb, idx)) // super calls to constructor
             case DROP(_) =>
-              val necessary = rdef.findDefs(bb, idx, 1) exists { p =>
+
+              val foundDefs = rdef.findDefs(bb, idx, 1)
+
+              val altdefs = altrdef.findDefs(bb, idx, 1)
+              assert(foundDefs.toSet == altdefs.toSet)
+
+              val necessary = foundDefs exists { p =>
                 val (bb1, idx1) = p
                 bb1(idx1) match {
                   case CALL_METHOD(m1, _) if isSideEffecting(m1) => true
@@ -173,7 +187,13 @@ abstract class DeadCodeElimination extends SubComponent {
               ()
 
             case _ =>
-              for ((bb1, idx1) <- rdef.findDefs(bb, idx, instr.consumed) if !useful(bb1)(idx1)) {
+
+              val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
+
+              val altdefs = altrdef.findDefs(bb, idx, instr.consumed)
+              assert(foundDefs.toSet == altdefs.toSet)
+
+              for ((bb1, idx1) <- foundDefs if !useful(bb1)(idx1)) {
                 log("\tAdding " + bb1(idx1))
                 worklist += ((bb1, idx1))
               }
@@ -231,6 +251,10 @@ abstract class DeadCodeElimination extends SubComponent {
             for ((consumedType, depth) <- i.consumedTypes.reverse.zipWithIndex) {
               log("Finding definitions of: " + i + "\n\t" + consumedType + " at depth: " + depth)
               val defs = rdef.findDefs(bb, idx, 1, depth)
+
+              val altdefs = altrdef.findDefs(bb, idx, 1, depth)
+              assert(defs.toSet == altdefs.toSet)
+
               for (d <- defs) {
                 val (bb, idx) = d
                 bb(idx) match {
