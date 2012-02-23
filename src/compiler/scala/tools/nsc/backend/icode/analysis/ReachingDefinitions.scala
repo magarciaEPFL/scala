@@ -38,7 +38,7 @@ abstract class ReachingDefinitions {
 
     /** The least upper bound is:
      *    - local-wise union of sets of store instructions (for locals), and
-     *    - pairwise union of push instrctions (for stacks).
+     *    - pairwise union of push instructions (for stacks).
      */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
       if (bottom eq a) {
@@ -309,7 +309,7 @@ abstract class ReachingDefinitions {
 
     /** The least upper bound is:
      *    - local-wise union of sets of store instructions (for locals), and
-     *    - pairwise union of push instrctions (for stacks).
+     *    - pairwise union of push instructions (for stacks).
      */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
       if (bottom eq a) {
