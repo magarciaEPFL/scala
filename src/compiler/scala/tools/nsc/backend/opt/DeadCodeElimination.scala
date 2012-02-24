@@ -124,16 +124,13 @@ abstract class DeadCodeElimination extends SubComponent {
             case CALL_METHOD(m1, SuperCall(_))
               => worklist ::= ipointer // super calls to constructor
             case DROP(_) =>
-              val foundDefs = rdef.findDefs(bb, idx, 1)
-              val necessary = foundDefs exists { p =>
-                val (bb1, idx1) = p
-                bb1(idx1) match {
-                  case CALL_METHOD(m1, _) if isSideEffecting(m1) => true
+              val foundDefs = rdef.findDefs2(ipointer, 1)
+              val necessary = foundDefs exists { rip =>
+                rdef.toInstr(rip) match {
+                  case CALL_METHOD(m1, _) if isSideEffecting(m1)   => true
                   case LOAD_EXCEPTION(_) | DUP(_) | LOAD_MODULE(_) => true // TODO why not LOAD_ARRAY_ITEM(_) too?
                   case _ =>
-                    val rip = encode(bb1, idx1)
                     dropOf(rip) = ipointer :: dropOf.getOrElse(rip, Nil)
-                    // println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
                     false
                 }
               }
@@ -149,9 +146,15 @@ abstract class DeadCodeElimination extends SubComponent {
      *  dependencies are marked useful too, and added to the worklist.
      */
     def mark() {
+
+          def addToWorklist(ipointer: InstrPos, instr: Instruction) {
+            val foundDefs = rdef.findDefs2(ipointer, instr.consumed)
+            for (rip <- foundDefs; if !useful(rip)) { worklist ::= rip }
+          }
+
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
-        val ipointer = worklist.head
+        val ipointer  = worklist.head
         val (bb, idx) = rdef.toBBIdx(ipointer)
         worklist = worklist.tail
         debuglog("Marking instr: \tBB_" + bb + ": " + idx + " " + bb(idx))
@@ -159,10 +162,15 @@ abstract class DeadCodeElimination extends SubComponent {
         val instr = bb(idx)
         if (!useful(ipointer)) {
           useful += ipointer
-          for(rips <- dropOf.get(ipointer); rip <- rips) { useful += rip }
+          for(rips <- dropOf.get(ipointer); rip <- rips) { useful += rip } // TODO why not add to worklist each `rip` ?
           instr match {
             case LOAD_LOCAL(v) =>
               for (rip <- rdef.reachers(v, ipointer); if !useful(rip)) { worklist ::= rip }
+              if(!v.arg) { accessedLocals ::= v }
+
+            case STORE_LOCAL(v) if !v.arg =>
+              accessedLocals ::= v
+              addToWorklist(ipointer, instr)
 
             case nw @ NEW(REFERENCE(sym)) =>
               assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
@@ -182,8 +190,7 @@ abstract class DeadCodeElimination extends SubComponent {
               ()
 
             case _ =>
-              val foundDefs = rdef.findDefs2(ipointer, instr.consumed)
-              for (rip <- foundDefs; if !useful(rip)) { worklist ::= rip }
+              addToWorklist(ipointer, instr)
           }
         }
       }
@@ -206,16 +213,12 @@ abstract class DeadCodeElimination extends SubComponent {
               case Some(is) => is foreach bb.emit
               case None => ()
             }
-            // check for accessed locals
-            i match {
-              case LOAD_LOCAL(l)  if !l.arg => accessedLocals ::= l
-              case STORE_LOCAL(l) if !l.arg => accessedLocals ::= l
-              case _ => ()
-            }
           } else {
-            i match {
-              case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
-              case _                   => ()
+            if(opt.logPhase) {
+              i match {
+                case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
+                case _                   => ()
+              }
             }
             debuglog("Skipped: bb_" + bb + ": " + idx + "( " + i + ")")
           }
@@ -230,9 +233,13 @@ abstract class DeadCodeElimination extends SubComponent {
       val compensations: mutable.Map[InstrPos, List[DROP]] = new mutable.HashMap
 
       m foreachBlock { bb =>
-        foreachWithIndex(bb.toList) { (i, idx) =>
+        val instrs = bb.getArray
+        var idx = 0
+
+        while(idx < instrs.size) {
           val ipointer = encode(bb, idx) // TODO while loop
           if (!useful(ipointer)) {
+            val i = instrs(idx)
             foreachWithIndex(i.consumedTypes.reverse) { (consumedType, depth) =>
               log("Finding definitions of: " + i + "\n\t" + consumedType + " at depth: " + depth)
               val defs = rdef.findDefs(bb, idx, 1, depth)
@@ -254,6 +261,7 @@ abstract class DeadCodeElimination extends SubComponent {
               }
             }
           }
+          idx += 1
         }
       }
       compensations
