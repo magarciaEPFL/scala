@@ -308,8 +308,8 @@ abstract class ReachingDefinitions {
     val exceptionHandlerStack = Nil
 
     /** The least upper bound is:
-     *    - local-wise union of sets of store instructions (for locals), and
-     *    - pairwise union of push instructions (for stacks).
+     *    - per-variable union of sets of store instructions (for locals), and
+     *    - pairwise union of sets of push instructions (for stacks).
      */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
       if (bottom eq a) {
@@ -422,8 +422,9 @@ abstract class ReachingDefinitions {
       var idx = 0
       while(idx < instrs.size) {
         val instr = instrs(idx)
-        stateAt(encode(b, idx)) = result
-        result = interpret(b, idx, instr, result)
+        val encoded = encode(b, idx)
+        stateAt(encoded) = result
+        result = interpret(b, encoded, instr, result)
         idx += 1
       }
       result
@@ -432,13 +433,13 @@ abstract class ReachingDefinitions {
     import lattice.IState
 
     /** Return the reaching definitions corresponding to the point after idx. */
-    def interpret(b: BasicBlock, idx: Int, instr: Instruction, in: lattice.Elem): Elem = {
+    def interpret(b: BasicBlock, encoded: Long, instr: Instruction, in: lattice.Elem): Elem = {
       var updLocals: lattice.LVarsT = in.vars
       var updStack:  lattice.StackT = in.stack
 
       instr match {
         case STORE_LOCAL(loc) =>
-          updLocals = (updLocals + (loc -> Set(encode(b, idx))))
+          updLocals = updLocals + (loc -> Set(encoded))
           updStack  = updStack.drop(instr.consumed)
         case LOAD_EXCEPTION(_) =>
           /*
@@ -446,7 +447,7 @@ abstract class ReachingDefinitions {
            * due to the way LOAD_EXCEPTION is handled (here).
            *
            * The position of this instruction will be pushed in a moment,
-           * the case serves the purpose of avoiding calling `consumed` on LOAD_EXCEPTION and the ensuing sys.error
+           * this case handler serves the purpose of avoiding calling `consumed` on LOAD_EXCEPTION which raises sys.error
            *
            */
           updStack = lattice.exceptionHandlerStack
@@ -456,7 +457,7 @@ abstract class ReachingDefinitions {
 
       var prod = instr.produced
       while (prod > 0) {
-        updStack ::= Set(encode(b, idx))
+        updStack ::= Set(encoded)
         prod -= 1
       }
 
@@ -470,7 +471,7 @@ abstract class ReachingDefinitions {
     def findDefs(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[(BasicBlock, Int)] = {
       assert(bb.closed, bb)
 
-      var res = Set.empty[Long]
+      var res = immutable.TreeSet.empty[Long]
       val stack = stateAt(encode(bb, idx)).stack
       assert(stack.size >= (depth + m), "entry stack is too small, expected: " + (depth + m) + " found: " + stack)
       stack.drop(depth).take(m) foreach { defs =>
