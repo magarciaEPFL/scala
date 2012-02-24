@@ -40,7 +40,7 @@ abstract class DeadCodeElimination extends SubComponent {
         dce.rdef.clearCaches()
         dce.worklist = Nil
         dce.useful.clear()
-        dce.accessedLocals = Nil
+        dce.unaccessedLocals.clear()
         dce.droppers.clear()
       }
     }
@@ -71,19 +71,25 @@ abstract class DeadCodeElimination extends SubComponent {
     var worklist: List[(BasicBlock, Int)] = Nil
 
     /** what instructions have been marked as useful? */
-    val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
+    val useful = mutable.Map.empty[BasicBlock, mutable.BitSet]
 
     /** what local variables have been accessed at least once? */
-    var accessedLocals: List[Local] = Nil
+    val unaccessedLocals = mutable.Set.empty[Local]
 
     /** Map instructions that have a drop on some control path, to that DROP instruction. */
     val droppers: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
 
+    val logEnabled = opt.logPhase
+
     def dieCodeDie(m: IMethod) {
+
       log("dead code elimination on " + m);
       droppers.clear()
+
+      unaccessedLocals.clear()
+      unaccessedLocals ++= (m.locals diff m.params)
+
       m.code.blocks.clear()
-      accessedLocals = m.params.reverse
       m.code.blocks ++= linearizer.linearize(m)
 
       rdef.init(m);
@@ -93,22 +99,28 @@ abstract class DeadCodeElimination extends SubComponent {
       mark
       sweep(m)
 
-      accessedLocals = accessedLocals.distinct
-      if (m.locals exists { loc => !accessedLocals.contains(loc) } ) {
-        log("Removed dead locals: " + (m.locals diff accessedLocals))
-        m.locals = accessedLocals.reverse
+      if (unaccessedLocals.nonEmpty) {
+        log("Removed dead locals: " + unaccessedLocals)
+        m.locals = m.locals filterNot unaccessedLocals
       }
+
     }
 
     /** collect reaching definitions and initial useful instructions for this method. */
     def collectRDef(m: IMethod): Unit = {
+      /* The protocol to add to worklist is:
+       *   (1) in method `collectRDef` each instruction is visited exactly once thus we add directly, noting down in `useful` that the instruction is scheduled as non-dead-code.
+       *   (2) after that, in order to avoid looping endlessly upon enqueing cyclic dependencies, check `isUseful` before consing to the worklist. */
       worklist = Nil;
       useful.clear();
 
       m foreachBlock { bb =>
+
         useful(bb) = new mutable.BitSet(bb.size)
+
         var idx = 0
         val instrs = bb.getArray
+
         while (idx < instrs.size) {
           instrs(idx) match {
             case RETURN(_) | JUMP(_) | THROW(_) | SWITCH(_, _) |
@@ -119,85 +131,96 @@ abstract class DeadCodeElimination extends SubComponent {
                  STORE_THIS(_) |
                  LOAD_EXCEPTION(_) |
                  MONITOR_ENTER() | MONITOR_EXIT()
-              => worklist ::= Pair(bb, idx)
+              =>
+                 worklist  ::= Pair(bb, idx)
+                 useful(bb) += idx
             case CALL_METHOD(m1, _) if isSideEffecting(m1)
-              => worklist ::= Pair(bb, idx); log("marking " + m1)
+              =>
+                 worklist  ::= Pair(bb, idx); log("marking " + m1)
+                 useful(bb) += idx
             case CALL_METHOD(m1, SuperCall(_))
-              => worklist ::= Pair(bb, idx) // super calls to constructor
+              =>
+                 worklist  ::= Pair(bb, idx) // super calls to constructor
+                 useful(bb) += idx
             case DROP(_) =>
-              val foundDefs = rdef.findDefs(bb, idx, 1)
-              val necessary = foundDefs exists { p =>
+              for(p <- rdef.findDefs(bb, idx, 1)) {
+                // for now just track the drop instruction(s) for the value that a drop-feeding instruction pushes
+                // don't add to the worklist just yet, neither the dropper nor the dropper-feeder
                 val (bb1, idx1) = p
-                bb1(idx1) match {
-                  case CALL_METHOD(m1, _) if isSideEffecting(m1) => true
-                  case LOAD_EXCEPTION(_) | DUP(_) | LOAD_MODULE(_) => true // TODO why not LOAD_ARRAY_ITEM(_) too?
-                  case _ =>
-                    droppers((bb1, idx1)) = (bb,idx) :: droppers.getOrElse((bb1, idx1), Nil)
-                    // println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
-                    false
-                }
+                droppers((bb1, idx1)) = (bb,idx) :: droppers.getOrElse((bb1, idx1), Nil)
               }
-              if (necessary) { worklist ::= Pair(bb, idx) }
             case _ => ()
           }
           idx += 1
         }
       }
+
     }
+
+    private def isUseful(ib: BasicBlock, ii: Int): Boolean = { useful(ib)(ii) }
 
     /** Mark useful instructions. Instructions in the worklist are each inspected and their
      *  dependencies are marked useful too, and added to the worklist.
      */
     def mark() {
+
+          def usefulize(ub: BasicBlock, ui: Int) {
+            for(r <- droppers.get(ub, ui); (wb, wi) <- r) {
+              assert(droppers.get(wb, wi).isEmpty)
+              consToWorklist(wb, wi)
+            }
+          }
+
+          def consToWorklist(wb: BasicBlock, wi: Int) {
+            if(!isUseful(wb, wi)) {
+              worklist   ::= Pair(wb, wi)
+              useful(wb)  += wi
+            }
+          }
+
+
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
+
         val (bb, idx) = worklist.head
         worklist = worklist.tail
+
         debuglog("Marking instr: \tBB_" + bb + ": " + idx + " " + bb(idx))
+        usefulize(bb, idx)
 
         val instr = bb(idx)
-        if (!useful(bb)(idx)) {
-          useful(bb) += idx
-          droppers.get(bb, idx) foreach {
-              for ((bb1, idx1) <- _) {
-                // TODO this breaks: assert(useful(bb1)(idx1) || worklist.contains(Pair(bb1, idx1)))
-                if(!useful(bb1)(idx1)) {
-                  worklist ::= Pair(bb1, idx1)
-                }
-              }
-          }
-          instr match {
-            case LOAD_LOCAL(v) =>
-              for ((bb1, idx1) <- rdef.reachers(v, bb, idx); if !useful(bb1)(idx1)) {
-                log("\tAdding " + bb1(idx1))
-                worklist ::= Pair(bb1, idx1)
-              }
+        instr match {
+          case LOAD_LOCAL(v) =>
+            for ((bb1, idx1) <- rdef.reachers(v, bb, idx)) { consToWorklist(bb1, idx1) }
+            unaccessedLocals -= v
 
-            case nw @ NEW(REFERENCE(sym)) =>
-              assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
-              worklist ::= findInstruction(bb, nw.init)
-              if (inliner.isClosureClass(sym)) {
-                liveClosures += sym
-              }
+          case nw @ NEW(REFERENCE(sym)) =>
+            assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
+            val (wb, wi) = findInstruction(bb, nw.init)
+            consToWorklist(wb, wi)
+            if (inliner.isClosureClass(sym)) {
+              liveClosures += sym
+            }
 
-            // it may be better to move static initializers from closures to
-            // the enclosing class, to allow the optimizer to remove more closures.
-            // right now, the only static fields in closures are created when caching 'symbol literals.
-            case LOAD_FIELD(sym, true) if inliner.isClosureClass(sym.owner) =>
-              log("added closure class for field " + sym)
-              liveClosures += sym.owner
+          // it may be better to move static initializers from closures to
+          // the enclosing class, to allow the optimizer to remove more closures.
+          // right now, the only static fields in closures are created when caching 'symbol literals.
+          case LOAD_FIELD(sym, true) if inliner.isClosureClass(sym.owner) =>
+            liveClosures += sym.owner; log("added closure class for field " + sym)
 
-            case LOAD_EXCEPTION(_) =>
-              ()
+          case LOAD_EXCEPTION(_) =>
+            ()
 
-            case _ =>
-              val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
-              for ((bb1, idx1) <- foundDefs if !useful(bb1)(idx1)) {
-                log("\tAdding " + bb1(idx1))
-                worklist ::= Pair(bb1, idx1)
-              }
-          }
+          case _ =>
+            val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
+            for ((bb1, idx1) <- foundDefs) { consToWorklist(bb1, idx1) }
         }
+
+        instr match {
+          case STORE_LOCAL(v) => unaccessedLocals -= v
+          case _              => ()
+        }
+
       }
     }
 
@@ -205,34 +228,26 @@ abstract class DeadCodeElimination extends SubComponent {
       val compensations = computeCompensations(m)
 
       m foreachBlock { bb =>
-        // Console.println("** Sweeping block " + bb + " **")
         val oldInstr = bb.toList
         bb.open
         bb.clear
         for (Pair(i, idx) <- oldInstr.zipWithIndex) {
           if (useful(bb)(idx)) {
-            // log(" " + i + " is useful")
             bb.emit(i, i.pos)
             compensations.get(bb, idx) match {
               case Some(is) => is foreach bb.emit
-              case None => ()
+              case None     => ()
             }
-            // check for accessed locals
+          } else if(logEnabled) {
             i match {
-              case LOAD_LOCAL(l)  if !l.arg => accessedLocals ::= l
-              case STORE_LOCAL(l) if !l.arg => accessedLocals ::= l
-              case _ => ()
-            }
-          } else {
-            if(opt.logPhase) {
-              i match {
-                case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
-                case _                   => ()
-              }
+              case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
+              case _                   => ()
             }
             debuglog("Skipped: bb_" + bb + ": " + idx + "( " + i + ")")
           }
         }
+
+        // TODO consider performing peephole optimiz on the fly (ie right before bb.emit)
 
         if (bb.nonEmpty) bb.close
         else log("empty block encountered")
