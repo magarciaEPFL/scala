@@ -86,8 +86,7 @@ abstract class ReachingDefinitions {
 
     def init(m: IMethod) {
       this.method = m
-      labelled.clear()
-      stateAt.clear()
+      clearCaches()
 
       init {
 
@@ -112,8 +111,8 @@ abstract class ReachingDefinitions {
 
     }
 
-    val loMask = 0x00000000FFFFFFFFL
-    val hiMask = 0xFFFFFFFF00000000L
+    @inline val loMask = 0x00000000FFFFFFFFL
+    @inline val hiMask = 0xFFFFFFFF00000000L
 
     @inline final def encode(bb: BasicBlock, idx: Int): Long = encode(bb.label, idx)
 
@@ -212,15 +211,12 @@ abstract class ReachingDefinitions {
      */
     def findDefs(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[(BasicBlock, Int)] = {
       assert(bb.closed, bb)
-
       var res = immutable.TreeSet.empty[Long]
       val stack = stateAt(encode(bb, idx)).stack
       assert(stack.size >= (depth + m), "entry stack is too small, expected: " + (depth + m) + " found: " + stack)
-      stack.drop(depth).take(m) foreach { defs =>
-        res = res ++ defs
-      }
+      stack.drop(depth).take(m) foreach { defs => res ++= defs }
 
-      for(ip <- res.toList) yield { val (blabel, idx) = decode(ip); (labelled(blabel), idx) }
+      res.toList map toBBIdx
     }
 
     /** Return the definitions that produced the topmost 'm' elements on the stack,

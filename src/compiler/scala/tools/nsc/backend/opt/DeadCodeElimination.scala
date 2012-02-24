@@ -152,8 +152,8 @@ abstract class DeadCodeElimination extends SubComponent {
                 useful(bb1) += idx1
           }
           instr match {
-            case LOAD_LOCAL(l1) =>
-              for ((bb1, idx1) <- rdef.reachers(l1, bb, idx); if !useful(bb1)(idx1)) {
+            case LOAD_LOCAL(v) =>
+              for ((bb1, idx1) <- rdef.reachers(v, bb, idx); if !useful(bb1)(idx1)) {
                 log("\tAdding " + bb1(idx1))
                 worklist ::= Pair(bb1, idx1)
               }
