@@ -36,7 +36,13 @@ abstract class DeadCodeElimination extends SubComponent {
 
     override def run() {
       try super.run()
-      finally dce.rdef.clearCaches()
+      finally {
+        dce.rdef.clearCaches()
+        dce.worklist = Nil
+        dce.useful.clear()
+        dce.accessedLocals = Nil
+        dce.droppers.clear()
+      }
     }
 
   }
@@ -70,12 +76,12 @@ abstract class DeadCodeElimination extends SubComponent {
     /** what local variables have been accessed at least once? */
     var accessedLocals: List[Local] = Nil
 
-    /** Map instructions who have a drop on some control path, to that DROP instruction. */
-    val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
+    /** Map instructions that have a drop on some control path, to that DROP instruction. */
+    val droppers: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
 
     def dieCodeDie(m: IMethod) {
       log("dead code elimination on " + m);
-      dropOf.clear()
+      droppers.clear()
       m.code.blocks.clear()
       accessedLocals = m.params.reverse
       m.code.blocks ++= linearizer.linearize(m)
@@ -105,9 +111,14 @@ abstract class DeadCodeElimination extends SubComponent {
         val instrs = bb.getArray
         while (idx < instrs.size) {
           instrs(idx) match {
-            case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
-                 THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
-                 LOAD_EXCEPTION(_) | SWITCH(_, _) | MONITOR_ENTER() | MONITOR_EXIT()
+            case RETURN(_) | JUMP(_) | THROW(_) | SWITCH(_, _) |
+                 CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) |
+                 STORE_FIELD(_, _) | // field load left out on purpose (so as do the closure elimination thing)
+                 LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) |
+                 SCOPE_ENTER(_) | SCOPE_EXIT(_) |
+                 STORE_THIS(_) |
+                 LOAD_EXCEPTION(_) |
+                 MONITOR_ENTER() | MONITOR_EXIT()
               => worklist ::= Pair(bb, idx)
             case CALL_METHOD(m1, _) if isSideEffecting(m1)
               => worklist ::= Pair(bb, idx); log("marking " + m1)
@@ -121,7 +132,7 @@ abstract class DeadCodeElimination extends SubComponent {
                   case CALL_METHOD(m1, _) if isSideEffecting(m1) => true
                   case LOAD_EXCEPTION(_) | DUP(_) | LOAD_MODULE(_) => true // TODO why not LOAD_ARRAY_ITEM(_) too?
                   case _ =>
-                    dropOf((bb1, idx1)) = (bb,idx) :: dropOf.getOrElse((bb1, idx1), Nil)
+                    droppers((bb1, idx1)) = (bb,idx) :: droppers.getOrElse((bb1, idx1), Nil)
                     // println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
                     false
                 }
@@ -147,9 +158,13 @@ abstract class DeadCodeElimination extends SubComponent {
         val instr = bb(idx)
         if (!useful(bb)(idx)) {
           useful(bb) += idx
-          dropOf.get(bb, idx) foreach {
-              for ((bb1, idx1) <- _)
-                useful(bb1) += idx1
+          droppers.get(bb, idx) foreach {
+              for ((bb1, idx1) <- _) {
+                // TODO this breaks: assert(useful(bb1)(idx1) || worklist.contains(Pair(bb1, idx1)))
+                if(!useful(bb1)(idx1)) {
+                  worklist ::= Pair(bb1, idx1)
+                }
+              }
           }
           instr match {
             case LOAD_LOCAL(v) =>
@@ -167,8 +182,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
             // it may be better to move static initializers from closures to
             // the enclosing class, to allow the optimizer to remove more closures.
-            // right now, the only static fields in closures are created when caching
-            // 'symbol literals.
+            // right now, the only static fields in closures are created when caching 'symbol literals.
             case LOAD_FIELD(sym, true) if inliner.isClosureClass(sym.owner) =>
               log("added closure class for field " + sym)
               liveClosures += sym.owner
@@ -210,9 +224,11 @@ abstract class DeadCodeElimination extends SubComponent {
               case _ => ()
             }
           } else {
-            i match {
-              case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
-              case _                   => ()
+            if(opt.logPhase) {
+              i match {
+                case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
+                case _                   => ()
+              }
             }
             debuglog("Skipped: bb_" + bb + ": " + idx + "( " + i + ")")
           }
@@ -240,7 +256,7 @@ abstract class DeadCodeElimination extends SubComponent {
                     bb(idx - 1) match {
                       case nw @ NEW(_) =>
                         val init = findInstruction(bb, nw.init)
-                        log("Moving DROP to after <init> call: " + nw.init)
+                        log("Moving DROP right after <init> call: " + nw.init)
                         compensations(init) = List(DROP(consumedType))
                       case _ =>
                         compensations(d) = List(DROP(consumedType))
