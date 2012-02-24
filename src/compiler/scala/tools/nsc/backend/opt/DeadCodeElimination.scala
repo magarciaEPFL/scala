@@ -80,7 +80,7 @@ abstract class DeadCodeElimination extends SubComponent {
     var accessedLocals: List[Local] = Nil
 
     /** Map instructions who have a drop on some control path, to that DROP instruction. */
-    val dropOf = mutable.Map.empty[(BasicBlock, Int), List[(BasicBlock, Int)]]
+    val dropOf = mutable.Map.empty[InstrPos, List[InstrPos]]
 
     def dieCodeDie(m: IMethod) {
       log("dead code elimination on " + m);
@@ -113,29 +113,31 @@ abstract class DeadCodeElimination extends SubComponent {
         var idx = 0
         val instrs = bb.getArray
         while (idx < instrs.size) {
+          val ipointer = encode(bb, idx)
           instrs(idx) match {
             case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
                  THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
                  LOAD_EXCEPTION(_) | SWITCH(_, _) | MONITOR_ENTER() | MONITOR_EXIT()
-              => worklist ::= encode(bb, idx)
+              => worklist ::= ipointer
             case CALL_METHOD(m1, _) if isSideEffecting(m1)
-              => worklist ::= encode(bb, idx); log("marking " + m1)
+              => worklist ::= ipointer; log("marking " + m1)
             case CALL_METHOD(m1, SuperCall(_))
-              => worklist ::= encode(bb, idx) // super calls to constructor
+              => worklist ::= ipointer // super calls to constructor
             case DROP(_) =>
               val foundDefs = rdef.findDefs(bb, idx, 1)
               val necessary = foundDefs exists { p =>
                 val (bb1, idx1) = p
+                val rip = encode(bb1, idx1)
                 bb1(idx1) match {
                   case CALL_METHOD(m1, _) if isSideEffecting(m1) => true
                   case LOAD_EXCEPTION(_) | DUP(_) | LOAD_MODULE(_) => true // TODO why not LOAD_ARRAY_ITEM(_) too?
                   case _ =>
-                    dropOf((bb1, idx1)) = (bb,idx) :: dropOf.getOrElse((bb1, idx1), Nil)
+                    dropOf(rip) = ipointer :: dropOf.getOrElse(rip, Nil)
                     // println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
                     false
                 }
               }
-              if (necessary) { worklist ::= encode(bb, idx) }
+              if (necessary) { worklist ::= ipointer }
             case _ => ()
           }
           idx += 1
@@ -150,17 +152,14 @@ abstract class DeadCodeElimination extends SubComponent {
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
         val ipointer = worklist.head
-        val (bb, idx) = rdef.toBBIdx(ipointer) // TODO stay in the InstrPos domain
+        val (bb, idx) = rdef.toBBIdx(ipointer)
         worklist = worklist.tail
         debuglog("Marking instr: \tBB_" + bb + ": " + idx + " " + bb(idx))
 
         val instr = bb(idx)
         if (!useful(ipointer)) {
           useful += ipointer
-          dropOf.get(bb, idx) foreach {
-              for ((bb1, idx1) <- _)
-                useful += encode(bb1, idx1)
-          }
+          for(rips <- dropOf.get(ipointer); rip <- rips) { useful += rip }
           instr match {
             case LOAD_LOCAL(v) =>
               for (rip <- rdef.reachers(v, ipointer); if !useful(rip)) { worklist ::= rip }
