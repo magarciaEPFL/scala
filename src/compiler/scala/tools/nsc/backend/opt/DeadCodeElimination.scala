@@ -36,7 +36,13 @@ abstract class DeadCodeElimination extends SubComponent {
 
     override def run() {
       try super.run()
-      finally dce.rdef.clearCaches()
+      finally {
+        dce.rdef.clearCaches()
+        dce.worklist = Nil
+        dce.useful.clear()
+        dce.accessedLocals = Nil
+        dce.dropOf.clear()
+      }
     }
 
   }
@@ -68,13 +74,13 @@ abstract class DeadCodeElimination extends SubComponent {
     var worklist: List[InstrPos] = Nil
 
     /** what instructions have been marked as useful? */
-    val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
+    val useful = mutable.Set.empty[InstrPos]
 
     /** what local variables have been accessed at least once? */
     var accessedLocals: List[Local] = Nil
 
     /** Map instructions who have a drop on some control path, to that DROP instruction. */
-    val dropOf: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
+    val dropOf = mutable.Map.empty[(BasicBlock, Int), List[(BasicBlock, Int)]]
 
     def dieCodeDie(m: IMethod) {
       log("dead code elimination on " + m);
@@ -104,7 +110,6 @@ abstract class DeadCodeElimination extends SubComponent {
 
       m foreachBlock { bb =>
         assert(bb.closed, "Open basic block")
-        useful(bb) = new mutable.BitSet(bb.size)
         var idx = 0
         val instrs = bb.getArray
         while (idx < instrs.size) {
@@ -144,23 +149,21 @@ abstract class DeadCodeElimination extends SubComponent {
     def mark() {
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
-        val (bb, idx) = rdef.toBBIdx(worklist.head) // TODO stay in the InstrPos domain
+        val ipointer = worklist.head
+        val (bb, idx) = rdef.toBBIdx(ipointer) // TODO stay in the InstrPos domain
         worklist = worklist.tail
         debuglog("Marking instr: \tBB_" + bb + ": " + idx + " " + bb(idx))
 
         val instr = bb(idx)
-        if (!useful(bb)(idx)) {
-          useful(bb) += idx
+        if (!useful(ipointer)) {
+          useful += ipointer
           dropOf.get(bb, idx) foreach {
               for ((bb1, idx1) <- _)
-                useful(bb1) += idx1
+                useful += encode(bb1, idx1)
           }
           instr match {
             case LOAD_LOCAL(v) =>
-              for ((bb1, idx1) <- rdef.reachers(v, bb, idx); if !useful(bb1)(idx1)) {
-                log("\tAdding " + bb1(idx1))
-                worklist ::= encode(bb1, idx1)
-              }
+              for (rip <- rdef.reachers(v, ipointer); if !useful(rip)) { worklist ::= rip }
 
             case nw @ NEW(REFERENCE(sym)) =>
               assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
@@ -181,11 +184,8 @@ abstract class DeadCodeElimination extends SubComponent {
               ()
 
             case _ =>
-              val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
-              for ((bb1, idx1) <- foundDefs if !useful(bb1)(idx1)) {
-                log("\tAdding " + bb1(idx1))
-                worklist ::= encode(bb1, idx1)
-              }
+              val foundDefs = rdef.findDefs2(ipointer, instr.consumed)
+              for (rip <- foundDefs; if !useful(rip)) { worklist ::= rip }
           }
         }
       }
@@ -200,10 +200,11 @@ abstract class DeadCodeElimination extends SubComponent {
         bb.open
         bb.clear
         for (Pair(i, idx) <- oldInstr.zipWithIndex) {
-          if (useful(bb)(idx)) {
+          val ipointer = encode(bb, idx)
+          if (useful(ipointer)) {
             // log(" " + i + " is useful")
             bb.emit(i, i.pos)
-            compensations.get(encode(bb, idx)) match {
+            compensations.get(ipointer) match {
               case Some(is) => is foreach bb.emit
               case None => ()
             }
@@ -232,7 +233,8 @@ abstract class DeadCodeElimination extends SubComponent {
 
       m foreachBlock { bb =>
         foreachWithIndex(bb.toList) { (i, idx) =>
-          if (!useful(bb)(idx)) {
+          val ipointer = encode(bb, idx) // TODO while loop
+          if (!useful(ipointer)) {
             foreachWithIndex(i.consumedTypes.reverse) { (consumedType, depth) =>
               log("Finding definitions of: " + i + "\n\t" + consumedType + " at depth: " + depth)
               val defs = rdef.findDefs(bb, idx, 1, depth)

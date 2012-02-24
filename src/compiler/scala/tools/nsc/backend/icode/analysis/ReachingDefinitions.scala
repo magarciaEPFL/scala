@@ -141,10 +141,7 @@ abstract class ReachingDefinitions {
     }
 
     /* Positions of STORE_LOCAL instructions assigning to `v` that reach the usage of `v` at (bb, idx) */
-    def reachers(v: Local, bb: BasicBlock, idx: Int): List[(BasicBlock, Int)] = {
-      val defs: Set[InstrPos] = stateAt(encode(bb, idx)).vars.getOrElse(v, Set())
-      defs.toList map toBBIdx
-    }
+    def reachers(v: Local, ip: Long): Set[InstrPos] = { stateAt(ip).vars.getOrElse(v, Set()) }
 
     override def run() {
       forwardAnalysis(blockTransfer)
@@ -226,6 +223,18 @@ abstract class ReachingDefinitions {
      */
     def findDefs(bb: BasicBlock, idx: Int, m: Int): List[(BasicBlock, Int)] =
       findDefs(bb, idx, m, 0)
+
+    def findDefs2(ipointer: InstrPos, m: Int, depth: Int): List[InstrPos] = {
+      var res = immutable.TreeSet.empty[InstrPos]
+      val stack = stateAt(ipointer).stack
+      assert(stack.size >= (depth + m), "entry stack is too small, expected: " + (depth + m) + " found: " + stack)
+      stack.drop(depth).take(m) foreach { defs => res ++= defs }
+
+      res.toList
+    }
+
+    def findDefs2(ipointer: InstrPos, m: Int): List[InstrPos] =
+      findDefs2(ipointer, m, 0)
 
     override def toString: String = {
       method.code.blocks map { b =>
