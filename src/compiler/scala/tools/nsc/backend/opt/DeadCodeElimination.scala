@@ -65,7 +65,7 @@ abstract class DeadCodeElimination extends SubComponent {
     val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
 
     import reachingDefinitions.rdefLattice.InstrPos
-    import rdef.{ encode, decode }
+    import rdef.encode
 
     /** the current method. */
     var method: IMethod = _
@@ -127,11 +127,11 @@ abstract class DeadCodeElimination extends SubComponent {
               val foundDefs = rdef.findDefs(bb, idx, 1)
               val necessary = foundDefs exists { p =>
                 val (bb1, idx1) = p
-                val rip = encode(bb1, idx1)
                 bb1(idx1) match {
                   case CALL_METHOD(m1, _) if isSideEffecting(m1) => true
                   case LOAD_EXCEPTION(_) | DUP(_) | LOAD_MODULE(_) => true // TODO why not LOAD_ARRAY_ITEM(_) too?
                   case _ =>
+                    val rip = encode(bb1, idx1)
                     dropOf(rip) = ipointer :: dropOf.getOrElse(rip, Nil)
                     // println("DROP is innessential: " + i + " because of: " + bb1(idx1) + " at " + bb1 + ":" + idx1)
                     false
@@ -173,8 +173,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
             // it may be better to move static initializers from closures to
             // the enclosing class, to allow the optimizer to remove more closures.
-            // right now, the only static fields in closures are created when caching
-            // 'symbol literals.
+            // right now, the only static fields in closures are created when caching 'symbol literals.
             case LOAD_FIELD(sym, true) if inliner.isClosureClass(sym.owner) =>
               log("added closure class for field " + sym)
               liveClosures += sym.owner
