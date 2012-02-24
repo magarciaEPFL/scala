@@ -58,11 +58,14 @@ abstract class DeadCodeElimination extends SubComponent {
 
     val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
 
+    import reachingDefinitions.rdefLattice.InstrPos
+    import rdef.{ encode, decode }
+
     /** the current method. */
     var method: IMethod = _
 
     /** Useful instructions which have not been scanned yet. */
-    var worklist: List[(BasicBlock, Int)] = Nil
+    var worklist: List[InstrPos] = Nil
 
     /** what instructions have been marked as useful? */
     val useful: mutable.Map[BasicBlock, mutable.BitSet] = perRunCaches.newMap()
@@ -100,6 +103,7 @@ abstract class DeadCodeElimination extends SubComponent {
       useful.clear();
 
       m foreachBlock { bb =>
+        assert(bb.closed, "Open basic block")
         useful(bb) = new mutable.BitSet(bb.size)
         var idx = 0
         val instrs = bb.getArray
@@ -108,11 +112,11 @@ abstract class DeadCodeElimination extends SubComponent {
             case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
                  THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
                  LOAD_EXCEPTION(_) | SWITCH(_, _) | MONITOR_ENTER() | MONITOR_EXIT()
-              => worklist ::= Pair(bb, idx)
+              => worklist ::= encode(bb, idx)
             case CALL_METHOD(m1, _) if isSideEffecting(m1)
-              => worklist ::= Pair(bb, idx); log("marking " + m1)
+              => worklist ::= encode(bb, idx); log("marking " + m1)
             case CALL_METHOD(m1, SuperCall(_))
-              => worklist ::= Pair(bb, idx) // super calls to constructor
+              => worklist ::= encode(bb, idx) // super calls to constructor
             case DROP(_) =>
               val foundDefs = rdef.findDefs(bb, idx, 1)
               val necessary = foundDefs exists { p =>
@@ -126,7 +130,7 @@ abstract class DeadCodeElimination extends SubComponent {
                     false
                 }
               }
-              if (necessary) { worklist ::= Pair(bb, idx) }
+              if (necessary) { worklist ::= encode(bb, idx) }
             case _ => ()
           }
           idx += 1
@@ -140,7 +144,7 @@ abstract class DeadCodeElimination extends SubComponent {
     def mark() {
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
-        val (bb, idx) = worklist.head
+        val (bb, idx) = rdef.toBBIdx(worklist.head) // TODO stay in the InstrPos domain
         worklist = worklist.tail
         debuglog("Marking instr: \tBB_" + bb + ": " + idx + " " + bb(idx))
 
@@ -155,7 +159,7 @@ abstract class DeadCodeElimination extends SubComponent {
             case LOAD_LOCAL(v) =>
               for ((bb1, idx1) <- rdef.reachers(v, bb, idx); if !useful(bb1)(idx1)) {
                 log("\tAdding " + bb1(idx1))
-                worklist ::= Pair(bb1, idx1)
+                worklist ::= encode(bb1, idx1)
               }
 
             case nw @ NEW(REFERENCE(sym)) =>
@@ -180,7 +184,7 @@ abstract class DeadCodeElimination extends SubComponent {
               val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
               for ((bb1, idx1) <- foundDefs if !useful(bb1)(idx1)) {
                 log("\tAdding " + bb1(idx1))
-                worklist ::= Pair(bb1, idx1)
+                worklist ::= encode(bb1, idx1)
               }
           }
         }
@@ -199,7 +203,7 @@ abstract class DeadCodeElimination extends SubComponent {
           if (useful(bb)(idx)) {
             // log(" " + i + " is useful")
             bb.emit(i, i.pos)
-            compensations.get(bb, idx) match {
+            compensations.get(encode(bb, idx)) match {
               case Some(is) => is foreach bb.emit
               case None => ()
             }
@@ -223,11 +227,10 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    private def computeCompensations(m: IMethod): collection.Map[(BasicBlock, Int), List[DROP]] = {
-      val compensations: mutable.Map[(BasicBlock, Int), List[DROP]] = new mutable.HashMap
+    private def computeCompensations(m: IMethod): collection.Map[InstrPos, List[DROP]] = {
+      val compensations: mutable.Map[InstrPos, List[DROP]] = new mutable.HashMap
 
       m foreachBlock { bb =>
-        assert(bb.closed, "Open block in computeCompensations")
         foreachWithIndex(bb.toList) { (i, idx) =>
           if (!useful(bb)(idx)) {
             foreachWithIndex(i.consumedTypes.reverse) { (consumedType, depth) =>
@@ -243,10 +246,10 @@ abstract class DeadCodeElimination extends SubComponent {
                         log("Moving DROP to after <init> call: " + nw.init)
                         compensations(init) = List(DROP(consumedType))
                       case _ =>
-                        compensations(d) = List(DROP(consumedType))
+                        compensations(encode(d)) = List(DROP(consumedType))
                     }
                   case _ =>
-                    compensations(d) = List(DROP(consumedType))
+                    compensations(encode(d)) = List(DROP(consumedType))
                 }
               }
             }
@@ -263,11 +266,11 @@ abstract class DeadCodeElimination extends SubComponent {
       res
     }
 
-    private def findInstruction(bb: BasicBlock, i: CALL_METHOD): (BasicBlock, Int) = {
+    private def findInstruction(bb: BasicBlock, i: CALL_METHOD): InstrPos = {
       for (b <- linearizer.linearizeAt(method, bb)) {
         val idx = b.toList indexWhere (_ eq i)
         if (idx != -1)
-          return (b, idx)
+          return encode(b, idx)
       }
       abort("could not find init in: " + method)
     }

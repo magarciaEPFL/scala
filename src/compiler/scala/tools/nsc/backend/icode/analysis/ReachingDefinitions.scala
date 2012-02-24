@@ -122,6 +122,8 @@ abstract class ReachingDefinitions {
       (p1 | p2)
     }
 
+    @inline final def encode(t: Tuple2[BasicBlock, Int]): Long = encode(t._1, t._2)
+
     @inline final def decode(i: InstrPos): (Int, Int) = {
       val hi = (i >>> 32).toInt
       val lo = (i & loMask).toInt
