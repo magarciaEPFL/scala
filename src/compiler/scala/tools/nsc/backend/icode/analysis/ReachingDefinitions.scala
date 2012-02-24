@@ -296,11 +296,11 @@ abstract class ReachingDefinitions {
 
   object rdefLatticeAlt extends SemiLattice {
     type InstrPos = Long
-    type LVarsT   = collection.Map[Local, collection.Set[InstrPos]]
-    type StackT   = List[collection.Set[InstrPos]]
+    type LVarsT   = Map[Local, Set[InstrPos]]
+    type StackT   = List[Set[InstrPos]]
     type Elem     = IState[LVarsT, StackT]
 
-    def emptyLocals() = Map.empty[Local, collection.Set[InstrPos]]
+    def emptyLocals() = Map.empty[Local, Set[InstrPos]]
 
     val top: Elem    = IState(null, Nil)
     val bottom: Elem = IState(null, Nil)
@@ -398,9 +398,20 @@ abstract class ReachingDefinitions {
       (hi, lo)
     }
 
+    def toBBIdx(i: Long): (BasicBlock, Int) = {
+      val (hi, lo) = decode(i)
+      (labelled(hi), lo)
+    }
+
     def toInstr(i: Long): Instruction = {
       val (hi, lo) = decode(i)
       labelled(hi).getArray(lo)
+    }
+
+    /* Positions of STORE_LOCAL instructions assigning to `v` that reach the usage of `v` at (bb, idx) */
+    def reachers(v: Local, bb: BasicBlock, idx: Int): List[(BasicBlock, Int)] = {
+      val defs: Set[InstrPos] = stateAt(encode(bb, idx)).vars.getOrElse(v, Set())
+      defs.toList map toBBIdx
     }
 
     override def run() {

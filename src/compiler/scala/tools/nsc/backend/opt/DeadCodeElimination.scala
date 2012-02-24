@@ -50,15 +50,10 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    val rdef = new reachingDefinitions.ReachingDefinitionsAnalysis;
-
     val altrdef = new reachingDefinitions.ReachingDefinitionsAnalysisAlt;
 
     /** the current method. */
     var method: IMethod = _
-
-    /** Use-def chain: give the reaching definitions at the beginning of given instruction. */
-    var defs: immutable.Map[(BasicBlock, Int), immutable.Set[rdef.lattice.Definition]] = immutable.HashMap.empty
 
     /** Useful instructions which have not been scanned yet. */
     val worklist: mutable.Set[(BasicBlock, Int)] = new mutable.LinkedHashSet
@@ -79,9 +74,6 @@ abstract class DeadCodeElimination extends SubComponent {
       accessedLocals = m.params.reverse
       m.code.blocks ++= linearizer.linearize(m)
 
-      rdef.init(m);
-      rdef.run;
-
       altrdef.init(m);
       altrdef.run;
 
@@ -98,19 +90,14 @@ abstract class DeadCodeElimination extends SubComponent {
 
     /** collect reaching definitions and initial useful instructions for this method. */
     def collectRDef(m: IMethod): Unit = {
-      defs = immutable.HashMap.empty; worklist.clear(); useful.clear();
+      worklist.clear(); useful.clear();
 
       m foreachBlock { bb =>
         useful(bb) = new mutable.BitSet(bb.size)
-        var rd = rdef.in(bb);
         var idx = 0
         val instrs = bb.getArray
         while (idx < instrs.size) {
           instrs(idx) match {
-            case LOAD_LOCAL(l) =>
-              val reachers: immutable.Set[rdef.lattice.Definition] = (for(e <- rd.vars; ip <- e._2) yield ((e._1, ip.bb, ip.idx))).toSet
-              defs = defs + Pair(((bb, idx)), reachers)
-              // Console.println(i + ": " + (bb, idx) + " rd: " + rd + " and having: " + defs)
             case RETURN(_) | JUMP(_) | CJUMP(_, _, _, _) | CZJUMP(_, _, _, _) | STORE_FIELD(_, _) |
                  THROW(_)   | LOAD_ARRAY_ITEM(_) | STORE_ARRAY_ITEM(_) | SCOPE_ENTER(_) | SCOPE_EXIT(_) | STORE_THIS(_) |
                  LOAD_EXCEPTION(_) | SWITCH(_, _) | MONITOR_ENTER() | MONITOR_EXIT() => worklist += ((bb, idx))
@@ -118,12 +105,7 @@ abstract class DeadCodeElimination extends SubComponent {
             case CALL_METHOD(m1, SuperCall(_)) =>
               worklist += ((bb, idx)) // super calls to constructor
             case DROP(_) =>
-
-              val foundDefs = rdef.findDefs(bb, idx, 1)
-
-              val altdefs = altrdef.findDefs(bb, idx, 1)
-              assert(foundDefs.toSet == altdefs.toSet)
-
+              val foundDefs = altrdef.findDefs(bb, idx, 1)
               val necessary = foundDefs exists { p =>
                 val (bb1, idx1) = p
                 bb1(idx1) match {
@@ -138,7 +120,6 @@ abstract class DeadCodeElimination extends SubComponent {
               if (necessary) worklist += ((bb, idx))
             case _ => ()
           }
-          rd   = rdef.interpret(bb, idx, rd)
           idx += 1
         }
       }
@@ -163,7 +144,7 @@ abstract class DeadCodeElimination extends SubComponent {
           }
           instr match {
             case LOAD_LOCAL(l1) =>
-              for ((l2, bb1, idx1) <- defs((bb, idx)) if l1 == l2; if !useful(bb1)(idx1)) {
+              for ((bb1, idx1) <- altrdef.reachers(l1, bb, idx); if !useful(bb1)(idx1)) {
                 log("\tAdding " + bb1(idx1))
                 worklist += ((bb1, idx1))
               }
@@ -187,12 +168,7 @@ abstract class DeadCodeElimination extends SubComponent {
               ()
 
             case _ =>
-
-              val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
-
-              val altdefs = altrdef.findDefs(bb, idx, instr.consumed)
-              assert(foundDefs.toSet == altdefs.toSet)
-
+              val foundDefs = altrdef.findDefs(bb, idx, instr.consumed)
               for ((bb1, idx1) <- foundDefs if !useful(bb1)(idx1)) {
                 log("\tAdding " + bb1(idx1))
                 worklist += ((bb1, idx1))
@@ -250,11 +226,7 @@ abstract class DeadCodeElimination extends SubComponent {
           if (!useful(bb)(idx)) {
             for ((consumedType, depth) <- i.consumedTypes.reverse.zipWithIndex) {
               log("Finding definitions of: " + i + "\n\t" + consumedType + " at depth: " + depth)
-              val defs = rdef.findDefs(bb, idx, 1, depth)
-
-              val altdefs = altrdef.findDefs(bb, idx, 1, depth)
-              assert(defs.toSet == altdefs.toSet)
-
+              val defs = altrdef.findDefs(bb, idx, 1, depth)
               for (d <- defs) {
                 val (bb, idx) = d
                 bb(idx) match {
