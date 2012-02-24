@@ -54,6 +54,8 @@ abstract class DeadCodeElimination extends SubComponent {
    */
   class DeadCode {
 
+    import reachingDefinitions.Blix
+
     def analyzeClass(cls: IClass) {
       for(m <- cls.methods; if m.hasCode) {
         this.method = m
@@ -68,7 +70,7 @@ abstract class DeadCodeElimination extends SubComponent {
     var method: IMethod = _
 
     /** Useful instructions which have not been scanned yet. */
-    var worklist: List[(BasicBlock, Int)] = Nil
+    var worklist: List[Blix] = Nil
 
     /** what instructions have been marked as useful? */
     val useful = mutable.Map.empty[BasicBlock, mutable.BitSet]
@@ -77,7 +79,7 @@ abstract class DeadCodeElimination extends SubComponent {
     val unaccessedLocals = mutable.Set.empty[Local]
 
     /** Map instructions that have a drop on some control path, to that DROP instruction. */
-    val droppers: mutable.Map[(BasicBlock, Int), List[(BasicBlock, Int)]] = perRunCaches.newMap()
+    val droppers = mutable.Map.empty[Blix, List[Blix]]
 
     val logEnabled = opt.logPhase
 
@@ -132,22 +134,22 @@ abstract class DeadCodeElimination extends SubComponent {
                  LOAD_EXCEPTION(_) |
                  MONITOR_ENTER() | MONITOR_EXIT()
               =>
-                 worklist  ::= Pair(bb, idx)
+                 worklist  ::= Blix(bb, idx)
                  useful(bb) += idx
             case CALL_METHOD(m1, _) if isSideEffecting(m1)
               =>
-                 worklist  ::= Pair(bb, idx); log("marking " + m1)
+                 worklist  ::= Blix(bb, idx); log("marking " + m1)
                  useful(bb) += idx
             case CALL_METHOD(m1, SuperCall(_))
               =>
-                 worklist  ::= Pair(bb, idx) // super calls to constructor
+                 worklist  ::= Blix(bb, idx) // super calls to constructor
                  useful(bb) += idx
             case DROP(_) =>
-              for(p <- rdef.findDefs(bb, idx, 1)) {
+              val bx = Blix(bb, idx)
+              for(rx <- rdef.findBlixes(bx, 1)) {
                 // for now just track the drop instruction(s) for the value that a drop-feeding instruction pushes
                 // don't add to the worklist just yet, neither the dropper nor the dropper-feeder
-                val (bb1, idx1) = p
-                droppers((bb1, idx1)) = (bb,idx) :: droppers.getOrElse((bb1, idx1), Nil)
+                droppers(bx) = rx :: droppers.getOrElse(bx, Nil)
               }
             case _ => ()
           }
@@ -157,24 +159,24 @@ abstract class DeadCodeElimination extends SubComponent {
 
     }
 
-    private def isUseful(ib: BasicBlock, ii: Int): Boolean = { useful(ib)(ii) }
+    private def isUseful(ix: Blix): Boolean = { useful(ix.bb)(ix.idx) }
 
     /** Mark useful instructions. Instructions in the worklist are each inspected and their
      *  dependencies are marked useful too, and added to the worklist.
      */
     def mark() {
 
-          def usefulize(ub: BasicBlock, ui: Int) {
-            for(r <- droppers.get(ub, ui); (wb, wi) <- r) {
-              assert(droppers.get(wb, wi).isEmpty)
-              consToWorklist(wb, wi)
+          def usefulize(u: Blix) {
+            for(r <- droppers.get(u); w <- r) {
+              assert(droppers.get(w).isEmpty)
+              consToWorklist(w)
             }
           }
 
-          def consToWorklist(wb: BasicBlock, wi: Int) {
-            if(!isUseful(wb, wi)) {
-              worklist   ::= Pair(wb, wi)
-              useful(wb)  += wi
+          def consToWorklist(w: Blix) {
+            if(!isUseful(w)) {
+              worklist     ::= w
+              useful(w.bb)  += w.idx
             }
           }
 
@@ -182,22 +184,23 @@ abstract class DeadCodeElimination extends SubComponent {
       // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
 
-        val (bb, idx) = worklist.head
+        val bx = worklist.head
         worklist = worklist.tail
 
+        val bb  = bx.bb
+        val idx = bx.idx
         debuglog("Marking instr: \tBB_" + bb + ": " + idx + " " + bb(idx))
-        usefulize(bb, idx)
+        usefulize(bx)
 
         val instr = bb(idx)
         instr match {
           case LOAD_LOCAL(v) =>
-            for ((bb1, idx1) <- rdef.reachers(v, bb, idx)) { consToWorklist(bb1, idx1) }
+            for (rx <- rdef.reachers(v, bx)) { consToWorklist(rx) }
             unaccessedLocals -= v
 
           case nw @ NEW(REFERENCE(sym)) =>
             assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
-            val (wb, wi) = findInstruction(bb, nw.init)
-            consToWorklist(wb, wi)
+            consToWorklist(findInstruction(bb, nw.init))
             if (inliner.isClosureClass(sym)) {
               liveClosures += sym
             }
@@ -212,8 +215,8 @@ abstract class DeadCodeElimination extends SubComponent {
             ()
 
           case _ =>
-            val foundDefs = rdef.findDefs(bb, idx, instr.consumed)
-            for ((bb1, idx1) <- foundDefs) { consToWorklist(bb1, idx1) }
+            val foundDefs = rdef.findBlixes(bx, instr.consumed)
+            for (rx <- foundDefs) { consToWorklist(rx) }
         }
 
         instr match {
@@ -270,9 +273,9 @@ abstract class DeadCodeElimination extends SubComponent {
                   case DUP(_) if idx > 0 =>
                     bb(idx - 1) match {
                       case nw @ NEW(_) =>
-                        val init = findInstruction(bb, nw.init)
+                        val Blix(fb, fi) = findInstruction(bb, nw.init)
                         log("Moving DROP right after <init> call: " + nw.init)
-                        compensations(init) = List(DROP(consumedType))
+                        compensations(Pair(fb, fi)) = List(DROP(consumedType))
                       case _ =>
                         compensations(d) = List(DROP(consumedType))
                     }
@@ -294,11 +297,11 @@ abstract class DeadCodeElimination extends SubComponent {
       res
     }
 
-    private def findInstruction(bb: BasicBlock, i: CALL_METHOD): (BasicBlock, Int) = {
+    private def findInstruction(bb: BasicBlock, i: CALL_METHOD): Blix = {
       for (b <- linearizer.linearizeAt(method, bb)) {
         val idx = b.toList indexWhere (_ eq i)
         if (idx != -1)
-          return (b, idx)
+          return Blix(b, idx)
       }
       abort("could not find init in: " + method)
     }

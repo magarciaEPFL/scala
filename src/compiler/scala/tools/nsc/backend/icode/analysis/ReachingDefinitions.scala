@@ -66,6 +66,8 @@ abstract class ReachingDefinitions {
     }
   }
 
+  case class Blix(bb: BasicBlock, idx: Int)
+
   class ReachingDefinitionsAnalysis extends DataFlowAnalysis[rdefLattice.type] {
     type P = BasicBlock
     val lattice = rdefLattice
@@ -128,9 +130,14 @@ abstract class ReachingDefinitions {
       (hi, lo)
     }
 
-    def toBBIdx(i: Long): (BasicBlock, Int) = {
+    def toBIPair(i: Long): (BasicBlock, Int) = {
       val (hi, lo) = decode(i)
       (labelled(hi), lo)
+    }
+
+    def toBlix(i: Long): Blix = {
+      val (hi, lo) = decode(i)
+      Blix(labelled(hi), lo)
     }
 
     def toInstr(i: Long): Instruction = {
@@ -139,9 +146,9 @@ abstract class ReachingDefinitions {
     }
 
     /* Positions of STORE_LOCAL instructions assigning to `v` that reach the usage of `v` at (bb, idx) */
-    def reachers(v: Local, bb: BasicBlock, idx: Int): List[(BasicBlock, Int)] = {
-      val defs: Set[InstrPos] = stateAt(encode(bb, idx)).vars.getOrElse(v, Set())
-      defs.toList map toBBIdx
+    def reachers(v: Local, bx: Blix): List[Blix] = {
+      val defs: Set[InstrPos] = stateAt(encode(bx.bb, bx.idx)).vars.getOrElse(v, Set())
+      defs.toList map toBlix
     }
 
     override def run() {
@@ -209,21 +216,28 @@ abstract class ReachingDefinitions {
      *  for instance, findefs(bb, idx, 1, 1) returns the instructions that might have produced the
      *  value found below the topmost element of the stack.
      */
-    def findDefs(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[(BasicBlock, Int)] = {
+    private def findDefsInternal(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[InstrPos] = {
       assert(bb.closed, bb)
       var res = immutable.TreeSet.empty[Long]
       val stack = stateAt(encode(bb, idx)).stack
       assert(stack.size >= (depth + m), "entry stack is too small, expected: " + (depth + m) + " found: " + stack)
       stack.drop(depth).take(m) foreach { defs => res ++= defs }
 
-      res.toList map toBBIdx
+      res.toList
+    }
+
+    def findDefs(bb: BasicBlock, idx: Int, m: Int, depth: Int): List[(BasicBlock, Int)] = {
+      findDefsInternal(bb, idx, m, depth) map toBIPair
+    }
+
+    def findBlixes(bx: Blix, m: Int, depth: Int): List[Blix] = {
+      findDefsInternal(bx.bb, bx.idx, m, depth) map toBlix
     }
 
     /** Return the definitions that produced the topmost 'm' elements on the stack,
      *  and that reach the instruction at index 'idx' in basic block 'bb'.
      */
-    def findDefs(bb: BasicBlock, idx: Int, m: Int): List[(BasicBlock, Int)] =
-      findDefs(bb, idx, m, 0)
+    def findBlixes(bx: Blix, m: Int): List[Blix] = findBlixes(bx, m, 0)
 
     override def toString: String = {
       method.code.blocks map { b =>
