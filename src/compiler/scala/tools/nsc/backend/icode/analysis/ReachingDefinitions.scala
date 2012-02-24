@@ -123,7 +123,6 @@ abstract class ReachingDefinitions {
 
       // yardstick = new global.analysis.MethodTFA(m)
       // yardstick.run
-
     }
 
     import opcodes._
@@ -350,6 +349,11 @@ abstract class ReachingDefinitions {
 
     private val labelled = mutable.Map.empty[Int, BasicBlock]
     private val stateAt  = mutable.Map.empty[InstrPos, Elem]
+
+    def clearCaches() {
+      labelled.clear()
+      stateAt.clear()
+    }
 
     import opcodes._
 

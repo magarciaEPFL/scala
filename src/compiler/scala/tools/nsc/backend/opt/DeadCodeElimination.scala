@@ -33,6 +33,12 @@ abstract class DeadCodeElimination extends SubComponent {
       if (settings.Xdce.value)
         dce.analyzeClass(c)
     }
+
+    override def run() {
+      try super.run()
+      finally dce.altrdef.clearCaches()
+    }
+
   }
 
   /** closures that are instantiated at least once, after dead code elimination */
@@ -222,9 +228,9 @@ abstract class DeadCodeElimination extends SubComponent {
 
       m foreachBlock { bb =>
         assert(bb.closed, "Open block in computeCompensations")
-        for ((i, idx) <- bb.toList.zipWithIndex) {
+        foreachWithIndex(bb.toList) { (i, idx) =>
           if (!useful(bb)(idx)) {
-            for ((consumedType, depth) <- i.consumedTypes.reverse.zipWithIndex) {
+            foreachWithIndex(i.consumedTypes.reverse) { (consumedType, depth) =>
               log("Finding definitions of: " + i + "\n\t" + consumedType + " at depth: " + depth)
               val defs = altrdef.findDefs(bb, idx, 1, depth)
               for (d <- defs) {
