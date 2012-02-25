@@ -280,9 +280,9 @@ abstract class DeadCodeElimination extends SubComponent {
 
         if (bb.nonEmpty) bb.close
         else log("empty block encountered")
-
-        log("eliminated " + cntElimInstrs + " instructions in method " + m)
       }
+
+      log("eliminated " + cntElimInstrs + " instructions in method " + m)
     }
 
     private def computeCompensations(m: IMethod): collection.Map[(BasicBlock, Int), List[DROP]] = {
