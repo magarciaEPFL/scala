@@ -110,7 +110,7 @@ abstract class DeadCodeElimination extends SubComponent {
       sweep(m)
 
       if (unaccessedLocals.nonEmpty) {
-        log("Removed dead locals: " + unaccessedLocals.toList.sortBy(_.index) )
+        log("Removed dead locals: " + unaccessedLocals.toList.sortBy(_.sym.id) )
         m.locals = m.locals filterNot unaccessedLocals
       }
 
@@ -253,6 +253,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
     def sweep(m: IMethod) {
       val compensations = computeCompensations(m)
+      var cntElimInstrs: Int = 0
 
       m foreachBlock { bb =>
         val oldInstr = bb.toList
@@ -265,17 +266,22 @@ abstract class DeadCodeElimination extends SubComponent {
               case Some(is) => is foreach bb.emit
               case None     => ()
             }
-          } else if(logEnabled) {
-            i match {
-              case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
-              case _                   => ()
+          } else {
+            cntElimInstrs += 1
+            if(logEnabled) {
+              i match {
+                case NEW(REFERENCE(sym)) => log("skipped object creation: " + sym + "inside " + m)
+                case _                   => ()
+              }
+              debuglog("Skipped: bb_" + bb + ": " + idx + "( " + i + ")")
             }
-            debuglog("Skipped: bb_" + bb + ": " + idx + "( " + i + ")")
           }
         }
 
         if (bb.nonEmpty) bb.close
         else log("empty block encountered")
+
+        log("eliminated " + cntElimInstrs + " instructions in method " + m)
       }
     }
 
