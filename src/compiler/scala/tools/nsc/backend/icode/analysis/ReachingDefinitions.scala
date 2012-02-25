@@ -76,7 +76,13 @@ abstract class ReachingDefinitions {
 
     private var method: IMethod = _
 
-    private val labelled = mutable.Map.empty[Int, BasicBlock]
+    private val labelled = mutable.Map.empty[Int, BasicBlock] // (key, value) denotes a BasicBlock (the value) whose label is given by the key.
+
+    /* Once run() has run, (key, value) denotes the abstract state right (the value) right before before the instruction given by the key.
+     * The map shouldn't consume too much memory because the abstract state uses persistent data structures
+     * (ie. lots of shared immutable objects from an abstract state to the next).
+     * Keeping the abstract states per instructions avoids the need to interpret() them again, say, during findDefs().
+     */
     private val stateAt  = mutable.Map.empty[InstrPos, Elem]
 
     def clearCaches() {
