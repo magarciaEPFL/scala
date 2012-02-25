@@ -66,7 +66,7 @@ abstract class ReachingDefinitions {
     }
   }
 
-  case class Blix(bb: BasicBlock, idx: Int)
+  case class Blix(bb: BasicBlock, idx: Int) // "Blix" is mnemonic for "Block-IndeX pair"
 
   class ReachingDefinitionsAnalysis extends DataFlowAnalysis[rdefLattice.type] {
     type P = BasicBlock

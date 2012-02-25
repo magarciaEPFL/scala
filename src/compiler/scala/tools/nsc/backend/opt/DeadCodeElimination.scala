@@ -54,6 +54,13 @@ abstract class DeadCodeElimination extends SubComponent {
    */
   class DeadCode {
 
+    /*
+     * "Blix" is mnemonic for "Block-IndeX pair"
+     *
+     * Two purposes for the "Blix" case class:
+     *   (a) results in more readable code, and
+     *   (b) should perform better than Tuple2 (because Blix is "specialized" for BasicBlock and Int components)
+     */
     import reachingDefinitions.Blix
 
     def analyzeClass(cls: IClass) {
@@ -69,16 +76,17 @@ abstract class DeadCodeElimination extends SubComponent {
     /** the current method. */
     var method: IMethod = _
 
-    /** Useful instructions which have not been scanned yet. */
+    /** Useful instructions whose dependencies have not been scanned yet. */
     var worklist: List[Blix] = Nil
 
-    /** what instructions have been marked as useful? */
+    /** Instructions scheduled to be emitted. */
     val useful = mutable.Map.empty[BasicBlock, mutable.BitSet]
 
-    /** what local variables have been accessed at least once? */
+    /** local variables that can be elided due to lack of access. */
     val unaccessedLocals = mutable.Set.empty[Local]
 
-    /** Map instructions that have a drop on some control path, to that DROP instruction. */
+    /** A (key, values) entry indicates for an instruction that pushes (the key, a "drop feeder"),
+     *  any DROP instruction(s) (the values, "droppers") that the original instruction stream contains for that key. */
     val droppers = mutable.Map.empty[Blix, List[Blix]]
 
     val logEnabled = opt.logPhase
@@ -89,7 +97,7 @@ abstract class DeadCodeElimination extends SubComponent {
       droppers.clear()
 
       unaccessedLocals.clear()
-      unaccessedLocals ++= (m.locals diff m.params)
+      unaccessedLocals ++= (m.locals diff m.params) // we'll remove elems from this set upon visiting useful LOAD_LOCAL or STORE_LOCAL instructions.
 
       m.code.blocks.clear()
       m.code.blocks ++= linearizer.linearize(m)
@@ -102,7 +110,7 @@ abstract class DeadCodeElimination extends SubComponent {
       sweep(m)
 
       if (unaccessedLocals.nonEmpty) {
-        log("Removed dead locals: " + unaccessedLocals)
+        log("Removed dead locals: " + unaccessedLocals.toList.sortBy(_.index) )
         m.locals = m.locals filterNot unaccessedLocals
       }
 
@@ -111,8 +119,11 @@ abstract class DeadCodeElimination extends SubComponent {
     /** collect reaching definitions and initial useful instructions for this method. */
     def collectRDef(m: IMethod): Unit = {
       /* The protocol to add to worklist is:
-       *   (1) in method `collectRDef` each instruction is visited exactly once thus we add directly, noting down in `useful` that the instruction is scheduled as non-dead-code.
-       *   (2) after that, in order to avoid looping endlessly upon enqueing cyclic dependencies, check `isUseful` before consing to the worklist. */
+       *   (1) in method `collectRDef` each instruction is visited exactly once thus we add directly,
+       *       noting down in `useful` that the instruction is scheduled as non-dead-code.
+       *   (2) after that, in order to avoid looping endlessly upon enqueing cyclic dependencies,
+       *       check `isUseful` before consing to the worklist.
+       */
       worklist = Nil;
       useful.clear();
 
@@ -149,7 +160,8 @@ abstract class DeadCodeElimination extends SubComponent {
               for(rx <- rdef.findBlixes(bx, 1)) {
                 // for now just track the drop instruction(s) for the value that a drop-feeding instruction pushes
                 // don't add to the worklist just yet, neither the dropper nor the dropper-feeder
-                droppers(bx) = rx :: droppers.getOrElse(bx, Nil)
+                // Below, `bx` is a dropper, and `rx` is a dropper-feeder.
+                droppers(rx) = bx :: droppers.getOrElse(rx, Nil)
               }
             case _ => ()
           }
@@ -159,21 +171,30 @@ abstract class DeadCodeElimination extends SubComponent {
 
     }
 
-    private def isUseful(ix: Blix): Boolean = { useful(ix.bb)(ix.idx) }
+    @inline private def isUseful(ix: Blix): Boolean = { useful(ix.bb)(ix.idx) }
 
     /** Mark useful instructions. Instructions in the worklist are each inspected and their
      *  dependencies are marked useful too, and added to the worklist.
      */
     def mark() {
 
+
           def usefulize(u: Blix) {
-            for(r <- droppers.get(u); w <- r) {
-              assert(droppers.get(w).isEmpty)
-              consToWorklist(w)
+            // making useful an instruction `u` also implies making useful all of its "droppers".
+            // (which in turn will force emitting those instructions (on other control paths) on which each "dropper" depends, ie the "feeders" of the DROP)
+            // that may result in redundant work at runtime (say, on some of those paths, just emitting the zero of the type being dropped would preserve correctness).
+            // That optimization isn't being done yet (and would be far easier with SSA).
+            for(drs <- droppers.get(u); dr <- drs) {
+              assert(droppers.get(dr).isEmpty)
+              consToWorklist(dr)
             }
           }
 
           def consToWorklist(w: Blix) {
+            // rather than testing whether the instruction is on the worklist (sequential scan)
+            // we retrofit the meaning of map `useful` to indicate:
+            //   (a) already tagged as useful (ie it was on the worklist previously), or
+            //   (b) will be tagged as useful (ie. is still on the worklist).
             if(!isUseful(w)) {
               worklist     ::= w
               useful(w.bb)  += w.idx
@@ -181,7 +202,6 @@ abstract class DeadCodeElimination extends SubComponent {
           }
 
 
-      // log("Starting with worklist: " + worklist)
       while (!worklist.isEmpty) {
 
         val bx = worklist.head
@@ -195,8 +215,9 @@ abstract class DeadCodeElimination extends SubComponent {
         val instr = bb(idx)
         instr match {
           case LOAD_LOCAL(v) =>
+            // mark as useful the instructions storing into the local being loaded.
             for (rx <- rdef.reachers(v, bx)) { consToWorklist(rx) }
-            unaccessedLocals -= v
+            if(!v.arg) { unaccessedLocals -= v } // skip set removal for arg-locals (which aren't there to start with).
 
           case nw @ NEW(REFERENCE(sym)) =>
             assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
@@ -215,13 +236,16 @@ abstract class DeadCodeElimination extends SubComponent {
             ()
 
           case _ =>
+            // mark as useful the instructions placing on the stack what this useful instruction consumes.
+            // In particular, a DROP that has been determined to be useful will have all its "drop-feeders" marked useful too
+            // as sketched in the comment for `case DROP(_)` in `collectRDef(IMethod)`.
             val foundDefs = rdef.findBlixes(bx, instr.consumed)
             for (rx <- foundDefs) { consToWorklist(rx) }
         }
 
         instr match {
-          case STORE_LOCAL(v) => unaccessedLocals -= v
-          case _              => ()
+          case STORE_LOCAL(v) if(!v.arg) => unaccessedLocals -= v // skip set removal for arg-locals (which aren't there to start with).
+          case _                         => ()
         }
 
       }
@@ -249,8 +273,6 @@ abstract class DeadCodeElimination extends SubComponent {
             debuglog("Skipped: bb_" + bb + ": " + idx + "( " + i + ")")
           }
         }
-
-        // TODO consider performing peephole optimiz on the fly (ie right before bb.emit)
 
         if (bb.nonEmpty) bb.close
         else log("empty block encountered")
