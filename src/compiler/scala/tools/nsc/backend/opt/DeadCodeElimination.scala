@@ -107,7 +107,8 @@ abstract class DeadCodeElimination extends SubComponent {
 
       collectRDef(m)
       mark
-      sweep(m)
+      val blocksOnDiet = m.blocks filter { bb => useful(bb).size < bb.size }
+      if(blocksOnDiet.nonEmpty) { sweep(m, blocksOnDiet) }
 
       if (unaccessedLocals.nonEmpty) {
         log("Removed dead locals: " + unaccessedLocals.toList.sortBy(_.sym.id) )
@@ -251,11 +252,12 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
-    def sweep(m: IMethod) {
-      val compensations = computeCompensations(m)
+    def sweep(m: IMethod, blocksOnDiet: List[BasicBlock]) {
+      val compensations = computeCompensations(m, blocksOnDiet)
+      val needsRewriting: Set[BasicBlock] = blocksOnDiet.toSet ++ (compensations.keySet map { c => c._1 })
       var cntElimInstrs: Int = 0
 
-      m foreachBlock { bb =>
+      for(bb <- m.blocks; if needsRewriting(bb)) {
         val oldInstr = bb.toList
         bb.open
         bb.clear
@@ -282,13 +284,14 @@ abstract class DeadCodeElimination extends SubComponent {
         else log("empty block encountered")
       }
 
-      log("eliminated in method " + m + " , " + cntElimInstrs + " instructions.")
+      log("eliminated in method " + m + " , " + cntElimInstrs + " instructions and added " + compensations.size + " DROPs.")
     }
 
-    private def computeCompensations(m: IMethod): collection.Map[(BasicBlock, Int), List[DROP]] = {
+    private def computeCompensations(m: IMethod, blocksOnDiet: List[BasicBlock]): collection.Map[(BasicBlock, Int), List[DROP]] = {
+      // actually an entry (key, values) always contains a single element in the `values` list.
       val compensations: mutable.Map[(BasicBlock, Int), List[DROP]] = new mutable.HashMap
 
-      m foreachBlock { bb =>
+      for(bb <- blocksOnDiet) {
         assert(bb.closed, "Open block in computeCompensations")
         foreachWithIndex(bb.toList) { (i, idx) =>
           if (!useful(bb)(idx)) {
@@ -296,19 +299,25 @@ abstract class DeadCodeElimination extends SubComponent {
               log("Finding definitions of: " + i + "\n\t" + consumedType + " at depth: " + depth)
               val defs = rdef.findDefs(bb, idx, 1, depth)
               for (d <- defs) {
-                val (bb, idx) = d
+                val (bb, idx) = d // please notice (bb, idx) from now on are not what they used to be, they just go by the same name.
                 bb(idx) match {
                   case DUP(_) if idx > 0 =>
                     bb(idx - 1) match {
                       case nw @ NEW(_) =>
                         val Blix(fb, fi) = findInstruction(bb, nw.init)
-                        log("Moving DROP right after <init> call: " + nw.init)
-                        compensations(Pair(fb, fi)) = List(DROP(consumedType))
+                        if(useful(fb)(fi)) {
+                          log("Moving DROP right after <init> call: " + nw.init)
+                          compensations(Pair(fb, fi)) = List(DROP(consumedType))
+                        }
                       case _ =>
-                        compensations(d) = List(DROP(consumedType))
+                        if(useful(bb)(idx)) {
+                          compensations(d) = List(DROP(consumedType))
+                        }
                     }
                   case _ =>
-                    compensations(d) = List(DROP(consumedType))
+                    if(useful(bb)(idx)) {
+                      compensations(d) = List(DROP(consumedType))
+                    }
                 }
               }
             }
