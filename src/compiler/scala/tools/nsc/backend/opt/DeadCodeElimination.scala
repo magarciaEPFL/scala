@@ -150,7 +150,7 @@ abstract class DeadCodeElimination extends SubComponent {
                  useful(bb) += idx
             case CALL_METHOD(m1, _) if isSideEffecting(m1)
               =>
-                 worklist  ::= Blix(bb, idx); log("marking " + m1)
+                 worklist  ::= Blix(bb, idx); log("marking " + m1) // TODO output sometimes `marking NullPointerException` (same thing with m1.defString)
                  useful(bb) += idx
             case CALL_METHOD(m1, SuperCall(_))
               =>
