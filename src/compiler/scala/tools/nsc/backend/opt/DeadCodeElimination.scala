@@ -55,7 +55,7 @@ abstract class DeadCodeElimination extends SubComponent {
   class DeadCode {
 
     /*
-     * "Blix" is mnemonic for "Block-IndeX pair"
+     * "Blix" is mnemonic for "BLock-IndeX pair"
      *
      * Two purposes for the "Blix" case class:
      *   (a) results in more readable code, and

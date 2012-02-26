@@ -35,7 +35,7 @@ abstract class ReachingDefinitions {
 
     /** The least upper bound is:
      *    - per-variable union of sets of store instructions (for locals), and
-     *    - pairwise union of sets of push instructions (for stacks).
+     *    - per-slot     union of sets of push  instructions (for stacks).
      */
     def lub2(exceptional: Boolean)(a: Elem, b: Elem): Elem = {
       if (bottom eq a) {
@@ -66,7 +66,7 @@ abstract class ReachingDefinitions {
     }
   }
 
-  case class Blix(bb: BasicBlock, idx: Int) // "Blix" is mnemonic for "Block-IndeX pair"
+  case class Blix(bb: BasicBlock, idx: Int) // "Blix" is mnemonic for "BLock-IndeX pair"
 
   class ReachingDefinitionsAnalysis extends DataFlowAnalysis[rdefLattice.type] {
     type P = BasicBlock
@@ -78,7 +78,7 @@ abstract class ReachingDefinitions {
 
     private val labelled = mutable.Map.empty[Int, BasicBlock] // (key, value) denotes a BasicBlock (the value) whose label is given by the key.
 
-    /* Once run() has run, (key, value) denotes the abstract state right (the value) right before before the instruction given by the key.
+    /* Once run() has run, (key, value) denotes the abstract state (the value) right before the instruction given by the key.
      * The map shouldn't consume too much memory because the abstract state uses persistent data structures
      * (ie. lots of shared immutable objects from an abstract state to the next).
      * Keeping the abstract states per instructions avoids the need to interpret() them again, say, during findDefs().
