@@ -174,7 +174,7 @@ abstract class DeadCodeElimination extends SubComponent {
 
     @inline private def isUseful(ix: Blix): Boolean = { useful(ix.bb)(ix.idx) }
 
-    /** Mark useful instructions. Instructions in the worklist are each inspected and their
+    /** Transitively mark useful instructions. Instructions in the worklist are each inspected and their
      *  dependencies are marked useful too, and added to the worklist.
      */
     def mark() {
@@ -221,6 +221,7 @@ abstract class DeadCodeElimination extends SubComponent {
             if(!v.arg) { unaccessedLocals -= v } // skip set removal for arg-locals (which aren't there to start with).
 
           case nw @ NEW(REFERENCE(sym)) =>
+            // mark as useful the constructor invocation that completes the object creation started by this NEW.
             assert(nw.init ne null, "null new.init at: " + bb + ": " + idx + "(" + instr + ")")
             consToWorklist(findInstruction(bb, nw.init))
             if (inliner.isClosureClass(sym)) {
@@ -252,7 +253,21 @@ abstract class DeadCodeElimination extends SubComponent {
       }
     }
 
+    /** A precondition for this method is that some instructions have been found to be non-useful, this method removes them.
+     *  Those instructions are contained in some of the `blocksOnDiet`. Therefore, these blocks have their instructions cleared to add only the useful ones.
+     *
+     *  Additionally, sweep() needs to insert "compensations", ie DROP instructions required for bytecode verifiability, as follows.
+     *  A removed instruction won't consume any stack values that useful instructions might have pushed
+     *  (those instructions are kept for their side-effects, not for the values they push).
+     *  To keep the bytecode verifier happy, those useful instructions are located by `computeCompensations()`,
+     *  that also schedules a DROP instruction to be emitted right after the push instruction in question.
+     *  It can't happen those dropped values would be needed in another control-flow path, because in that case the consuming instruction would be useful too.
+     *
+     *  The compensations story explains why blocks other than `blocksOnDiet` might also need rewriting (ie those with compensations need rewriting too).
+     *
+     */
     def sweep(m: IMethod, blocksOnDiet: List[BasicBlock]) {
+      assert(blocksOnDiet.nonEmpty)
       val compensations = computeCompensations(m, blocksOnDiet)
       val needsRewriting: Set[BasicBlock] = blocksOnDiet.toSet ++ (compensations.keySet map { c => c._1 })
       var cntElimInstrs: Int = 0
