@@ -521,6 +521,15 @@ abstract class GenMSIL extends SubComponent {
         mcode = constructors(m.symbol).asInstanceOf[ConstructorBuilder].GetILGenerator()
       } else {
         val mBuilder = methods(m.symbol).asInstanceOf[MethodBuilder]
+
+        val mflags: Short =
+        if (m.symbol.hasFlag(Flags.SYNCHRONIZED)) {
+          MethodImplAttributes.IL | MethodImplAttributes.Managed | MethodImplAttributes.Synchronized
+        } else {
+          MethodImplAttributes.IL | MethodImplAttributes.Managed
+        }
+        mBuilder.SetMethodImplementationFlags(mflags) // "Call the SetImplementationFlags method before you call the SetCustomAttribute method."
+
         if (!mBuilder.IsAbstract())
           try {
             mcode = mBuilder.GetILGenerator()

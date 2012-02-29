@@ -139,7 +139,8 @@ public abstract class MethodBase extends MemberInfo {
 	return (ParameterInfo[]) params.clone();
     }
 
-    public int GetMethodImplementationFlags() { return implAttributes; }
+    public int  GetMethodImplementationFlags() { return implAttributes; }
+    public void SetMethodImplementationFlags(short mflags) { implAttributes = mflags; }
 
     //##########################################################################
 

@@ -29,7 +29,7 @@ object ReflectionUtils {
 
   def singletonInstance(className: String, cl: java.lang.ClassLoader = getClass.getClassLoader): AnyRef = {
     val name = if (className endsWith "$") className else className + "$"
-    val clazz = java.lang.Class.forName(name, true, cl) 
+    val clazz = java.lang.Class.forName(name, true, cl)
     val singleton = clazz getField "MODULE$" get null
     singleton
   }

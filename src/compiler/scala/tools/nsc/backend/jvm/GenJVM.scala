@@ -152,7 +152,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
           if (settings.Ygenjavap.isDefault) {
             if(settings.Ydumpclasses.isDefault)
               new ClassBytecodeWriter { }
-            else 
+            else
               new ClassBytecodeWriter with DumpBytecodeWriter { }
           }
           else new ClassBytecodeWriter with JavapBytecodeWriter { }
@@ -207,7 +207,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
     val BeanInfoSkipAttr    = definitions.getRequiredClass("scala.beans.BeanInfoSkip")
     val BeanDisplayNameAttr = definitions.getRequiredClass("scala.beans.BeanDisplayName")
     val BeanDescriptionAttr = definitions.getRequiredClass("scala.beans.BeanDescription")
-    
+
     final val ExcludedForwarderFlags = {
       import Flags._
       // Should include DEFERRED but this breaks findMember.
@@ -1914,7 +1914,8 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       if (sym.isStaticMember) ACC_STATIC else 0,
       if (sym.isBridge) ACC_BRIDGE | ACC_SYNTHETIC else 0,
       if (sym.isClass && !sym.isInterface) ACC_SUPER else 0,
-      if (sym.isVarargsMethod) ACC_VARARGS else 0
+      if (sym.isVarargsMethod) ACC_VARARGS else 0,
+      if (sym.hasFlag(Flags.SYNCHRONIZED)) JAVA_ACC_SYNCHRONIZED else 0
     )
   }
   def javaFieldFlags(sym: Symbol) = {
