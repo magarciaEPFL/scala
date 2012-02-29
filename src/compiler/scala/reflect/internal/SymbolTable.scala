@@ -8,6 +8,7 @@ package internal
 
 import scala.collection.{ mutable, immutable }
 import util._
+import scala.tools.nsc.util.WeakHashSet
 
 abstract class SymbolTable extends api.Universe
                               with Collections
@@ -42,7 +43,7 @@ abstract class SymbolTable extends api.Universe
   /** Override with final implementation for inlining. */
   def debuglog(msg:  => String): Unit = if (settings.debug.value) log(msg)
   def debugwarn(msg: => String): Unit = if (settings.debug.value) Console.err.println(msg)
-  
+
   /** Overridden when we know more about what was happening during a failure. */
   def supplementErrorMessage(msg: String): String = msg
 
@@ -266,9 +267,10 @@ abstract class SymbolTable extends api.Universe
       }
     }
 
-    def newWeakMap[K, V]() = recordCache(mutable.WeakHashMap[K, V]())
-    def newMap[K, V]()     = recordCache(mutable.HashMap[K, V]())
-    def newSet[K]()        = recordCache(mutable.HashSet[K]())
+    def newWeakMap[K, V]()        = recordCache(mutable.WeakHashMap[K, V]())
+    def newMap[K, V]()            = recordCache(mutable.HashMap[K, V]())
+    def newSet[K]()               = recordCache(mutable.HashSet[K]())
+    def newWeakSet[K <: AnyRef]() = recordCache(new WeakHashSet[K]())
   }
 
   /** Break into repl debugger if assertion is true. */
@@ -285,7 +287,7 @@ abstract class SymbolTable extends api.Universe
 
   /** The phase which has given index as identifier. */
   val phaseWithId: Array[Phase]
-  
+
   /** Is this symbol table part of reflexive mirror? In this case
    *  operations need to be made thread safe.
    */
