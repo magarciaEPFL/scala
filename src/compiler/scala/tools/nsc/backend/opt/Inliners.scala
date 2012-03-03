@@ -707,7 +707,8 @@ abstract class Inliners extends SubComponent {
       }
 
       def isStampedForInlining(stackLength: Int) =
-        !sameSymbols && inc.m.hasCode && shouldInline && isSafeToInline(stackLength)
+        !sameSymbols && inc.m.hasCode && shouldInline &&
+        isSafeToInline(stackLength) // `isSafeToInline()` must be invoked last in this AND expr bc it mutates the `knownSafe` and `knownUnsafe` maps for good.
 
       def logFailure(stackLength: Int) = log(
         """|inline failed for %s:
