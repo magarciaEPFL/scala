@@ -528,7 +528,7 @@ abstract class GenMSIL extends SubComponent {
         } else {
           MethodImplAttributes.IL | MethodImplAttributes.Managed
         }
-        mBuilder.SetMethodImplementationFlags(mflags) // "Call the SetImplementationFlags method before you call the SetCustomAttribute method."
+        // TODO mBuilder.SetMethodImplementationFlags(mflags) // "Call the SetImplementationFlags method before you call the SetCustomAttribute method."
 
         if (!mBuilder.IsAbstract())
           try {
