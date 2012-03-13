@@ -95,6 +95,7 @@ abstract class Inliners extends SubComponent {
         super.run()
       } finally {
         inliner.clearCaches()
+        icodes.loaded.clear()
       }
     }
   }
