@@ -165,6 +165,8 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       val codeGenerator = new BytecodeGenerator(bytecodeWriter)
       debuglog("Created new bytecode generator for " + classes.size + " classes.")
 
+      // SinglePassTFA debug analysis.elapsedOld = 0
+      // SinglePassTFA debug analysis.elapsedNew = 0
       sortedClasses foreach { c =>
         try codeGenerator.genClass(c)
         catch {
@@ -172,6 +174,8 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
             log("Skipped class %s because it has methods that are too long.".format(c))
         }
       }
+      // SinglePassTFA debug println("old (ms):\t\t" + analysis.elapsedOld)
+      // SinglePassTFA debug println("new (ms):\t\t" + analysis.elapsedNew)
 
       bytecodeWriter.close()
       classes.clear()
@@ -475,7 +479,11 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       }
 
       clasz.fields foreach genField
-      clasz.methods foreach genMethod
+
+      for(m <- clasz.methods) {
+        // SinglePassTFA debug analysis.compare(m)
+        genMethod(m)
+      }
 
       val ssa = scalaSignatureAddingMarker(jclass, c.symbol)
       addGenericSignature(jclass, c.symbol, c.symbol.owner)

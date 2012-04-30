@@ -93,6 +93,262 @@ abstract class TypeFlowAnalysis {
     }
   }
 
+  class SinglePassTFA(m: icodes.IMethod) {
+    import icodes._
+
+    // a few constants for this TFA instance
+    private val numLocals     = m.locals.size
+    private val localsOnEntry = {
+      var idx = 0
+      val res = new Array[TypeKind](numLocals)
+      for(l <- m.locals) { l.index = idx; res(idx) = typeLattice.bottom; idx += 1 }
+      for(p <- m.params) { res(p.index) = p.kind }
+      res
+    }
+    private val emptyStack    = Array.empty[TypeKind]
+    private val STRING        = REFERENCE(StringClass)
+
+      trait AbstractTK
+      case class FixedTK(tk: TypeKind)    extends AbstractTK
+      case class StackRelTK(n: Int)       extends AbstractTK
+      case class LocalRelTK(v: Int)       extends AbstractTK
+      case class AArrOf(atk: AbstractTK)  extends AbstractTK
+      case class AElemOf(atk: AbstractTK) extends AbstractTK
+
+      case class BlockDelta(
+        outLocals: Array[AbstractTK],
+        netStack:  Array[AbstractTK], // top is at index 0, includes only net stack increase by a BasicBlock (excludes the incoming stack)
+        stackTrim: Int
+      )
+
+      case class SinglePassElem(
+        locals: Array[TypeKind],
+        stack:  Array[TypeKind] // top is at index 0, includes both net stack increase and incoming stack.
+      ) {
+        override def equals(other: Any): Boolean = other match {
+          case that: SinglePassElem =>
+            locals.sameElements(that.locals) && stack.sameElements(that.stack)
+          case _ =>
+            false
+        }
+        override def hashCode: Int = {
+          var res = 0
+          var i = 0; while(i < locals.length) { res += locals(i).hashCode; i += 1 }
+          i = 0;     while(i < stack.length)  { res += stack(i).hashCode;  i += 1 }
+          res
+        }
+      }
+
+      def entryLocals: Array[TypeKind] = localsOnEntry.clone // returns a shallow copy
+
+    private val deltas:  mutable.Map[BasicBlock, BlockDelta] = new mutable.HashMap
+
+    val in:  mutable.Map[BasicBlock, SinglePassElem] = new mutable.HashMap
+    val out: mutable.Map[BasicBlock, SinglePassElem] = new mutable.HashMap
+
+    private val worklist: mutable.Set[BasicBlock]    = new mutable.LinkedHashSet
+    private val visited: mutable.HashSet[BasicBlock] = new mutable.HashSet
+
+        def initWorklist() {
+          worklist += m.startBlock
+          for(eh <- m.exh) { worklist += eh.startBlock }
+          // Each of the following should remain as-is throught the dataflow.
+          in(m.startBlock) = SinglePassElem(entryLocals, emptyStack)
+          for(eh <- m.exh) { in(eh.startBlock) = SinglePassElem(entryLocals, emptyStack) } // TODO in MethodTFA it's not emptyStack but List(AnyRef)
+        }
+
+    initWorklist()
+
+    // forward analysis
+    while (!worklist.isEmpty) {
+      val point = worklist.iterator.next; worklist -= point;
+      val output = blockTransfer(point)
+      val propagate = (!visited(point) || (output != out(point)))
+      visited += point;
+      if (propagate) {
+        out(point) = output
+        val succs = point.successors
+        succs foreach { p =>
+          val wasUpdated = merge(output, p)
+          if(wasUpdated && !worklist.contains(p)) { worklist += p }
+        }
+      }
+    }
+
+    private def merge(incoming: SinglePassElem, p: BasicBlock): Boolean = {
+
+          def lub(a: Array[TypeKind], b: Array[TypeKind]): Array[TypeKind] = {
+            assert(a.length == b.length, "can't lub stacks or locals of different height")
+            var i = 0
+            var c = new Array[TypeKind](a.length)
+            while(i < a.length) {
+              assert(a(i) != null, "should be REFERENCE(NothingClass)")
+              assert(b(i) != null, "should be REFERENCE(NothingClass)")
+              c(i) = typeLattice.lub2(false)(a(i), b(i))
+              i += 1
+            }
+            c
+          }
+
+      in.get(p) match {
+
+        case None =>
+          in(p) = SinglePassElem(
+            incoming.locals.clone,
+            if(p.exceptionHandlerStart) emptyStack else incoming.stack.clone
+          )
+          true
+
+        case Some(oldIn) =>
+          val newIn = SinglePassElem(
+            lub(incoming.locals, oldIn.locals),
+            if(p.exceptionHandlerStart) emptyStack else lub(incoming.stack, oldIn.stack)
+          )
+          val wasUpdated = (newIn != oldIn)
+          if(wasUpdated) { in(p) = newIn }
+          wasUpdated
+
+      }
+    }
+
+    private def blockTransfer(b: BasicBlock): SinglePassElem = {
+
+      import icodes.opcodes._
+
+        def computeDelta: BlockDelta = {
+          val outLocals = new Array[AbstractTK](numLocals)
+          var outStack: List[AbstractTK] = Nil
+          var stackTrim: Int = 0
+
+              def push(atk: AbstractTK) { outStack ::= atk }
+              def load(tk: TypeKind)    { outStack ::= FixedTK(tk) }
+              def pop(): AbstractTK = {
+                if(outStack.isEmpty) { val oldStackTrim = stackTrim; stackTrim += 1; StackRelTK(oldStackTrim) }
+                else { val h = outStack.head; outStack = outStack.tail; h }
+              }
+              def pop2() { pop(); pop() }
+              def pop3() { pop(); pop(); pop() }
+              def popN(n: Int) { var i = n; while(i > 0) { pop(); i -= 1} }
+              def elemOf(atk: AbstractTK): AbstractTK = {
+                atk match {
+                  case FixedTK(arr) => FixedTK(arr.asInstanceOf[icodes.ARRAY].elem)
+                  case AArrOf(atk)  => atk
+                  case _            => AElemOf(atk)
+                }
+              }
+
+              def computeCallPrim(primitive: Primitive) {
+                primitive match {
+                  case Negation(kind)       => pop();  load(kind)
+                  case Test(_, kind, zero)  => pop();  if (!zero) pop(); load(BOOL)
+                  case Comparison(_, _)     => pop2(); load(INT)
+
+                  case Arithmetic(op, kind) =>
+                    pop();
+                    if (op != NOT) { pop() }
+                    val k = kind match {
+                      case BYTE | SHORT | CHAR => INT
+                      case _ => kind
+                    }
+                    load(k)
+
+                  case Logical(op, kind)    => pop2(); load(kind)
+                  case Shift(op, kind)      => pop2(); load(kind)
+                  case Conversion(src, dst) => pop();  load(dst)
+                  case ArrayLength(kind)    => pop();  load(INT)
+                  case StartConcat          => load(ConcatClass)
+                  case EndConcat            => pop();  load(STRING)
+                  case StringConcat(el)     => pop2(); load(ConcatClass)
+                }
+              }
+
+          var instrs = b.toList
+          while(!instrs.isEmpty) {
+            val i  = instrs.head
+
+            i match {
+              case THIS(clasz)                 => load(toTypeKind(clasz.tpe))
+              case CONSTANT(const)             => load(toTypeKind(const.tpe))
+              case LOAD_ARRAY_ITEM(kind)       =>
+                pop(); push(elemOf(pop()))
+              case LOAD_LOCAL(local)           =>
+                val t = outLocals(local.index)
+                if(t == null) { push(LocalRelTK(local.index)) }
+                else          { push(t) }
+              case LOAD_FIELD(field, isStatic) => if (!isStatic) pop(); load(toTypeKind(field.tpe))
+              case LOAD_MODULE(module)         => load(toTypeKind(module.tpe))
+              case STORE_ARRAY_ITEM(kind)      => pop3()
+              case STORE_LOCAL(local)          => outLocals(local.index) = pop()
+              case STORE_THIS(_)               => pop()
+              case STORE_FIELD(_, isStatic)    => if (isStatic) pop() else pop2()
+              case CALL_PRIMITIVE(primitive)   => computeCallPrim(primitive)
+              case cm : CALL_METHOD            => popN(cm.consumed); cm.producedTypes foreach load
+              case BOX(kind)                   => pop(); load(BOXED(kind))
+              case UNBOX(kind)                 => pop(); load(kind)
+              case NEW(kind)                   => load(kind) // TODO track as exact type (useful information for inlining)
+              case CREATE_ARRAY(elem, dims)    => popN(dims); load(ARRAY(elem))
+              case IS_INSTANCE(tpe)            => pop(); load(BOOL)
+              case CHECK_CAST(tpe)             => pop(); load(tpe)
+              case SWITCH(tags, labels)        => pop()
+              case JUMP(whereto)               => ()
+              case CJUMP(_, _, _, _)           => pop2()
+              case CZJUMP(_, _, _, _)          => pop()
+              case RETURN(kind)                => if (kind != UNIT) { pop() }
+              case THROW(_)                    => pop()
+              case DROP(_)                     => pop()
+              case DUP(_)                      => val t = pop(); push(t); push(t)
+              case MONITOR_ENTER()             => pop()
+              case MONITOR_EXIT()              => pop()
+              case SCOPE_ENTER(_)              => ()
+              case SCOPE_EXIT(_)               => ()
+              case LOAD_EXCEPTION(clasz)       => outStack = Nil; load(toTypeKind(clasz.tpe))
+              case _                           => dumpClassesAndAbort("Unknown instruction: " + i)
+            }
+
+            instrs = instrs.tail
+          }
+
+          BlockDelta(outLocals, outStack.toArray, stackTrim)
+        }
+
+      val delta = deltas.getOrElseUpdate(b, computeDelta)
+      val input = in(b)
+
+          def xlate(atk: AbstractTK): TypeKind = {
+            atk match {
+              case FixedTK(tk)     => tk
+              case StackRelTK(n)   => input.stack(n)
+              case LocalRelTK(v)   => val loctk = input.locals(v); assert(loctk != null, "I guess we need the default here"); loctk
+              case AArrOf(nested)  => ARRAY(xlate(nested))
+              case AElemOf(nested) => xlate(nested).asInstanceOf[icodes.ARRAY].elem
+            }
+          }
+
+      val newLocals = {
+        val res = input.locals.clone
+        var i = 0
+        while(i < delta.outLocals.length) {
+          val d = delta.outLocals(i)
+          if(d != null) { res(i) = xlate(d) }
+          i += 1
+        }
+        res
+      }
+      val nonTrimmed = input.stack.length - delta.stackTrim
+      val newStack   = new Array[TypeKind](nonTrimmed + delta.netStack.length)
+      val addedStack = delta.netStack map xlate;
+
+      java.lang.System.arraycopy( addedStack,               0, newStack,                 0, addedStack.length)
+      java.lang.System.arraycopy(input.stack, delta.stackTrim, newStack, addedStack.length,        nonTrimmed)
+
+      SinglePassElem(newLocals, newStack)
+
+    }
+
+
+
+  }
+
   val timer = new Timer
 
   class MethodTFA extends DataFlowAnalysis[typeFlowLattice.type] {
@@ -827,5 +1083,71 @@ abstract class TypeFlowAnalysis {
       millis += elapsed
       elapsed
     }
+  }
+
+  var elapsedOld = 0L
+  var elapsedNew = 0L
+
+  def compare(m: icodes.IMethod) {
+    if(!m.hasCode) { return }
+    m.normalize()
+
+    val timer = new Timer
+
+    timer.reset()
+    timer.start()
+    val tfa = new MethodTFA()
+    tfa.init(m)
+    tfa.run
+    elapsedOld += timer.stop
+
+    timer.reset()
+    timer.start()
+    val spTFA = new analysis.SinglePassTFA(m)
+    elapsedNew += timer.stop
+
+
+    val arrInOld = tfa.in.toArray.sortBy(e => e._1.label)
+    val arrInNew = spTFA.in.toArray.sortBy(e => e._1.label)
+
+    val arrOutOld = tfa.out.toArray.sortBy(e => e._1.label)
+    val arrOutNew = spTFA.out.toArray.sortBy(e => e._1.label)
+
+        def tksMatch(t1: icodes.TypeKind, t2: icodes.TypeKind): Boolean = {
+          (t1 == t2) ||
+          ( (t1 <:< t2) && (t2 <:< t1) ) // because of REFERENCE(AnyRefReference) vs REFERENCE(ObjectReference)
+        }
+
+        def tkArraysMatch(t1s: Array[icodes.TypeKind], t2s: Array[icodes.TypeKind]): Boolean = {
+          (t1s.length == t1s.length) &&
+          (t1s.corresponds(t2s)(tksMatch))
+        }
+
+
+    var testB = icodes.linearizer.linearize(m)
+    while(!testB.isEmpty) {
+      val b = testB.head
+      // compare in and out at b
+      for(varbind <- tfa.in(b).vars) {
+        val Pair(v: icodes.Local, tk: icodes.TypeKind) = varbind
+        val otherTKin = spTFA.in(b).locals(v.index)
+        assert(tksMatch(otherTKin, tk))
+      }
+      for(varbind <- tfa.out(b).vars) {
+        val Pair(v: icodes.Local, tk: icodes.TypeKind) = varbind
+        val otherTKout = spTFA.out(b).locals(v.index)
+        assert(tksMatch(otherTKout, tk))
+      }
+      if(!b.exceptionHandlerStart) {
+        val inStack  = tfa.in(b).stack.types.toArray
+        val outStack = tfa.out(b).stack.types.toArray
+        val otherInStack = spTFA.in(b).stack
+        val otherOutStack = spTFA.out(b).stack
+        assert(tkArraysMatch(inStack,  otherInStack))
+        assert(tkArraysMatch(outStack, otherOutStack))
+      }
+      testB = testB.tail
+    }
+
   }
 }
