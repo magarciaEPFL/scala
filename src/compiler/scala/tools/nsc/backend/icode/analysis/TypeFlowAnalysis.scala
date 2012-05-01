@@ -94,6 +94,12 @@ abstract class TypeFlowAnalysis {
   }
 
   class SinglePassTFA(m: icodes.IMethod) {
+
+    /* TODO would be great to record that the type resulting from NEW is exact
+     * (thus enabling finding actual target methods even if not final)
+     * but that requires (1) adding a field to REFERENCE(cls), as well as (2) accounting for exact types in lub.
+     */
+
     import icodes._
 
     // a few constants for this TFA instance
@@ -285,7 +291,7 @@ abstract class TypeFlowAnalysis {
               case cm : CALL_METHOD            => popN(cm.consumed); cm.producedTypes foreach load
               case BOX(kind)                   => pop(); load(BOXED(kind))
               case UNBOX(kind)                 => pop(); load(kind)
-              case NEW(kind)                   => load(kind) // TODO track as exact type (useful information for inlining)
+              case NEW(kind)                   => load(kind)
               case CREATE_ARRAY(elem, dims)    => popN(dims); load(ARRAY(elem))
               case IS_INSTANCE(tpe)            => pop(); load(BOOL)
               case CHECK_CAST(tpe)             => pop(); load(tpe)
@@ -344,8 +350,6 @@ abstract class TypeFlowAnalysis {
       SinglePassElem(newLocals, newStack)
 
     }
-
-
 
   }
 
@@ -594,76 +598,6 @@ abstract class TypeFlowAnalysis {
       out
     } // interpret
 
-
-    class SimulatedStack {
-      private var types: List[InferredType] = Nil
-      private var depth = 0
-
-      /** Remove and return the topmost element on the stack. If the
-       *  stack is empty, return a reference to a negative index on the
-       *  stack, meaning it refers to elements pushed by a predecessor block.
-       */
-      def pop: InferredType = types match {
-        case head :: rest =>
-          types = rest
-          head
-        case _ =>
-          depth -= 1
-          TypeOfStackPos(depth)
-      }
-
-      def pop2: (InferredType, InferredType) = {
-        (pop, pop)
-      }
-
-      def push(t: InferredType) {
-        depth += 1
-        types = types ::: List(t)
-      }
-
-      def push(k: TypeKind) { push(Const(k)) }
-    }
-
-	abstract class InferredType {
-      /** Return the type kind pointed by this inferred type. */
-      def getKind(in: lattice.Elem): icodes.TypeKind = this match {
-        case Const(k) =>
-          k
-        case TypeOfVar(l: icodes.Local) =>
-          if (in.vars.isDefinedAt(l)) in.vars(l) else l.kind
-        case TypeOfStackPos(n: Int) =>
-          assert(in.stack.length >= n)
-          in.stack(n)
-      }
-    }
-	/** A type that does not depend on input to the transfer function. */
-	case class Const(t: icodes.TypeKind) extends InferredType
-	/** The type of a given local variable. */
-	case class TypeOfVar(l: icodes.Local) extends InferredType
-	/** The type found at a stack position. */
-	case class TypeOfStackPos(n: Int) extends InferredType
-
-	abstract class Gen
-	case class Bind(l: icodes.Local, t: InferredType) extends Gen
-	case class Push(t: InferredType) extends Gen
-
-    /** A flow transfer function of a basic block. */
-	class TransferFunction(consumed: Int, gens: List[Gen]) extends (lattice.Elem => lattice.Elem) {
-	  def apply(in: lattice.Elem): lattice.Elem = {
-        val out = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
-        val bindings = out.vars
-        val stack = out.stack
-
-        out.stack.pop(consumed)
-        for (g <- gens) g match {
-          case Bind(l, t) =>
-            out.vars += (l -> t.getKind(in))
-          case Push(t) =>
-            stack.push(t.getKind(in))
-        }
-        out
-      }
-	}
   }
 
   case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
