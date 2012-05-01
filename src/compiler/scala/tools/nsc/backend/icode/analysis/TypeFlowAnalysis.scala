@@ -304,7 +304,10 @@ abstract class TypeFlowAnalysis {
               case cm : CALL_METHOD            => popN(cm.consumed); cm.producedTypes foreach load
               case BOX(kind)                   => pop(); load(BOXED(kind))
               case UNBOX(kind)                 => pop(); load(kind)
-              case NEW(kind)                   => kind.isExact = true; load(kind)
+              case NEW(kind)                   =>
+                val k = REFERENCE(kind.cls) // just to make sure a non-shared REFERENCE becomes isExact.
+                k.isExact = true
+                load(k)
               case CREATE_ARRAY(elem, dims)    => popN(dims); load(ARRAY(elem))
               case IS_INSTANCE(tpe)            => pop(); load(BOOL)
               case CHECK_CAST(tpe)             => pop(); load(tpe)
