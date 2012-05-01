@@ -905,8 +905,8 @@ abstract class TypeFlowAnalysis {
         lastInstruction += (b -> lastIns.get.asInstanceOf[opcodes.CALL_METHOD])
       }
 
-      // assertion: "no relevant block can have a predecessor that is on perimeter"
-      assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty)
+      assert((for (b <- relevantBBs; if transitivePreds(b.predecessors) exists isOnPerimeter) yield b).isEmpty,
+             "no relevant block can have a predecessor that is on perimeter")
     }
 
     private val isOnPerimeter   = mutable.Set.empty[BasicBlock]
@@ -926,14 +926,14 @@ abstract class TypeFlowAnalysis {
 
         - `staleOut`: These are the blocks where a callsite was inlined.
                       For each callsite, all instructions in that block before the callsite were left in the block, and the rest moved to an `afterBlock`.
-                      The out-flow of these basic blocks is thus in general stale, that's why we'll add them to the TFA worklist.
+                      The out-flow of a `staleOut` basic block is thus in general stale, that's why we'll add those blocks to the TFA worklist.
 
         - `inlined` : These blocks were spliced into the method's CFG as part of inlining. Being new blocks, they haven't been visited yet by the typeflow analysis.
 
         - `staleIn` : These blocks are what `doInline()` calls `afterBlock`s, ie the new home for instructions that previously appearead
                       after a callsite in a `staleOut` block.
 
-      Based on the above information, we have to bring up-to-date the caches that `forwardAnalysis` and `blockTransfer` use to skip blocks and instructions.
+      Based on the above information, we have to update the caches that `forwardAnalysis` and `blockTransfer` use to skip blocks and instructions.
       Those caches are `relevantBBs` and `isOnPerimeter` (for blocks) and `isOnWatchlist` and `lastInstruction` (for CALL_METHODs).
       Please notice that all `inlined` and `staleIn` blocks are reachable from `staleOut` blocks.
 
@@ -961,7 +961,7 @@ abstract class TypeFlowAnalysis {
         return;
       }
 
-      worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
+      worklist.clear // calling reinit(f: => Unit) would also clear `visited`, thus forgetting about blocks visited before reinit.
 
       // asserts conveying an idea what CFG shapes arrive here:
       //   staleIn foreach (p => assert( !in.isDefinedAt(p), p))
