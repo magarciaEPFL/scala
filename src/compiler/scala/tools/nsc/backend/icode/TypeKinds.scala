@@ -265,6 +265,7 @@ trait TypeKinds { self: ICodes =>
 
   /** A class type. */
   final case class REFERENCE(cls: Symbol) extends TypeKind {
+    var isExact: Boolean = false
     override def toString = "REF(" + cls + ")"
     assert(cls ne null,
            "REFERENCE to null class symbol.")

@@ -95,11 +95,6 @@ abstract class TypeFlowAnalysis {
 
   class SinglePassTFA(m: icodes.IMethod) {
 
-    /* TODO would be great to record that the type resulting from NEW is exact
-     * (thus enabling finding actual target methods even if not final)
-     * but that requires (1) adding a field to REFERENCE(cls), as well as (2) accounting for exact types in lub.
-     */
-
     import icodes._
 
     // a few constants for this TFA instance
@@ -183,6 +178,24 @@ abstract class TypeFlowAnalysis {
 
     private def merge(incoming: SinglePassElem, p: BasicBlock): Boolean = {
 
+          def lub2(a: TypeKind, b: TypeKind): TypeKind = {
+            if      (a eq typeLattice.bottom) b
+            else if (b eq typeLattice.bottom) a
+            else {
+              val u = icodes.lub(a, b)
+              if(a.isReferenceType && b.isReferenceType) {
+                val ra = a.asInstanceOf[REFERENCE]
+                val rb = b.asInstanceOf[REFERENCE]
+                val uIsExact = (ra.isExact && rb.isExact && (ra.cls eq rb.cls))
+                // for each resulting REFERENCE TypeKind we have to rewrite isExact.
+                u.asInstanceOf[REFERENCE].isExact = uIsExact
+              } else {
+                assert(!u.isInstanceOf[REFERENCE], "if u.isInstanceOf[REFERENCE] then u.isExact should become false")
+              }
+              u
+            }
+          }
+
           def lub(a: Array[TypeKind], b: Array[TypeKind]): Array[TypeKind] = {
             assert(a.length == b.length, "can't lub stacks or locals of different height")
             var i = 0
@@ -190,7 +203,7 @@ abstract class TypeFlowAnalysis {
             while(i < a.length) {
               assert(a(i) != null, "should be REFERENCE(NothingClass)")
               assert(b(i) != null, "should be REFERENCE(NothingClass)")
-              c(i) = typeLattice.lub2(false)(a(i), b(i))
+              c(i) = lub2(a(i), b(i))
               i += 1
             }
             c
@@ -291,7 +304,7 @@ abstract class TypeFlowAnalysis {
               case cm : CALL_METHOD            => popN(cm.consumed); cm.producedTypes foreach load
               case BOX(kind)                   => pop(); load(BOXED(kind))
               case UNBOX(kind)                 => pop(); load(kind)
-              case NEW(kind)                   => load(kind)
+              case NEW(kind)                   => kind.isExact = true; load(kind)
               case CREATE_ARRAY(elem, dims)    => popN(dims); load(ARRAY(elem))
               case IS_INSTANCE(tpe)            => pop(); load(BOOL)
               case CHECK_CAST(tpe)             => pop(); load(tpe)
@@ -324,7 +337,7 @@ abstract class TypeFlowAnalysis {
             atk match {
               case FixedTK(tk)     => tk
               case StackRelTK(n)   => input.stack(n)
-              case LocalRelTK(v)   => val loctk = input.locals(v); assert(loctk != null, "I guess we need the default here"); loctk
+              case LocalRelTK(v)   => val loctk = input.locals(v); assert(loctk != null, "should be REFERENCE(NothingClass)"); loctk
               case AArrOf(nested)  => ARRAY(xlate(nested))
               case AElemOf(nested) => xlate(nested).asInstanceOf[icodes.ARRAY].elem
             }
