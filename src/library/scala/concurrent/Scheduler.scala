@@ -8,7 +8,7 @@
 
 package scala.concurrent
 
-import scala.util.Duration
+import scala.concurrent.util.Duration
 
 /** A service for scheduling tasks and thunks for one-time, or periodic execution.
  */
@@ -35,7 +35,7 @@ trait Scheduler {
   /** Schedules a thunk for execution after a given delay.
    *
    *  @param delay  the duration after which the thunk should be executed
-   *  @param thunk  the thunk that is scheduled for execution
+   *  @param task   the thunk that is scheduled for execution
    *  @return       a `Cancellable` that may be used to cancel the execution
    *                of the thunk
    */

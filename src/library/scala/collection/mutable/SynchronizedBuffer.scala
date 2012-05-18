@@ -21,7 +21,7 @@ import script._
  *  @author  Matthias Zenger
  *  @version 1.0, 08/07/2003
  *  @since   1
- *  @define Coll SynchronizedBuffer
+ *  @define Coll `SynchronizedBuffer`
  *  @define coll synchronized buffer
  */
 trait SynchronizedBuffer[A] extends Buffer[A] {
@@ -61,7 +61,7 @@ trait SynchronizedBuffer[A] extends Buffer[A] {
   /** Appends a number of elements provided by a traversable object
    *  via its `foreach` method.
    *
-   *  @param iter  the iterable object.
+   *  @param xs   the iterable object.
    */
   override def ++=(xs: TraversableOnce[A]): this.type = synchronized[this.type] {
     super.++=(xs)
@@ -102,7 +102,7 @@ trait SynchronizedBuffer[A] extends Buffer[A] {
 
   /** Prepend an element to this list.
    *
-   *  @param elem  the element to prepend.
+   *  @param elems  the elements to prepend.
    */
   override def prepend(elems: A*): Unit = prependAll(elems)
 

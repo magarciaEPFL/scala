@@ -34,7 +34,7 @@ import generic._
  *
  *  @author  Paul Phillips
  *  @version 2.8
- *  @define Coll NumericRange
+ *  @define Coll `NumericRange`
  *  @define coll numeric range
  *  @define mayNotTerminateInf
  *  @define willNotTerminateInf
@@ -171,6 +171,13 @@ extends AbstractSeq[T] with IndexedSeq[T] with Serializable {
   override def contains(x: Any): Boolean =
     try containsTyped(x.asInstanceOf[T])
     catch { case _: ClassCastException => false }
+
+  final override def sum[B >: T](implicit num: Numeric[B]): B = {
+    import num.Ops
+    if (isEmpty) this.num fromInt 0
+    else if (numRangeElements == 1) head
+    else ((this.num fromInt numRangeElements) * (head + last) / (this.num fromInt 2))
+  }
 
   override lazy val hashCode = super.hashCode()
   override def equals(other: Any) = other match {

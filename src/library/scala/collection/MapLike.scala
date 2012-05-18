@@ -91,14 +91,18 @@ self =>
    *  @param    kv the key/value pair
    *  @tparam   B1 the type of the value in the key/value pair.
    *  @return   a new map with the new binding added to this map
+   *
    *  @usecase  def + (kv: (A, B)): Map[A, B]
+   *    @inheritdoc
    */
   def + [B1 >: B] (kv: (A, B1)): Map[A, B1]
 
   /** Removes a key from this map, returning a new map.
    *  @param    key the key to be removed
    *  @return   a new map without a binding for `key`
+   *
    *  @usecase  def - (key: A): Map[A, B]
+   *    @inheritdoc
    */
   def - (key: A): This
 
@@ -115,7 +119,9 @@ self =>
    *   @tparam  B1       the result type of the default computation.
    *   @return  the value associated with `key` if it exists,
    *            otherwise the result of the `default` computation.
+   *
    *   @usecase def getOrElse(key: A, default: => B): B
+   *     @inheritdoc
    */
   def getOrElse[B1 >: B](key: A, default: => B1): B1 = get(key) match {
     case Some(v) => v
@@ -159,7 +165,7 @@ self =>
 
   /** The implementation class of the set returned by `keySet`.
    */
-  protected class DefaultKeySet extends AbstractSet[A] with Set[A] {
+  protected class DefaultKeySet extends AbstractSet[A] with Set[A] with Serializable {
     def contains(key : A) = self.contains(key)
     def iterator = keysIterator
     def + (elem: A): Set[A] = (Set[A]() ++ this + elem).asInstanceOf[Set[A]] // !!! concrete overrides abstract problem
@@ -194,7 +200,7 @@ self =>
 
   /** The implementation class of the iterable returned by `values`.
    */
-  protected class DefaultValuesIterable extends AbstractIterable[B] with Iterable[B] {
+  protected class DefaultValuesIterable extends AbstractIterable[B] with Iterable[B] with Serializable {
     def iterator = valuesIterator
     override def size = self.size
     override def foreach[C](f: B => C) = self.valuesIterator foreach f
@@ -255,7 +261,9 @@ self =>
    *  @param    value the value
    *  @tparam   B1 the type of the added value
    *  @return   A new map with the new key/value mapping added to this map.
+   *
    *  @usecase  def updated(key: A, value: B): Map[A, B]
+   *    @inheritdoc
    */
   def updated [B1 >: B](key: A, value: B1): Map[A, B1] = this + ((key, value))
 
@@ -269,24 +277,25 @@ self =>
    *  @param    kvs the remaining key/value pairs
    *  @tparam   B1  the type of the added values
    *  @return   a new map with the given bindings added to this map
+   *
    *  @usecase  def + (kvs: (A, B)*): Map[A, B]
-   *  @param    the key/value pairs
+   *    @inheritdoc
+   *    @param    kvs the key/value pairs
    */
   def + [B1 >: B] (kv1: (A, B1), kv2: (A, B1), kvs: (A, B1) *): Map[A, B1] =
     this + kv1 + kv2 ++ kvs
 
   /** Adds all key/value pairs in a traversable collection to this map, returning a new map.
    *
-   *  @param    kvs the collection containing the added key/value pairs
+   *  @param    xs  the collection containing the added key/value pairs
    *  @tparam   B1  the type of the added values
    *  @return   a new map with the given bindings added to this map
+   *
    *  @usecase  def ++ (xs: Traversable[(A, B)]): Map[A, B]
+   *    @inheritdoc
    */
   def ++[B1 >: B](xs: GenTraversableOnce[(A, B1)]): Map[A, B1] =
     ((repr: Map[A, B1]) /: xs.seq) (_ + _)
-
-  @bridge
-  def ++[B1 >: B](xs: TraversableOnce[(A, B1)]): Map[A, B1] = ++(xs: GenTraversableOnce[(A, B1)])
 
   /** Returns a new map with all key/value pairs for which the predicate
    *  `p` returns `true`.

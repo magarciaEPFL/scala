@@ -18,7 +18,6 @@ final class RichFloat(val self: Float) extends FractionalProxy[Float] {
   /** Converts an angle measured in degrees to an approximately equivalent
    *  angle measured in radians.
    *
-   *  @param  x an angle, in degrees
    *  @return the measurement of the angle `x` in radians.
    */
   def toRadians: Float = math.toRadians(self).toFloat
@@ -26,7 +25,6 @@ final class RichFloat(val self: Float) extends FractionalProxy[Float] {
   /** Converts an angle measured in radians to an approximately equivalent
    *  angle measured in degrees.
    *
-   *  @param  x angle, in radians
    *  @return the measurement of the angle `x` in degrees.
    */
   def toDegrees: Float = math.toDegrees(self).toFloat
@@ -36,4 +34,16 @@ final class RichFloat(val self: Float) extends FractionalProxy[Float] {
   def isInfinity: Boolean = java.lang.Float.isInfinite(self)
   def isPosInfinity: Boolean = isInfinity && self > 0.0f
   def isNegInfinity: Boolean = isInfinity && self < 0.0f
+
+  override def isValidByte = self.toByte.toFloat == self
+  override def isValidShort = self.toShort.toFloat == self
+  override def isValidChar = self.toChar.toFloat == self
+  override def isValidInt = { val i = self.toInt; i.toFloat == self && i != Int.MaxValue }
+  // override def isValidLong = { val l = self.toLong; l.toFloat == self && l != Long.MaxValue }
+  // override def isValidFloat = !java.lang.Float.isNaN(self)
+  // override def isValidDouble = !java.lang.Float.isNaN(self)
+  override def isWhole = {
+    val l = self.toLong
+    l.toFloat == self || l == Long.MaxValue && self < Float.PositiveInfinity || l == Long.MinValue && self > Float.NegativeInfinity
+  }
 }

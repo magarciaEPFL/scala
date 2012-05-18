@@ -20,7 +20,6 @@ object Function {
    *  function `f,,1,, andThen ... andThen f,,n,,`.
    *
    *  @param fs The given sequence of functions
-   *  @return   ...
    */
   def chain[a](fs: Seq[a => a]): a => a = { x => (x /: fs) ((x, f) => f(x)) }
 
@@ -29,6 +28,7 @@ object Function {
 
   /** Turns a function `A => Option[B]` into a `PartialFunction[A, B]`.
    *
+   *  TODO: check if the paragraph below is still correct
    *  '''Important note''': this transformation implies the original function
    *  will be called 2 or more times on each logical invocation, because the
    *  only way to supply an implementation of `isDefinedAt` is to call the
@@ -37,13 +37,9 @@ object Function {
    *  @param   f    a function `T => Option[R]`
    *  @return       a partial function defined for those inputs where
    *                f returns `Some(_)` and undefined where `f` returns `None`.
-   *  @see [[scala.PartialFunction#lift]]
+   *  @see [[scala.PartialFunction]], method `lift`.
    */
-  def unlift[T, R](f: T => Option[R]): PartialFunction[T, R] = new runtime.AbstractPartialFunction[T, R] {
-    def apply(x: T): R = f(x).get
-    def _isDefinedAt(x: T): Boolean = f(x).isDefined
-    override def lift: T => Option[R] = f
-  }
+  def unlift[T, R](f: T => Option[R]): PartialFunction[T, R] = PartialFunction.unlifted(f)
 
   /** Uncurrying for functions of arity 2. This transforms a unary function
    *  returning another unary function into a function of arity 2.
@@ -75,9 +71,6 @@ object Function {
    *
    *  @note  These functions are slotted for deprecation, but it is on
    *  hold pending superior type inference for tupling anonymous functions.
-   *
-   *  @param f  ...
-   *  @return   ...
    */
   // @deprecated("Use `f.tupled` instead")
   def tupled[a1, a2, b](f: (a1, a2) => b): Tuple2[a1, a2] => b = {

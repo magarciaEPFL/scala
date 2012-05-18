@@ -1,4 +1,4 @@
-import scala.tools.nsc._  
+import scala.tools.nsc._
 
 object Test {
   
@@ -8,7 +8,7 @@ object Test {
   
   val testCode = <code>
   
-    class posingAs[A] extends TypeConstraint
+    class posingAs[A] extends annotation.TypeConstraint
     
     def resolve[A,B](x: A @posingAs[B]): B = x.asInstanceOf[B]
     
@@ -20,7 +20,7 @@ object Test {
     
     val settings = new Settings()
     settings.classpath.value = System.getProperty("java.class.path")
-    val tool = new Interpreter(settings)
+    val tool = new interpreter.IMain(settings)
     val global = tool.compiler
 
     import global._

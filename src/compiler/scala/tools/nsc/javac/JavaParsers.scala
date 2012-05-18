@@ -12,6 +12,7 @@ import scala.tools.nsc.util.OffsetPosition
 import scala.collection.mutable.ListBuffer
 import symtab.Flags
 import JavaTokens._
+import language.implicitConversions
 
 trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
   val global : Global
@@ -788,23 +789,24 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
       val idefs = members.toList ::: (sdefs flatMap forwarders)
       (sdefs, idefs)
     }
-
+    def annotationParents = List(
+      gen.scalaAnnotationDot(tpnme.Annotation),
+      Select(javaLangDot(nme.annotation), tpnme.Annotation),
+      gen.scalaAnnotationDot(tpnme.ClassfileAnnotation)
+    )
     def annotationDecl(mods: Modifiers): List[Tree] = {
       accept(AT)
       accept(INTERFACE)
       val pos = in.currentPos
       val name = identForType()
-      val parents = List(scalaDot(tpnme.Annotation),
-                         Select(javaLangDot(nme.annotation), tpnme.Annotation),
-                         scalaDot(tpnme.ClassfileAnnotation))
       val (statics, body) = typeBody(AT, name)
       def getValueMethodType(tree: Tree) = tree match {
         case DefDef(_, nme.value, _, _, tpt, _) => Some(tpt.duplicate)
         case _ => None
       }
-      var templ = makeTemplate(parents, body)
+      var templ = makeTemplate(annotationParents, body)
       for (stat <- templ.body; tpt <- getValueMethodType(stat))
-        templ = makeTemplate(parents, makeConstructor(List(tpt)) :: templ.body)
+        templ = makeTemplate(annotationParents, makeConstructor(List(tpt)) :: templ.body)
       addCompanionObject(statics, atPos(pos) {
         ClassDef(mods, name, List(), templ)
       })
@@ -870,7 +872,10 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
           skipAhead()
           accept(RBRACE)
         }
-        ValDef(Modifiers(Flags.JAVA | Flags.STATIC), name, enumType, blankExpr)
+        // The STABLE flag is to signal to namer that this was read from a
+        // java enum, and so should be given a Constant type (thereby making
+        // it usable in annotations.)
+        ValDef(Modifiers(Flags.STABLE | Flags.JAVA | Flags.STATIC), name, enumType, blankExpr)
       }
     }
 

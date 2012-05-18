@@ -11,6 +11,7 @@ import scala.collection.{ mutable, immutable }
 import mutable.{ ListBuffer, ArrayBuffer }
 import util.{ Position, NoPosition }
 import backend.icode.analysis.ProgramPoint
+import language.postfixOps
 
 trait BasicBlocks {
   self: ICodes =>
@@ -218,8 +219,8 @@ trait BasicBlocks {
     ///////////////////// Substitutions ///////////////////////
 
     /**
-     * Replace the instruction at the given position. Used by labels when
-     * they are anchored. It retains the position of the previous instruction.
+     * Replace the instruction at the given position. Used by labels when they are anchored.
+     * The replacing instruction is given the nsc.util.Position of the instruction it replaces.
      */
     def replaceInstruction(pos: Int, instr: Instruction): Boolean = {
       assert(closed, "Instructions can be replaced only after the basic block is closed")
@@ -232,7 +233,7 @@ trait BasicBlocks {
     /**
      * Replace the given instruction with the new one.
      * Returns `true` if it actually changed something.
-     * It retains the position of the previous instruction.
+     * The replacing instruction is given the nsc.util.Position of the instruction it replaces.
      */
     def replaceInstruction(oldInstr: Instruction, newInstr: Instruction): Boolean = {
       assert(closed, "Instructions can be replaced only after the basic block is closed")
@@ -386,10 +387,16 @@ trait BasicBlocks {
     def close() {
       assert(!closed || ignore, this)
       assert(instructionList.nonEmpty, "Empty block: " + this)
-      closed = true
-      setFlag(DIRTYSUCCS)
-      instructionList = instructionList.reverse
-      instrs = instructionList.toArray
+      if (ignore && closed) { // redundant `ignore &&` for clarity -- we should never be in state `!ignore && closed`
+        // not doing anything to this block is important...
+        // because the else branch reverses innocent blocks, which is wrong when they're in ignore mode (and closed)
+        // reversing the instructions when (closed && ignore) wreaks havoc for nested label jumps (see comments in genLoad)
+      } else {
+        closed = true
+        setFlag(DIRTYSUCCS)
+        instructionList = instructionList.reverse
+        instrs = instructionList.toArray
+      }
     }
 
     def open() {

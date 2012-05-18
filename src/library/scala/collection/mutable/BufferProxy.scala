@@ -25,7 +25,7 @@ import script._
  *
  *  @tparam A     type of the elements the buffer proxy contains.
  *
- *  @define Coll BufferProxy
+ *  @define Coll `BufferProxy`
  *  @define coll buffer proxy
  */
 trait BufferProxy[A] extends Buffer[A] with Proxy {
@@ -77,7 +77,7 @@ trait BufferProxy[A] extends Buffer[A] with Proxy {
 
   /** Prepend an element to this list.
    *
-   *  @param elem  the element to prepend.
+   *  @param elems  the elements to prepend.
    */
   override def prepend(elems: A*) { self.prependAll(elems) }
 

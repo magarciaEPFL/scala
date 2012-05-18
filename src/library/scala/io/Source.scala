@@ -100,8 +100,6 @@ object Source {
   /** Create a `Source` from array of bytes, decoding
    *  the bytes according to codec.
    *
-   *  @param bytes ...
-   *  @param enc   ...
    *  @return      the created `Source` instance.
    */
   def fromBytes(bytes: Array[Byte])(implicit codec: Codec): Source =
@@ -188,7 +186,7 @@ abstract class Source extends Iterator[Char] {
   var nerrors = 0
   var nwarnings = 0
 
-  private def lineNum(line: Int): String = getLines() drop (line - 1) take 1 mkString
+  private def lineNum(line: Int): String = (getLines() drop (line - 1) take 1).mkString
 
   class LineIterator extends AbstractIterator[String] with Iterator[String] {
     private[this] val sb = new StringBuilder

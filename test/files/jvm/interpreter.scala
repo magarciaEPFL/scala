@@ -2,6 +2,7 @@ import scala.tools.nsc._
 import scala.tools.partest.ReplTest
 
 object Test extends ReplTest {
+  override def extraSettings = "-deprecation -Xoldpatmat"
   def code = <code>
 // basics
 3+4
@@ -29,7 +30,7 @@ val atom = new scala.xml.Atom()
 class S(override val toString : String)
 val fish = new S("fish")
 // Test that arrays pretty print nicely.
-val arr = Array("What's", "up", "doc?") 
+val arr = Array("What's", "up", "doc?")
 // Test that arrays pretty print nicely, even when we give them type Any
 val arrInt : Any = Array(1,2,3)
 // Test that nested arrays are pretty-printed correctly
@@ -132,8 +133,8 @@ there
 
 
 // defining and using quoted names should work (ticket #323)
-def `match` = 1 
-val x = `match` 
+def `match` = 1
+val x = `match`
 
 // multiple classes defined on one line
 sealed class Exp; class Fact extends Exp; class Term extends Exp
@@ -146,13 +147,13 @@ def f(e: Exp) = e match {{  // non-exhaustive warning here
   def appendix() = {
     val settings = new Settings
     settings.classpath.value = sys.props("java.class.path")
-    val interp = new Interpreter(settings)
+    val interp = new interpreter.IMain(settings)
     interp.interpret("def plusOne(x: Int) = x + 1")
     interp.interpret("plusOne(5)")
     interp.reset()
     interp.interpret("\"after reset\"")
     interp.interpret("plusOne(5) // should be undefined now")
   }
-  
+
   appendix()
 }

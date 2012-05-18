@@ -10,11 +10,12 @@ package scala.collection
 package generic
 
 import mutable.{Builder, MapBuilder}
+import language.higherKinds
 
 /** A template for companion objects of `Map` and subclasses thereof.
  *
  *  @define coll map
- *  @define Coll Map
+ *  @define Coll `Map`
  *  @define factoryInfo
  *    This object provides a set of operations needed to create `$Coll` values.
  *    @author Martin Odersky

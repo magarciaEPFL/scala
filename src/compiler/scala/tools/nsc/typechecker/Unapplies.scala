@@ -45,6 +45,11 @@ trait Unapplies extends ast.TreeDSL
       case BooleanClass             => Nil
       case OptionClass | SomeClass  =>
         val prod  = tp.typeArgs.head
+// the spec doesn't allow just any subtype of Product, it *must* be TupleN[...] -- see run/virtpatmat_extends_product.scala
+// this breaks plenty of stuff, though...
+//        val targs =
+//          if (isTupleType(prod)) getProductArgs(prod)
+//          else List(prod)
         val targs = getProductArgs(prod)
 
         if (targs.isEmpty || targs.tail.isEmpty) List(prod) // special n == 0 ||  n == 1
@@ -107,8 +112,8 @@ trait Unapplies extends ast.TreeDSL
 
   private def toIdent(x: DefTree) = Ident(x.name) setPos x.pos.focus
 
-  private def classType(cdef: ClassDef, tparams: List[TypeDef]): Tree = {
-    val tycon = REF(cdef.symbol)
+  private def classType(cdef: ClassDef, tparams: List[TypeDef], symbolic: Boolean = true): Tree = {
+    val tycon = if (symbolic) REF(cdef.symbol) else Ident(cdef.name)
     if (tparams.isEmpty) tycon else AppliedTypeTree(tycon, tparams map toIdent)
   }
 
@@ -161,14 +166,19 @@ trait Unapplies extends ast.TreeDSL
 
   /** The apply method corresponding to a case class
    */
-  def caseModuleApplyMeth(cdef: ClassDef): DefDef = {
+  def factoryMeth(mods: Modifiers, name: TermName, cdef: ClassDef, symbolic: Boolean): DefDef = {
     val tparams   = cdef.tparams map copyUntypedInvariant
     val cparamss  = constrParamss(cdef)
+    def classtpe = classType(cdef, tparams, symbolic)
     atPos(cdef.pos.focus)(
-      DefDef(caseMods, nme.apply, tparams, cparamss, classType(cdef, tparams),
-        New(classType(cdef, tparams), mmap(cparamss)(gen.paramToArg)))
+      DefDef(mods, name, tparams, cparamss, classtpe,
+        New(classtpe, mmap(cparamss)(gen.paramToArg)))
     )
   }
+
+  /** The apply method corresponding to a case class
+   */
+  def caseModuleApplyMeth(cdef: ClassDef): DefDef = factoryMeth(caseMods, nme.apply, cdef, symbolic = true)
 
   /** The unapply method corresponding to a case class
    */
@@ -190,7 +200,7 @@ trait Unapplies extends ast.TreeDSL
   def caseClassCopyMeth(cdef: ClassDef): Option[DefDef] = {
     def isDisallowed(vd: ValDef) = isRepeatedParamType(vd.tpt) || isByNameParamType(vd.tpt)
     val cparamss  = constrParamss(cdef)
-    val flat      = cparamss flatten
+    val flat      = cparamss.flatten
 
     if (cdef.symbol.hasAbstractFlag || (flat exists isDisallowed)) None
     else {
@@ -200,13 +210,25 @@ trait Unapplies extends ast.TreeDSL
       // and re-added in ``finishWith'' in the namer.
       def paramWithDefault(vd: ValDef) =
         treeCopy.ValDef(vd, vd.mods | DEFAULTPARAM, vd.name, atPos(vd.pos.focus)(TypeTree() setOriginal vd.tpt), toIdent(vd))
+        
+      val (copyParamss, funParamss) = cparamss match {
+        case Nil => (Nil, Nil)
+        case ps :: pss =>
+          (List(ps.map(paramWithDefault)), mmap(pss)(p => copyUntyped[ValDef](p).copy(rhs = EmptyTree)))
+      }
 
-      val paramss   = mmap(cparamss)(paramWithDefault)
-      val classTpe  = classType(cdef, tparams)
+      val classTpe = classType(cdef, tparams)
+      val bodyTpe = funParamss.foldRight(classTpe)((params, restp) => gen.scalaFunctionConstr(params.map(_.tpt), restp))
+
+      val argss = copyParamss match {
+        case Nil       => Nil
+        case ps :: Nil => mmap(ps :: funParamss)(toIdent)
+      }      
+      val body = funParamss.foldRight(New(classTpe, argss): Tree)(Function)
 
       Some(atPos(cdef.pos.focus)(
-        DefDef(Modifiers(SYNTHETIC), nme.copy, tparams, paramss, classTpe,
-          New(classTpe, mmap(paramss)(toIdent)))
+        DefDef(Modifiers(SYNTHETIC), nme.copy, tparams, copyParamss, bodyTpe,
+          body)
       ))
     }
   }

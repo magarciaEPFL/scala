@@ -17,7 +17,14 @@ trait Erasure {
      *  with primitive as well as class types)?.
      */
     private def genericCore(tp: Type): Type = tp.normalize match {
-      case TypeRef(_, sym, _) if sym.isAbstractType && !sym.owner.isJavaDefined =>
+      /* A Java Array<T> is erased to Array[Object] (T can only be a reference type), where as a Scala Array[T] is
+       * erased to Object. However, there is only symbol for the Array class. So to make the distinction between
+       * a Java and a Scala array, we check if the owner of T comes from a Java class.
+       * This however caused issue SI-5654. The additional test for EXSITENTIAL fixes it, see the ticket comments.
+       * In short, members of an existential type (e.g. `T` in `forSome { type T }`) can have pretty arbitrary
+       * owners (e.g. when computing lubs, <root> is used). All packageClass symbols have `isJavaDefined == true`.
+       */
+      case TypeRef(_, sym, _) if sym.isAbstractType && (!sym.owner.isJavaDefined || sym.hasFlag(Flags.EXISTENTIAL)) =>
         tp
       case ExistentialType(tparams, restp) =>
         genericCore(restp)
@@ -69,6 +76,9 @@ trait Erasure {
     clazz.firstParamAccessor.tpe.resultType
 
   abstract class ErasureMap extends TypeMap {
+    private lazy val ObjectArray  = arrayType(ObjectClass.tpe)
+    private lazy val ErasedObject = erasedTypeRef(ObjectClass)
+
     def mergeParents(parents: List[Type]): Type
 
     def eraseNormalClassRef(pre: Type, clazz: Symbol): Type =
@@ -87,7 +97,7 @@ trait Erasure {
           if (unboundedGenericArrayLevel(tp) == 1) ObjectClass.tpe
           else if (args.head.typeSymbol.isBottomClass) ObjectArray
           else typeRef(apply(pre), sym, args map applyInArray)
-        else if (sym == AnyClass || sym == AnyValClass || sym == SingletonClass || sym == NotNullClass) erasedTypeRef(ObjectClass)
+        else if (sym == AnyClass || sym == AnyValClass || sym == SingletonClass || sym == NotNullClass) ErasedObject
         else if (sym == UnitClass) erasedTypeRef(BoxedUnitClass)
         else if (sym.isRefinementClass) apply(mergeParents(tp.parents))
         else if (sym.isDerivedValueClass) eraseDerivedValueClassRef(sym)
@@ -111,7 +121,7 @@ trait Erasure {
       case ClassInfoType(parents, decls, clazz) =>
         ClassInfoType(
           if (clazz == ObjectClass || isPrimitiveValueClass(clazz)) Nil
-          else if (clazz == ArrayClass) List(erasedTypeRef(ObjectClass))
+          else if (clazz == ArrayClass) List(ErasedObject)
           else removeLaterObjects(parents map this),
           decls, clazz)
       case _ =>

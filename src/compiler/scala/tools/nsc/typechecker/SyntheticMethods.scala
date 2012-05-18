@@ -50,12 +50,10 @@ trait SyntheticMethods extends ast.TreeDSL {
     import synthesizer._
 
     if (clazz0 == AnyValClass || isPrimitiveValueClass(clazz0)) return {
-      if (clazz0.info member nme.getClass_ isDeferred) {
-        val getClassMethod = createMethod(nme.getClass_, getClassReturnType(clazz.tpe)) { sym =>
-          // XXX dummy implementation for now
-          NULL
-        }
-        treeCopy.Template(templ, templ.parents, templ.self, templ.body :+ getClassMethod)
+      if ((clazz0.info member nme.getClass_).isDeferred) {
+        // XXX dummy implementation for now
+        val getClassMethod = createMethod(nme.getClass_, getClassReturnType(clazz.tpe))(_ => NULL)
+        deriveTemplate(templ)(_ :+ getClassMethod)
       }
       else templ
     }
@@ -76,7 +74,7 @@ trait SyntheticMethods extends ast.TreeDSL {
     //    Option[Int] { def productIterator: Iterator[String] }
     //
     // appearing legitimately, but this breaks invariant places
-    // like Manifests and Arrays which are not robust and infer things
+    // like Tags and Arrays which are not robust and infer things
     // which they shouldn't.
     val accessorLub  = (
       if (opt.experimental) {
@@ -89,7 +87,12 @@ trait SyntheticMethods extends ast.TreeDSL {
     )
 
     def forwardToRuntime(method: Symbol): Tree =
-      forwardMethod(method, getMember(ScalaRunTimeModule, method.name prepend "_"))(This(clazz) :: _)
+      forwardMethod(method, getMember(ScalaRunTimeModule, method.name prepend "_"))(mkThis :: _)
+
+    def callStaticsMethod(name: String)(args: Tree*): Tree = {
+      val method = termMember(RuntimeStaticsModule, name)
+      Apply(gen.mkAttributedRef(method), args.toList)
+    }
 
     // Any member, including private
     def hasConcreteImpl(name: Name) =
@@ -109,7 +112,7 @@ trait SyntheticMethods extends ast.TreeDSL {
     }
     def productIteratorMethod = {
       createMethod(nme.productIterator, iteratorOfType(accessorLub))(_ =>
-        gen.mkMethodCall(ScalaRunTimeModule, nme.typedProductIterator, List(accessorLub), List(This(clazz)))
+        gen.mkMethodCall(ScalaRunTimeModule, nme.typedProductIterator, List(accessorLub), List(mkThis))
       )
     }
     def projectionMethod(accessor: Symbol, num: Int) = {
@@ -138,7 +141,7 @@ trait SyntheticMethods extends ast.TreeDSL {
      *  where that is the given methods first parameter.
      */
     def thatTest(eqmeth: Symbol): Tree =
-      gen.mkIsInstanceOf(Ident(eqmeth.firstParam), typeCaseType(clazz), true, false)
+      gen.mkIsInstanceOf(Ident(eqmeth.firstParam), classExistentialType(clazz), true, false)
 
     /** (that.asInstanceOf[this.C])
      *  where that is the given methods first parameter.
@@ -157,8 +160,8 @@ trait SyntheticMethods extends ast.TreeDSL {
     def equalsCore(eqmeth: Symbol, accessors: List[Symbol]) = {
       val otherName = context.unit.freshTermName(clazz.name + "$")
       val otherSym  = eqmeth.newValue(otherName, eqmeth.pos, SYNTHETIC) setInfo clazz.tpe
-      val pairwise  = accessors map (acc => fn(Select(This(clazz), acc), acc.tpe member nme.EQ, Select(Ident(otherSym), acc)))
-      val canEq     = gen.mkMethodCall(otherSym, nme.canEqual_, Nil, List(This(clazz)))
+      val pairwise  = accessors map (acc => fn(Select(mkThis, acc), acc.tpe member nme.EQ, Select(Ident(otherSym), acc)))
+      val canEq     = gen.mkMethodCall(otherSym, nme.canEqual_, Nil, List(mkThis))
       val tests     = if (clazz.isDerivedValueClass || clazz.isFinal && syntheticCanEqual) pairwise else pairwise :+ canEq
 
       thatTest(eqmeth) AND Block(
@@ -181,9 +184,9 @@ trait SyntheticMethods extends ast.TreeDSL {
     def equalsCaseClassMethod: Tree = createMethod(nme.equals_, List(AnyClass.tpe), BooleanClass.tpe) { m =>
       if (accessors.isEmpty)
         if (clazz.isFinal) thatTest(m)
-        else thatTest(m) AND ((thatCast(m) DOT nme.canEqual_)(This(clazz)))
+        else thatTest(m) AND ((thatCast(m) DOT nme.canEqual_)(mkThis))
       else
-        (This(clazz) ANY_EQ Ident(m.firstParam)) OR equalsCore(m, accessors)
+        (mkThis ANY_EQ Ident(m.firstParam)) OR equalsCore(m, accessors)
     }
 
     /** The equality method for value classes
@@ -200,9 +203,7 @@ trait SyntheticMethods extends ast.TreeDSL {
      * def hashCode(): Int = this.underlying.hashCode
      */
     def hashCodeDerivedValueClassMethod: Tree = createMethod(nme.hashCode_, Nil, IntClass.tpe) { m =>
-      Select(
-        Select(This(clazz), clazz.firstParamAccessor),
-        nme.hashCode_)
+      Select(mkThisSelect(clazz.firstParamAccessor), nme.hashCode_)
     }
 
     /** The _1, _2, etc. methods to implement ProductN.
@@ -217,7 +218,7 @@ trait SyntheticMethods extends ast.TreeDSL {
       List(
         Product_productPrefix   -> (() => constantNullary(nme.productPrefix, clazz.name.decode)),
         Product_productArity    -> (() => constantNullary(nme.productArity, arity)),
-        Product_productElement  -> (() => perElementMethod(nme.productElement, accessorLub)(Select(This(clazz), _))),
+        Product_productElement  -> (() => perElementMethod(nme.productElement, accessorLub)(mkThisSelect)),
         Product_iterator        -> (() => productIteratorMethod),
         Product_canEqual        -> (() => canEqualMethod)
         // This is disabled pending a reimplementation which doesn't add any
@@ -226,13 +227,47 @@ trait SyntheticMethods extends ast.TreeDSL {
       )
     }
 
+    def hashcodeImplementation(sym: Symbol): Tree = {
+      sym.tpe.finalResultType.typeSymbol match {
+        case UnitClass | NullClass                         => Literal(Constant(0))
+        case BooleanClass                                  => If(Ident(sym), Literal(Constant(1231)), Literal(Constant(1237)))
+        case IntClass | ShortClass | ByteClass | CharClass => Ident(sym)
+        case LongClass                                     => callStaticsMethod("longHash")(Ident(sym))
+        case DoubleClass                                   => callStaticsMethod("doubleHash")(Ident(sym))
+        case FloatClass                                    => callStaticsMethod("floatHash")(Ident(sym))
+        case _                                             => callStaticsMethod("anyHash")(Ident(sym))
+      }
+    }
+
+    def specializedHashcode = {
+      createMethod(nme.hashCode_, Nil, IntClass.tpe) { m =>
+        val accumulator = m.newVariable(newTermName("acc"), m.pos, SYNTHETIC) setInfo IntClass.tpe
+        val valdef      = ValDef(accumulator, Literal(Constant(0xcafebabe)))
+        val mixes       = accessors map (acc =>
+          Assign(
+            Ident(accumulator),
+            callStaticsMethod("mix")(Ident(accumulator), hashcodeImplementation(acc))
+          )
+        )
+        val finish = callStaticsMethod("finalizeHash")(Ident(accumulator), Literal(Constant(arity)))
+
+        Block(valdef :: mixes, finish)
+      }
+    }
+    def chooseHashcode = {
+      if (accessors exists (x => isPrimitiveValueType(x.tpe.finalResultType)))
+        specializedHashcode
+      else
+        forwardToRuntime(Object_hashCode)
+    }
+
     def valueClassMethods = List(
       Any_hashCode -> (() => hashCodeDerivedValueClassMethod),
       Any_equals -> (() => equalsDerivedValueClassMethod)
     )
 
     def caseClassMethods = productMethods ++ productNMethods ++ Seq(
-      Object_hashCode -> (() => forwardToRuntime(Object_hashCode)),
+      Object_hashCode -> (() => chooseHashcode),
       Object_toString -> (() => forwardToRuntime(Object_toString)),
       Object_equals   -> (() => equalsCaseClassMethod)
     )
@@ -303,11 +338,12 @@ trait SyntheticMethods extends ast.TreeDSL {
           newAcc resetFlag (ACCESSOR | PARAMACCESSOR)
           ddef.rhs.duplicate
         }
+        // TODO: shouldn't the next line be: `original resetFlag CASEACCESSOR`?
         ddef.symbol resetFlag CASEACCESSOR
         lb += logResult("case accessor new")(newAcc)
       }
 
-      lb ++= templ.body ++= synthesize() toList
+      (lb ++= templ.body ++= synthesize()).toList
     }
 
     if (phase.id > currentRun.typerPhase.id) templ

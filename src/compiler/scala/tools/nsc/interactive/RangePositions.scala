@@ -6,7 +6,7 @@ package scala.tools.nsc
 package interactive
 
 import ast.Trees
-import symtab.Positions
+import ast.Positions
 import scala.tools.nsc.util.{SourceFile, Position, RangePosition, NoPosition, WorkScheduler}
 import scala.collection.mutable.ListBuffer
 
@@ -168,7 +168,7 @@ self: scala.tools.nsc.Global =>
   /** Position a tree.
    *  This means: Set position of a node and position all its unpositioned children.
    */
-  override def atPos[T <: Tree](pos: Position)(tree: T): T =
+  override def atPos[T <: Tree](pos: Position)(tree: T): T = {
     if (pos.isOpaqueRange) {
       if (!tree.isEmpty && tree.pos == NoPosition) {
         tree.setPos(pos)
@@ -182,34 +182,42 @@ self: scala.tools.nsc.Global =>
     } else {
       super.atPos(pos)(tree)
     }
+  }
 
   // ---------------- Validating positions ----------------------------------
 
   override def validatePositions(tree: Tree) {
     def reportTree(prefix : String, tree : Tree) {
       val source = if (tree.pos.isDefined) tree.pos.source else ""
-      inform("== "+prefix+" tree ["+tree.id+"] of type "+tree.productPrefix+" at "+tree.pos.show+source)
+      inform("== "+prefix+" tree ["+tree.id+"] of type "+tree.printingPrefix+" at "+tree.pos.show+source)
       inform("")
-      inform(tree.toString)
+      inform(treeStatus(tree))
       inform("")
     }
 
     def positionError(msg: String)(body : => Unit) {
-      inform("======= Bad positions: "+msg)
-      inform("")
+      inform("======= Position error\n" + msg)
       body
-      inform("=== While validating")
-      inform("")
-      inform(tree.toString)
-      inform("")
+      inform("\nWhile validating #" + tree.id)
+      inform(treeStatus(tree))
+      inform("\nChildren:")
+      tree.children map (t => "  " + treeStatus(t, tree)) foreach inform
       inform("=======")
       throw new ValidateException(msg)
     }
 
     def validate(tree: Tree, encltree: Tree): Unit = {
+
       if (!tree.isEmpty) {
+        if (settings.Yposdebug.value && (settings.verbose.value || settings.Yrangepos.value))
+          println("[%10s] %s".format("validate", treeStatus(tree, encltree)))
+
         if (!tree.pos.isDefined)
-          positionError("Unpositioned tree ["+tree.id+"]") { reportTree("Unpositioned", tree) }
+          positionError("Unpositioned tree #"+tree.id) {
+            inform("%15s %s".format("unpositioned", treeStatus(tree, encltree)))
+            inform("%15s %s".format("enclosing", treeStatus(encltree)))
+            encltree.children foreach (t => inform("%15s %s".format("sibling", treeStatus(t, encltree))))
+          }
         if (tree.pos.isRange) {
           if (!encltree.pos.isRange)
             positionError("Synthetic tree ["+encltree.id+"] contains nonsynthetic tree ["+tree.id+"]") {
@@ -261,7 +269,8 @@ self: scala.tools.nsc.Global =>
     protected def isEligible(t: Tree) = !t.pos.isTransparent
     override def traverse(t: Tree) {
       t match {
-        case tt : TypeTree if tt.original != null => traverse(tt.original)
+        case tt : TypeTree if tt.original != null && (tt.pos includes tt.original.pos) =>
+          traverse(tt.original)
         case _ =>
           if (t.pos includes pos) {
             if (isEligible(t)) last = t

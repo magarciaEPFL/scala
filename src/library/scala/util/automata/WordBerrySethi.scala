@@ -17,6 +17,7 @@ import scala.util.regexp.WordExp
   *  @author Burak Emir
   *  @version 1.0
   */
+@deprecated("This class will be removed", "2.10.0")
 abstract class WordBerrySethi extends BaseBerrySethi {
   override val lang: WordExp
 
@@ -52,7 +53,6 @@ abstract class WordBerrySethi extends BaseBerrySethi {
   /** Returns the first set of an expression, setting the follow set along
    *  the way.
    *
-   *  @param fol1 ...
    *  @param r    the regular expression
    *  @return     the computed set
    */
@@ -139,7 +139,7 @@ abstract class WordBerrySethi extends BaseBerrySethi {
           finals = finals.updated(0, finalTag)
 
         val delta1      = immutable.Map(deltaq.zipWithIndex map (_.swap): _*)
-        val finalsArr   = 0 until pos map (k => finals.getOrElse(k, 0)) toArray  // 0 == not final
+        val finalsArr   = (0 until pos map (k => finals.getOrElse(k, 0))).toArray  // 0 == not final
         val initialsArr = initials.toArray
 
         val deltaArr: Array[mutable.Map[_labelT, immutable.BitSet]] =
@@ -147,7 +147,7 @@ abstract class WordBerrySethi extends BaseBerrySethi {
             mutable.HashMap(delta1(x).toSeq map { case (k, v) => k -> immutable.BitSet(v: _*) } : _*)
           }).toArray
 
-        val defaultArr  = 0 until pos map (k => immutable.BitSet(defaultq(k): _*)) toArray
+        val defaultArr  = (0 until pos map (k => immutable.BitSet(defaultq(k): _*))).toArray
 
         new NondetWordAutom[_labelT] {
           val nstates  = pos

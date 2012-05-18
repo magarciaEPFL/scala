@@ -34,8 +34,10 @@ import immutable.VectorIterator
  *
  *  @author Aleksandar Prokopec
  *  @since 2.9
+ *  @see  [[http://docs.scala-lang.org/overviews/parallel-collections/concrete-parallel-collections.html#parallel_vector Scala's Parallel Collections Library overview]]
+ *  section on `ParVector` for more information.
  *
- *  @define Coll immutable.ParVector
+ *  @define Coll `immutable.ParVector`
  *  @define coll immutable parallel vector
  */
 class ParVector[+T](private[this] val vector: Vector[T])
@@ -78,25 +80,13 @@ extends ParSeq[T]
       splitted.map(v => new ParVector(v).splitter.asInstanceOf[ParVectorIterator])
     }
   }
-  
-  /* serialization */
-  
-  private def writeObject(out: java.io.ObjectOutputStream) {
-    out.defaultWriteObject
-  }
-
-  private def readObject(in: java.io.ObjectInputStream) {
-    in.defaultReadObject
-    
-    initTaskSupport()
-  }
 
 }
 
 
 
 /** $factoryInfo
- *  @define Coll immutable.ParVector
+ *  @define Coll `immutable.ParVector`
  *  @define coll immutable parallel vector
  */
 object ParVector extends ParFactory[ParVector] {

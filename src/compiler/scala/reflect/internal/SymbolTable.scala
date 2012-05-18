@@ -14,6 +14,7 @@ abstract class SymbolTable extends api.Universe
                               with Collections
                               with Names
                               with Symbols
+                              with FreeVars
                               with Types
                               with Kinds
                               with ExistentialsAndSkolems
@@ -32,6 +33,10 @@ abstract class SymbolTable extends api.Universe
                               with TypeDebugging
                               with Importers
                               with Required
+                              with TreeBuildUtil
+                              with FrontEnds
+                              with CapturedVariables
+                              with StdAttachments
 {
   def rootLoader: LazyType
   def log(msg: => AnyRef): Unit
@@ -43,9 +48,20 @@ abstract class SymbolTable extends api.Universe
   /** Override with final implementation for inlining. */
   def debuglog(msg:  => String): Unit = if (settings.debug.value) log(msg)
   def debugwarn(msg: => String): Unit = if (settings.debug.value) Console.err.println(msg)
+  def throwableAsString(t: Throwable): String = "" + t
+
+  /** Prints a stack trace if -Ydebug or equivalent was given, otherwise does nothing. */
+  def debugStack(t: Throwable): Unit  = debugwarn(throwableAsString(t))
 
   /** Overridden when we know more about what was happening during a failure. */
   def supplementErrorMessage(msg: String): String = msg
+
+  private[scala] def printCaller[T](msg: String)(result: T) = {
+    Console.err.println("%s: %s\nCalled from: %s".format(msg, result,
+      (new Throwable).getStackTrace.drop(2).take(15).mkString("\n")))
+
+    result
+  }
 
   private[scala] def printResult[T](msg: String)(result: T) = {
     Console.err.println(msg + ": " + result)
@@ -55,6 +71,32 @@ abstract class SymbolTable extends api.Universe
     log(msg + ": " + result)
     result
   }
+  private[scala] def logResultIf[T](msg: String, cond: T => Boolean)(result: T): T = {
+    if (cond(result))
+      log(msg + ": " + result)
+
+    result
+  }
+
+  // For too long have we suffered in order to sort NAMES.
+  // I'm pretty sure there's a reasonable default for that.
+  // Notice challenge created by Ordering's invariance.
+  implicit def lowPriorityNameOrdering[T <: Names#Name]: Ordering[T] =
+    SimpleNameOrdering.asInstanceOf[Ordering[T]]
+
+  private object SimpleNameOrdering extends Ordering[Names#Name] {
+    def compare(n1: Names#Name, n2: Names#Name) = (
+      if (n1 eq n2) 0
+      else n1.toString compareTo n2.toString
+    )
+  }
+
+  /** Dump each symbol to stdout after shutdown.
+   */
+  final val traceSymbolActivity = sys.props contains "scalac.debug.syms"
+  object traceSymbols extends {
+    val global: SymbolTable.this.type = SymbolTable.this
+  } with util.TraceSymbolActivity
 
   /** Are we compiling for Java SE? */
   // def forJVM: Boolean
@@ -86,6 +128,11 @@ abstract class SymbolTable extends api.Universe
 
   final def atPhaseStack: List[Phase] = phStack
   final def phase: Phase = ph
+
+  def atPhaseStackMessage = atPhaseStack match {
+    case Nil    => ""
+    case ps     => ps.reverseMap("->" + _).mkString("(", " ", ")")
+  }
 
   final def phase_=(p: Phase) {
     //System.out.println("setting phase to " + p)
@@ -138,7 +185,7 @@ abstract class SymbolTable extends api.Universe
     try op
     finally popPhase(saved)
   }
-  
+
 
   /** Since when it is to be "at" a phase is inherently ambiguous,
    *  a couple unambiguously named methods.
@@ -200,7 +247,7 @@ abstract class SymbolTable extends api.Universe
   def arrayToRepeated(tp: Type): Type = tp match {
     case MethodType(params, rtpe) =>
       val formals = tp.paramTypes
-      assert(formals.last.typeSymbol == definitions.ArrayClass)
+      assert(formals.last.typeSymbol == definitions.ArrayClass, formals)
       val method = params.last.owner
       val elemtp = formals.last.typeArgs.head match {
         case RefinedType(List(t1, t2), _) if (t1.typeSymbol.isAbstractType && t2.typeSymbol == definitions.ObjectClass) =>
@@ -208,8 +255,7 @@ abstract class SymbolTable extends api.Universe
         case t =>
           t
       }
-      val newParams = method.newSyntheticValueParams(
-        formals.init :+ appliedType(definitions.JavaRepeatedParamClass.typeConstructor, List(elemtp)))
+      val newParams = method.newSyntheticValueParams(formals.init :+ definitions.javaRepeatedType(elemtp))
       MethodType(newParams, rtpe)
     case PolyType(tparams, rtpe) =>
       PolyType(tparams, arrayToRepeated(rtpe))
@@ -236,31 +282,11 @@ abstract class SymbolTable extends api.Universe
   object perRunCaches {
     import java.lang.ref.WeakReference
     import scala.runtime.ScalaRunTime.stringOf
+    import scala.collection.generic.Clearable
 
-    // We can allow ourselves a structural type, these methods
-    // amount to a few calls per run at most.  This does suggest
-    // a "Clearable" trait may be useful.
-    private type Clearable = {
-      def size: Int
-      def clear(): Unit
-    }
     // Weak references so the garbage collector will take care of
     // letting us know when a cache is really out of commission.
     private val caches = mutable.HashSet[WeakReference[Clearable]]()
-
-    private def dumpCaches() {
-      println(caches.size + " structures are in perRunCaches.")
-      caches.zipWithIndex foreach { case (ref, index) =>
-        val cache = ref.get()
-        println("(" + index + ")" + (
-          if (cache == null) " has been collected."
-          else " has " + cache.size + " entries:\n" + stringOf(cache)
-        ))
-      }
-    }
-    // if (settings.debug.value) {
-    //   println(Signallable("dump compiler caches")(dumpCaches()))
-    // }
 
     def recordCache[T <: Clearable](cache: T): T = {
       caches += new WeakReference(cache)
@@ -268,10 +294,8 @@ abstract class SymbolTable extends api.Universe
     }
 
     def clearAll() = {
-      if (settings.debug.value) {
-        val size = caches flatMap (ref => Option(ref.get)) map (_.size) sum;
-        log("Clearing " + caches.size + " caches totalling " + size + " entries.")
-      }
+      debuglog("Clearing " + caches.size + " caches.")
+
       caches foreach { ref =>
         val cache = ref.get()
         if (cache == null)
@@ -286,11 +310,6 @@ abstract class SymbolTable extends api.Universe
     def newSet[K]()               = recordCache(mutable.HashSet[K]())
     def newWeakSet[K <: AnyRef]() = recordCache(new WeakHashSet[K]())
   }
-
-  /** Break into repl debugger if assertion is true. */
-  // def breakIf(assertion: => Boolean, args: Any*): Unit =
-  //   if (assertion)
-  //     ILoop.break(args.toList)
 
   /** The set of all installed infotransformers. */
   var infoTransformers = new InfoTransformer {

@@ -32,6 +32,7 @@ trait StandardScalaSettings {
   val deprecation =    BooleanSetting ("-deprecation", "Emit warning and location for usages of deprecated APIs.")
   val encoding =        StringSetting ("-encoding", "encoding", "Specify character encoding used by source files.", Properties.sourceEncoding)
   val explaintypes =   BooleanSetting ("-explaintypes", "Explain type errors in more detail.")
+  val feature =        BooleanSetting ("-feature", "Emit warning and location for usages of features that should be imported explicitly.")
   val g =               ChoiceSetting ("-g", "level", "Set level of generated debugging info.", List("none", "source", "line", "vars", "notailcalls"), "vars")
   val help =           BooleanSetting ("-help", "Print a synopsis of standard options")
   val make =            ChoiceSetting ("-make", "policy", "Recompilation detection policy", List("all", "changed", "immediate", "transitive", "transitivenocp"), "all")
@@ -39,7 +40,7 @@ trait StandardScalaSettings {
   val nowarn =         BooleanSetting ("-nowarn", "Generate no warnings.")
   val optimise:        BooleanSetting // depends on post hook which mutates other settings
   val print =          BooleanSetting ("-print", "Print program with Scala-specific features removed.")
-  val target =          ChoiceSetting ("-target", "target", "Target platform for object files.", List("jvm-1.5", "msil"), "jvm-1.5")
+  val target =          ChoiceSetting ("-target", "target", "Target platform for object files.", List("jvm-1.5", "jvm-1.5-asm", "jvm-1.6", "jvm-1.7", "msil"), "jvm-1.5")
   val unchecked =      BooleanSetting ("-unchecked", "Enable detailed unchecked (erasure) warnings.")
   val uniqid =         BooleanSetting ("-uniqid", "Uniquely tag all identifiers in debugging output.")
   val usejavacp =      BooleanSetting ("-usejavacp", "Utilize the java.class.path in classpath resolution.")

@@ -18,8 +18,6 @@ trait AnnotationInfos extends api.AnnotationInfos { self: SymbolTable =>
   // the Symbol's field directly.  For Type, a new AnnotatedType is
   // created which wraps the original type.
   trait Annotatable[Self] {
-    self: Self =>
-
     /** The annotations on this type. */
     def annotations: List[AnnotationInfo]                     // Annotations on this type.
     def setAnnotations(annots: List[AnnotationInfo]): Self    // Replace annotations with argument list.
@@ -76,13 +74,34 @@ trait AnnotationInfos extends api.AnnotationInfos { self: SymbolTable =>
    */
   case class ScalaSigBytes(bytes: Array[Byte]) extends ClassfileAnnotArg {
     override def toString = (bytes map { byte => (byte & 0xff).toHexString }).mkString("[ ", " ", " ]")
-    lazy val encodedBytes = ByteCodecs.encode(bytes)
-    def isLong: Boolean = (encodedBytes.length > 65535)
+    lazy val encodedBytes = ByteCodecs.encode(bytes)    // TODO remove after migration to ASM-based GenJVM complete
+    def isLong: Boolean = (encodedBytes.length > 65535) // TODO remove after migration to ASM-based GenJVM complete
+    lazy val sevenBitsMayBeZero: Array[Byte] = {
+      mapToNextModSevenBits(scala.reflect.internal.pickling.ByteCodecs.encode8to7(bytes))
+    }
+    def fitsInOneString: Boolean = {
+      val numZeros = (sevenBitsMayBeZero count { b => b == 0 })
+      val res = (sevenBitsMayBeZero.length + numZeros) <= 65535
+      assert(this.isLong == !res, "As things stand, can't just swap in `fitsInOneString()` for `isLong()`")
+      res
+    }
     def sigAnnot: Type =
       if (this.isLong)
         definitions.ScalaLongSignatureAnnotation.tpe
       else
         definitions.ScalaSignatureAnnotation.tpe
+
+    private def mapToNextModSevenBits(src: Array[Byte]): Array[Byte] = {
+      var i = 0
+      val srclen = src.length
+      while (i < srclen) {
+        val in = src(i)
+        src(i) = (if (in == 0x7f) 0.toByte else (in + 1).toByte)
+        i += 1
+      }
+      src
+    }
+
   }
 
   /** Represents a nested classfile annotation */
@@ -116,10 +135,14 @@ trait AnnotationInfos extends api.AnnotationInfos { self: SymbolTable =>
     // Classfile annot: args empty. Scala annot: assocs empty.
     assert(args.isEmpty || assocs.isEmpty, atp)
 
-    // @xeno.by: necessary for reification, see Reifiers.scala for more info
+    // necessary for reification, see Reifiers.scala for more info
     private var orig: Tree = EmptyTree
     def original = orig
-    def setOriginal(t: Tree): this.type = { orig = t; this }
+    def setOriginal(t: Tree): this.type = {
+      orig = t
+      this setPos t.pos
+      this
+    }
 
     override def toString = (
       atp +
@@ -168,23 +191,14 @@ trait AnnotationInfos extends api.AnnotationInfos { self: SymbolTable =>
    *
    *  `assocs` stores arguments to classfile annotations as name-value pairs.
    */
-  sealed abstract class AnnotationInfo extends Product3[Type, List[Tree], List[(Name, ClassfileAnnotArg)]] {
+  sealed abstract class AnnotationInfo {
     def atp: Type
     def args: List[Tree]
     def assocs: List[(Name, ClassfileAnnotArg)]
 
-    // @xeno.by: necessary for reification, see Reifiers.scala for more info
+    // necessary for reification, see Reifiers.scala for more info
     def original: Tree
     def setOriginal(t: Tree): this.type
-
-    /** Hand rolling Product. */
-    def _1 = atp
-    def _2 = args
-    def _3 = assocs
-    // @xeno.by: original hasn't become a product member for backward compatibility purposes
-    // def _4 = original
-    def canEqual(other: Any) = other.isInstanceOf[AnnotationInfo]
-    override def productPrefix = "AnnotationInfo"
 
     // see annotationArgRewriter
     lazy val isTrivial = atp.isTrivial && !hasArgWhich(_.isInstanceOf[This])
@@ -269,8 +283,7 @@ trait AnnotationInfos extends api.AnnotationInfos { self: SymbolTable =>
     }
   }
 
-  lazy val classfileAnnotArgManifest: ClassManifest[ClassfileAnnotArg] =
-    reflect.ClassManifest.classType(classOf[ClassfileAnnotArg])
+  lazy val classfileAnnotArgTag: ArrayTag[ClassfileAnnotArg] = arrayTag[ClassfileAnnotArg]
 
   object UnmappableAnnotation extends CompleteAnnotationInfo(NoType, Nil, Nil)
 }

@@ -22,6 +22,16 @@ abstract class HtmlPage extends Page { thisPage =>
   /** The title of this page. */
   protected def title: String
 
+  /** The page description */
+  protected def description: String =
+    // unless overwritten, will display the title in a spaced format, keeping - and .
+    title.replaceAll("[^a-zA-Z0-9\\.\\-]+", " ").replaceAll("\\-+", " - ").replaceAll(" +", " ")
+
+  /** The page keywords */
+  protected def keywords: String =
+    // unless overwritten, same as description, minus the " - "
+    description.replaceAll(" - ", " ")
+
   /** Additional header elements (links, scripts, meta tags, etc.) required for this page. */
   protected def headers: NodeSeq
 
@@ -35,6 +45,8 @@ abstract class HtmlPage extends Page { thisPage =>
       <html>
         <head>
           <title>{ title }</title>
+          <meta name="description" content={ description }/>
+          <meta name="keywords" content={ keywords }/>
           <meta http-equiv="content-type" content={ "text/html; charset=" + site.encoding }/>
           { headers }
         </head>
@@ -152,15 +164,15 @@ abstract class HtmlPage extends Page { thisPage =>
   }
 
   /** Returns the HTML code that represents the template in `tpl` as a hyperlinked name. */
-  def templateToHtml(tpl: TemplateEntity) = tpl match {
+  def templateToHtml(tpl: TemplateEntity, name: String = null) = tpl match {
     case dTpl: DocTemplateEntity =>
       if (hasPage(dTpl)) {
-        <a href={ relativeLinkTo(dTpl) } class="extype" name={ dTpl.qualifiedName }>{ dTpl.name }</a>
+        <a href={ relativeLinkTo(dTpl) } class="extype" name={ dTpl.qualifiedName }>{ if (name eq null) dTpl.name else name }</a>
       } else {
-        xml.Text(dTpl.name)
+        xml.Text(if (name eq null) dTpl.name else name)
       }
     case ndTpl: NoDocTemplate =>
-      xml.Text(ndTpl.name)
+      xml.Text(if (name eq null) ndTpl.name else name)
   }
 
   /** Returns the HTML code that represents the templates in `tpls` as a list of hyperlinked names. */
@@ -180,6 +192,6 @@ abstract class HtmlPage extends Page { thisPage =>
     else if (ety.isObject && !ety.companion.isEmpty && ety.companion.get.visibility.isPublic && ety.companion.get.inSource != None && ety.companion.get.isTrait) "object_to_trait_big.png"
     else if (ety.isObject) "object_big.png"
     else if (ety.isPackage) "package_big.png"
-    else "class_big.png"	// FIXME: an entity *should* fall into one of the above categories, but AnyRef is somehow not
+    else "class_big.png"  // FIXME: an entity *should* fall into one of the above categories, but AnyRef is somehow not
 
 }

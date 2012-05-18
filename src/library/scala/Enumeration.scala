@@ -70,10 +70,9 @@ abstract class Enumeration (initial: Int) extends Serializable {
 
   /** The name of this enumeration.
    */
-  override def toString = (
-    (getClass.getName stripSuffix MODULE_SUFFIX_STRING split '.' last)
-    split Pattern.quote(NAME_JOIN_STRING) last
-  )
+  override def toString =
+    ((getClass.getName stripSuffix MODULE_SUFFIX_STRING split '.').last split 
+       Pattern.quote(NAME_JOIN_STRING)).last
 
   /** The mapping from the integer used to identify values to the actual
     * values. */
@@ -81,7 +80,7 @@ abstract class Enumeration (initial: Int) extends Serializable {
 
   /** The cache listing all values of this enumeration. */
   @transient private var vset: ValueSet = null
-  @transient private var vsetDefined = false
+  @transient @volatile private var vsetDefined = false
 
   /** The mapping from the integer used to identify values to their
     * names. */
@@ -114,8 +113,8 @@ abstract class Enumeration (initial: Int) extends Serializable {
     * enumeration, but no higher than 0. */
   private var bottomId = if(initial < 0) initial else 0
 
-  /** The highest integer amongst those used to identify values in this
-    * enumeration. */
+  /** The one higher than the highest integer amongst those used to identify
+    *  values in this enumeration. */
   final def maxId = topId
 
   /** The value of this enumeration with given id `x`

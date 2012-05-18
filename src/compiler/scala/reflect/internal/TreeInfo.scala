@@ -17,7 +17,7 @@ abstract class TreeInfo {
   val global: SymbolTable
 
   import global._
-  import definitions.{ isVarArgsList, isCastSymbol, ThrowableClass }
+  import definitions.{ isVarArgsList, isCastSymbol, ThrowableClass, TupleClass }
 
   /* Does not seem to be used. Not sure what it does anyway.
   def isOwnerDefinition(tree: Tree): Boolean = tree match {
@@ -221,14 +221,37 @@ abstract class TreeInfo {
     case _ => false
   }
 
+  /**
+   * Named arguments can transform a constructor call into a block, e.g.
+   *   <init>(b = foo, a = bar)
+   * is transformed to
+   *   { val x$1 = foo
+   *     val x$2 = bar
+   *     <init>(x$2, x$1)
+   *   }
+   */
+  def stripNamedApplyBlock(tree: Tree) = tree match {
+    case Block(stats, expr) if stats.forall(_.isInstanceOf[ValDef]) =>
+      expr
+    case _ =>
+      tree
+  }
+  
   /** Is tree a self or super constructor call? */
-  def isSelfOrSuperConstrCall(tree: Tree) =
-    isSelfConstrCall(tree) || isSuperConstrCall(tree)
+  def isSelfOrSuperConstrCall(tree: Tree) = {
+    // stripNamedApply for SI-3584: adaptToImplicitMethod in Typers creates a special context
+    // for implicit search in constructor calls, adaptToImplicitMethod(isSelfOrConstrCall)
+    val tree1 = stripNamedApplyBlock(tree)
+    isSelfConstrCall(tree1) || isSuperConstrCall(tree1)
+  }
 
   /** Is tree a variable pattern? */
   def isVarPattern(pat: Tree): Boolean = pat match {
-    case _: BackQuotedIdent => false
-    case x: Ident           => isVariableName(x.name)
+    case x: Ident           => !x.isBackquoted && isVariableName(x.name)
+    case _                  => false
+  }
+  def isDeprecatedIdentifier(tree: Tree): Boolean = tree match {
+    case x: Ident           => !x.isBackquoted && nme.isDeprecatedIdentifierName(x.name)
     case _                  => false
   }
 
@@ -310,6 +333,24 @@ abstract class TreeInfo {
     case AppliedTypeTree(constr, args)           => mayBeTypePat(constr) || args.exists(_.isInstanceOf[Bind])
     case SelectFromTypeTree(tp, _)               => mayBeTypePat(tp)
     case _                                       => false
+  }
+
+  /** Is this tree comprised of nothing but identifiers,
+   *  but possibly in bindings or tuples? For instance
+   *
+   *    foo @ (bar, (baz, quux))
+   *
+   *  is a variable pattern; if the structure matches,
+   *  then the remainder is inevitable.
+   */
+  def isVariablePattern(tree: Tree): Boolean = tree match {
+    case Bind(name, pat)  => isVariablePattern(pat)
+    case Ident(name)      => true
+    case Apply(sel, args) =>
+      (    isReferenceToScalaMember(sel, TupleClass(args.size).name.toTermName)
+        && (args forall isVariablePattern)
+      )
+    case _ => false
   }
 
   /** Is this argument node of the form <expr> : _* ?
@@ -511,6 +552,216 @@ abstract class TreeInfo {
     protected def unapplyImpl(x: Tree) = x match {
       case If(cond, thenp, elsep) => Some((cond, thenp, elsep))
       case _                      => None
+    }
+  }
+
+  def isApplyDynamicName(name: Name) = (name == nme.updateDynamic) || (name == nme.selectDynamic) || (name == nme.applyDynamic) || (name == nme.applyDynamicNamed)
+
+  class DynamicApplicationExtractor(nameTest: Name => Boolean) {
+    def unapply(tree: Tree) = tree match {
+      case Apply(TypeApply(Select(qual, oper), _), List(Literal(Constant(name)))) if nameTest(oper) => Some((qual, name))
+      case Apply(Select(qual, oper), List(Literal(Constant(name)))) if nameTest(oper) => Some((qual, name))
+      case Apply(Ident(oper), List(Literal(Constant(name)))) if nameTest(oper) => Some((EmptyTree, name))
+      case _ => None
+    }
+  }
+  object DynamicUpdate extends DynamicApplicationExtractor(_ == nme.updateDynamic)
+  object DynamicApplication extends DynamicApplicationExtractor(isApplyDynamicName)
+  object DynamicApplicationNamed extends DynamicApplicationExtractor(_ == nme.applyDynamicNamed)
+
+
+  // domain-specific extractors for reification
+
+  import definitions._
+
+  object TypedOrAnnotated {
+    def unapply(tree: Tree): Option[Tree] = tree match {
+      case ty @ Typed(_, _) =>
+        Some(ty)
+      case at @ Annotated(_, _) =>
+        Some(at)
+      case _ =>
+        None
+    }
+  }
+
+  object TreeSplice {
+    def unapply(tree: Tree): Option[Tree] = tree match {
+      case Select(splicee, _) if tree.symbol == ExprEval || tree.symbol == ExprValue =>
+        Some(splicee)
+      case _ =>
+        None
+    }
+  }
+
+  object EvalSplice {
+    def unapply(tree: Tree): Option[Tree] = tree match {
+      case Select(splicee, _) if tree.symbol == ExprEval =>
+        Some(splicee)
+      case _ =>
+        None
+    }
+  }
+
+  object ValueSplice {
+    def unapply(tree: Tree): Option[Tree] = tree match {
+      case Select(splicee, _) if tree.symbol == ExprValue =>
+        Some(splicee)
+      case _ =>
+        None
+    }
+  }
+
+  object Reified {
+    def unapply(tree: Tree): Option[(Tree, List[Tree], Tree)] = tree match {
+      case ReifiedTree(reifee, symbolTable, reified, _) =>
+        Some(reifee, symbolTable, reified)
+      case ReifiedType(reifee, symbolTable, reified) =>
+        Some(reifee, symbolTable, reified)
+      case _ =>
+        None
+    }
+  }
+
+  object ReifiedTree {
+    def unapply(tree: Tree): Option[(Tree, List[Tree], Tree, Tree)] = tree match {
+      case reifee @ Block((mrDef @ ValDef(_, _, _, _)) :: symbolTable, Apply(Apply(_, List(tree)), List(Apply(_, tpe :: _)))) if mrDef.name == nme.MIRROR_SHORT =>
+        Some(reifee, symbolTable, tree, tpe)
+      case _ =>
+        None
+    }
+  }
+
+  object InlineableTreeSplice {
+    def unapply(tree: Tree): Option[(Tree, List[Tree], Tree, Tree, Symbol)] = tree match {
+      case select @ Select(ReifiedTree(splicee, symbolTable, tree, tpe), _) if select.symbol == ExprEval || select.symbol == ExprValue =>
+        Some(splicee, symbolTable, tree, tpe, select.symbol)
+      case _ =>
+        None
+    }
+  }
+
+  object InlinedTreeSplice {
+    def unapply(tree: Tree): Option[(Tree, List[Tree], Tree, Tree)] = tree match {
+      case Select(ReifiedTree(splicee, symbolTable, tree, tpe), name) if name == ExprTree.name =>
+        Some(splicee, symbolTable, tree, tpe)
+      case _ =>
+        None
+    }
+  }
+
+  object ReifiedType {
+    def unapply(tree: Tree): Option[(Tree, List[Tree], Tree)] = tree match {
+      case reifee @ Block((mrDef @ ValDef(_, _, _, _)) :: symbolTable, Apply(_, tpe :: _)) if mrDef.name == nme.MIRROR_SHORT =>
+        Some(reifee, symbolTable, tpe)
+      case _ =>
+        None
+    }
+  }
+
+  object InlinedTypeSplice {
+    def unapply(tree: Tree): Option[(Tree, List[Tree], Tree)] = tree match {
+      case Select(ReifiedType(splicee, symbolTable, tpe), name) if name == TypeTagTpe.name =>
+        Some(splicee, symbolTable, tpe)
+      case _ =>
+        None
+    }
+  }
+
+  object FreeDef {
+    def unapply(tree: Tree): Option[(Tree, TermName, Tree, Long, String)] = tree match {
+      case FreeTermDef(mrRef, name, binding, flags, origin) =>
+        Some(mrRef, name, binding, flags, origin)
+      case FreeTypeDef(mrRef, name, binding, flags, origin) =>
+        Some(mrRef, name, binding, flags, origin)
+      case _ =>
+        None
+    }
+  }
+
+  object FreeTermDef {
+    lazy val newFreeTermMethod = getMember(getRequiredClass("scala.reflect.api.TreeBuildUtil"), nme.newFreeTerm)
+
+    def unapply(tree: Tree): Option[(Tree, TermName, Tree, Long, String)] = tree match {
+      case ValDef(_, name, _, Apply(Select(mrRef @ Ident(_), newFreeTerm), List(_, _, binding, Literal(Constant(flags: Long)), Literal(Constant(origin: String)))))
+      if mrRef.name == nme.MIRROR_SHORT && newFreeTerm == newFreeTermMethod.name =>
+        Some(mrRef, name, binding, flags, origin)
+      case _ =>
+        None
+    }
+  }
+
+  object FreeTypeDef {
+    lazy val newFreeExistentialMethod = getMember(getRequiredClass("scala.reflect.api.TreeBuildUtil"), nme.newFreeType)
+    lazy val newFreeTypeMethod = getMember(getRequiredClass("scala.reflect.api.TreeBuildUtil"), nme.newFreeExistential)
+
+    def unapply(tree: Tree): Option[(Tree, TermName, Tree, Long, String)] = tree match {
+      case ValDef(_, name, _, Apply(Select(mrRef1 @ Ident(_), newFreeType), List(_, _, value, Literal(Constant(flags: Long)), Literal(Constant(origin: String)))))
+      if mrRef1.name == nme.MIRROR_SHORT && (newFreeType == newFreeTypeMethod.name || newFreeType == newFreeExistentialMethod.name) =>
+        value match {
+          case Apply(TypeApply(Select(Select(mrRef2 @ Ident(_), typeTag), apply), List(binding)), List(Literal(Constant(null)), _))
+          if mrRef2.name == nme.MIRROR_SHORT && typeTag == nme.TypeTag && apply == nme.apply =>
+            Some(mrRef1, name, binding, flags, origin)
+          case Apply(TypeApply(Select(mrRef2 @ Ident(_), typeTag), List(binding)), List(Literal(Constant(null)), _))
+          if mrRef2.name == nme.MIRROR_SHORT && typeTag == nme.TypeTag =>
+            Some(mrRef1, name, binding, flags, origin)
+          case _ =>
+            throw new Error("unsupported free type def: %s%n%s".format(value, showRaw(value)))
+        }
+      case _ =>
+        None
+    }
+  }
+
+  object FreeRef {
+    def unapply(tree: Tree): Option[(Tree, TermName)] = tree match {
+      case Apply(Select(mrRef @ Ident(_), ident), List(Ident(name: TermName))) if ident == nme.Ident && name.startsWith(nme.MIRROR_FREE_PREFIX) =>
+        Some(mrRef, name)
+      case _ =>
+        None
+    }
+  }
+
+  object TypeRefToFreeType {
+    def unapply(tree: Tree): Option[TermName] = tree match {
+      case Apply(Select(Select(mrRef @ Ident(_), typeRef), apply), List(Select(_, noSymbol), Ident(freeType: TermName), nil))
+      if (mrRef.name == nme.MIRROR_SHORT && typeRef == nme.TypeRef && noSymbol == nme.NoSymbol && freeType.startsWith(nme.MIRROR_FREE_PREFIX)) =>
+        Some(freeType)
+      case _ =>
+        None
+    }
+  }
+
+  object NestedExpr {
+    def unapply(tree: Tree): Option[(Tree, Tree, Tree)] = tree match {
+      case Apply(Apply(factory @ Select(expr, apply), List(tree)), List(typetag)) if expr.symbol == ExprModule && apply == nme.apply =>
+        Some(factory, tree, typetag)
+      case _ =>
+        None
+    }
+  }
+
+  object BoundTerm {
+    def unapply(tree: Tree): Option[Tree] = tree match {
+      case Ident(name) if name.isTermName =>
+        Some(tree)
+      case This(_) =>
+        Some(tree)
+      case _ =>
+        None
+    }
+  }
+
+  object BoundType {
+    def unapply(tree: Tree): Option[Tree] = tree match {
+      case Select(_, name) if name.isTypeName =>
+        Some(tree)
+      case SelectFromTypeTree(_, name) if name.isTypeName =>
+        Some(tree)
+      case Ident(name) if name.isTypeName =>
+        Some(tree)
+      case _ =>
+        None
     }
   }
 }

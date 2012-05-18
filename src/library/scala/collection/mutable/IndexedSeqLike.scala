@@ -27,7 +27,7 @@ import generic._
  *  @tparam A    the element type of the $coll
  *  @tparam Repr the type of the actual $coll containing the elements.
  *
- *  @define Coll IndexedSeq
+ *  @define Coll `IndexedSeq`
  *  @define coll mutable indexed sequence
  *  @define indexedSeqInfo
  *  @author Martin Odersky
@@ -43,7 +43,7 @@ trait IndexedSeqLike[A, +Repr] extends scala.collection.IndexedSeqLike[A, Repr] 
 
   /** Replaces element at given index with a new value.
    *
-   *  @param n       the index of the element to replace.
+   *  @param idx     the index of the element to replace.
    *  @param elem    the new value.
    *  @throws   IndexOutOfBoundsException if the index is not valid.
    */

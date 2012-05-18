@@ -17,15 +17,11 @@ private[tests] trait CoreTestDefs
     extends PresentationCompilerTestDef
     with AskCompletionAt {
 
-    object MemberPrinter {
-      def apply(member: compiler.Member): String =
-        "`" + (member.sym.toString() + member.tpe.toString()).trim() + "`"
-    }
-
-    protected val marker = CompletionMarker
+    def memberPrinter(member: compiler.Member): String =
+        "[accessible: %5s] ".format(member.accessible) + "`" + (member.sym.toString() + member.tpe.toString()).trim() + "`"
 
     override def runTest() {
-      askAllSources(marker) { pos =>
+      askAllSources(CompletionMarker) { pos =>
         askCompletionAt(pos)
       } { (pos, members) =>
         withResponseDelimiter {
@@ -35,7 +31,7 @@ private[tests] trait CoreTestDefs
           reporter.println("retrieved %d members".format(members.size))
           compiler ask { () =>
             val filtered = members.filterNot(member => member.sym.name.toString == "getClass" || member.sym.isConstructor)
-            reporter.println(filtered.map(MemberPrinter(_)).sortBy(_.toString()).mkString("\n"))
+            reporter.println(filtered.map(memberPrinter).sortBy(_.toString()).mkString("\n"))
           }
         }
       }
@@ -48,10 +44,8 @@ private[tests] trait CoreTestDefs
     extends PresentationCompilerTestDef
     with AskTypeAt {
 
-    protected val marker = TypeMarker
-
     override def runTest() {
-      askAllSources(marker) { pos =>
+      askAllSources(TypeMarker) { pos =>
         askTypeAt(pos)
       } { (pos, tree) =>
         withResponseDelimiter {
@@ -69,10 +63,8 @@ private[tests] trait CoreTestDefs
     with AskTypeAt
     with AskCompletionAt {
 
-    protected val marker = HyperlinkMarker
-
     override def runTest() {
-      askAllSources(marker) { pos =>
+      askAllSources(HyperlinkMarker) { pos =>
         askTypeAt(pos)(NullReporter)
       } { (pos, tree) =>
         if(tree.symbol == compiler.NoSymbol) {
@@ -81,7 +73,7 @@ private[tests] trait CoreTestDefs
         else {
           reporter.println("\naskHyperlinkPos for `" + tree.symbol.name + "` at " + format(pos) + " " + pos.source.file.name)
           val r = new Response[Position]
-          // `tree.symbol.sourceFile` was discovered to be null when testing -Yvirtpatmat on the akka presentation test, where a position had shifted to point to `Int`
+          // `tree.symbol.sourceFile` was discovered to be null when testing using virtpatmat on the akka presentation test, where a position had shifted to point to `Int`
           // askHyperlinkPos for `Int` at (73,19) pi.scala --> class Int in package scala has null sourceFile!
           val treePath = if (tree.symbol.sourceFile ne null) tree.symbol.sourceFile.path else null
           val treeName = if (tree.symbol.sourceFile ne null) tree.symbol.sourceFile.name else null
@@ -90,8 +82,9 @@ private[tests] trait CoreTestDefs
               compiler.askLinkPos(tree.symbol, source, r)
               r.get match {
                 case Left(pos) =>
+                  val resolvedPos = if (tree.symbol.pos.isDefined) tree.symbol.pos else pos
                   withResponseDelimiter {
-                    reporter.println("[response] found askHyperlinkPos for `" + tree.symbol.name + "` at " + format(pos) + " " + tree.symbol.sourceFile.name)
+                    reporter.println("[response] found askHyperlinkPos for `" + tree.symbol.name + "` at " + format(resolvedPos) + " " + tree.symbol.sourceFile.name)
                   }
                 case Right(ex) =>
                   ex.printStackTrace()

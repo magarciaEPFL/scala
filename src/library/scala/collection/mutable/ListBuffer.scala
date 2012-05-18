@@ -27,7 +27,7 @@ import java.io._
  *
  *  @tparam A    the type of this list buffer's elements.
  *
- *  @define Coll ListBuffer
+ *  @define Coll `ListBuffer`
  *  @define coll list buffer
  *  @define thatinfo the class of the returned collection. In the standard library configuration,
  *    `That` is always `ListBuffer[B]` because an implicit of type `CanBuildFrom[ListBuffer, B, ListBuffer[B]]`
@@ -208,7 +208,7 @@ final class ListBuffer[A]
    *  one. Instead, it will insert a new element at index `n`.
    *
    *  @param  n     the index where a new element will be inserted.
-   *  @param  iter  the iterable object providing all elements to insert.
+   *  @param  seq   the iterable object providing all elements to insert.
    *  @throws Predef.IndexOutOfBoundsException if `n` is out of bounds.
    */
   def insertAll(n: Int, seq: Traversable[A]) {
@@ -338,8 +338,8 @@ final class ListBuffer[A]
   /** Remove a single element from this buffer. May take time linear in the
    *  buffer size.
    *
-   *  @param x  the element to remove.
-   *  @return   this $coll.
+   *  @param elem  the element to remove.
+   *  @return      this $coll.
    */
   override def -= (elem: A): this.type = {
     if (exported) copy()
@@ -425,7 +425,7 @@ final class ListBuffer[A]
 }
 
 /** $factoryInfo
- *  @define Coll ListBuffer
+ *  @define Coll `ListBuffer`
  *  @define coll list buffer
  */
 object ListBuffer extends SeqFactory[ListBuffer] {

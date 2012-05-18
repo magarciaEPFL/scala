@@ -10,6 +10,7 @@ package scala.xml
 
 import scala.collection.mutable
 import parsing.XhtmlEntities
+import language.implicitConversions
 
 /**
  * The `Utility` object provides utility functions for processing instances
@@ -20,6 +21,8 @@ import parsing.XhtmlEntities
 object Utility extends AnyRef with parsing.TokenTests {
   final val SU = '\u001A'
 
+  // [Martin] This looks dubious. We don't convert StringBuilders to
+  // Strings anywhere else, why do it here?
   implicit def implicitSbToString(sb: StringBuilder) = sb.toString()
 
   // helper for the extremely oft-repeated sequence of creating a
@@ -74,9 +77,6 @@ object Utility extends AnyRef with parsing.TokenTests {
 
   /**
    * Escapes the characters &lt; &gt; &amp; and &quot; from string.
-   *
-   * @param text ...
-   * @return     ...
    */
   final def escape(text: String): String = sbToString(escape(text, _))
 
@@ -99,10 +99,6 @@ object Utility extends AnyRef with parsing.TokenTests {
 
   /**
    * Appends escaped string to `s`.
-   *
-   * @param text ...
-   * @param s    ...
-   * @return     ...
    */
   final def escape(text: String, s: StringBuilder): StringBuilder = {
     // Implemented per XML spec:
@@ -132,28 +128,20 @@ object Utility extends AnyRef with parsing.TokenTests {
    * Appends unescaped string to `s`, `amp` becomes `&amp;`,
    * `lt` becomes `&lt;` etc..
    *
-   * @param ref ...
-   * @param s   ...
    * @return    `'''null'''` if `ref` was not a predefined entity.
    */
   final def unescape(ref: String, s: StringBuilder): StringBuilder =
-    (unescMap get ref) map (s append _) orNull
+    ((unescMap get ref) map (s append _)).orNull
 
   /**
    * Returns a set of all namespaces used in a sequence of nodes
    * and all their descendants, including the empty namespaces.
-   *
-   * @param nodes ...
-   * @return      ...
    */
   def collectNamespaces(nodes: Seq[Node]): mutable.Set[String] =
     nodes.foldLeft(new mutable.HashSet[String]) { (set, x) => collectNamespaces(x, set) ; set }
 
   /**
    * Adds all namespaces in node to set.
-   *
-   * @param n   ...
-   * @param set ...
    */
   def collectNamespaces(n: Node, set: mutable.Set[String]) {
     if (n.doCollectNamespaces) {
@@ -181,6 +169,13 @@ object Utility extends AnyRef with parsing.TokenTests {
   //   sb.toString()
   // }
 
+  /**
+   * Serialize the provided Node to the provided StringBuilder.
+   * <p/>
+   * Note that calling this source-compatible method will result in the same old, arguably almost universally unwanted,
+   * behaviour.
+   */
+  @deprecated("Please use `serialize` instead and specify a `minimizeTags` parameter", "2.10")
   def toXML(
     x: Node,
     pscope: NamespaceBinding = TopScope,
@@ -190,29 +185,51 @@ object Utility extends AnyRef with parsing.TokenTests {
     preserveWhitespace: Boolean = false,
     minimizeTags: Boolean = false): StringBuilder =
   {
+    serialize(x, pscope, sb, stripComments, decodeEntities, preserveWhitespace, if (minimizeTags) MinimizeMode.Always else MinimizeMode.Never)
+  }
+
+  /**
+   * Serialize an XML Node to a StringBuilder.
+   *
+   * This is essentially a minor rework of `toXML` that can't have the same name due to an unfortunate
+   * combination of named/default arguments and overloading.
+   *
+   * @todo use a Writer instead
+   */
+  def serialize(
+    x: Node,
+    pscope: NamespaceBinding = TopScope,
+    sb: StringBuilder = new StringBuilder,
+    stripComments: Boolean = false,
+    decodeEntities: Boolean = true,
+    preserveWhitespace: Boolean = false,
+    minimizeTags: MinimizeMode.Value = MinimizeMode.Default): StringBuilder =
+  {
     x match {
-      case c: Comment => if (!stripComments) c buildString sb else sb
-      case x: SpecialNode => x buildString sb
-      case g: Group =>
-        g.nodes foreach {toXML(_, x.scope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags)}
-        sb
-      case _  =>
+      case c: Comment if !stripComments => c buildString sb
+      case s: SpecialNode               => s buildString sb
+      case g: Group                     => for (c <- g.nodes) serialize(c, g.scope, sb, minimizeTags = minimizeTags) ; sb
+      case el: Elem  =>
         // print tag with namespace declarations
         sb.append('<')
-        x.nameToString(sb)
-        if (x.attributes ne null) x.attributes.buildString(sb)
-        x.scope.buildString(sb, pscope)
-        if (x.child.isEmpty && minimizeTags) {
+        el.nameToString(sb)
+        if (el.attributes ne null) el.attributes.buildString(sb)
+        el.scope.buildString(sb, pscope)
+        if (el.child.isEmpty &&
+                (minimizeTags == MinimizeMode.Always ||
+                (minimizeTags == MinimizeMode.Default && el.minimizeEmpty)))
+        {
           // no children, so use short form: <xyz .../>
-          sb.append(" />")
+          sb.append("/>")
         } else {
           // children, so use long form: <xyz ...>...</xyz>
           sb.append('>')
-          sequenceToXML(x.child, x.scope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags)
+          sequenceToXML(el.child, el.scope, sb, stripComments)
           sb.append("</")
-          x.nameToString(sb)
+          el.nameToString(sb)
           sb.append('>')
         }
+      case _ => throw new IllegalArgumentException("Don't know how to serialize a " + x.getClass.getName)
     }
   }
 
@@ -223,27 +240,24 @@ object Utility extends AnyRef with parsing.TokenTests {
     stripComments: Boolean = false,
     decodeEntities: Boolean = true,
     preserveWhitespace: Boolean = false,
-    minimizeTags: Boolean = false): Unit =
+    minimizeTags: MinimizeMode.Value = MinimizeMode.Default): Unit =
   {
     if (children.isEmpty) return
     else if (children forall isAtomAndNotText) { // add space
       val it = children.iterator
       val f = it.next
-      toXML(f, pscope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags)
+      serialize(f, pscope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags)
       while (it.hasNext) {
         val x = it.next
         sb.append(' ')
-        toXML(x, pscope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags)
+        serialize(x, pscope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags)
       }
     }
-    else children foreach { toXML(_, pscope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags) }
+    else children foreach { serialize(_, pscope, sb, stripComments, decodeEntities, preserveWhitespace, minimizeTags) }
   }
 
   /**
    * Returns prefix of qualified name if any.
-   *
-   * @param name ...
-   * @return     ...
    */
   final def prefix(name: String): Option[String] = (name indexOf ':') match {
     case -1   => None
@@ -252,11 +266,6 @@ object Utility extends AnyRef with parsing.TokenTests {
 
   /**
    * Returns a hashcode for the given constituents of a node
-   *
-   * @param uri
-   * @param label
-   * @param attribHashCode
-   * @param children
    */
   def hashCode(pre: String, label: String, attribHashCode: Int, scpeHash: Int, children: Seq[Node]) =
     scala.util.MurmurHash3.orderedHash(label +: attribHashCode +: scpeHash +: children, pre.##)
@@ -266,10 +275,6 @@ object Utility extends AnyRef with parsing.TokenTests {
   /**
    * Appends &quot;s&quot; if string `s` does not contain &quot;,
    * &apos;s&apos; otherwise.
-   *
-   * @param s  ...
-   * @param sb ...
-   * @return   ...
    */
   def appendQuoted(s: String, sb: StringBuilder) = {
     val ch = if (s contains '"') '\'' else '"'
@@ -278,10 +283,6 @@ object Utility extends AnyRef with parsing.TokenTests {
 
   /**
    * Appends &quot;s&quot; and escapes and &quot; i s with \&quot;
-   *
-   * @param s  ...
-   * @param sb ...
-   * @return   ...
    */
   def appendEscapedQuoted(s: String, sb: StringBuilder): StringBuilder = {
     sb.append('"')
@@ -292,11 +293,6 @@ object Utility extends AnyRef with parsing.TokenTests {
     sb.append('"')
   }
 
-  /**
-   * @param s     ...
-   * @param index ...
-   * @return      ...
-   */
   def getName(s: String, index: Int): String = {
     if (index >= s.length) null
     else {
@@ -309,9 +305,6 @@ object Utility extends AnyRef with parsing.TokenTests {
   /**
    * Returns `'''null'''` if the value is a correct attribute value,
    * error message if it isn't.
-   *
-   * @param value ...
-   * @return      ...
    */
   def checkAttributeValue(value: String): String = {
     var i = 0
@@ -333,12 +326,6 @@ object Utility extends AnyRef with parsing.TokenTests {
     null
   }
 
-  /**
-   * new
-   *
-   * @param value ...
-   * @return      ...
-   */
   def parseAttributeValue(value: String): Seq[Node] = {
     val sb  = new StringBuilder
     var rfb: StringBuilder = null
@@ -394,11 +381,6 @@ object Utility extends AnyRef with parsing.TokenTests {
    *             | "&amp;#x" '0'..'9'|'A'..'F'|'a'..'f' { hexdigit } ";"
    * }}}
    * See [66]
-   *
-   * @param ch                ...
-   * @param nextch            ...
-   * @param reportSyntaxError ...
-   * @return                  ...
    */
   def parseCharRef(ch: () => Char, nextch: () => Unit, reportSyntaxError: String => Unit, reportTruncatedError: String => Unit): String = {
     val hex  = (ch() == 'x') && { nextch(); true }

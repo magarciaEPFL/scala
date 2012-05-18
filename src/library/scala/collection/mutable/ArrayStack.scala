@@ -15,13 +15,13 @@ import generic._
  *
  *  $factoryInfo
  *  @define coll array stack
- *  @define Coll ArrayStack
+ *  @define Coll `ArrayStack`
  */
 object ArrayStack extends SeqFactory[ArrayStack] {
   implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, ArrayStack[A]] = ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
   def newBuilder[A]: Builder[A, ArrayStack[A]] = new ArrayStack[A]
   def empty: ArrayStack[Nothing] = new ArrayStack()
-  def apply[A: ClassManifest](elems: A*): ArrayStack[A] = {
+  def apply[A: ArrayTag](elems: A*): ArrayStack[A] = {
     val els: Array[AnyRef] = elems.reverseMap(_.asInstanceOf[AnyRef])(breakOut)
     if (els.length == 0) new ArrayStack()
     else new ArrayStack[A](els, els.length)
@@ -51,7 +51,7 @@ object ArrayStack extends SeqFactory[ArrayStack] {
  *
  *  @tparam T    type of the elements contained in this array stack.
  *
- *  @define Coll ArrayStack
+ *  @define Coll `ArrayStack`
  *  @define coll array stack
  *  @define orderDependent
  *  @define orderDependentFold
@@ -152,7 +152,7 @@ extends AbstractSeq[T]
 
   /** Pushes all the provided elements in the traversable object onto the stack.
    *
-   *  @param x  The source of elements to push.
+   *  @param xs The source of elements to push.
    *  @return   A reference to this stack.
    */
   override def ++=(xs: TraversableOnce[T]): this.type = { xs.seq foreach += ; this }

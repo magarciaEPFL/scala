@@ -25,10 +25,12 @@ import collection.parallel.Task
  *
  *  @tparam T        type of the elements in the $coll.
  *
- *  @define Coll ParHashSet
+ *  @define Coll `ParHashSet`
  *  @define coll parallel hash set
  *
  *  @author Aleksandar Prokopec
+ *  @see  [[http://docs.scala-lang.org/overviews/parallel-collections/concrete-parallel-collections.html#parallel_hash_tables Scala's Parallel Collections Library overview]]
+ *  section on Parallel Hash Tables for more information.
  */
 @SerialVersionUID(1L)
 class ParHashSet[T] private[collection] (contents: FlatHashTable.Contents[T])
@@ -84,8 +86,6 @@ extends ParSet[T]
 
   private def readObject(in: java.io.ObjectInputStream) {
     init(in, x => x)
-    
-    initTaskSupport()
   }
 
   import collection.DebugUtils._
@@ -104,7 +104,7 @@ extends ParSet[T]
 
 
 /** $factoryInfo
- *  @define Coll mutable.ParHashSet
+ *  @define Coll `mutable.ParHashSet`
  *  @define coll parallel hash set
  */
 object ParHashSet extends ParSetFactory[ParHashSet] {

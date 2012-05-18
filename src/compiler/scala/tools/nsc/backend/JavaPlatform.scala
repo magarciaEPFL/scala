@@ -33,15 +33,19 @@ trait JavaPlatform extends Platform {
     if (settings.make.isDefault) Nil
     else List(dependencyAnalysis)
 
+  private def classEmitPhase =
+    if (settings.target.value == "jvm-1.5") genJVM
+    else genASM
+
   def platformPhases = List(
-    flatten,    // get rid of inner classes
-    genJVM      // generate .class files
+    flatten,        // get rid of inner classes
+    classEmitPhase  // generate .class files
   ) ++ depAnalysisPhase
 
-  lazy val externalEquals          = getMember(BoxesRunTimeClass, nme.equals_)
-  lazy val externalEqualsNumNum    = getMember(BoxesRunTimeClass, nme.equalsNumNum)
-  lazy val externalEqualsNumChar   = getMember(BoxesRunTimeClass, nme.equalsNumChar)
-  lazy val externalEqualsNumObject = getMember(BoxesRunTimeClass, nme.equalsNumObject)
+  lazy val externalEquals          = getDecl(BoxesRunTimeClass, nme.equals_)
+  lazy val externalEqualsNumNum    = getDecl(BoxesRunTimeClass, nme.equalsNumNum)
+  lazy val externalEqualsNumChar   = getDecl(BoxesRunTimeClass, nme.equalsNumChar)
+  lazy val externalEqualsNumObject = getDecl(BoxesRunTimeClass, nme.equalsNumObject)
 
   /** We could get away with excluding BoxedBooleanClass for the
    *  purpose of equality testing since it need not compare equal

@@ -21,6 +21,15 @@ import immutable.Stream
  */
 object Iterator {
 
+  /** With the advent of `TraversableOnce` and `Iterator`, it can be useful to have a builder which
+   *  operates on `Iterator`s so they can be treated uniformly along with the collections.
+   *  See `scala.util.Random.shuffle` for an example.
+   */
+  implicit def IteratorCanBuildFrom[A] = new TraversableOnce.BufferedCanBuildFrom[A, Iterator] {
+    def bufferToColl[B](coll: ArrayBuffer[B]) = coll.iterator
+    def traversableToColl[B](t: GenTraversable[B]) = t.toIterator
+  }
+
   /** The iterator which produces no values. */
   val empty: Iterator[Nothing] = new AbstractIterator[Nothing] {
     def hasNext: Boolean = false
@@ -322,19 +331,23 @@ trait Iterator[+A] extends TraversableOnce[A] {
    *  @return  a new iterator that first yields the values produced by this
    *  iterator followed by the values produced by iterator `that`.
    *  @note    Reuse: $consumesTwoAndProducesOneIterator
+   *
    *  @usecase def ++(that: => Iterator[A]): Iterator[A]
+   *    @inheritdoc
    */
   def ++[B >: A](that: => GenTraversableOnce[B]): Iterator[B] = new AbstractIterator[B] {
     // optimize a little bit to prevent n log n behavior.
     private var cur : Iterator[B] = self
+    private var selfExhausted : Boolean = false
     // since that is by-name, make sure it's only referenced once -
     // if "val it = that" is inside the block, then hasNext on an empty
     // iterator will continually reevaluate it.  (ticket #3269)
     lazy val it = that.toIterator
     // the eq check is to avoid an infinite loop on "x ++ x"
-    def hasNext = cur.hasNext || ((cur eq self) && {
+    def hasNext = cur.hasNext || (!selfExhausted && {
       it.hasNext && {
         cur = it
+        selfExhausted = true
         true
       }
     })
@@ -377,6 +390,24 @@ trait Iterator[+A] extends TraversableOnce[A] {
     }
 
     def next() = if (hasNext) { hdDefined = false; hd } else empty.next()
+  }
+  
+  /** Tests whether every element of this iterator relates to the
+   *  corresponding element of another collection by satisfying a test predicate.
+   *
+   *  @param   that    the other collection
+   *  @param   p       the test predicate, which relates elements from both collections
+   *  @tparam  B       the type of the elements of `that`
+   *  @return          `true` if both collections have the same length and
+   *                   `p(x, y)` is `true` for all corresponding elements `x` of this iterator
+   *                   and `y` of `that`, otherwise `false`
+   */
+  def corresponds[B](that: GenTraversableOnce[B])(p: (A, B) => Boolean): Boolean = {
+    val that0 = that.toIterator
+    while (hasNext && that0.hasNext)
+      if (!p(next, that0.next)) return false
+
+    hasNext == that0.hasNext
   }
 
   /** Creates an iterator over all the elements of this iterator that
@@ -609,7 +640,9 @@ trait Iterator[+A] extends TraversableOnce[A] {
    *          followed by the minimal number of occurrences of `elem` so
    *          that the number of produced values is at least `len`.
    *  @note    Reuse: $consumesAndProducesIterator
+   *
    *  @usecase def padTo(len: Int, elem: A): Iterator[A]
+   *    @inheritdoc
    */
   def padTo[A1 >: A](len: Int, elem: A1): Iterator[A1] = new AbstractIterator[A1] {
     private var count = 0
@@ -658,7 +691,9 @@ trait Iterator[+A] extends TraversableOnce[A] {
    *                  If this iterator is shorter than `that`, `thisElem` values are used to pad the result.
    *                  If `that` is shorter than this iterator, `thatElem` values are used to pad the result.
    *  @note           Reuse: $consumesTwoAndProducesOneIterator
+   *
    *  @usecase def zipAll[B](that: Iterator[B], thisElem: A, thatElem: B): Iterator[(A, B)]
+   *    @inheritdoc
    */
   def zipAll[B, A1 >: A, B1 >: B](that: Iterator[B], thisElem: A1, thatElem: B1): Iterator[(A1, B1)] = new AbstractIterator[(A1, B1)] {
     def hasNext = self.hasNext || that.hasNext
@@ -682,7 +717,9 @@ trait Iterator[+A] extends TraversableOnce[A] {
    *              but this is not necessary.
    *
    *  @note    Reuse: $consumesIterator
+   *
    *  @usecase def foreach(f: A => Unit): Unit
+   *    @inheritdoc
    */
   def foreach[U](f: A =>  U) { while (hasNext) f(next()) }
 
@@ -787,7 +824,7 @@ trait Iterator[+A] extends TraversableOnce[A] {
 
   /** Creates a buffered iterator from this iterator.
    *
-   *  @see BufferedIterator
+   *  @see [[scala.collection.BufferedIterator]]
    *  @return  a buffered iterator producing the same values as this iterator.
    *  @note    Reuse: $consumesAndProducesIterator
    */
@@ -1042,11 +1079,12 @@ trait Iterator[+A] extends TraversableOnce[A] {
       if (i < from) origElems.hasNext
       else patchElems.hasNext || origElems.hasNext
     def next(): B = {
+      // We have to do this *first* just in case from = 0.
+      if (i == from) origElems = origElems drop replaced
       val result: B =
         if (i < from || !patchElems.hasNext) origElems.next()
         else patchElems.next()
       i += 1
-      if (i == from) origElems = origElems drop replaced
       result
     }
   }
@@ -1057,15 +1095,17 @@ trait Iterator[+A] extends TraversableOnce[A] {
    *  Copying will stop once either the end of the current iterator is reached,
    *  or the end of the array is reached, or `len` elements have been copied.
    *
-   *  $willNotTerminateInf
-   *
    *  @param  xs     the array to fill.
    *  @param  start  the starting index.
    *  @param  len    the maximal number of elements to copy.
    *  @tparam B      the type of the elements of the array.
    *
    *  @note    Reuse: $consumesIterator
+   *
    *  @usecase def copyToArray(xs: Array[A], start: Int, len: Int): Unit
+   *    @inheritdoc
+   *
+   *    $willNotTerminateInf
    */
   def copyToArray[B >: A](xs: Array[B], start: Int, len: Int): Unit = {
     var i = start

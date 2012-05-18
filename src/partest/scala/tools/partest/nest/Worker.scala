@@ -55,6 +55,7 @@ class ScalaCheckFileManager(val origmanager: FileManager) extends FileManager {
   var LATEST_LIB: String = origmanager.LATEST_LIB
   var LATEST_COMP: String = origmanager.LATEST_COMP
   var LATEST_PARTEST: String = origmanager.LATEST_PARTEST
+  var LATEST_ACTORS: String = origmanager.LATEST_ACTORS
 }
 
 object Output {
@@ -180,7 +181,9 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
   //
   private def replaceSlashes(dir: File, s: String): String = {
     val base = (dir.getAbsolutePath + File.separator).replace('\\', '/')
-    s.replace('\\', '/').replaceAll("""\Q%s\E""" format base, "")
+    var regex = """\Q%s\E""" format base
+    if (isWin) regex = "(?i)" + regex
+    s.replace('\\', '/').replaceAll(regex, "")
   }
 
   private def currentFileString = {
@@ -266,7 +269,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
     outDir.jfile
   }
 
-  private def javac(outDir: File, files: List[File], output: File): Boolean = {
+  private def javac(outDir: File, files: List[File], output: File): CompilationOutcome = {
     // compile using command-line javac compiler
     val args = Seq(
       javacCmd,
@@ -276,8 +279,8 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
       join(outDir.toString, CLASSPATH)
     ) ++ files.map("" + _)
 
-    try runCommand(args, output)
-    catch exHandler(output, "javac command failed:\n" + args.map("  " + _ + "\n").mkString + "\n")
+    try if (runCommand(args, output)) CompileSuccess else CompileFailed
+    catch exHandler(output, "javac command failed:\n" + args.map("  " + _ + "\n").mkString + "\n", CompilerCrashed)
   }
 
   /** Runs command redirecting standard out and
@@ -354,13 +357,13 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
 
   private def compareOutput(dir: File, logFile: File): String = {
     val checkFile = getCheckFilePath(dir, kind)
-    // if check file exists, compare with log file
     val diff =
       if (checkFile.canRead) compareFiles(logFile, checkFile.jfile)
       else file2String(logFile)
 
+    // if check file exists, compare with log file
     if (diff != "" && fileManager.updateCheck) {
-      NestUI.verbose("output differs from log file: updating checkfile\n")
+      NestUI.verbose("Updating checkfile " + checkFile.jfile)
       val toWrite = if (checkFile.exists) checkFile else getCheckFilePath(dir, "")
       toWrite writeAll file2String(logFile)
       ""
@@ -385,10 +388,8 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
     false
   }
 
-  private def exHandler(logFile: File): PartialFunction[Throwable, Boolean] =
-    exHandler(logFile, "")
-  private def exHandler(logFile: File, msg: String): PartialFunction[Throwable, Boolean] = {
-    case e: Exception => logStackTrace(logFile, e, msg)
+  private def exHandler[T](logFile: File, msg: String, value: T): PartialFunction[Throwable, T] = {
+    case e: Exception => logStackTrace(logFile, e, msg) ; value
   }
 
   /** Runs a list of tests.
@@ -461,39 +462,38 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
           }
           else script(logFile, outDir)
         }
-        catch exHandler(logFile)
+        catch exHandler(logFile, "", false)
 
         LogContext(logFile, swr, wr)
       }
     }
 
-    def compileFilesIn(dir: File, logFile: File, outDir: File): Boolean = {
+    def groupedFiles(dir: File): List[List[File]] = {
       val testFiles = dir.listFiles.toList filter isJavaOrScala
 
       def isInGroup(f: File, num: Int) = SFile(f).stripExtension endsWith ("_" + num)
       val groups = (0 to 9).toList map (num => testFiles filter (f => isInGroup(f, num)))
       val noGroupSuffix = testFiles filterNot (groups.flatten contains)
 
-      def compileGroup(g: List[File]): Boolean = {
+      noGroupSuffix :: groups filterNot (_.isEmpty)
+    }
+
+    def compileFilesIn(dir: File, logFile: File, outDir: File): CompilationOutcome = {
+      def compileGroup(g: List[File]): CompilationOutcome = {
         val (scalaFiles, javaFiles) = g partition isScala
         val allFiles = javaFiles ++ scalaFiles
 
-        // scala+java, then java, then scala
-        (scalaFiles.isEmpty || compileMgr.shouldCompile(outDir, allFiles, kind, logFile) || fail(g)) && {
-          (javaFiles.isEmpty || javac(outDir, javaFiles, logFile)) && {
-            (scalaFiles.isEmpty || compileMgr.shouldCompile(outDir, scalaFiles, kind, logFile) || fail(scalaFiles))
-          }
+        List(1, 2, 3).foldLeft(CompileSuccess: CompilationOutcome) {
+          case (CompileSuccess, 1) if scalaFiles.nonEmpty => compileMgr.attemptCompile(Some(outDir), allFiles, kind, logFile)     // java + scala
+          case (CompileSuccess, 2) if javaFiles.nonEmpty  => javac(outDir, javaFiles, logFile)                                    // java
+          case (CompileSuccess, 3) if scalaFiles.nonEmpty => compileMgr.attemptCompile(Some(outDir), scalaFiles, kind, logFile)   // scala
+          case (outcome, _)                               => outcome
         }
       }
-
-      (noGroupSuffix.isEmpty || compileGroup(noGroupSuffix)) && (groups forall compileGroup)
-    }
-
-    def failCompileFilesIn(dir: File, logFile: File, outDir: File): Boolean = {
-      val testFiles   = dir.listFiles.toList
-      val sourceFiles = testFiles filter isJavaOrScala
-
-      sourceFiles.isEmpty || compileMgr.shouldFailCompile(outDir, sourceFiles, kind, logFile) || fail(testFiles filter isScala)
+      groupedFiles(dir).foldLeft(CompileSuccess: CompilationOutcome) {
+        case (CompileSuccess, files) => compileGroup(files)
+        case (outcome, _)            => outcome
+      }
     }
 
     def runTestCommon(file: File, expectFailure: Boolean)(
@@ -501,15 +501,14 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
       onFail: (File, File) => Unit = (_, _) => ()): LogContext =
     {
       runInContext(file, (logFile: File, outDir: File) => {
-        val result =
-          if (file.isDirectory) {
-            if (expectFailure) failCompileFilesIn(file, logFile, outDir)
-            else compileFilesIn(file, logFile, outDir)
-          }
-          else {
-            if (expectFailure) compileMgr.shouldFailCompile(List(file), kind, logFile)
-            else compileMgr.shouldCompile(List(file), kind, logFile)
-          }
+        val outcome = (
+          if (file.isDirectory) compileFilesIn(file, logFile, outDir)
+          else compileMgr.attemptCompile(None, List(file), kind, logFile)
+        )
+        val result = (
+          if (expectFailure) outcome.isNegative
+          else outcome.isPositive
+        )
 
         if (result) onSuccess(logFile, outDir)
         else { onFail(logFile, outDir) ; false }
@@ -520,9 +519,15 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
       runTestCommon(file, expectFailure = false)((logFile, outDir) => {
         val dir      = file.getParentFile
 
-        // adding code.jar to the classpath (to provide Code.lift services for reification tests)
-        execTest(outDir, logFile, PathSettings.srcCodeLib.toString) &&
-        diffCheck(compareOutput(dir, logFile))
+        // adding codelib.jar to the classpath
+        // codelib provides the possibility to override standard reify
+        // this shields the massive amount of reification tests from changes in the API
+        execTest(outDir, logFile, PathSettings.srcCodeLib.toString) && {
+          // cannot replace paths here since this also inverts slashes
+          // which affects a bunch of tests
+          //fileManager.mapFile(logFile, replaceSlashes(dir, _))
+          diffCheck(compareOutput(dir, logFile))
+        }
       })
 
     // Apache Ant 1.6 or newer
@@ -542,7 +547,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
       )
 
       try runCommand(cmd, output)
-      catch exHandler(output, "ant command '" + cmd + "' failed:\n")
+      catch exHandler(output, "ant command '" + cmd + "' failed:\n", false)
     }
 
     def runAntTest(file: File): LogContext = {
@@ -875,7 +880,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
           )
 
           // 4. compile testFile
-          val ok = compileMgr.shouldCompile(List(testFile), kind, logFile)
+          val ok = compileMgr.attemptCompile(None, List(testFile), kind, logFile) eq CompileSuccess
           NestUI.verbose("compilation of " + testFile + (if (ok) "succeeded" else "failed"))
           if (ok) {
             execTest(outDir, logFile) && {
@@ -902,7 +907,8 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
           else {
             val resFile = results.head
             // 2. Compile source file
-            if (!compileMgr.shouldCompile(outDir, sources, kind, logFile)) {
+
+            if (!compileMgr.attemptCompile(Some(outDir), sources, kind, logFile).isPositive) {
               NestUI.normal("compilerMgr failed to compile %s to %s".format(sources mkString ", ", outDir))
               false
             }

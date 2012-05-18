@@ -6,14 +6,11 @@
 **                          |/                                          **
 \*                                                                      */
 
-
-
 package scala.collection
 package mutable
 
-import JavaConversions._
 import generic._
-
+import convert.Wrappers._
 
 /** A hash map with references to entries which are weakly reachable. Entries are
  *  removed from this map when the key is no longer (strongly) referenced. This class wraps
@@ -26,7 +23,7 @@ import generic._
  *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-mutable-collection-classes.html#weak_hash_maps "Scala's Collection Library overview"]]
  *  section on `Weak Hash Maps` for more information.
  *
- *  @define Coll WeakHashMap
+ *  @define Coll `WeakHashMap`
  *  @define coll weak hash map
  *  @define thatinfo the class of the returned collection. In the standard library configuration,
  *    `That` is always `WeakHashMap[A, B]` if the elements contained in the resulting collection are
@@ -46,7 +43,7 @@ class WeakHashMap[A, B] extends JMapWrapper[A, B](new java.util.WeakHashMap)
 }
 
 /** $factoryInfo
- *  @define Coll WeakHashMap
+ *  @define Coll `WeakHashMap`
  *  @define coll weak hash map
  */
 object WeakHashMap extends MutableMapFactory[WeakHashMap] {

@@ -23,7 +23,7 @@ object ScalaBuild extends Build with Layers {
   lazy val buildFixed = AttributeKey[Boolean]("build-uri-fixed")
 
   // Build wide settings:
-  override lazy val settings = super.settings ++ Seq(
+  override lazy val settings = super.settings ++ Versions.settings ++ Seq(
     autoScalaLibrary := false,
     resolvers += Resolver.url(
       "Typesafe nightlies", 
@@ -34,7 +34,7 @@ object ScalaBuild extends Build with Layers {
       ScalaToolsSnapshots
     ),
     organization := "org.scala-lang",
-    version := "2.10.0-SNAPSHOT",
+    version <<= Versions.mavenVersion,
     pomExtra := <xml:group>
       <inceptionYear>2002</inceptionYear>
         <licenses>
@@ -44,7 +44,7 @@ object ScalaBuild extends Build with Layers {
           </license>
         </licenses>
         <scm>
-          <connection>scm:svn:http://lampsvn.epfl.ch/svn-repos/scala/scala/trunk</connection>
+          <connection>scm:git:git://github.com/scala/scala.git</connection>
         </scm>
         <issueManagement>
           <system>jira</system>
@@ -77,9 +77,9 @@ object ScalaBuild extends Build with Layers {
   )
 
   // Collections of projects to run 'compile' on.
-  lazy val compiledProjects = Seq(quickLib, quickComp, continuationsLibrary, actors, swing, dbc, forkjoin, fjbg)
+  lazy val compiledProjects = Seq(quickLib, quickComp, continuationsLibrary, actors, swing, forkjoin, fjbg)
   // Collection of projects to 'package' and 'publish' together.
-  lazy val packagedBinaryProjects = Seq(scalaLibrary, scalaCompiler, swing, dbc, continuationsPlugin, jline, scalap)
+  lazy val packagedBinaryProjects = Seq(scalaLibrary, scalaCompiler, swing, continuationsPlugin, jline, scalap)
   lazy val partestRunProjects = Seq(testsuite, continuationsTestsuite)
   
   private def epflPomExtra = (
@@ -92,7 +92,7 @@ object ScalaBuild extends Build with Layers {
         </license>
       </licenses>
       <scm>
-        <connection>scm:svn:http://lampsvn.epfl.ch/svn-repos/scala/scala/trunk</connection>
+        <connection>scm:git:git://github.com/scala/scala.git</connection>
       </scm>
       <issueManagement>
         <system>jira</system>
@@ -148,13 +148,14 @@ object ScalaBuild extends Build with Layers {
   lazy val externalDeps: Setting[_] = libraryDependencies <<= (sbtVersion)(v => 
     Seq(
       "org.apache.ant" % "ant" % "1.8.2",
-      "org.scala-tools.sbt" % "compiler-interface" % v % "provided"
+      "org.scala-sbt" % "compiler-interface" % v % "provided"
     )
   )
 
   // These are setting overrides for most artifacts in the Scala build file.
   def settingOverrides: Seq[Setting[_]] = publishSettings ++ Seq(
                              crossPaths := false,
+                             autoScalaLibrary := false,
                              publishArtifact in packageDoc := false,
                              publishArtifact in packageSrc := false,
                              target <<= (baseDirectory, name) apply (_ / "target" / _),
@@ -249,7 +250,6 @@ object ScalaBuild extends Build with Layers {
   // TODO - Actors + swing separate jars...
   lazy val dependentProjectSettings = settingOverrides ++ Seq(quickScalaInstance, quickScalaLibraryDependency, addCheaterDependency("scala-library"))
   lazy val actors = Project("actors", file(".")) settings(dependentProjectSettings:_*) dependsOn(forkjoin % "provided")
-  lazy val dbc = Project("dbc", file(".")) settings(dependentProjectSettings:_*)
   // TODO - Remove actors dependency from pom...
   lazy val swing = Project("swing", file(".")) settings(dependentProjectSettings:_*) dependsOn(actors % "provided")
   // This project will generate man pages (in man1 and html) for scala.    
@@ -328,7 +328,7 @@ object ScalaBuild extends Build with Layers {
   //  Testing
   // --------------------------------------------------------------
   /* lazy val scalacheckSettings: Seq[Setting[_]] = Seq(fullQuickScalaReference, crossPaths := false)*/
-  lazy val scalacheck = uri("git://github.com/rickynils/scalacheck.git")
+  lazy val scalacheck = uri("git://github.com/jsuereth/scalacheck.git#scala-build")
 
   lazy val testsuiteSettings: Seq[Setting[_]] = compilerDependentProjectSettings ++ partestTaskSettings ++ VerifyClassLoad.settings ++ Seq(
     unmanagedBase <<= baseDirectory / "test/files/lib",
@@ -489,7 +489,7 @@ object ScalaBuild extends Build with Layers {
     genBin <<= genBinTask(genBinRunner, binDir, fullClasspath in Runtime, false),
     binDir in genBinQuick <<= baseDirectory apply (_ / "target" / "bin"),
     // Configure the classpath this way to avoid having .jar files and previous layers on the classpath.
-    fullClasspath in Runtime in genBinQuick <<= Seq(quickComp,quickLib,scalap,actors,swing,dbc,fjbg,jline,forkjoin).map(classDirectory in Compile in _).join.map(Attributed.blankSeq),
+    fullClasspath in Runtime in genBinQuick <<= Seq(quickComp,quickLib,scalap,actors,swing,fjbg,jline,forkjoin).map(classDirectory in Compile in _).join.map(Attributed.blankSeq),
     fullClasspath in Runtime in genBinQuick <++= (fullClasspath in Compile in jline),
     genBinQuick <<= genBinTask(genBinRunner, binDir in genBinQuick, fullClasspath in Runtime in genBinQuick, true),
     runManmakerMan <<= runManmakerTask(fullClasspath in Runtime in manmaker, runner in manmaker, "scala.tools.docutil.EmitManPage", "man1", ".1"),
@@ -518,10 +518,9 @@ object ScalaBuild extends Build with Layers {
     },
     // Add in some more dependencies
     makeDistMappings <<= (makeDistMappings, 
-                          packageBin in swing in Compile,
-                          packageBin in dbc in Compile) map {
-      (dist, s, d) =>
-        dist ++ Seq(s -> "lib/scala-swing.jar", d -> "lib/scala-dbc.jar")
+                          packageBin in swing in Compile) map {
+      (dist, s) =>
+        dist ++ Seq(s -> "lib/scala-swing.jar")
     },
     makeDist <<= (makeDistMappings, baseDirectory, streams) map { (maps, dir, s) => 
       s.log.debug("Map = " + maps.mkString("\n")) 

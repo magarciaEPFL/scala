@@ -31,7 +31,7 @@ object ScalaRunTime {
     clazz.isArray && (atLevel == 1 || isArrayClass(clazz.getComponentType, atLevel - 1))
 
   def isValueClass(clazz: Class[_]) = clazz.isPrimitive()
-  def isTuple(x: Any) = tupleNames(x.getClass.getName)
+  def isTuple(x: Any) = x != null && tupleNames(x.getClass.getName)
   def isAnyVal(x: Any) = x match {
     case _: Byte | _: Short | _: Char | _: Int | _: Long | _: Float | _: Double | _: Boolean | _: Unit => true
     case _                                                                                             => false
@@ -47,21 +47,29 @@ object ScalaRunTime {
     names.toSet
   }
 
+  /** Return the class object representing an array with element class `clazz`.
+   */
+  def arrayClass(clazz: Class[_]): Class[_] = {
+    // newInstance throws an exception if the erasure is Void.TYPE. see SI-5680
+    if (clazz == java.lang.Void.TYPE) classOf[Array[Unit]]
+    else java.lang.reflect.Array.newInstance(clazz, 0).getClass
+  }
+
+  /** Return the class object representing elements in arrays described by a given schematic.
+   */
+  def arrayElementClass(schematic: Any): Class[_] = schematic match {
+    case cls: Class[_] => cls.getComponentType
+    case tag: ClassTag[_] => tag.erasure
+    case tag: ArrayTag[_] => tag.newArray(0).getClass.getComponentType
+    case _ => throw new UnsupportedOperationException("unsupported schematic %s (%s)".format(schematic, if (schematic == null) "null" else schematic.getClass))
+  }
+
   /** Return the class object representing an unboxed value type,
    *  e.g. classOf[int], not classOf[java.lang.Integer].  The compiler
    *  rewrites expressions like 5.getClass to come here.
    */
-  def anyValClass[T <: AnyVal](value: T): Class[T] = (value match {
-    case x: Byte    => java.lang.Byte.TYPE
-    case x: Short   => java.lang.Short.TYPE
-    case x: Char    => java.lang.Character.TYPE
-    case x: Int     => java.lang.Integer.TYPE
-    case x: Long    => java.lang.Long.TYPE
-    case x: Float   => java.lang.Float.TYPE
-    case x: Double  => java.lang.Double.TYPE
-    case x: Boolean => java.lang.Boolean.TYPE
-    case x: Unit    => java.lang.Void.TYPE
-  }).asInstanceOf[Class[T]]
+  def anyValClass[T <: AnyVal : ClassTag](value: T): Class[T] =
+    classTag[T].erasure.asInstanceOf[Class[T]]
 
   /** Retrieve generic array element */
   def array_apply(xs: AnyRef, idx: Int): Any = xs match {
@@ -122,16 +130,18 @@ object ScalaRunTime {
     case null => throw new NullPointerException
   }
 
-  /** Convert a numeric value array to an object array.
+  /** Convert an array to an object array.
    *  Needed to deal with vararg arguments of primitive types that are passed
    *  to a generic Java vararg parameter T ...
    */
-  def toObjectArray(src: AnyRef): Array[Object] = {
-    val length = array_length(src)
-    val dest = new Array[Object](length)
-    for (i <- 0 until length)
-      array_update(dest, i, array_apply(src, i))
-    dest
+  def toObjectArray(src: AnyRef): Array[Object] = src match {
+    case x: Array[AnyRef] => x
+    case _ =>
+      val length = array_length(src)
+      val dest = new Array[Object](length)
+      for (i <- 0 until length)
+        array_update(dest, i, array_apply(src, i))
+      dest
   }
 
   def toArray[T](xs: collection.Seq[T]) = {
@@ -285,8 +295,12 @@ object ScalaRunTime {
    */
   def stringOf(arg: Any): String = stringOf(arg, scala.Int.MaxValue)
   def stringOf(arg: Any, maxElements: Int): String = {
-    def isScalaClass(x: AnyRef) =
-      Option(x.getClass.getPackage) exists (_.getName startsWith "scala.")
+    def packageOf(x: AnyRef) = x.getClass.getPackage match {
+      case null   => ""
+      case p      => p.getName
+    }
+    def isScalaClass(x: AnyRef)         = packageOf(x) startsWith "scala."
+    def isScalaCompilerClass(x: AnyRef) = packageOf(x) startsWith "scala.tools.nsc."
 
     // When doing our own iteration is dangerous
     def useOwnToString(x: Any) = x match {
@@ -302,7 +316,8 @@ object ScalaRunTime {
       case _: TraversableView[_, _] => true
       // Don't want to a) traverse infinity or b) be overly helpful with peoples' custom
       // collections which may have useful toString methods - ticket #3710
-      case x: Traversable[_]  => !x.hasDefiniteSize || !isScalaClass(x)
+      // or c) print AbstractFiles which are somehow also Iterable[AbstractFile]s.
+      case x: Traversable[_] => !x.hasDefiniteSize || !isScalaClass(x) || isScalaCompilerClass(x)
       // Otherwise, nothing could possibly go wrong
       case _ => false
     }
@@ -329,14 +344,14 @@ object ScalaRunTime {
       case null                         => "null"
       case ""                           => "\"\""
       case x: String                    => if (x.head.isWhitespace || x.last.isWhitespace) "\"" + x + "\"" else x
-      case x if useOwnToString(x)       => x toString
+      case x if useOwnToString(x)       => x.toString
       case x: AnyRef if isArray(x)      => arrayToString(x)
       case x: collection.Map[_, _]      => x.iterator take maxElements map mapInner mkString (x.stringPrefix + "(", ", ", ")")
       case x: Iterable[_]               => x.iterator take maxElements map inner mkString (x.stringPrefix + "(", ", ", ")")
       case x: Traversable[_]            => x take maxElements map inner mkString (x.stringPrefix + "(", ", ", ")")
       case x: Product1[_] if isTuple(x) => "(" + inner(x._1) + ",)" // that special trailing comma
       case x: Product if isTuple(x)     => x.productIterator map inner mkString ("(", ",", ")")
-      case x                            => x toString
+      case x                            => x.toString
     }
 
     // The try/catch is defense against iterables which aren't actually designed

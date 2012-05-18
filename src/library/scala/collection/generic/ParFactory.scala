@@ -10,13 +10,14 @@ package scala.collection.generic
 
 import scala.collection.parallel.ParIterable
 import scala.collection.parallel.Combiner
+import language.higherKinds
 
 /** A template class for companion objects of `ParIterable` and subclasses
  *  thereof. This class extends `TraversableFactory` and provides a set of
  *  operations to create `$Coll` objects.
  *
  *  @define coll parallel collection
- *  @define Coll ParIterable
+ *  @define Coll `ParIterable`
  *  @since 2.8
  */
 abstract class ParFactory[CC[X] <: ParIterable[X] with GenericParTemplate[X, CC]]

@@ -10,11 +10,12 @@ package scala.util.automata
 
 import scala.collection.{ mutable, immutable }
 
+@deprecated("This class will be removed", "2.10.0")
 class SubsetConstruction[T <: AnyRef](val nfa: NondetWordAutom[T]) {
   import nfa.labels
 
   def selectTag(Q: immutable.BitSet, finals: Array[Int]) =
-    Q map finals filter (_ > 0) min
+    (Q map finals filter (_ > 0)).min
 
   def determinize: DetWordAutom[T] = {
     // for assigning numbers to bitsets

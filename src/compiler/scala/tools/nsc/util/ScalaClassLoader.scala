@@ -14,7 +14,7 @@ import java.net.URL
 import scala.reflect.ReflectionUtils.unwrapHandler
 import ScalaClassLoader._
 import scala.util.control.Exception.{ catching }
-// import Exceptional.unwrap
+import language.implicitConversions
 
 trait HasClassPath {
   def classPathURLs: Seq[URL]
@@ -24,14 +24,6 @@ trait HasClassPath {
  *  of java reflection.
  */
 trait ScalaClassLoader extends JClassLoader {
-  /** Override to see classloader activity traced */
-  protected def trace: Boolean = false
-  protected lazy val classLoaderUniqueId = "Cl#" + System.identityHashCode(this)
-  protected def classLoaderLog(msg: => String) {
-    if (trace)
-      Console.err.println("[" + classLoaderUniqueId + "] " + msg)
-  }
-
   /** Executing an action with this classloader as context classloader */
   def asContext[T](action: => T): T = {
     val saved = contextLoader
@@ -53,20 +45,8 @@ trait ScalaClassLoader extends JClassLoader {
   def create(path: String): AnyRef =
     tryToInitializeClass[AnyRef](path) map (_.newInstance()) orNull
 
-  override def findClass(name: String) = {
-    val result = super.findClass(name)
-    classLoaderLog("findClass(%s) = %s".format(name, result))
-    result
-  }
-
-  override def loadClass(name: String, resolve: Boolean) = {
-    val result = super.loadClass(name, resolve)
-    classLoaderLog("loadClass(%s, %s) = %s".format(name, resolve, result))
-    result
-  }
-
-  def constructorsOf[T <: AnyRef : Manifest]: List[Constructor[T]] =
-    manifest[T].erasure.getConstructors.toList map (_.asInstanceOf[Constructor[T]])
+  def constructorsOf[T <: AnyRef : ClassTag]: List[Constructor[T]] =
+    classTag[T].erasure.getConstructors.toList map (_.asInstanceOf[Constructor[T]])
 
   /** The actual bytes for a class file, or an empty array if it can't be found. */
   def classBytes(className: String): Array[Byte] = classAsStream(className) match {
@@ -98,7 +78,6 @@ trait ScalaClassLoader extends JClassLoader {
     case null => Nil
     case p    => p.loaderChain
   })
-  override def toString = classLoaderUniqueId
 }
 
 /** Methods for obtaining various classloaders.
@@ -123,9 +102,9 @@ object ScalaClassLoader {
   def bootLoader    = apply(null)
   def contextChain  = loaderChain(contextLoader)
 
-  def pathToErasure[T: ClassManifest] = pathToClass(classManifest[T].erasure)
-  def pathToClass(clazz: Class[_])    = clazz.getName.replace('.', JFile.separatorChar) + ".class"
-  def locate[T: ClassManifest]        = contextLoader getResource pathToErasure[T]
+  def pathToErasure[T: ClassTag]   = pathToClass(classTag[T].erasure)
+  def pathToClass(clazz: Class[_]) = clazz.getName.replace('.', JFile.separatorChar) + ".class"
+  def locate[T: ClassTag]          = contextLoader getResource pathToErasure[T]
 
   /** Tries to guess the classpath by type matching the context classloader
    *  and its parents, looking for any classloaders which will reveal their
@@ -171,7 +150,7 @@ object ScalaClassLoader {
       classloaderURLs :+= url
       super.addURL(url)
     }
-    def toLongString = urls.mkString("URLClassLoader(id=" + classLoaderUniqueId + "\n  ", "\n  ", "\n)\n")
+    def toLongString = urls.mkString("URLClassLoader(\n  ", "\n  ", "\n)\n")
   }
 
   def fromURLs(urls: Seq[URL], parent: ClassLoader = null): URLClassLoader =

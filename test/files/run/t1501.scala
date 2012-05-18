@@ -8,7 +8,7 @@ object Test {
   
   val testCode = <code>
   
-    class xyz[A] extends TypeConstraint
+    class xyz[A] extends annotation.TypeConstraint
     
     def loopWhile[T](cond: =>Boolean)(body: =>(Unit @xyz[T])): Unit @ xyz[T] = {{
       if (cond) {{
@@ -30,7 +30,7 @@ object Test {
   def main(args: Array[String]) = {
     val settings = new Settings()
     settings.classpath.value = System.getProperty("java.class.path")
-    val tool = new Interpreter(settings)
+    val tool = new interpreter.IMain(settings)
     val global = tool.compiler
 
     import global._

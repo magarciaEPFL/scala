@@ -10,7 +10,6 @@
 package scala.collection.immutable
 
 import scala.collection.parallel.immutable.ParRange
-import annotation.bridge
 
 /** The `Range` class represents integer values in range
  *  ''[start;end)'' with non-zero step value `step`.
@@ -328,16 +327,16 @@ object Range {
    */
   def apply(start: Int, end: Int, step: Int): Range = new Range(start, end, step)
 
-  /** Make an range from `start` to `end` inclusive with step value 1.
+  /** Make a range from `start` until `end` (exclusive) with step value 1.
    */
   def apply(start: Int, end: Int): Range = new Range(start, end, 1)
 
-  /** Make an inclusive range from start to end with given step value.
+  /** Make an inclusive range from `start` to `end` with given step value.
    * @note step != 0
    */
   @inline def inclusive(start: Int, end: Int, step: Int): Range.Inclusive = new Inclusive(start, end, step)
 
-  /** Make an inclusive range from start to end with step value 1.
+  /** Make an inclusive range from `start` to `end` with step value 1.
    */
   @inline def inclusive(start: Int, end: Int): Range.Inclusive = new Inclusive(start, end, 1)
 
@@ -397,11 +396,5 @@ object Range {
   object Int {
     def apply(start: Int, end: Int, step: Int) = NumericRange(start, end, step)
     def inclusive(start: Int, end: Int, step: Int) = NumericRange.inclusive(start, end, step)
-  }
-
-  @deprecated("use Range instead", "2.9.0")
-  trait ByOne extends Range {
-//    @bridge override def foreach[@specialized(Unit) U](f: Int => U) =
-//      super.foreach(f)
   }
 }

@@ -16,10 +16,15 @@
     <property name="local.release.repository" value="${user.home}/.m2/repository" />
     <property name="repository.credentials.id" value="sonatype-nexus" />
     <property name="settings.file" value="${user.home}/.m2/settings.xml" />
-
+    <condition property="version.is.snapshot">
+      <contains string="${maven.version.number}" substring="-SNAPSHOT"/>
+    </condition>
+    
     <echo>Using server[${repository.credentials.id}] for maven repository credentials.
        Please make sure that your ~/.m2/settings.xml has the needed username/password for this server id
      </echo>
+
+    
   </target>
 
   <target name="init.maven" depends="init.properties">
@@ -106,11 +111,11 @@
         <deploy-local name="scala-library" version="@{version}" repository="@{repository}" />
         <deploy-local name="scala-compiler" version="@{version}" repository="@{repository}" />
         <deploy-local-plugin name="continuations" version="@{version}" repository="@{repository}"/>
-        <deploy-local name="scala-dbc" version="@{version}" repository="@{repository}" />
+        <deploy-local name="scala-actors" version="@{version}" repository="@{repository}" />
         <deploy-local name="scala-swing" version="@{version}" repository="@{repository}"/>
-      	<deploy-local name="scalap" version="@{version}" repository="@{repository}"/>
-      	<deploy-local name="scala-partest" version="@{version}" repository="@{repository}"/>
-      	<deploy-local name="jline" version="@{version}" repository="@{repository}"/>
+        <deploy-local name="scalap" version="@{version}" repository="@{repository}"/>
+        <deploy-local name="scala-partest" version="@{version}" repository="@{repository}"/>
+        <deploy-local name="jline" version="@{version}" repository="@{repository}"/>
       </sequential>
     </macrodef>
   </target>
@@ -163,12 +168,12 @@
             <artifact:attach type="jar" file="scala-library/scala-library-docs.jar" classifier="javadoc" />
           </extra-attachments>
         </deploy-remote>
-      	<deploy-remote name="jline" version="@{version}" repository="@{repository}"/>
+        <deploy-remote name="jline" version="@{version}" repository="@{repository}"/>
         <deploy-remote name="scala-compiler" version="@{version}" repository="@{repository}" />
-        <deploy-remote name="scala-dbc" version="@{version}" repository="@{repository}" />
         <deploy-remote name="scala-swing" version="@{version}" repository="@{repository}"/>
-      	<deploy-remote name="scalap" version="@{version}" repository="@{repository}"/>
-      	<deploy-remote name="scala-partest" version="@{version}" repository="@{repository}"/>
+        <deploy-remote name="scala-actors" version="@{version}" repository="@{repository}"/>
+        <deploy-remote name="scalap" version="@{version}" repository="@{repository}"/>
+        <deploy-remote name="scala-partest" version="@{version}" repository="@{repository}"/>
         <deploy-remote-plugin name="continuations" version="@{version}" repository="@{repository}"/> 
       </sequential>
     </macrodef>
@@ -229,40 +234,43 @@
       <attribute name="version" />
       <sequential>
         <deploy-remote-plugin-signed name="continuations" version="@{version}" repository="@{repository}"/> 
-      	<deploy-remote-signed name="scala-library" version="@{version}" repository="@{repository}"/>
-      	<deploy-remote-signed name="jline" version="@{version}" repository="@{repository}"/>
+        <deploy-remote-signed name="scala-library" version="@{version}" repository="@{repository}"/>
+        <deploy-remote-signed name="jline" version="@{version}" repository="@{repository}"/>
         <deploy-remote-signed name="scala-compiler" version="@{version}" repository="@{repository}" />
-        <deploy-remote-signed name="scala-dbc" version="@{version}" repository="@{repository}" />
         <deploy-remote-signed name="scala-swing" version="@{version}" repository="@{repository}"/>
-      	<deploy-remote-signed name="scalap" version="@{version}" repository="@{repository}"/>
-      	<deploy-remote-signed name="scala-partest" version="@{version}" repository="@{repository}"/>
+        <deploy-remote-signed name="scala-actors" version="@{version}" repository="@{repository}"/>
+        <deploy-remote-signed name="scalap" version="@{version}" repository="@{repository}"/>
+        <deploy-remote-signed name="scala-partest" version="@{version}" repository="@{repository}"/>
       </sequential>
     </macrodef>
   </target>
 
   <!-- Local Targets -->
-  <target name="deploy.snapshot.local" depends="deploy.local.init" description="Deploys the bundled snapshot of the Scala Lanaguage to a local maven repository">
-    <deploy-local-all version="${maven.snapshot.version.number}" repository="${local.snapshot.repository}" />
+  <target name="deploy.snapshot.local" depends="deploy.local.init" if="version.is.snapshot" description="Deploys the bundled snapshot of the Scala Lanaguage to a local maven repository">
+    <deploy-local-all version="${maven.version.number}" repository="${local.snapshot.repository}" />
   </target>
 
-  <target name="deploy.release.local" depends="deploy.local.init" description="Deploys the bundled files as a release into the local Maven repository">
-    <deploy-local-all version="${version.number}" repository="${local.release.repository}" />
+  <target name="deploy.release.local" depends="deploy.local.init" unless="version.is.snapshot" description="Deploys the bundled files as a release into the local Maven repository">
+    <deploy-local-all version="${maven.version.number}" repository="${local.release.repository}" />
+  </target>
+  <target name="deploy.local" depends="deploy.snapshot.local, deploy.release.local" description="Deploys the bundle files to the local maven repo."/>
+
+  <!-- Remote Signed Targets -->
+  <target name="deploy.signed.snapshot" depends="deploy.remote.init" if="version.is.snapshot" description="Deploys the bundled files as a snapshot into the desired remote Maven repository">
+      <deploy-remote-signed-all version="${maven.version.number}" repository="${remote.snapshot.repository}" />
   </target>
 
-  <!-- Remote Targets -->
-  <target name="deploy.signed.snapshot" depends="deploy.remote.init" description="Deploys the bundled files as a snapshot into the desired remote Maven repository">
-      <deploy-remote-signed-all version="${maven.snapshot.version.number}" repository="${remote.snapshot.repository}" />
+  <target name="deploy.signed.release" depends="deploy.remote.init" unless="version.is.snapshot" description="Deploys the bundled files as a release into the desired remote Maven repository">
+    <deploy-remote-signed-all version="${maven.version.number}" repository="${remote.release.repository}" />
+  </target>
+  <target name="deploy.signed" depends="deploy.signed.release, deploy.signed.snapshot" description="Deploys signed bundles to remote repo"/>
+  <!-- Remote unsigned targets -->
+  <target name="deploy.snapshot" depends="deploy.remote.init" if="version.is.snapshot" description="Deploys the bundled files as a snapshot into the desired remote Maven repository">
+      <deploy-remote-all version="${maven.version.number}" repository="${remote.snapshot.repository}" />
   </target>
 
-  <target name="deploy.signed.release" depends="deploy.remote.init" description="Deploys the bundled files as a release into the desired remote Maven repository">
-    <deploy-remote-signed-all version="${version.number}" repository="${remote.release.repository}" />
+  <target name="deploy.release" depends="deploy.remote.init" unless="version.is.snapshot" description="Deploys the bundled files as a release into the desired remote Maven repository">
+    <deploy-remote-all version="${maven.version.number}" repository="${remote.release.repository}" />
   </target>
-
-  <target name="deploy.snapshot" depends="deploy.remote.init" description="Deploys the bundled files as a snapshot into the desired remote Maven repository">
-      <deploy-remote-all version="${maven.snapshot.version.number}" repository="${remote.snapshot.repository}" />
-  </target>
-
-  <target name="deploy.release" depends="deploy.remote.init" description="Deploys the bundled files as a release into the desired remote Maven repository">
-    <deploy-remote-all version="${version.number}" repository="${remote.release.repository}" />
-  </target>
+  <target name="deploy" depends="deploy.snapshot, deploy.release" description="Deploys unsigned artifacts to the maven repo."/>
 </project>

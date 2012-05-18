@@ -102,7 +102,6 @@ extends AbstractIterable[MetaData]
    *  @param namespace_uri namespace uri of key
    *  @param owner the element owning this attribute list
    *  @param key   the attribute key
-   *  @return          ...
    */
   final def apply(namespace_uri: String, owner: Node, key: String): Seq[Node] =
     apply(namespace_uri, owner.scope, key)
@@ -112,15 +111,12 @@ extends AbstractIterable[MetaData]
    *
    * @param  namespace_uri namespace uri of key
    * @param  scp a namespace scp (usually of the element owning this attribute list)
-   * @param  key to be looked fore
+   * @param  k   to be looked for
    * @return value as Seq[Node] if key is found, null otherwise
    */
-  def apply(namespace_uri:String, scp:NamespaceBinding, k:String): Seq[Node]
+  def apply(namespace_uri: String, scp: NamespaceBinding, k: String): Seq[Node]
 
   /** returns a copy of this MetaData item with next field set to argument.
-   *
-   *  @param next ...
-   *  @return     ...
    */
   def copy(next: MetaData): MetaData
 
@@ -167,7 +163,7 @@ extends AbstractIterable[MetaData]
   /** Returns a Map containing the attributes stored as key/value pairs.
    */
   def asAttrMap: Map[String, String] =
-    iterator map (x => (x.prefixedKey, x.value.text)) toMap
+    (iterator map (x => (x.prefixedKey, x.value.text))).toMap
 
   /** returns Null or the next MetaData item */
   def next: MetaData
@@ -208,31 +204,13 @@ extends AbstractIterable[MetaData]
   }
 
   /**
-   *  @param scope ...
-   *  @return      `'''true'''` iff ...
    */
   def wellformed(scope: NamespaceBinding): Boolean
 
-  /**
-   *  @param key ...
-   *  @return    ...
-   */
   def remove(key: String): MetaData
 
-  /**
-   *  @param namespace ...
-   *  @param scope     ...
-   *  @param key       ...
-   *  @return          ...
-   */
   def remove(namespace: String, scope: NamespaceBinding, key: String): MetaData
 
-  /**
-   *  @param namespace ...
-   *  @param owner     ...
-   *  @param key       ...
-   *  @return          ...
-   */
   final def remove(namespace: String, owner: Node, key: String): MetaData =
     remove(namespace, owner.scope, key)
 }

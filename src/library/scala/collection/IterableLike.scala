@@ -12,7 +12,6 @@ package scala.collection
 import generic._
 import immutable.{ List, Stream }
 import annotation.unchecked.uncheckedVariance
-import annotation.bridge
 
 /** A template trait for iterable collections of type `Iterable[A]`.
  *  $iterableInfo
@@ -67,6 +66,7 @@ self =>
    *    Subclasses should re-implement this method if a more efficient implementation exists.
    *
    *  @usecase def foreach(f: A => Unit): Unit
+   *    @inheritdoc
    */
   def foreach[U](f: A => U): Unit =
     iterator.foreach(f)
@@ -133,7 +133,7 @@ self =>
       it.next
       i += 1
     }
-    b ++= it result
+    (b ++= it).result
   }
 
   override /*TraversableLike*/ def takeWhile(p: A => Boolean): Repr = {
@@ -148,7 +148,7 @@ self =>
   }
 
   /** Partitions elements in fixed size ${coll}s.
-   *  @see Iterator#grouped
+   *  @see [[scala.collection.Iterator]], method `grouped`
    *
    *  @param size the number of elements per group
    *  @return An iterator producing ${coll}s of size `size`, except the
@@ -163,7 +163,18 @@ self =>
 
   /** Groups elements in fixed size blocks by passing a "sliding window"
    *  over them (as opposed to partitioning them, as is done in grouped.)
-   *  @see Iterator#sliding
+   *  @see [[scala.collection.Iterator]], method `sliding`
+   *
+   *  @param size the number of elements per group
+   *  @return An iterator producing ${coll}s of size `size`, except the
+   *          last and the only element will be truncated if there are
+   *          fewer elements than size.
+   */
+  def sliding(size: Int): Iterator[Repr] = sliding(size, 1)
+  
+  /** Groups elements in fixed size blocks by passing a "sliding window"
+   *  over them (as opposed to partitioning them, as is done in grouped.)
+   *  @see [[scala.collection.Iterator]], method `sliding`
    *
    *  @param size the number of elements per group
    *  @param step the distance between the first elements of successive
@@ -172,7 +183,6 @@ self =>
    *          last and the only element will be truncated if there are
    *          fewer elements than size.
    */
-  def sliding(size: Int): Iterator[Repr] = sliding(size, 1)
   def sliding(size: Int, step: Int): Iterator[Repr] =
     for (xs <- iterator.sliding(size, step)) yield {
       val b = newBuilder
@@ -238,10 +248,6 @@ self =>
     b.result
   }
 
-  @bridge
-  def zip[A1 >: A, B, That](that: Iterable[B])(implicit bf: CanBuildFrom[Repr, (A1, B), That]): That =
-    zip(that: GenIterable[B])(bf)
-
   def zipAll[B, A1 >: A, That](that: GenIterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Repr, (A1, B), That]): That = {
     val b = bf(repr)
     val these = this.iterator
@@ -254,10 +260,6 @@ self =>
       b += ((thisElem, those.next))
     b.result
   }
-
-  @bridge
-  def zipAll[B, A1 >: A, That](that: Iterable[B], thisElem: A1, thatElem: B)(implicit bf: CanBuildFrom[Repr, (A1, B), That]): That =
-    zipAll(that: GenIterable[B], thisElem, thatElem)(bf)
 
   def zipWithIndex[A1 >: A, That](implicit bf: CanBuildFrom[Repr, (A1, Int), That]): That = {
     val b = bf(repr)
@@ -278,9 +280,6 @@ self =>
 
     !these.hasNext && !those.hasNext
   }
-
-  @bridge
-  def sameElements[B >: A](that: Iterable[B]): Boolean = sameElements(that: GenIterable[B])
 
   override /*TraversableLike*/ def toStream: Stream[A] = iterator.toStream
 

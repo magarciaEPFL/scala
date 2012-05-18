@@ -26,12 +26,15 @@ import collection.parallel.Task
  *  `ParHashMap` is a parallel map which internally keeps elements within a hash table.
  *  It uses chaining to resolve collisions.
  *
- *  @tparam T        type of the elements in the parallel hash map
+ *  @tparam K        type of the keys in the parallel hash map
+ *  @tparam V        type of the values in the parallel hash map
  *
- *  @define Coll ParHashMap
+ *  @define Coll `ParHashMap`
  *  @define coll parallel hash map
  *
  *  @author Aleksandar Prokopec
+ *  @see  [[http://docs.scala-lang.org/overviews/parallel-collections/concrete-parallel-collections.html#parallel_hash_tables Scala's Parallel Collections Library overview]]
+ *  section on Parallel Hash Tables for more information.
  */
 @SerialVersionUID(1L)
 class ParHashMap[K, V] private[collection] (contents: HashTable.Contents[K, DefaultEntry[K, V]])
@@ -106,8 +109,6 @@ self =>
 
   private def readObject(in: java.io.ObjectInputStream) {
     init[V](in, new Entry(_, _))
-    
-    initTaskSupport()
   }
 
   private[parallel] override def brokenInvariants = {
@@ -141,7 +142,7 @@ self =>
 
 
 /** $factoryInfo
- *  @define Coll mutable.ParHashMap
+ *  @define Coll `mutable.ParHashMap`
  *  @define coll parallel hash map
  */
 object ParHashMap extends ParMapFactory[ParHashMap] {

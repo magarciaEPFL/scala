@@ -11,6 +11,7 @@ package scala.xml
 import collection.{ mutable, immutable, generic, SeqLike, AbstractSeq }
 import mutable.{ Builder, ListBuffer }
 import generic.{ CanBuildFrom }
+import language.implicitConversions
 
 /** This object ...
  *
@@ -87,9 +88,6 @@ abstract class NodeSeq extends AbstractSeq[Node] with immutable.Seq[Node] with S
    *  There is no support for searching a prefixed attribute by its literal prefix.
    *
    *  The document order is preserved.
-   *
-   *  @param that ...
-   *  @return     ...
    */
   def \(that: String): NodeSeq = {
     def fail = throw new IllegalArgumentException(that)
@@ -137,9 +135,6 @@ abstract class NodeSeq extends AbstractSeq[Node] with immutable.Seq[Node] with S
    *  There is no support for searching a prefixed attribute by its literal prefix.
    *
    *  The document order is preserved.
-   *
-   *  @param that ...
-   *  @return     ...
    */
   def \\ (that: String): NodeSeq = {
     def filt(cond: (Node) => Boolean) = this flatMap (_.descendant_or_self) filter cond
@@ -152,5 +147,5 @@ abstract class NodeSeq extends AbstractSeq[Node] with immutable.Seq[Node] with S
 
   override def toString(): String = theSeq.mkString
 
-  def text: String = this map (_.text) mkString
+  def text: String = (this map (_.text)).mkString
 }

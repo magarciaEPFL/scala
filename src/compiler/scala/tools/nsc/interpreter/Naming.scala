@@ -11,16 +11,18 @@ package interpreter
  */
 trait Naming {
   def unmangle(str: String): String = {
+    val ESC = '\u001b'
     val cleaned = removeIWPackages(removeLineWrapper(str))
-    var ctrlChars = 0
-    cleaned map { ch =>
-      if (ch.isControl && !ch.isWhitespace) {
-        ctrlChars += 1
-        if (ctrlChars > 5) return "[line elided for control chars: possibly a scala signature]"
-        else '?'
-      }
-      else ch
-    }
+    // Looking to exclude binary data which hoses the terminal, but
+    // let through the subset of it we need, like whitespace and also
+    // <ESC> for ansi codes.
+    val binaryChars = cleaned count (ch => ch < 32 && !ch.isWhitespace && ch != ESC)
+    // Lots of binary chars - translate all supposed whitespace into spaces
+    if (binaryChars > 5)
+      cleaned map (ch => if (ch.isWhitespace) ' ' else if (ch < 32) '?' else ch)
+    // Not lots - preserve whitespace and ESC
+    else
+      cleaned map (ch => if (ch.isWhitespace || ch == ESC) ch else if (ch < 32) '?' else ch)
   }
 
   // The two name forms this is catching are the two sides of this assignment:
@@ -39,10 +41,10 @@ trait Naming {
   private def removeIWPackages(s: String)  = s.replaceAll("""\$iw[$.]""", "")
 
   trait SessionNames {
-    // All values are configurable by passing e.g. -Dscala.repl.naming.read=XXX
+    // All values are configurable by passing e.g. -Dscala.repl.name.read=XXX
     final def propOr(name: String): String = propOr(name, "$" + name)
     final def propOr(name: String, default: String): String =
-      sys.props.getOrElse("scala.repl.naming." + name, default)
+      sys.props.getOrElse("scala.repl.name." + name, default)
 
     // Prefixes used in repl machinery.  Default to $line, $read, etc.
     def line   = propOr("line")

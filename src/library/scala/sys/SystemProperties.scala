@@ -11,6 +11,8 @@ package scala.sys
 import scala.collection.{ mutable, Iterator }
 import scala.collection.JavaConverters._
 import java.security.AccessControlException
+import language.implicitConversions
+
 
 /** A bidirectional map wrapping the java System properties.
  *  Changes to System properties will be immediately visible in the map,
@@ -76,6 +78,5 @@ object SystemProperties {
   lazy val preferIPv4Stack     = bool("java.net.preferIPv4Stack", "system should prefer IPv4 sockets")
   lazy val preferIPv6Addresses = bool("java.net.preferIPv6Addresses", "system should prefer IPv6 addresses")
   lazy val noTraceSupression   = bool("scala.control.noTraceSuppression", "scala should not suppress any stack trace creation")
-  lazy val traceSourcePath     = str("scala.control.sourcepath", "sourcepath for looking up stack trace elements")
 }
 

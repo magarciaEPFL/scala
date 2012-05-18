@@ -30,15 +30,11 @@ abstract class SymbolLoaders {
     member
   }
 
-  private def realOwner(root: Symbol): Symbol = {
-    if (root.isRoot) definitions.EmptyPackageClass else root
-  }
-
   /** Enter class with given `name` into scope of `root`
    *  and give them `completer` as type.
    */
   def enterClass(root: Symbol, name: String, completer: SymbolLoader): Symbol = {
-    val owner = realOwner(root)
+    val owner = root.ownerOfNewSymbols
     val clazz = owner.newClass(newTypeName(name))
     clazz setInfo completer
     enterIfNew(owner, clazz, completer)
@@ -48,7 +44,7 @@ abstract class SymbolLoaders {
    *  and give them `completer` as type.
    */
   def enterModule(root: Symbol, name: String, completer: SymbolLoader): Symbol = {
-    val owner = realOwner(root)
+    val owner = root.ownerOfNewSymbols
     val module = owner.newModule(newTermName(name))
     module setInfo completer
     module.moduleClass setInfo moduleClassLoader
@@ -126,9 +122,13 @@ abstract class SymbolLoaders {
         ok = false
         if (settings.debug.value) ex.printStackTrace()
         val msg = ex.getMessage()
-        globalError(
-          if (msg eq null) "i/o error while loading " + root.name
-          else "error while loading " + root.name + ", " + msg);
+        // SI-5593 Scaladoc's current strategy is to visit all packages in search of user code that can be documented
+        // therefore, it will rummage through the classpath triggering errors whenever it encounters package objects
+        // that are not in their correct place (see bug for details)
+        if (!settings.isScaladoc)
+          globalError(
+            if (msg eq null) "i/o error while loading " + root.name
+            else "error while loading " + root.name + ", " + msg);
       }
       try {
         val start = currentTime
@@ -232,6 +232,16 @@ abstract class SymbolLoaders {
     protected def doComplete(root: Symbol) {
       val start = startTimer(classReadNanos)
       classfileParser.parse(classfile, root)
+      if (root.associatedFile eq null) {
+        root match {
+          // In fact, the ModuleSymbol forwards its setter to the module class
+          case _: ClassSymbol | _: ModuleSymbol =>
+            debuglog("ClassfileLoader setting %s.associatedFile = %s".format(root.name, classfile))
+            root.associatedFile = classfile
+          case _ =>
+            debuglog("Not setting associatedFile to %s because %s is a %s".format(classfile, root.name, root.shortSymbolClass))
+        }
+      }
       stopTimer(classReadNanos, start)
     }
     override def sourcefile: Option[AbstractFile] = classfileParser.srcfile

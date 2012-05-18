@@ -58,7 +58,7 @@ import java.io._
  *  @author  Martin Odersky and others
  *  @version 2.8
  *  @since   1.0
- *  @see  [["http://docs.scala-lang.org/overviews/collections/concrete-immutable-collection-classes.html#lists" "Scala's Collection Library overview"]]
+ *  @see  [[http://docs.scala-lang.org/overviews/collections/concrete-immutable-collection-classes.html#lists "Scala's Collection Library overview"]]
  *  section on `Lists` for more information.
  *
  *  @define coll list
@@ -93,8 +93,12 @@ sealed abstract class List[+A] extends AbstractSeq[A]
    *  @param x the element to prepend.
    *  @return  a list which contains `x` as first element and
    *           which continues with this list.
-   *  @example `1 :: List(2, 3) = List(2, 3).::(1) = List(1, 2, 3)`
+   *
    *  @usecase def ::(x: A): List[A]
+   *    @inheritdoc
+   *    
+   *    Example:
+   *    {{{1 :: List(2, 3) = List(2, 3).::(1) = List(1, 2, 3)}}}
    */
   def ::[B >: A] (x: B): List[B] =
     new scala.collection.immutable.::(x, this)
@@ -103,8 +107,12 @@ sealed abstract class List[+A] extends AbstractSeq[A]
    *  @param prefix  The list elements to prepend.
    *  @return a list resulting from the concatenation of the given
    *    list `prefix` and this list.
-   *  @example `List(1, 2) ::: List(3, 4) = List(3, 4).:::(List(1, 2)) = List(1, 2, 3, 4)`
+   *
    *  @usecase def :::(prefix: List[A]): List[A]
+   *    @inheritdoc
+   *
+   *    Example:
+   *    {{{List(1, 2) ::: List(3, 4) = List(3, 4).:::(List(1, 2)) = List(1, 2, 3, 4)}}}
    */
   def :::[B >: A](prefix: List[B]): List[B] =
     if (isEmpty) prefix
@@ -117,7 +125,9 @@ sealed abstract class List[+A] extends AbstractSeq[A]
    *
    *  @param prefix the prefix to reverse and then prepend
    *  @return       the concatenation of the reversed prefix and the current list.
+   *
    *  @usecase def reverse_:::(prefix: List[A]): List[A]
+   *    @inheritdoc
    */
   def reverse_:::[B >: A](prefix: List[B]): List[B] = {
     var these: List[B] = this
@@ -131,13 +141,15 @@ sealed abstract class List[+A] extends AbstractSeq[A]
 
   /** Builds a new list by applying a function to all elements of this list.
    *  Like `xs map f`, but returns `xs` unchanged if function
-   *  `f` maps all elements to themselves (wrt eq).
+   *  `f` maps all elements to themselves (as determined by `eq`).
    *
    *  @param f      the function to apply to each element.
    *  @tparam B     the element type of the returned collection.
    *  @return       a list resulting from applying the given function
    *                `f` to each element of this list and collecting the results.
+   *
    *  @usecase def mapConserve(f: A => A): List[A]
+   *    @inheritdoc
    */
   def mapConserve[B >: A <: AnyRef](f: A => B): List[B] = {
     @tailrec
@@ -370,7 +382,7 @@ final case class ::[B](private var hd: B, private[scala] var tl: List[B]) extend
 
 /** $factoryInfo
  *  @define coll list
- *  @define Coll List
+ *  @define Coll `List`
  */
 object List extends SeqFactory[List] {
 
@@ -499,7 +511,7 @@ object List extends SeqFactory[List] {
 
   /** Transforms an Iterable of Eithers into a pair of lists.
    *
-   *  @param xs the iterable of Eithers to separate
+   *  @param es the iterable of Eithers to separate
    *  @return a pair of lists.
    */
   @deprecated("use `(for (Left(x) <- es) yield x, for (Right(x) <- es) yield x)` instead", "2.8.0")
@@ -570,7 +582,7 @@ object List extends SeqFactory[List] {
   /** Tests whether the given predicate `p` holds
    *  for all corresponding elements of the argument lists.
    *
-   *  @param p function to apply to each pair of elements.
+   *  @param f function to apply to each pair of elements.
    *  @return  `(p(a<sub>0</sub>,b<sub>0</sub>) &amp;&amp;
    *           ... &amp;&amp; p(a<sub>n</sub>,b<sub>n</sub>))]`
    *           if the lists are `[a<sub>0</sub>, ..., a<sub>k</sub>]`;
@@ -592,7 +604,7 @@ object List extends SeqFactory[List] {
   /** Tests whether the given predicate `p` holds
    *  for some corresponding elements of the argument lists.
    *
-   *  @param p function to apply to each pair of elements.
+   *  @param f function to apply to each pair of elements.
    *  @return  `n != 0 &amp;&amp; (p(a<sub>0</sub>,b<sub>0</sub>) ||
    *           ... || p(a<sub>n</sub>,b<sub>n</sub>))]` if the lists are
    *           `[a<sub>0</sub>, ..., a<sub>k</sub>]`,

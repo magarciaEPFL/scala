@@ -8,14 +8,13 @@
 
 package scala.collection
 
-import mutable.{ Buffer, ListBuffer, ArrayBuffer }
+import mutable.{ Buffer, Builder, ListBuffer, ArrayBuffer }
 import annotation.unchecked.{ uncheckedVariance => uV }
+import language.{implicitConversions, higherKinds}
 
 /** A template trait for collections which can be traversed either once only
  *  or one or more times.
  *  $traversableonceinfo
- *
- *  @tparam A    the element type of the collection
  *
  *  @author Martin Odersky
  *  @author Paul Phillips
@@ -228,7 +227,7 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
   def copyToArray[B >: A](xs: Array[B]): Unit =
     copyToArray(xs, 0, xs.length)
 
-  def toArray[B >: A : ClassManifest]: Array[B] = {
+  def toArray[B >: A : ArrayTag]: Array[B] = {
     if (isTraversableAgain) {
       val result = new Array[B](size)
       copyToArray(result, 0)
@@ -239,7 +238,7 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
 
   def toTraversable: Traversable[A]
 
-  def toList: List[A] = new ListBuffer[A] ++= seq toList
+  def toList: List[A] = (new ListBuffer[A] ++= seq).toList
 
   def toIterable: Iterable[A] = toStream
 
@@ -356,33 +355,52 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
 }
 
 
-
 object TraversableOnce {
-  implicit def traversableOnceCanBuildFrom[T] = new OnceCanBuildFrom[T]
-  implicit def wrapTraversableOnce[A](trav: TraversableOnce[A]) = new MonadOps(trav)
+  @deprecated("use OnceCanBuildFrom instead")
+  def traversableOnceCanBuildFrom[T] = new OnceCanBuildFrom[T]
+  @deprecated("use MonadOps instead")
+  def wrapTraversableOnce[A](trav: TraversableOnce[A]) = new MonadOps(trav)
+
   implicit def alternateImplicit[A](trav: TraversableOnce[A]) = new ForceImplicitAmbiguity
   implicit def flattenTraversableOnce[A, CC[_]](travs: TraversableOnce[CC[A]])(implicit ev: CC[A] => TraversableOnce[A]) =
     new FlattenOps[A](travs map ev)
-
-  /** With the advent of TraversableOnce, it can be useful to have a builder which
-   *  operates on Iterators so they can be treated uniformly along with the collections.
-   *  See scala.util.Random.shuffle for an example.
-   */
-  class OnceCanBuildFrom[A] extends generic.CanBuildFrom[TraversableOnce[A], A, TraversableOnce[A]] {
-    def newIterator = new ArrayBuffer[A] mapResult (_.iterator)
+  
+  /* Functionality reused in Iterator.CanBuildFrom */
+  private[collection] abstract class BufferedCanBuildFrom[A, Coll[X] <: TraversableOnce[X]] extends generic.CanBuildFrom[Coll[_], A, Coll[A]] {
+    def bufferToColl[B](buff: ArrayBuffer[B]): Coll[B]
+    def traversableToColl[B](t: GenTraversable[B]): Coll[B]
+    
+    def newIterator: Builder[A, Coll[A]] = new ArrayBuffer[A] mapResult bufferToColl
 
     /** Creates a new builder on request of a collection.
      *  @param from  the collection requesting the builder to be created.
      *  @return the result of invoking the `genericBuilder` method on `from`.
      */
-    def apply(from: TraversableOnce[A]) = newIterator
+    def apply(from: Coll[_]): Builder[A, Coll[A]] = from match {
+      case xs: generic.GenericTraversableTemplate[_, _] => xs.genericBuilder.asInstanceOf[Builder[A, Traversable[A]]] mapResult {
+        case res => traversableToColl(res.asInstanceOf[GenTraversable[A]])
+      }
+      case _ => newIterator
+    }
 
     /** Creates a new builder from scratch
      *  @return the result of invoking the `newBuilder` method of this factory.
      */
     def apply() = newIterator
   }
-
+  
+  /** With the advent of `TraversableOnce`, it can be useful to have a builder which
+   *  operates on `Iterator`s so they can be treated uniformly along with the collections.
+   *  See `scala.util.Random.shuffle` or `scala.concurrent.Future.sequence` for an example.
+   */
+  class OnceCanBuildFrom[A] extends BufferedCanBuildFrom[A, TraversableOnce] {
+    def bufferToColl[B](buff: ArrayBuffer[B]) = buff.iterator
+    def traversableToColl[B](t: GenTraversable[B]) = t.seq
+  }
+  
+  /** Evidence for building collections from `TraversableOnce` collections */
+  implicit def OnceCanBuildFrom[A] = new OnceCanBuildFrom[A]
+  
   class FlattenOps[A](travs: TraversableOnce[TraversableOnce[A]]) {
     def flatten: Iterator[A] = new AbstractIterator[A] {
       val its = travs.toIterator
@@ -394,7 +412,7 @@ object TraversableOnce {
 
   class ForceImplicitAmbiguity
 
-  class MonadOps[+A](trav: TraversableOnce[A]) {
+  implicit class MonadOps[+A](trav: TraversableOnce[A]) {
     def map[B](f: A => B): TraversableOnce[B] = trav.toIterator map f
     def flatMap[B](f: A => GenTraversableOnce[B]): TraversableOnce[B] = trav.toIterator flatMap f
     def withFilter(p: A => Boolean) = trav.toIterator filter p

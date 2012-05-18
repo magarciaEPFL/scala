@@ -93,7 +93,7 @@ abstract class ExplicitOuter extends InfoTransform
   }
   def newOuterAccessor(clazz: Symbol) = {
     val accFlags = SYNTHETIC | METHOD | STABLE | ( if (clazz.isTrait) DEFERRED else 0 )
-    val sym      = clazz.newMethodSymbol(nme.OUTER, clazz.pos, accFlags)
+    val sym      = clazz.newMethod(nme.OUTER, clazz.pos, accFlags)
     val restpe   = if (clazz.isTrait) clazz.outerClass.tpe else clazz.outerClass.thisType
 
     sym expandName clazz
@@ -149,7 +149,7 @@ abstract class ExplicitOuter extends InfoTransform
       if (sym.owner.isTrait && ((sym hasFlag (ACCESSOR | SUPERACCESSOR)) || sym.isModule)) { // 5
         sym.makeNotPrivate(sym.owner)
       }
-      if (sym.owner.isTrait) sym setNotFlag PROTECTED // 6
+      if (sym.owner.isTrait && sym.isProtected) sym setFlag notPROTECTED // 6
       if (sym.isClassConstructor && isInner(sym.owner)) { // 1
         val p = sym.newValueParameter(innerClassConstructorParamName, sym.pos)
                    .setInfo(sym.owner.outerClass.thisType)
@@ -357,7 +357,7 @@ abstract class ExplicitOuter extends InfoTransform
      */
     def mixinOuterAccessorDef(mixinClass: Symbol): Tree = {
       val outerAcc    = outerAccessor(mixinClass) overridingSymbol currentClass
-      def mixinPrefix = currentClass.thisType baseType mixinClass prefix;
+      def mixinPrefix = (currentClass.thisType baseType mixinClass).prefix
       assert(outerAcc != NoSymbol, "No outer accessor for inner mixin " + mixinClass + " in " + currentClass)
       // I added the mixinPrefix.typeArgs.nonEmpty condition to address the
       // crash in SI-4970.  I feel quite sure this can be improved.
@@ -448,8 +448,8 @@ abstract class ExplicitOuter extends InfoTransform
     override def transform(tree: Tree): Tree = {
       val sym = tree.symbol
       if (sym != null && sym.isType) { //(9)
-        sym setNotFlag PRIVATE
-        sym setNotFlag PROTECTED
+        if (sym.isPrivate) sym setFlag notPRIVATE
+        if (sym.isProtected) sym setFlag notPROTECTED
       }
       tree match {
         case Template(parents, self, decls) =>

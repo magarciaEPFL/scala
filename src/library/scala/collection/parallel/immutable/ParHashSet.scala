@@ -35,8 +35,10 @@ import collection.parallel.Task
  *
  *  @author Aleksandar Prokopec
  *  @since 2.9
+ *  @see  [[http://docs.scala-lang.org/overviews/parallel-collections/concrete-parallel-collections.html#parallel_hash_tries Scala's Parallel Collections Library overview]]
+ *  section on Parallel Hash Tries for more information.
  *
- *  @define Coll immutable.ParHashSet
+ *  @define Coll `immutable.ParHashSet`
  *  @define coll immutable parallel hash set
  */
 @SerialVersionUID(1L)
@@ -112,23 +114,11 @@ self =>
     def remaining = sz - i
   }
 
-  /* serialization */
-  
-  private def writeObject(out: java.io.ObjectOutputStream) {
-    out.defaultWriteObject
-  }
-
-  private def readObject(in: java.io.ObjectInputStream) {
-    in.defaultReadObject
-    
-    initTaskSupport()
-  }
-  
 }
 
 
 /** $factoryInfo
- *  @define Coll immutable.ParHashSet
+ *  @define Coll `immutable.ParHashSet`
  *  @define coll immutable parallel hash set
  */
 object ParHashSet extends ParSetFactory[ParHashSet] {

@@ -187,7 +187,7 @@ trait HashTable[A, Entry >: Null <: HashEntry[A, Entry]] extends HashTable.HashU
   }
 
   /** Avoid iterator for a 2x faster traversal. */
-  protected final def foreachEntry[C](f: Entry => C) {
+  protected def foreachEntry[C](f: Entry => C) {
     val iterTable = table
     var idx       = lastPopulatedIndex
     var es        = iterTable(idx)
@@ -366,7 +366,7 @@ private[collection] object HashTable {
 
   private[collection] final def newThreshold(_loadFactor: Int, size: Int) = ((size.toLong * _loadFactor) / loadFactorDenum).toInt
 
-  private[collection] final def sizeForThreshold(_loadFactor: Int, thr: Int) = thr * loadFactorDenum / _loadFactor
+  private[collection] final def sizeForThreshold(_loadFactor: Int, thr: Int) = ((thr.toLong * loadFactorDenum) / _loadFactor).toInt
 
   private[collection] final def capacity(expectedSize: Int) = if (expectedSize == 0) 1 else powerOfTwo(expectedSize)
 

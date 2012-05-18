@@ -20,7 +20,7 @@ package mutable
  *  @tparam A  the key type of the map
  *  @tparam B  the value type of the map
  *
- *  @define Coll ConcurrentMap
+ *  @define Coll `ConcurrentMap`
  *  @define coll concurrent map
  *  @define concurrentmapinfo
  *  This is a base trait for all Scala concurrent map implementations. It
@@ -32,6 +32,7 @@ package mutable
  *  @define atomicop
  *  This is an atomic operation.
  */
+@deprecated("Use `scala.collection.concurrent.Map` instead.", "2.10.0")
 trait ConcurrentMap[A, B] extends Map[A, B] {
 
   /**

@@ -12,13 +12,14 @@ import generic._
 import mutable.{ Builder, ArrayBuffer }
 import TraversableView.NoBuilder
 import annotation.migration
+import language.implicitConversions
 
 trait ViewMkString[+A] {
   self: Traversable[A] =>
 
   // It is necessary to use thisSeq rather than toSeq to avoid cycles in the
   // eager evaluation of vals in transformed view subclasses, see #4558.
-  protected[this] def thisSeq: Seq[A] = new ArrayBuffer[A] ++= self result
+  protected[this] def thisSeq: Seq[A] = (new ArrayBuffer[A] ++= self).result
 
   // Have to overload all three to work around #4299.  The overload
   // is because mkString should force a view but toString should not.
@@ -27,8 +28,16 @@ trait ViewMkString[+A] {
   override def mkString(start: String, sep: String, end: String): String = {
     thisSeq.addString(new StringBuilder(), start, sep, end).toString
   }
-  override def addString(b: StringBuilder, start: String, sep: String, end: String): StringBuilder =
-    b append start append "..." append end
+  override def addString(b: StringBuilder, start: String, sep: String, end: String): StringBuilder = {
+    var first = true
+    b append start
+    for (x <- self) {
+      if (first) first = false else b append sep
+      b append x
+    }
+    b append end
+    b
+  }
 }
 
 /** A template trait for non-strict views of traversable collections.
@@ -40,17 +49,17 @@ trait ViewMkString[+A] {
  *  that takes a `View` as its `From` type parameter must yield the same view (or a generic
  *  superclass of it) as its result parameter. If that assumption is broken, cast errors might result.
  *
- * @define viewInfo
+ *  @define viewInfo
  *  A view is a lazy version of some collection. Collection transformers such as
  *  `map` or `filter` or `++` do not traverse any elements when applied on a view.
  *  Instead they create a new view which simply records that fact that the operation
  *  needs to be applied. The collection elements are accessed, and the view operations are applied,
  *  when a non-view result is needed, or when the `force` method is called on a view.
- * @define traversableViewInfo
+ *  @define traversableViewInfo
  *  $viewInfo
  *
  *  All views for traversable collections are defined by creating a new `foreach` method.
-
+ *  
  *  @author Martin Odersky
  *  @version 2.8
  *  @since   2.8
@@ -153,6 +162,8 @@ trait TraversableViewLike[+A,
 //     if (b.isInstanceOf[NoBuilder[_]]) newFlatMapped(f).asInstanceOf[That]
 //    else super.flatMap[B, That](f)(bf)
   }
+  override def flatten[B](implicit asTraversable: A => /*<:<!!!*/ GenTraversableOnce[B]) = 
+    newFlatMapped(asTraversable)
   private[this] implicit def asThis(xs: Transformed[A]): This = xs.asInstanceOf[This]
 
   /** Boilerplate method, to override in each subclass
