@@ -6,7 +6,6 @@
 package scala.tools.nsc
 package transform
 
-import scala.tools.reflect.SigParser
 import scala.reflect.internal.ClassfileConstants._
 import scala.collection.{ mutable, immutable }
 import symtab._
@@ -63,16 +62,6 @@ abstract class Erasure extends AddInterfaces
             mapOver(tp)
         }
       }
-    }
-  }
-
-  // for debugging signatures: traces logic given system property
-  // performance: get the value here
-  val traceSignatures = (sys.BooleanProp keyExists "scalac.sigs.trace").value
-  private object traceSig extends util.Tracer(() => traceSignatures) {
-    override def stringify(x: Any) = x match {
-      case tp: Type   => super.stringify(dropAllRefinements(tp))
-      case _          => super.stringify(x)
     }
   }
 
@@ -173,21 +162,6 @@ abstract class Erasure extends AddInterfaces
     }
   }
 
-  /** Run the signature parser to catch bogus signatures.
-   */
-  def isValidSignature(sym: Symbol, sig: String) = (
-    /** Since we're using a sun internal class for signature validation,
-     *  we have to allow for it not existing or otherwise malfunctioning:
-     *  in which case we treat every signature as valid.  Medium term we
-     *  should certainly write independent signature validation.
-     */
-    SigParser.isParserAvailable && (
-      if (sym.isMethod) SigParser verifyMethod sig
-      else if (sym.isTerm) SigParser verifyType sig
-      else SigParser verifyClass sig
-    )
-  )
-
   private def hiBounds(bounds: TypeBounds): List[Type] = bounds.hi.normalize match {
     case RefinedType(parents, _) => parents map (_.normalize)
     case tp                      => tp :: Nil
@@ -199,7 +173,7 @@ abstract class Erasure extends AddInterfaces
   def javaSig(sym0: Symbol, info: Type): Option[String] = beforeErasure {
     val isTraitSignature = sym0.enclClass.isTrait
 
-    def superSig(parents: List[Type]) = traceSig("superSig", parents) {
+    def superSig(parents: List[Type]) = {
       val ps = (
         if (isTraitSignature) {
           // java is unthrilled about seeing interfaces inherit from classes
@@ -213,7 +187,7 @@ abstract class Erasure extends AddInterfaces
       (ps map boxedSig).mkString
     }
     def boxedSig(tp: Type) = jsig(tp, primitiveOK = false)
-    def boundsSig(bounds: List[Type]) = traceSig("boundsSig", bounds) {
+    def boundsSig(bounds: List[Type]) = {
       val (isTrait, isClass) = bounds partition (_.typeSymbol.isTrait)
       val classPart = isClass match {
         case Nil    => ":" // + boxedSig(ObjectClass.tpe)
@@ -222,7 +196,7 @@ abstract class Erasure extends AddInterfaces
       classPart :: (isTrait map boxedSig) mkString ":"
     }
     def paramSig(tsym: Symbol) = tsym.name + boundsSig(hiBounds(tsym.info.bounds))
-    def polyParamSig(tparams: List[Symbol]) = traceSig("polyParamSig", tparams) (
+    def polyParamSig(tparams: List[Symbol]) = (
       if (tparams.isEmpty) ""
       else tparams map paramSig mkString ("<", "", ">")
     )
@@ -315,22 +289,11 @@ abstract class Erasure extends AddInterfaces
           else jsig(etp)
       }
     }
-    val result = traceSig("javaSig", (sym0, info)) {
-      if (needsJavaSig(info)) {
-        try Some(jsig(info, toplevel = true))
-        catch { case ex: UnknownSig => None }
-      }
-      else None
+    if (needsJavaSig(info)) {
+      try Some(jsig(info, toplevel = true))
+      catch { case ex: UnknownSig => None }
     }
-    // Debugging: immediately verify signatures when tracing.
-    if (traceSignatures) {
-      result foreach { sig =>
-        if (!isValidSignature(sym0, sig))
-          println("**** invalid signature for " + sym0 + ": " + sig)
-      }
-    }
-
-    result
+    else None
   }
 
   class UnknownSig extends Exception
@@ -480,16 +443,22 @@ abstract class Erasure extends AddInterfaces
       // TODO: should we do this for user-defined unapplies as well?
       // does the first argument list have exactly one argument -- for user-defined unapplies we can't be sure
       def maybeWrap(bridgingCall: Tree): Tree = {
-        val canReturnNone = ( // can't statically know which member is going to be selected, so don't let this depend on member.isSynthetic
+        val guardExtractor = ( // can't statically know which member is going to be selected, so don't let this depend on member.isSynthetic
              (member.name == nme.unapply || member.name == nme.unapplySeq)
           && !afterErasure((member.tpe <:< other.tpe))) // no static guarantees (TODO: is the subtype test ever true?)
 
-        if (canReturnNone) {
-          import CODE._
+        import CODE._
+        val _false    = FALSE_typed
+        val pt        = member.tpe.resultType
+        lazy val zero =
+          if      (_false.tpe <:< pt)    _false
+          else if (NoneModule.tpe <:< pt) REF(NoneModule)
+          else EmptyTree
+
+        if (guardExtractor && (zero ne EmptyTree)) {
           val typeTest = gen.mkIsInstanceOf(REF(bridge.firstParam), member.tpe.params.head.tpe)
-          IF (typeTest) THEN bridgingCall ELSE REF(NoneModule)
-        }
-        else bridgingCall
+          IF (typeTest) THEN bridgingCall ELSE zero
+        } else bridgingCall
       }
       val rhs = member.tpe match {
         case MethodType(Nil, ConstantType(c)) => Literal(c)
@@ -619,7 +588,7 @@ abstract class Erasure extends AddInterfaces
         tree.duplicate setType pt
       } else if (tree.tpe != null && tree.tpe.typeSymbol == ArrayClass && pt.typeSymbol == ArrayClass) {
         // See SI-2386 for one example of when this might be necessary.
-        val needsExtraCast = isScalaValueType(tree.tpe.typeArgs.head) && !isScalaValueType(pt.typeArgs.head)
+        val needsExtraCast = isPrimitiveValueType(tree.tpe.typeArgs.head) && !isPrimitiveValueType(pt.typeArgs.head)
         val tree1 = if (needsExtraCast) gen.mkRuntimeCall(nme.toObjectArray, List(tree)) else tree
         gen.mkAttributedCast(tree1, pt)
       } else gen.mkAttributedCast(tree, pt)
@@ -643,7 +612,8 @@ abstract class Erasure extends AddInterfaces
       else if (isPrimitiveValueType(tree.tpe) && !isPrimitiveValueType(pt)) {
         adaptToType(box(tree, pt.toString), pt)
       } else if (tree.tpe.isInstanceOf[MethodType] && tree.tpe.params.isEmpty) {
-        assert(tree.symbol.isStable, "adapt "+tree+":"+tree.tpe+" to "+pt)
+        // [H] this assert fails when trying to typecheck tree !(SomeClass.this.bitmap) for single lazy val
+        //assert(tree.symbol.isStable, "adapt "+tree+":"+tree.tpe+" to "+pt)
         adaptToType(Apply(tree, List()) setPos tree.pos setType tree.tpe.resultType, pt)
 //      } else if (pt <:< tree.tpe)
 //        cast(tree, pt)

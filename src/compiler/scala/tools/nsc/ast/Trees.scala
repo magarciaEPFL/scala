@@ -264,9 +264,9 @@ trait Trees extends reflect.internal.Trees { self: Global =>
 //  def resetAllAttrs[A<:Tree](x:A): A = { new ResetAttrsTraverser().traverse(x); x }
 //  def resetLocalAttrs[A<:Tree](x:A): A = { new ResetLocalAttrsTraverser().traverse(x); x }
 
-  def resetAllAttrs[A <: Tree](x: A, leaveAlone: Tree => Boolean = null): A = new ResetAttrs(false, leaveAlone).transform(x)
-  def resetLocalAttrs[A <: Tree](x: A, leaveAlone: Tree => Boolean = null): A = new ResetAttrs(true, leaveAlone).transform(x)
-  def resetLocalAttrsKeepLabels[A<:Tree](x: A, leaveAlone: Tree => Boolean = null): A = new ResetAttrs(true, leaveAlone, true).transform(x)
+  def resetAllAttrs(x: Tree, leaveAlone: Tree => Boolean = null): Tree = new ResetAttrs(false, leaveAlone).transform(x)
+  def resetLocalAttrs(x: Tree, leaveAlone: Tree => Boolean = null): Tree = new ResetAttrs(true, leaveAlone).transform(x)
+  def resetLocalAttrsKeepLabels(x: Tree, leaveAlone: Tree => Boolean = null): Tree = new ResetAttrs(true, leaveAlone, true).transform(x)
 
   /** A transformer which resets symbol and tpe fields of all nodes in a given tree,
    *  with special treatment of:
@@ -351,7 +351,7 @@ trait Trees extends reflect.internal.Trees { self: Global =>
       }
     }
 
-    def transform[T <: Tree](x: T): T = {
+    def transform(x: Tree): Tree = {
       if (localOnly)
       new MarkLocals().traverse(x)
 
@@ -361,9 +361,7 @@ trait Trees extends reflect.internal.Trees { self: Global =>
         trace("locals (%d total): %n".format(orderedLocals.size))(msg)
       }
 
-      val x1 = new Transformer().transform(x)
-      assert(x.getClass isInstance x1, x1.getClass)
-      x1.asInstanceOf[T]
+      new Transformer().transform(x)
     }
   }
 

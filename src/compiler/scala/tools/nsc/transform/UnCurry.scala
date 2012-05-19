@@ -473,7 +473,15 @@ abstract class UnCurry extends InfoTransform
             arg.pos.source.path + ":" + arg.pos.line, fun.fullName,
             if (fun.isPrivate) "private" else "")
           )
-          newFunction0(arg)
+
+          arg match {
+            // don't add a thunk for by-name argument if argument already is an application of
+            // a Function0. We can then remove the application and use the existing Function0.
+            case Apply(Select(recv, nme.apply), Nil) if recv.tpe.typeSymbol isSubClass FunctionClass(0) =>
+              recv
+            case _ =>
+              newFunction0(arg)
+          }
         }
       }
     }
@@ -560,7 +568,12 @@ abstract class UnCurry extends InfoTransform
         if ((sym ne null) && (sym.elisionLevel.exists (_ < settings.elidebelow.value || settings.noassertions.value)))
           replaceElidableTree(tree)
         else translateSynchronized(tree) match {
-          case dd @ DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
+          case dd @ DefDef(mods, name, tparams, _, tpt, rhs) =>
+            // Remove default argument trees from parameter ValDefs, SI-4812
+            val vparamssNoRhs = dd.vparamss mapConserve (_ mapConserve {p =>
+              treeCopy.ValDef(p, p.mods, p.name, p.tpt, EmptyTree)
+            })
+            
             if (dd.symbol hasAnnotation VarargsClass) saveRepeatedParams(dd)
 
             withNeedLift(false) {
@@ -578,10 +591,10 @@ abstract class UnCurry extends InfoTransform
                   }
                   treeCopy.DefDef(
                     dd, mods, name, transformTypeDefs(tparams),
-                    transformValDefss(vparamss), transform(tpt), rhs1)
+                    transformValDefss(vparamssNoRhs), transform(tpt), rhs1)
                 }
               } else {
-                super.transform(dd)
+                super.transform(treeCopy.DefDef(dd, mods, name, tparams, vparamssNoRhs, tpt, rhs))
               }
             }
           case ValDef(_, _, _, rhs) =>

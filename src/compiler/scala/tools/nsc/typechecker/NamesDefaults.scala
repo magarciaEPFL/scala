@@ -158,20 +158,20 @@ trait NamesDefaults { self: Analyzer =>
         // it stays in Vegas: SI-5720, SI-5727
         qual changeOwner (blockTyper.context.owner -> sym)
 
+        val newQual = atPos(qual.pos.focus)(blockTyper.typedQualifier(Ident(sym.name)))
         var baseFunTransformed = atPos(baseFun.pos.makeTransparent) {
-          // don't use treeCopy: it would assign opaque position.
-          val f = Select(gen.mkAttributedRef(sym), selected)
-                   .setType(baseFun1.tpe).setSymbol(baseFun1.symbol)
+          // setSymbol below is important because the 'selected' function might be overloaded. by
+          // assigning the correct method symbol, typedSelect will just assign the type. the reason
+          // to still call 'typed' is to correctly infer singleton types, SI-5259.
+          val f = blockTyper.typedOperator(Select(newQual, selected).setSymbol(baseFun1.symbol))
           if (funTargs.isEmpty) f
           else TypeApply(f, funTargs).setType(baseFun.tpe)
         }
 
         val b = Block(List(vd), baseFunTransformed)
                   .setType(baseFunTransformed.tpe).setPos(baseFun.pos)
-
-        val defaultQual = Some(atPos(qual.pos.focus)(gen.mkAttributedRef(sym)))
         context.namedApplyBlockInfo =
-          Some((b, NamedApplyInfo(defaultQual, defaultTargs, Nil, blockTyper)))
+          Some((b, NamedApplyInfo(Some(newQual), defaultTargs, Nil, blockTyper)))
         b
       }
 
@@ -338,7 +338,7 @@ trait NamesDefaults { self: Analyzer =>
               // cannot call blockTyper.typedBlock here, because the method expr might be partially applied only
               val res = blockTyper.doTypedApply(tree, expr, refArgs, mode, pt)
               res.setPos(res.pos.makeTransparent)
-              val block = Block(stats ::: valDefs, res).setType(res.tpe).setPos(tree.pos)
+              val block = Block(stats ::: valDefs, res).setType(res.tpe).setPos(tree.pos.makeTransparent)
               context.namedApplyBlockInfo =
                 Some((block, NamedApplyInfo(qual, targs, vargss :+ refArgs, blockTyper)))
               block
@@ -478,7 +478,14 @@ trait NamesDefaults { self: Analyzer =>
         // instead of arg, but can't do that because eventually setType(ErrorType)
         // is called, and EmptyTree can only be typed NoType.  Thus we need to
         // disable conforms as a view...
-        try typer.silent(_.typed(arg, subst(paramtpe))) match {
+        val errsBefore = reporter.ERROR.count
+        try typer.silent { tpr =>
+          val res = tpr.typed(arg, subst(paramtpe))
+          // better warning for SI-5044: if `silent` was not actually silent give a hint to the user
+          if (errsBefore < reporter.ERROR.count)
+            WarnAfterNonSilentRecursiveInference(param, arg)(context)
+          res
+        } match {
           case SilentResultValue(t)  => !t.isErroneous // #4041
           case _        => false
         }
@@ -487,7 +494,7 @@ trait NamesDefaults { self: Analyzer =>
           // CyclicReferences.  Fix for #3685
           case cr @ CyclicReference(sym, _) =>
             (sym.name == param.name) && sym.accessedOrSelf.isVariable && {
-              NameClashError(sym, arg)(typer.context)
+              NameClashError(sym, arg)(context)
               true
             }
         }
@@ -507,7 +514,7 @@ trait NamesDefaults { self: Analyzer =>
     // maps indices from (order written by user) to (order of definition)
     val argPos            = Array.fill(args.length)(-1)
     var positionalAllowed = true
-    val namelessArgs = mapWithIndex(args) { (arg, index) =>
+    val namelessArgs = mapWithIndex(args) { (arg, argIndex) =>
       arg match {
         case arg @ AssignOrNamedArg(Ident(name), rhs) =>
           def matchesName(param: Symbol) = !param.isSynthetic && (
@@ -519,30 +526,35 @@ trait NamesDefaults { self: Analyzer =>
               case _ => false
             })
           )
-          val pos = params indexWhere matchesName
-          if (pos == -1) {
+          val paramPos = params indexWhere matchesName
+          if (paramPos == -1) {
             if (positionalAllowed) {
-              argPos(index) = index
+              argPos(argIndex) = argIndex
               // prevent isNamed from being true when calling doTypedApply recursively,
               // treat the arg as an assignment of type Unit
               Assign(arg.lhs, rhs) setPos arg.pos
             }
             else UnknownParameterNameNamesDefaultError(arg, name)
           }
-          else if (argPos contains pos)
-            DoubleParamNamesDefaultError(arg, name)
-          else if (isAmbiguousAssignment(typer, params(pos), arg))
+          else if (argPos contains paramPos) {
+            val existingArgIndex = argPos.indexWhere(_ == paramPos)
+            val otherName = args(paramPos) match {
+              case AssignOrNamedArg(Ident(oName), rhs) if oName != name => Some(oName)
+              case _ => None
+            }
+            DoubleParamNamesDefaultError(arg, name, existingArgIndex+1, otherName)
+          } else if (isAmbiguousAssignment(typer, params(paramPos), arg))
             AmbiguousReferenceInNamesDefaultError(arg, name)
           else {
             // if the named argument is on the original parameter
             // position, positional after named is allowed.
-            if (index != pos)
+            if (argIndex != paramPos)
               positionalAllowed = false
-            argPos(index) = pos
+            argPos(argIndex) = paramPos
             rhs
           }
         case _ =>
-          argPos(index) = index
+          argPos(argIndex) = argIndex
           if (positionalAllowed) arg
           else PositionalAfterNamedNamesDefaultError(arg)
       }

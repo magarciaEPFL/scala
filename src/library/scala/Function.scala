@@ -20,7 +20,6 @@ object Function {
    *  function `f,,1,, andThen ... andThen f,,n,,`.
    *
    *  @param fs The given sequence of functions
-   *  @return   ...
    */
   def chain[a](fs: Seq[a => a]): a => a = { x => (x /: fs) ((x, f) => f(x)) }
 
@@ -38,7 +37,7 @@ object Function {
    *  @param   f    a function `T => Option[R]`
    *  @return       a partial function defined for those inputs where
    *                f returns `Some(_)` and undefined where `f` returns `None`.
-   *  @see [[scala.PartialFunction#lift]]
+   *  @see [[scala.PartialFunction]], method `lift`.
    */
   def unlift[T, R](f: T => Option[R]): PartialFunction[T, R] = PartialFunction.unlifted(f)
 
@@ -72,9 +71,6 @@ object Function {
    *
    *  @note  These functions are slotted for deprecation, but it is on
    *  hold pending superior type inference for tupling anonymous functions.
-   *
-   *  @param f  ...
-   *  @return   ...
    */
   // @deprecated("Use `f.tupled` instead")
   def tupled[a1, a2, b](f: (a1, a2) => b): Tuple2[a1, a2] => b = {

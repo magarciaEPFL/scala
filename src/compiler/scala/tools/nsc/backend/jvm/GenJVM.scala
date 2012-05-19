@@ -6,11 +6,10 @@
 package scala.tools.nsc
 package backend.jvm
 
-import java.io.{ DataOutputStream, OutputStream }
+import java.io.{ByteArrayOutputStream, DataOutputStream, OutputStream }
 import java.nio.ByteBuffer
 import scala.collection.{ mutable, immutable }
 import scala.reflect.internal.pickling.{ PickleFormat, PickleBuffer }
-import scala.tools.reflect.SigParser
 import scala.tools.nsc.symtab._
 import scala.tools.nsc.util.{ SourceFile, NoSourceFile }
 import scala.reflect.internal.ClassfileConstants._
@@ -122,9 +121,6 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       if (settings.debug.value)
         inform("[running phase " + name + " on icode]")
 
-      if (settings.Xverify.value && !SigParser.isParserAvailable)
-        global.warning("signature verification requested by signature parser unavailable: signatures not checked")
-
       if (settings.Xdce.value)
         for ((sym, cls) <- icodes.classes if inliner.isClosureClass(sym) && !deadCode.liveClosures(sym))
           icodes.classes -= sym
@@ -191,7 +187,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
 
     val MIN_SWITCH_DENSITY = 0.7
     val INNER_CLASSES_FLAGS =
-      (ACC_PUBLIC | ACC_PRIVATE | ACC_PROTECTED | ACC_STATIC | ACC_FINAL | ACC_INTERFACE | ACC_ABSTRACT)
+      (ACC_PUBLIC | ACC_PRIVATE | ACC_PROTECTED | ACC_STATIC | ACC_INTERFACE | ACC_ABSTRACT)
 
     val PublicStatic      = ACC_PUBLIC | ACC_STATIC
     val PublicStaticFinal = ACC_PUBLIC | ACC_STATIC | ACC_FINAL
@@ -345,7 +341,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
      */
     def emitClass(jclass: JClass, sym: Symbol) {
       addInnerClasses(jclass)
-      writeClass("" + sym.name, jclass, sym)
+      writeClass("" + sym.name, jclass.getName(), toByteArray(jclass), sym)
     }
 
     /** Returns the ScalaSignature annotation if it must be added to this class,
@@ -517,6 +513,14 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       }
     }
 
+    private def toByteArray(jc: JClass): Array[Byte] = {
+      val bos = new java.io.ByteArrayOutputStream()
+      val dos = new java.io.DataOutputStream(bos)
+      jc.writeTo(dos)
+      dos.close()
+      bos.toByteArray
+    }
+
     /**
      * Generate a bean info class that describes the given class.
      *
@@ -586,7 +590,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       jcode.emitRETURN()
 
       // write the bean information class file.
-      writeClass("BeanInfo ", beanInfoClass, c.symbol)
+      writeClass("BeanInfo ", beanInfoClass.getName(), toByteArray(beanInfoClass), c.symbol)
     }
 
     /** Add the given 'throws' attributes to jmethod */
@@ -714,14 +718,6 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       nannots
     }
 
-    /** Run the signature parser to catch bogus signatures.
-     */
-    def isValidSignature(sym: Symbol, sig: String) = (
-      if (sym.isMethod) SigParser verifyMethod sig
-      else if (sym.isTerm) SigParser verifyType sig
-      else SigParser verifyClass sig
-    )
-
     // @M don't generate java generics sigs for (members of) implementation
     // classes, as they are monomorphic (TODO: ok?)
     private def needsGenericSignature(sym: Symbol) = !(
@@ -743,19 +739,6 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
         erasure.javaSig(sym, memberTpe) foreach { sig =>
           // This seems useful enough in the general case.
           log(sig)
-          /** Since we're using a sun internal class for signature validation,
-           *  we have to allow for it not existing or otherwise malfunctioning:
-           *  in which case we treat every signature as valid.  Medium term we
-           *  should certainly write independent signature validation.
-           */
-          if (settings.Xverify.value && SigParser.isParserAvailable && !isValidSignature(sym, sig)) {
-            clasz.cunit.warning(sym.pos,
-                """|compiler bug: created invalid generic signature for %s in %s
-                   |signature: %s
-                   |if this is reproducible, please report bug at https://issues.scala-lang.org/
-                """.trim.stripMargin.format(sym, sym.owner.skipPackageObject.fullName, sig))
-            return
-          }
           if (checkSignatures) {
             val normalizedTpe = beforeErasure(erasure.prepareSigMap(memberTpe))
             val bytecodeTpe = owner.thisType.memberInfo(sym)
@@ -1151,6 +1134,27 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
      */
     def generateMirrorClass(clasz: Symbol, sourceFile: SourceFile) {
       import JAccessFlags._
+      /* We need to save inner classes buffer and create a new one to make sure
+       * that we do confuse inner classes of the class  we mirror with inner
+       * classes of the class we are mirroring. These two sets can be different
+       * as seen in this case:
+       *
+       *  class A {
+       *   class B
+       *   def b: B = new B
+       *  }
+       *  object C extends A
+       *
+       *  Here mirror class of C has a static forwarder for (inherited) method `b`
+       *  therefore it refers to class `B` and needs InnerClasses entry. However,
+       *  the real class for `C` (named `C$`) is empty and does not refer to `B`
+       *  thus does not need InnerClasses entry it.
+       *
+       *  NOTE: This logic has been refactored in GenASM and everything is
+       *  implemented in a much cleaner way by having two separate buffers.
+       */
+      val savedInnerClasses = innerClassBuffer
+      innerClassBuffer = mutable.LinkedHashSet[Symbol]()
       val moduleName = javaName(clasz) // + "$"
       val mirrorName = moduleName.substring(0, moduleName.length() - 1)
       val mirrorClass = fjbgContext.JClass(ACC_SUPER | ACC_PUBLIC | ACC_FINAL,
@@ -1164,6 +1168,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       val ssa = scalaSignatureAddingMarker(mirrorClass, clasz.companionSymbol)
       addAnnotations(mirrorClass, clasz.annotations ++ ssa)
       emitClass(mirrorClass, clasz)
+      innerClassBuffer = savedInnerClasses
     }
 
     var linearization: List[BasicBlock] = Nil
@@ -1946,8 +1951,10 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
     // we can exclude lateFINAL.  Such symbols are eligible for inlining, but to
     // avoid breaking proxy software which depends on subclassing, we do not
     // emit ACC_FINAL.
+    // Nested objects won't receive ACC_FINAL in order to allow for their overriding.
+
     val finalFlag = (
-         ((sym.rawflags & (Flags.FINAL | Flags.MODULE)) != 0)
+         (sym.hasFlag(Flags.FINAL) || isTopLevelModule(sym))
       && !sym.enclClass.isInterface
       && !sym.isClassConstructor
       && !sym.isMutable   // lazy vals and vars both

@@ -47,15 +47,16 @@ object ExecutionContext {
   
   /** Creates an `ExecutionContext` from the given `ExecutorService`.
    */
-  def fromExecutorService(e: ExecutorService, reporter: Throwable => Unit = defaultReporter): ExecutionContext with Executor = new impl.ExecutionContextImpl(e, reporter)
+  def fromExecutorService(e: ExecutorService, reporter: Throwable => Unit = defaultReporter): ExecutionContext with ExecutorService =
+    impl.ExecutionContextImpl.fromExecutorService(e, reporter)
   
   /** Creates an `ExecutionContext` from the given `Executor`.
    */
-  def fromExecutor(e: Executor, reporter: Throwable => Unit = defaultReporter): ExecutionContext with Executor = new impl.ExecutionContextImpl(e, reporter)
+  def fromExecutor(e: Executor, reporter: Throwable => Unit = defaultReporter): ExecutionContext with Executor =
+    impl.ExecutionContextImpl.fromExecutor(e, reporter)
   
   def defaultReporter: Throwable => Unit = {
-    // `Error`s are currently wrapped by `resolver`.
-    // Also, re-throwing `Error`s here causes an exception handling test to fail.
+    // re-throwing `Error`s here causes an exception handling test to fail.
     //case e: Error => throw e
     case t => t.printStackTrace()
   }

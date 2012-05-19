@@ -157,9 +157,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   abstract class Symbol protected[Symbols] (initOwner: Symbol, initPos: Position, initName: Name)
           extends AbsSymbolImpl
              with HasFlags
-             with SymbolFlagLogic
-             with SymbolCreator
-             // with FlagVerifier   // DEBUG
              with Annotatable[Symbol] {
 
     type AccessBoundaryType = Symbol
@@ -208,6 +205,36 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         }
       }
     }
+
+    def rawFlagString(mask: Long): String = calculateFlagString(rawflags & mask)
+    def rawFlagString: String             = rawFlagString(flagMask)
+    def debugFlagString: String           = flagString(AllFlags)
+
+    /** String representation of symbol's variance */
+    def varianceString: String =
+      if (variance == 1) "+"
+      else if (variance == -1) "-"
+      else ""
+
+    override def flagMask =
+      if (settings.debug.value && !isAbstractType) AllFlags
+      else if (owner.isRefinementClass) ExplicitFlags & ~OVERRIDE
+      else ExplicitFlags
+
+    // make the error message more googlable
+    def flagsExplanationString =
+      if (isGADTSkolem) " (this is a GADT skolem)"
+      else ""
+
+    def shortSymbolClass = getClass.getName.split('.').last.stripPrefix("Symbols$")
+    def symbolCreationString: String = (
+      "%s%25s | %-40s | %s".format(
+        if (settings.uniqid.value) "%06d | ".format(id) else "",
+        shortSymbolClass,
+        name.decode + " in " + owner,
+        rawFlagString
+      )
+    )
 
     /** !!! The logic after "hasFlag" is far too opaque to be unexplained.
      *  I'm guessing it's attempting to compensate for flag overloading,
@@ -620,15 +647,15 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       && owner.isPackageClass
       && nme.isReplWrapperName(name)
     )
-    @inline final override def getFlag(mask: Long): Long = flags & mask
+    @inline final def getFlag(mask: Long): Long = flags & mask
     /** Does symbol have ANY flag in `mask` set? */
-    @inline final override def hasFlag(mask: Long): Boolean = (flags & mask) != 0
+    @inline final def hasFlag(mask: Long): Boolean = (flags & mask) != 0
     /** Does symbol have ALL the flags in `mask` set? */
-    @inline final override def hasAllFlags(mask: Long): Boolean = (flags & mask) == mask
+    @inline final def hasAllFlags(mask: Long): Boolean = (flags & mask) == mask
 
-    override def setFlag(mask: Long): this.type   = { _rawflags |= mask ; this }
-    override def resetFlag(mask: Long): this.type = { _rawflags &= ~mask ; this }
-    override def resetFlags() { rawflags &= (TopLevelCreationFlags | alwaysHasFlags) }
+    def setFlag(mask: Long): this.type   = { _rawflags |= mask ; this }
+    def resetFlag(mask: Long): this.type = { _rawflags &= ~mask ; this }
+    def resetFlags() { rawflags &= TopLevelCreationFlags }
 
     /** Default implementation calls the generic string function, which
      *  will print overloaded flags as <flag1/flag2/flag3>.  Subclasses
@@ -639,7 +666,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Set the symbol's flags to the given value, asserting
      *  that the previous value was 0.
      */
-    override def initFlags(mask: Long): this.type = {
+    def initFlags(mask: Long): this.type = {
       assert(rawflags == 0L, symbolCreationString)
       _rawflags = mask
       this
@@ -1084,6 +1111,44 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     protected def createValueMemberSymbol(name: TermName, pos: Position, newFlags: Long): TermSymbol =
       new TermSymbol(this, pos, name) initFlags newFlags
+
+    final def newTermSymbol(name: TermName, pos: Position = NoPosition, newFlags: Long = 0L): TermSymbol = {
+      if ((newFlags & METHOD) != 0)
+        createMethodSymbol(name, pos, newFlags)
+      else if ((newFlags & PACKAGE) != 0)
+        createPackageSymbol(name, pos, newFlags | PackageFlags)
+      else if ((newFlags & MODULE) != 0)
+        createModuleSymbol(name, pos, newFlags)
+      else if ((newFlags & PARAM) != 0)
+        createValueParameterSymbol(name, pos, newFlags)
+      else
+        createValueMemberSymbol(name, pos, newFlags)
+    }
+
+    final def newClassSymbol(name: TypeName, pos: Position = NoPosition, newFlags: Long = 0L): ClassSymbol = {
+      if (name == tpnme.REFINE_CLASS_NAME)
+        createRefinementClassSymbol(pos, newFlags)
+      else if ((newFlags & PACKAGE) != 0)
+        createPackageClassSymbol(name, pos, newFlags | PackageFlags)
+      else if (name == tpnme.PACKAGE)
+        createPackageObjectClassSymbol(pos, newFlags)
+      else if ((newFlags & MODULE) != 0)
+        createModuleClassSymbol(name, pos, newFlags)
+      else if ((newFlags & IMPLCLASS) != 0)
+        createImplClassSymbol(name, pos, newFlags)
+      else
+        createClassSymbol(name, pos, newFlags)
+    }
+
+    final def newNonClassSymbol(name: TypeName, pos: Position = NoPosition, newFlags: Long = 0L): TypeSymbol = {
+      if ((newFlags & DEFERRED) != 0)
+        createAbstractTypeSymbol(name, pos, newFlags)
+      else
+        createAliasTypeSymbol(name, pos, newFlags)
+    }
+
+    def newTypeSymbol(name: TypeName, pos: Position = NoPosition, newFlags: Long = 0L): TypeSymbol =
+      newNonClassSymbol(name, pos, newFlags)
 
     /** The class or term up to which this symbol is accessible,
      *  or RootClass if it is public.  As java protected statics are
@@ -2088,7 +2153,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** String representation of symbol's definition key word */
     final def keyString: String =
       if (isJavaInterface) "interface"
-      else if (isTrait) "trait"
+      else if (isTrait && !isImplClass) "trait"
       else if (isClass) "class"
       else if (isType && !isParameter) "type"
       else if (isVariable) "var"
@@ -2116,6 +2181,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         else if (isSetter) ("setter", if (isSourceMethod) "method" else "value", "SET")
         else if (isTerm && isLazy) ("lazy value", "lazy value", "LAZ")
         else if (isVariable) ("field", "variable", "VAR")
+        else if (isImplClass) ("implementation class", "class", "IMPL")
         else if (isTrait) ("trait", "trait", "TRT")
         else if (isClass) ("class", "class", "CLS")
         else if (isType) ("type", "type", "TPE")
@@ -2232,7 +2298,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     def infosString = infos.toString
-    def debugLocationString = fullLocationString + " " + debugFlagString
+    def debugLocationString = fullLocationString + " (flags: " + debugFlagString + ")"
 
     private def defStringCompose(infoString: String) = compose(
       flagString,
@@ -2433,8 +2499,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
   /** A class for module symbols */
   class ModuleSymbol protected[Symbols] (initOwner: Symbol, initPos: Position, initName: TermName)
-  extends TermSymbol(initOwner, initPos, initName) with DistinguishingFlag with ModuleSymbolApi {
-    def distinguishingFlag = MODULE
+  extends TermSymbol(initOwner, initPos, initName) with ModuleSymbolApi {
     private var flatname: TermName = null
 
     override def associatedFile = moduleClass.associatedFile
@@ -2461,19 +2526,13 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   }
 
   class PackageSymbol protected[Symbols] (owner0: Symbol, pos0: Position, name0: TermName)
-  extends ModuleSymbol(owner0, pos0, name0) with DistinguishingFlag with PackageSymbolApi {
-    override def distinguishingFlag = super.distinguishingFlag | PACKAGE
+  extends ModuleSymbol(owner0, pos0, name0) with PackageSymbolApi {
     override def isPackage = true
   }
 
   /** A class for method symbols */
   class MethodSymbol protected[Symbols] (initOwner: Symbol, initPos: Position, initName: TermName)
-  extends TermSymbol(initOwner, initPos, initName) with DistinguishingFlag with MethodSymbolApi {
-    def distinguishingFlag = METHOD
-    // MethodSymbols pick up MODULE when trait-owned object accessors are cloned
-    // during mixin composition.
-    override protected def neverHasFlags = super.neverHasFlags & ~MODULE
-
+  extends TermSymbol(initOwner, initPos, initName) with MethodSymbolApi {
     private[this] var mtpePeriod       = NoPeriod
     private[this] var mtpePre: Type    = _
     private[this] var mtpeResult: Type = _
@@ -2742,9 +2801,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private[this] var thisTypeCache: Type      = _
     private[this] var thisTypePeriod           = NoPeriod
 
-    override protected def alwaysHasFlags: Long = 0L
-    override protected def neverHasFlags: Long = 0L
-
     override def resolveOverloadedFlag(flag: Long) = flag match {
       case INCONSTRUCTOR => "<inconstructor>" // INCONSTRUCTOR / CONTRAVARIANT / LABEL
       case EXISTENTIAL   => "<existential>"   // EXISTENTIAL / MIXEDIN
@@ -2903,12 +2959,10 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
    *  plain class symbols!
    */
   class ModuleClassSymbol protected[Symbols] (owner: Symbol, pos: Position, name: TypeName)
-  extends ClassSymbol(owner, pos, name) with DistinguishingFlag {
+  extends ClassSymbol(owner, pos, name) {
     private[this] var module: Symbol        = _
     private[this] var typeOfThisCache: Type = _
     private[this] var typeOfThisPeriod      = NoPeriod
-
-    def distinguishingFlag = MODULE
 
     private var implicitMembersCacheValue: List[Symbol] = Nil
     private var implicitMembersCacheKey1: Type = NoType
@@ -2964,8 +3018,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   }
 
   class PackageClassSymbol protected[Symbols] (owner0: Symbol, pos0: Position, name0: TypeName)
-  extends ModuleClassSymbol(owner0, pos0, name0) with DistinguishingFlag {
-    override def distinguishingFlag = super.distinguishingFlag | PACKAGE
+  extends ModuleClassSymbol(owner0, pos0, name0) {
     override def sourceModule = companionModule
     override def enclClassChain = Nil
     override def isPackageClass = true
@@ -3053,7 +3106,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     override def originalEnclosingMethod = this
 
     override def owner: Symbol =
-      abort("no-symbol does not have an owner (this is a bug: scala " + scala.util.Properties.versionString + ")")
+      abort("no-symbol does not have an owner")
     override def typeConstructor: Type =
       abort("no-symbol does not have a type constructor (this may indicate scalac cannot find fundamental classes)")
   }

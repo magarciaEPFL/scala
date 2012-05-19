@@ -50,7 +50,7 @@ package object sys {
   /** A bidirectional, mutable Map representing the current system Properties.
    *
    *  @return   a SystemProperties.
-   *  @see      `scala.sys.SystemProperties`
+   *  @see      [[scala.sys.SystemProperties]]
    */
   def props: SystemProperties = new SystemProperties
 
@@ -69,8 +69,8 @@ package object sys {
    *
    *  Note that shutdown hooks are NOT guaranteed to be run.
    *
-   *  @param    the body of code to run at shutdown
-   *  @return   the Thread which will run the shutdown hook.
+   *  @param    body  the body of code to run at shutdown
+   *  @return   the   Thread which will run the shutdown hook.
    */
   def addShutdownHook(body: => Unit): ShutdownHookThread = ShutdownHookThread(body)
 

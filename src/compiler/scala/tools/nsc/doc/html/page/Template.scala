@@ -87,7 +87,7 @@ class Template(universe: doc.Universe, tpl: DocTemplateEntity) extends HtmlPage 
       { memberToCommentHtml(tpl, true) }
 
       <div id="mbrsel">
-        <div id='textfilter'><span class='pre'/><span class='input'><input type='text' accesskey='/'/></span><span class='post'/></div>
+        <div id='textfilter'><span class='pre'/><span class='input'><input id='mbrsel-input' type='text' accesskey='/'/></span><span class='post'/></div>
         { if (tpl.linearizationTemplates.isEmpty && tpl.conversions.isEmpty) NodeSeq.Empty else
             <div id="order">
               <span class="filtertype">Ordering</span>
@@ -511,7 +511,7 @@ class Template(universe: doc.Universe, tpl: DocTemplateEntity) extends HtmlPage 
             <dt>See also</dt>
             <dd>{
               val seeXml:List[scala.xml.NodeSeq]=(for(see <- comment.see ) yield <span class="cmt">{bodyToHtml(see)}</span> )
-              seeXml.reduceLeft(_ ++ Text(", ") ++ _)
+              seeXml.reduceLeft(_ ++ _)
             }</dd>
           } else NodeSeq.Empty
 

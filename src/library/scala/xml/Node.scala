@@ -155,24 +155,18 @@ abstract class Node extends NodeSeq {
   /**
    * String representation of this node
    *
-   * @param stripComment if true, strips comment nodes from result
-   * @return ...
+   * @param stripComments if true, strips comment nodes from result
    */
   def buildString(stripComments: Boolean): String =
     Utility.serialize(this, stripComments = stripComments).toString
 
   /**
    * Same as `toString('''false''')`.
-   *
-   * @see <code><a href="#toString">toString(Boolean)</a></code>
    */
   override def toString(): String = buildString(false)
 
   /**
    * Appends qualified name of this node to `StringBuilder`.
-   *
-   * @param sb ...
-   * @return   ...
    */
   def nameToString(sb: StringBuilder): StringBuilder = {
     if (null != prefix) {

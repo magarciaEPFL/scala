@@ -9,7 +9,6 @@ package typechecker
 import scala.collection.{ mutable, immutable }
 import scala.tools.util.StringOps.{ countElementsAsString, countAsString }
 import symtab.Flags.{ PRIVATE, PROTECTED }
-import scala.tools.util.EditDistance.similarString
 
 trait ContextErrors {
   self: Analyzer =>
@@ -171,36 +170,7 @@ trait ContextErrors {
         NormalTypeError(tree, "reference to " + name + " is ambiguous;\n" + msg)
 
       def SymbolNotFoundError(tree: Tree, name: Name, owner: Symbol, startingIdentCx: Context) = {
-        /*** Disabled pending investigation of performance impact.
-
-        // This laborious determination arrived at to keep the tests working.
-        val calcSimilar = (
-          name.length > 2 && (
-               startingIdentCx.reportErrors
-            || startingIdentCx.enclClassOrMethod.reportErrors
-          )
-        )
-        // avoid calculating if we're in "silent" mode.
-        // name length check to limit unhelpful suggestions for e.g. "x" and "b1"
-        val similar = {
-          if (!calcSimilar) ""
-          else {
-            val allowed = (
-              startingIdentCx.enclosingContextChain
-                flatMap (ctx => ctx.scope.toList ++ ctx.imports.flatMap(_.allImportedSymbols))
-                filter (sym => sym.isTerm == name.isTermName)
-                filterNot (sym => sym.isPackage || sym.isSynthetic || sym.hasMeaninglessName)
-            )
-            val allowedStrings = (
-              allowed.map("" + _.name).distinct.sorted
-                filterNot (s => (s contains '$') || (s contains ' '))
-            )
-            similarString("" + name, allowedStrings)
-          }
-        }
-        */
-        val similar = ""
-        NormalTypeError(tree, "not found: "+decodeWithKind(name, owner) + similar)
+        NormalTypeError(tree, "not found: "+decodeWithKind(name, owner))
       }
 
       // typedAppliedTypeTree
@@ -1064,14 +1034,24 @@ trait ContextErrors {
         setError(arg)
       } else arg
     }
+    
+    def WarnAfterNonSilentRecursiveInference(param: Symbol, arg: Tree)(implicit context: Context) = {
+      val note = "type-checking the invocation of "+ param.owner +" checks if the named argument expression '"+ param.name + " = ...' is a valid assignment\n"+
+                 "in the current scope. The resulting type inference error (see above) can be fixed by providing an explicit type in the local definition for "+ param.name +"."
+      context.warning(arg.pos, note)
+    }
 
     def UnknownParameterNameNamesDefaultError(arg: Tree, name: Name)(implicit context: Context) = {
       issueNormalTypeError(arg, "unknown parameter name: " + name)
       setError(arg)
     }
 
-    def DoubleParamNamesDefaultError(arg: Tree, name: Name)(implicit context: Context) = {
-      issueNormalTypeError(arg, "parameter specified twice: "+ name)
+    def DoubleParamNamesDefaultError(arg: Tree, name: Name, pos: Int, otherName: Option[Name])(implicit context: Context) = {
+      val annex = otherName match {
+        case Some(oName) => "\nNote that that '"+ oName +"' is not a parameter name of the invoked method."
+        case None => ""
+      }
+      issueNormalTypeError(arg, "parameter '"+ name +"' is already specified at parameter position "+ pos + annex)
       setError(arg)
     }
 

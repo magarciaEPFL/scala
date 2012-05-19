@@ -57,13 +57,15 @@ private[concurrent] object Future {
           case NonFatal(e) =>
             // Commenting out reporting for now, since it produces too much output in the tests
             //executor.reportFailure(e)
-            scala.concurrent.resolver(e)
+            Left(e)
         }
       }
     })
     
     promise.future
   }
+
+  private[impl] val throwableId: Throwable => Throwable = identity _
 
   // an optimization for batching futures
   // TODO we should replace this with a public queue,

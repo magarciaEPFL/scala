@@ -13,7 +13,6 @@ trait ExprTyper {
   val repl: IMain
 
   import repl._
-  import replTokens.{ Tokenizer }
   import global.{ reporter => _, Import => _, _ }
   import definitions._
   import syntaxAnalyzer.{ UnitParser, UnitScanner, token2name }
@@ -30,17 +29,9 @@ trait ExprTyper {
 
       result
     }
-    def tokens(code: String) = {
-      reporter.reset()
-      val in = newUnitScanner(code)
-      in.init()
-      new Tokenizer(in) tokenIterator
-    }
 
     def defns(code: String) = stmts(code) collect { case x: DefTree => x }
     def expr(code: String)  = applyRule(code, _.expr())
-    def impt(code: String)  = applyRule(code, _.importExpr())
-    def impts(code: String) = applyRule(code, _.importClause())
     def stmts(code: String) = applyRule(code, _.templateStats())
     def stmt(code: String)  = stmts(code).last  // guaranteed nonempty
   }
@@ -111,13 +102,4 @@ trait ExprTyper {
     }
     finally typeOfExpressionDepth -= 1
   }
-
-  def tokens(line: String) = beQuietDuring(codeParser.tokens(line))
-
-  // In the todo column
-  //
-  // def compileAndTypeExpr(expr: String): Option[Typer] = {
-  //   class TyperRun extends Run {
-  //     override def stopPhase(name: String) = name == "superaccessors"
-  //   }
 }

@@ -13,9 +13,7 @@ import scala.tools.nsc.util.WeakHashSet
 abstract class SymbolTable extends api.Universe
                               with Collections
                               with Names
-                              with SymbolCreations
                               with Symbols
-                              with SymbolFlags
                               with FreeVars
                               with Types
                               with Kinds
@@ -290,35 +288,14 @@ abstract class SymbolTable extends api.Universe
     // letting us know when a cache is really out of commission.
     private val caches = mutable.HashSet[WeakReference[Clearable]]()
 
-    private def dumpCaches() {
-      println(caches.size + " structures are in perRunCaches.")
-      caches.zipWithIndex foreach { case (ref, index) =>
-        val cache = ref.get()
-        cache match {
-          case xs: Traversable[_] =>
-            println("(" + index + ")" + (
-              if (cache == null) " has been collected."
-              else " has " + xs.size + " entries:\n" + stringOf(xs)
-            ))
-          case _ =>
-        }
-      }
-    }
-    // if (settings.debug.value) {
-    //   println(Signallable("dump compiler caches")(dumpCaches()))
-    // }
-
     def recordCache[T <: Clearable](cache: T): T = {
       caches += new WeakReference(cache)
       cache
     }
 
     def clearAll() = {
-      if (settings.debug.value) {
-        // val size = caches flatMap (ref => Option(ref.get)) map (_.size) sum;
-        log("Clearing " + caches.size + " caches.")
-        // totalling " + size + " entries.")
-      }
+      debuglog("Clearing " + caches.size + " caches.")
+
       caches foreach { ref =>
         val cache = ref.get()
         if (cache == null)
@@ -333,11 +310,6 @@ abstract class SymbolTable extends api.Universe
     def newSet[K]()               = recordCache(mutable.HashSet[K]())
     def newWeakSet[K <: AnyRef]() = recordCache(new WeakHashSet[K]())
   }
-
-  /** Break into repl debugger if assertion is true. */
-  // def breakIf(assertion: => Boolean, args: Any*): Unit =
-  //   if (assertion)
-  //     ILoop.break(args.toList)
 
   /** The set of all installed infotransformers. */
   var infoTransformers = new InfoTransformer {

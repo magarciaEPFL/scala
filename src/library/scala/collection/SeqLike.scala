@@ -413,8 +413,6 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
    *
    *  @param that   the sequence of elements to remove
    *  @tparam B     the element type of the returned $coll.
-   *  @tparam That  $thatinfo
-   *  @param bf     $bfinfo
    *  @return       a new collection of type `That` which contains all elements of this $coll
    *                except some of occurrences of elements that also appear in `that`.
    *                If an element value `x` appears
@@ -444,8 +442,6 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
    *
    *  @param that   the sequence of elements to intersect with.
    *  @tparam B     the element type of the returned $coll.
-   *  @tparam That  $thatinfo
-   *  @param bf     $bfinfo
    *  @return       a new collection of type `That` which contains all elements of this $coll
    *                which also appear in `that`.
    *                If an element value `x` appears
@@ -570,7 +566,7 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
 
   /** Sorts this $Coll according to the Ordering which results from transforming
    *  an implicitly given Ordering with a transformation function.
-   *  @see scala.math.Ordering
+   *  @see [[scala.math.Ordering]]
    *  $willNotTerminateInf
    *  @param   f the transformation function mapping elements
    *           to some other domain `B`.
@@ -595,7 +591,7 @@ trait SeqLike[+A, +Repr] extends Any with IterableLike[A, Repr] with GenSeqLike[
    *  The sort is stable. That is, elements that are equal (as determined by
    *  `lt`) appear in the same order in the sorted sequence as in the original.
    *
-   *  @see scala.math.Ordering
+   *  @see [[scala.math.Ordering]]
    *
    *  @param  ord the ordering to be used to compare elements.
    *  @return     a $coll consisting of the elements of this $coll
@@ -856,7 +852,7 @@ object SeqLike {
   /** Finds a particular index at which one sequence occurs in another sequence.
    *  Like `indexOf`, but finds the latest occurrence rather than earliest.
    *
-   *  @see  SeqLike#indexOf
+   *  @see  [[scala.collection.SeqLike], method `indexOf`
    */
   def lastIndexOf[B](
     source: Seq[B], sourceOffset: Int, sourceCount: Int,

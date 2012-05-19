@@ -499,7 +499,8 @@ trait Infer {
           else Some(
             if (targ.typeSymbol == RepeatedParamClass)     targ.baseType(SeqClass)
             else if (targ.typeSymbol == JavaRepeatedParamClass) targ.baseType(ArrayClass)
-            else if ((opt.experimental || opt.virtPatmat) && tvar.constr.avoidWiden) targ
+            // this infers Foo.type instead of "object Foo" (see also widenIfNecessary)
+            else if (targ.typeSymbol.isModuleClass || ((opt.experimental || opt.virtPatmat) && tvar.constr.avoidWiden)) targ
             else targ.widen
           )
         ))
@@ -616,7 +617,8 @@ trait Infer {
           } else if (argPos.contains(pos)) { // parameter specified twice
             namesOK = false
           } else {
-            positionalAllowed = false
+            if (index != pos)
+              positionalAllowed = false
             argPos(index) = pos
           }
           index += 1

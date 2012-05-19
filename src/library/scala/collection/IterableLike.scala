@@ -148,7 +148,7 @@ self =>
   }
 
   /** Partitions elements in fixed size ${coll}s.
-   *  @see Iterator#grouped
+   *  @see [[scala.collection.Iterator]], method `grouped`
    *
    *  @param size the number of elements per group
    *  @return An iterator producing ${coll}s of size `size`, except the
@@ -163,7 +163,18 @@ self =>
 
   /** Groups elements in fixed size blocks by passing a "sliding window"
    *  over them (as opposed to partitioning them, as is done in grouped.)
-   *  @see Iterator#sliding
+   *  @see [[scala.collection.Iterator]], method `sliding`
+   *
+   *  @param size the number of elements per group
+   *  @return An iterator producing ${coll}s of size `size`, except the
+   *          last and the only element will be truncated if there are
+   *          fewer elements than size.
+   */
+  def sliding(size: Int): Iterator[Repr] = sliding(size, 1)
+  
+  /** Groups elements in fixed size blocks by passing a "sliding window"
+   *  over them (as opposed to partitioning them, as is done in grouped.)
+   *  @see [[scala.collection.Iterator]], method `sliding`
    *
    *  @param size the number of elements per group
    *  @param step the distance between the first elements of successive
@@ -172,7 +183,6 @@ self =>
    *          last and the only element will be truncated if there are
    *          fewer elements than size.
    */
-  def sliding(size: Int): Iterator[Repr] = sliding(size, 1)
   def sliding(size: Int, step: Int): Iterator[Repr] =
     for (xs <- iterator.sliding(size, step)) yield {
       val b = newBuilder
