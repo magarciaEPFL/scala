@@ -572,7 +572,7 @@ abstract class Inliners extends SubComponent {
       def doMakePublic() {
         for(f <- toBecomePublic) {
           debuglog("Making not-private symbol out of synthetic: " + f)
-          f setNotFlag Flags.PRIVATE
+          f setFlag Flags.notPRIVATE
         }
         toBecomePublic = Nil
       }
