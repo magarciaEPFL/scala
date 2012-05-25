@@ -2,25 +2,11 @@ import sbt._
 import Keys._
 import partest._
 import SameTest._
+import ScalaBuildKeys._
+
+
 
 object ScalaBuild extends Build with Layers {
-  // New tasks/settings specific to the scala build.
-  lazy val lockerLock: TaskKey[Unit] = TaskKey("locker-lock", 
-    "Locks the locker layer of the compiler build such that it won't rebuild on changed source files.")
-  lazy val lockerUnlock: TaskKey[Unit] = TaskKey("locker-unlock", 
-    "Unlocks the locker layer of the compiler so that it will be recompiled on changed source files.")
-  lazy val lockFile: SettingKey[File] = SettingKey("lock-file", 
-    "Location of the lock file compiling this project.")
-  // New tasks/settings specific to the scala build.
-  lazy val lock: TaskKey[Unit] = TaskKey("lock", "Locks this project so it won't be recompiled.")
-  lazy val unlock: TaskKey[Unit] = TaskKey("unlock", "Unlocks this project so it will be recompiled.")
-  lazy val makeDist: TaskKey[File] = TaskKey("make-dist", 
-    "Creates a mini-distribution (scala home directory) for this build in a zip file.")
-  lazy val makeExplodedDist: TaskKey[File] = TaskKey("make-exploded-dist", 
-    "Creates a mini-distribution (scala home directory) for this build in a directory.")
-  lazy val makeDistMappings: TaskKey[Map[File, String]] = TaskKey("make-dist-mappings", 
-    "Creates distribution mappings for creating zips,jars,directorys,etc.")
-  lazy val buildFixed = AttributeKey[Boolean]("build-uri-fixed")
 
   // Build wide settings:
   override lazy val settings = super.settings ++ Versions.settings ++ Seq(
@@ -35,22 +21,7 @@ object ScalaBuild extends Build with Layers {
     ),
     organization := "org.scala-lang",
     version <<= Versions.mavenVersion,
-    pomExtra := <xml:group>
-      <inceptionYear>2002</inceptionYear>
-        <licenses>
-          <license>
-            <name>BSD-like</name>
-            <url>http://www.scala-lang.org/downloads/license.html</url>
-          </license>
-        </licenses>
-        <scm>
-          <connection>scm:git:git://github.com/scala/scala.git</connection>
-        </scm>
-        <issueManagement>
-          <system>jira</system>
-          <url>http://issues.scala-lang.org</url>
-        </issueManagement>
-      </xml:group>,
+    pomExtra := epflPomExtra,
     commands += Command.command("fix-uri-projects") { (state: State) =>
       if(state.get(buildFixed) getOrElse false) state
       else {
@@ -154,24 +125,26 @@ object ScalaBuild extends Build with Layers {
 
   // These are setting overrides for most artifacts in the Scala build file.
   def settingOverrides: Seq[Setting[_]] = publishSettings ++ Seq(
-                             crossPaths := false,
-                             autoScalaLibrary := false,
-                             publishArtifact in packageDoc := false,
-                             publishArtifact in packageSrc := false,
-                             target <<= (baseDirectory, name) apply (_ / "target" / _),
-                             (classDirectory in Compile) <<= target(_ / "classes"),
-                             javacOptions ++= Seq("-target", "1.5", "-source", "1.5"),
-                             scalaSource in Compile <<= (baseDirectory, name) apply (_ / "src" / _),
-                             javaSource in Compile <<= (baseDirectory, name) apply (_ / "src" / _),
-                             autoScalaLibrary := false,
-                             unmanagedJars in Compile := Seq(),
-                             // Most libs in the compiler use this order to build.
-                             compileOrder in Compile := CompileOrder.JavaThenScala,
-                             lockFile <<= target(_ / "compile.lock"),
-                             skip in Compile <<= lockFile.map(_  exists),
-                             lock <<= lockFile map { f => IO.touch(f) },
-                             unlock <<= lockFile map IO.delete
-                            )
+    crossPaths := false,
+    autoScalaLibrary := false,
+    // Work around a bug where scala-library (and forkjoin) is put on classpath for analysis.
+    classpathOptions := ClasspathOptions.manual,
+    publishArtifact in packageDoc := false,
+    publishArtifact in packageSrc := false,
+    target <<= (baseDirectory, name) apply (_ / "target" / _),
+    (classDirectory in Compile) <<= target(_ / "classes"),
+    javacOptions ++= Seq("-target", "1.5", "-source", "1.5"),
+    scalaSource in Compile <<= (baseDirectory, name) apply (_ / "src" / _),
+    javaSource in Compile <<= (baseDirectory, name) apply (_ / "src" / _),
+    autoScalaLibrary := false,
+    unmanagedJars in Compile := Seq(),
+    // Most libs in the compiler use this order to build.
+    compileOrder in Compile := CompileOrder.JavaThenScala,
+    lockFile <<= target(_ / "compile.lock"),
+    skip in Compile <<= lockFile map (_.exists),
+    lock <<= lockFile map (f => IO.touch(f)),
+    unlock <<= lockFile map IO.delete
+  )
 
   // --------------------------------------------------------------
   //  Libraries used by Scalac that change infrequently
@@ -182,6 +155,8 @@ object ScalaBuild extends Build with Layers {
   lazy val jline = Project("jline", file("src/jline"))
   // Fast Java Bytecode Generator (nested in every scala-compiler.jar)
   lazy val fjbg = Project("fjbg", file(".")) settings(settingOverrides : _*)
+  // Our wrapped version of msil.
+  lazy val asm = Project("asm", file(".")) settings(settingOverrides : _*)
   // Forkjoin backport
   lazy val forkjoin = Project("forkjoin", file(".")) settings(settingOverrides : _*)
 
@@ -202,15 +177,15 @@ object ScalaBuild extends Build with Layers {
   }
 
   // Locker is a lockable Scala compiler that can be built of 'current' source to perform rapid development.
-  lazy val (lockerLib, lockerComp) = makeLayer("locker", STARR)
+  lazy val (lockerLib, lockerComp) = makeLayer("locker", STARR, autoLock = true)
   lazy val locker = Project("locker", file(".")) aggregate(lockerLib, lockerComp)
 
   // Quick is the general purpose project layer for the Scala compiler.
-  lazy val (quickLib, quickComp) = makeLayer("quick", makeScalaReference("locker", lockerLib, lockerComp, fjbg))
+  lazy val (quickLib, quickComp) = makeLayer("quick", makeScalaReference("locker", lockerLib, lockerComp))
   lazy val quick = Project("quick", file(".")) aggregate(quickLib, quickComp)
 
   // Reference to quick scala instance.
-  lazy val quickScalaInstance = makeScalaReference("quick", quickLib, quickComp, fjbg)
+  lazy val quickScalaInstance = makeScalaReference("quick", quickLib, quickComp)
   def quickScalaLibraryDependency = unmanagedClasspath in Compile <++= (exportedProducts in quickLib in Compile).identity
   def quickScalaCompilerDependency = unmanagedClasspath in Compile <++= (exportedProducts in quickComp in Compile).identity
 
@@ -310,7 +285,7 @@ object ScalaBuild extends Build with Layers {
   // --------------------------------------------------------------
   //  Real Compiler Artifact
   // --------------------------------------------------------------
-  lazy val packageScalaBinTask = Seq(quickComp, fjbg).map(p => products in p in Compile).join.map(_.flatten).map(productTaskToMapping)
+  lazy val packageScalaBinTask = Seq(quickComp, fjbg, asm).map(p => products in p in Compile).join.map(_.flatten).map(productTaskToMapping)
   lazy val scalaBinArtifactSettings : Seq[Setting[_]] = inConfig(Compile)(Defaults.packageTasks(packageBin, packageScalaBinTask)) ++ Seq(
     name := "scala-compiler",
     crossPaths := false,
@@ -322,7 +297,7 @@ object ScalaBuild extends Build with Layers {
     target <<= (baseDirectory, name) apply (_ / "target" / _)
   )
   lazy val scalaCompiler = Project("scala-compiler", file(".")) settings(publishSettings:_*) settings(scalaBinArtifactSettings:_*) dependsOn(scalaLibrary)
-  lazy val fullQuickScalaReference = makeScalaReference("pack", scalaLibrary, scalaCompiler, fjbg)
+  lazy val fullQuickScalaReference = makeScalaReference("pack", scalaLibrary, scalaCompiler)
 
   // --------------------------------------------------------------
   //  Testing
@@ -366,7 +341,7 @@ object ScalaBuild extends Build with Layers {
   
   // TODO - Migrate this into the dist project.
   // Scaladocs
-  def distScalaInstance = makeScalaReference("dist", scalaLibrary, scalaCompiler, fjbg)
+  def distScalaInstance = makeScalaReference("dist", scalaLibrary, scalaCompiler)
   lazy val documentationSettings: Seq[Setting[_]] = dependentProjectSettings ++ Seq(
     // TODO - Make these work for realz.
     defaultExcludes in unmanagedSources in Compile := ((".*"  - ".") || HiddenFileFilter ||

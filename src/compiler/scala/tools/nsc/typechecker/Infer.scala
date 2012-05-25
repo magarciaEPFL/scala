@@ -305,9 +305,21 @@ trait Infer {
       }
 
 
-    def isCompatible(tp: Type, pt: Type): Boolean = {
+    /** "Compatible" means conforming after conversions.
+     *  "Raising to a thunk" is not implicit; therefore, for purposes of applicability and
+     *  specificity, an arg type `A` is considered compatible with cbn formal parameter type `=>A`.
+     *  For this behavior, the type `pt` must have cbn params preserved; for instance, `formalTypes(removeByName = false)`.
+     *
+     *  `isAsSpecific` no longer prefers A by testing applicability to A for both m(A) and m(=>A)
+     *  since that induces a tie between m(=>A) and m(=>A,B*) [SI-3761]
+     */
+    private def isCompatible(tp: Type, pt: Type): Boolean = {
+      def isCompatibleByName(tp: Type, pt: Type): Boolean = pt match {
+        case TypeRef(_, ByNameParamClass, List(res)) if !isByNameParamType(tp) => isCompatible(tp, res)
+        case _ => false
+      }
       val tp1 = normalize(tp)
-      (tp1 weak_<:< pt) || isCoercible(tp1, pt)
+      (tp1 weak_<:< pt) || isCoercible(tp1, pt) || isCompatibleByName(tp, pt)
     }
     def isCompatibleArgs(tps: List[Type], pts: List[Type]) =
       (tps corresponds pts)(isCompatible)
@@ -617,7 +629,8 @@ trait Infer {
           } else if (argPos.contains(pos)) { // parameter specified twice
             namesOK = false
           } else {
-            positionalAllowed = false
+            if (index != pos)
+              positionalAllowed = false
             argPos(index) = pos
           }
           index += 1
@@ -661,7 +674,7 @@ trait Infer {
         case ExistentialType(tparams, qtpe) =>
           isApplicable(undetparams, qtpe, argtpes0, pt)
         case MethodType(params, _) =>
-          val formals = formalTypes(params map { _.tpe }, argtpes0.length)
+          val formals = formalTypes(params map { _.tpe }, argtpes0.length, removeByName = false)
 
           def tryTupleApply: Boolean = {
             // if 1 formal, 1 argtpe (a tuple), otherwise unmodified argtpes0
@@ -1448,10 +1461,10 @@ trait Infer {
      *  If no alternative matches `pt`, take the parameterless one anyway.
      */
     def inferExprAlternative(tree: Tree, pt: Type) = tree.tpe match {
-      case OverloadedType(pre, alts) => tryTwice {
-        val alts0     = alts filter (alt => isWeaklyCompatible(pre.memberType(alt), pt))
-        val secondTry = alts0.isEmpty
-        val alts1     = if (secondTry) alts else alts0
+      case OverloadedType(pre, alts) => tryTwice { isSecondTry =>
+        val alts0          = alts filter (alt => isWeaklyCompatible(pre.memberType(alt), pt))
+        val noAlternatives = alts0.isEmpty 
+        val alts1          = if (noAlternatives) alts else alts0
 
         //println("trying "+alts1+(alts1 map (_.tpe))+(alts1 map (_.locationString))+" for "+pt)
         def improves(sym1: Symbol, sym2: Symbol): Boolean =
@@ -1479,10 +1492,10 @@ trait Infer {
             }
           }
           // todo: missing test case
-          NoBestExprAlternativeError(tree, pt)
+          NoBestExprAlternativeError(tree, pt, isSecondTry)
         } else if (!competing.isEmpty) {
-          if (secondTry) { NoBestExprAlternativeError(tree, pt); setError(tree) }
-          else if (!pt.isErroneous) AmbiguousExprAlternativeError(tree, pre, best, competing.head, pt)
+          if (noAlternatives) NoBestExprAlternativeError(tree, pt, isSecondTry)
+          else if (!pt.isErroneous) AmbiguousExprAlternativeError(tree, pre, best, competing.head, pt, isSecondTry)
         } else {
 //          val applicable = alts1 filter (alt =>
 //            global.typer.infer.isWeaklyCompatible(pre.memberType(alt), pt))
@@ -1561,10 +1574,10 @@ trait Infer {
      *    assignment expression.
      */
     def inferMethodAlternative(tree: Tree, undetparams: List[Symbol],
-                               argtpes: List[Type], pt0: Type, varArgsOnly: Boolean = false): Unit = tree.tpe match {
+                               argtpes: List[Type], pt0: Type, varArgsOnly: Boolean = false, lastInferAttempt: Boolean = true): Unit = tree.tpe match {
       case OverloadedType(pre, alts) =>
         val pt = if (pt0.typeSymbol == UnitClass) WildcardType else pt0
-        tryTwice {
+        tryTwice { isSecondTry =>
           debuglog("infer method alt "+ tree.symbol +" with alternatives "+
                 (alts map pre.memberType) +", argtpes = "+ argtpes +", pt = "+ pt)
 
@@ -1586,13 +1599,10 @@ trait Infer {
             if (improves(alt, best)) alt else best)
           val competing = applicable.dropWhile(alt => best == alt || improves(best, alt))
           if (best == NoSymbol) {
-            if (pt == WildcardType) NoBestMethodAlternativeError(tree, argtpes, pt)
-            else inferMethodAlternative(tree, undetparams, argtpes, WildcardType)
+            if (pt == WildcardType) NoBestMethodAlternativeError(tree, argtpes, pt, isSecondTry && lastInferAttempt)
+            else inferMethodAlternative(tree, undetparams, argtpes, WildcardType, lastInferAttempt = isSecondTry)
           } else if (!competing.isEmpty) {
-            if (!(argtpes exists (_.isErroneous)) && !pt.isErroneous)
-              AmbiguousMethodAlternativeError(tree, pre, best, competing.head, argtpes, pt)
-            else setError(tree)
-            ()
+            AmbiguousMethodAlternativeError(tree, pre, best, competing.head, argtpes, pt, isSecondTry && lastInferAttempt)
           } else {
 //            checkNotShadowed(tree.pos, pre, best, applicable)
             tree.setSymbol(best).setType(pre.memberType(best))
@@ -1606,29 +1616,28 @@ trait Infer {
      *
      *  @param infer ...
      */
-    def tryTwice(infer: => Unit): Unit = {
+    def tryTwice(infer: Boolean => Unit): Unit = {
       if (context.implicitsEnabled) {
         val saved = context.state
         var fallback = false
         context.setBufferErrors()
-        val res = try {
-          context.withImplicitsDisabled(infer)
+        try {
+          context.withImplicitsDisabled(infer(false))
           if (context.hasErrors) {
             fallback = true
             context.restoreState(saved)
             context.flushBuffer()
-            infer
+            infer(true)
           }
         } catch {
           case ex: CyclicReference  => throw ex
           case ex: TypeError        => // recoverable cyclic references
             context.restoreState(saved)
-            if (!fallback) infer else ()
+            if (!fallback) infer(true) else ()
         }
         context.restoreState(saved)
-        res
       }
-      else infer
+      else infer(true)
     }
 
     /** Assign <code>tree</code> the type of all polymorphic alternatives

@@ -433,6 +433,8 @@ trait Opcodes { self: ICodes =>
       override def consumed = 1
       override def produced = 0
 
+      override val consumedTypes = List(INT)
+
       def flatTagsCount: Int = { var acc = 0; var rest = tags; while(rest.nonEmpty) { acc += rest.head.length; rest = rest.tail }; acc } // a one-liner
     }
 
@@ -467,6 +469,8 @@ trait Opcodes { self: ICodes =>
 
       override def consumed = 2
       override def produced = 0
+
+      override val consumedTypes = List(kind, kind)
     }
 
     /** This class represents a CZJUMP instruction
@@ -486,6 +490,8 @@ trait Opcodes { self: ICodes =>
 
       override def consumed = 1
       override def produced = 0
+
+      override val consumedTypes = List(kind)
     }
 
 
@@ -496,6 +502,8 @@ trait Opcodes { self: ICodes =>
     case class RETURN(kind: TypeKind) extends Instruction {
       override def consumed = if (kind == UNIT) 0 else 1
       override def produced = 0
+
+      // TODO override val consumedTypes = List(kind)
     }
 
     /** This class represents a THROW instruction

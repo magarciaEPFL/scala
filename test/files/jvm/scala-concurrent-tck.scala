@@ -182,6 +182,72 @@ trait FutureCombinators extends TestBase {
       }
   }
 
+  def testMapSuccessPF(): Unit = once {
+    done =>
+      val f = future { 5 }
+      val g = f map { case r => "result: " + r }
+      g onSuccess {
+        case s =>
+          done()
+          assert(s == "result: 5")
+      }
+      g onFailure {
+        case _ =>
+          done()
+          assert(false)
+      }
+  }
+
+  def testTransformSuccess(): Unit = once {
+    done =>
+      val f = future { 5 }
+      val g = f.transform(r => "result: " + r, identity)
+      g onSuccess {
+        case s =>
+          done()
+          assert(s == "result: 5")
+      }
+      g onFailure {
+        case _ =>
+          done()
+          assert(false)
+      }
+  }
+
+  def testTransformSuccessPF(): Unit = once {
+    done =>
+      val f = future { 5 }
+      val g = f.transform( { case r => "result: " + r }, identity)
+      g onSuccess {
+        case s =>
+          done()
+          assert(s == "result: 5")
+      }
+      g onFailure {
+        case _ =>
+          done()
+          assert(false)
+      }
+  }
+
+  def testFoldFailure(): Unit = once {
+    done =>
+      val f = future {
+        throw new Exception("exception message")
+      }
+      val g = f.transform(r => "result: " + r, identity)
+      g onSuccess {
+        case _ =>
+          done()
+          assert(false)
+      }
+      g onFailure {
+        case t =>
+          done()
+          assert(t.getMessage() == "exception message")
+      }
+  }
+
   def testFlatMapSuccess(): Unit = once {
     done =>
       val f = future { 5 }
@@ -340,14 +406,17 @@ trait FutureCombinators extends TestBase {
     } recover {
       case re: RuntimeException =>
         "recovered"
-    } onSuccess {
+    }
+    f onSuccess {
       case x =>
         done()
         assert(x == "recovered")
-    } onFailure { case any =>
+    }
+    f onFailure { case any =>
       done()
       assert(false)
     }
+    f
   }
 
   def testRecoverFailure(): Unit = once {
@@ -357,11 +426,13 @@ trait FutureCombinators extends TestBase {
       throw cause
     } recover {
       case te: TimeoutException => "timeout"
-    } onSuccess {
+    }
+    f onSuccess {
       case x =>
         done()
         assert(false)
-    } onFailure { case any =>
+    }
+    f onFailure { case any =>
       done()
       assert(any == cause)
     }
@@ -375,11 +446,13 @@ trait FutureCombinators extends TestBase {
     } recoverWith {
       case re: RuntimeException =>
         future { "recovered" }
-    } onSuccess {
+    }
+    f onSuccess {
       case x =>
         done()
         assert(x == "recovered")
-    } onFailure { case any =>
+    }
+    f onFailure { case any =>
       done()
       assert(false)
     }
@@ -393,11 +466,13 @@ trait FutureCombinators extends TestBase {
     } recoverWith {
       case te: TimeoutException =>
         future { "timeout" }
-    } onSuccess {
+    }
+    f onSuccess {
       case x =>
         done()
         assert(false)
-    } onFailure { case any =>
+    }
+    f onFailure { case any =>
       done()
       assert(any == cause)
     }
@@ -635,11 +710,12 @@ trait Promises extends TestBase {
     val p = promise[Int]()
     val f = p.future
     
-    f.onSuccess {
+    f onSuccess {
       case x =>
         done()
         assert(x == 5)
-    } onFailure {
+    }
+    f onFailure {
       case any =>
         done()
         assert(false)
@@ -732,6 +808,126 @@ trait TryEitherExtractor extends TestBase {
   testLeftMatch()
 }
 
+trait CustomExecutionContext extends TestBase {
+  import scala.concurrent.{ ExecutionContext, Awaitable }
+
+  def defaultEC = ExecutionContext.defaultExecutionContext
+
+  val inEC = new java.lang.ThreadLocal[Int]() {
+    override def initialValue = 0
+  }
+
+  def enterEC() = inEC.set(inEC.get + 1)
+  def leaveEC() = inEC.set(inEC.get - 1)
+  def assertEC() = assert(inEC.get > 0)
+  def assertNoEC() = assert(inEC.get == 0)
+
+  class CountingExecutionContext extends ExecutionContext {
+    val _count = new java.util.concurrent.atomic.AtomicInteger(0)
+    def count = _count.get
+
+    def delegate = ExecutionContext.defaultExecutionContext
+
+    override def execute(runnable: Runnable) = {
+      _count.incrementAndGet()
+      val wrapper = new Runnable() {
+        override def run() = {
+          enterEC()
+          try {
+            runnable.run()
+          } finally {
+            leaveEC()
+          }
+        }
+      }
+      delegate.execute(wrapper)
+    }
+
+    override def internalBlockingCall[T](awaitable: Awaitable[T], atMost: Duration): T =
+      delegate.internalBlockingCall(awaitable, atMost)
+
+    override def reportFailure(t: Throwable): Unit = {
+      System.err.println("Failure: " + t.getClass.getSimpleName + ": " + t.getMessage)
+      delegate.reportFailure(t)
+    }
+  }
+
+  def countExecs(block: (ExecutionContext) => Unit): Int = {
+    val context = new CountingExecutionContext()
+    block(context)
+    context.count
+  }
+
+  def testOnSuccessCustomEC(): Unit = {
+    val count = countExecs { implicit ec =>
+      once { done =>
+        val f = future({ assertNoEC() })(defaultEC)
+        f onSuccess {
+          case _ =>
+            assertEC()
+            done()
+        }
+        assertNoEC()
+      }
+    }
+
+    // should be onSuccess, but not future body
+    assert(count == 1)
+  }
+
+  def testKeptPromiseCustomEC(): Unit = {
+    val count = countExecs { implicit ec =>
+      once { done =>
+        val f = Promise.successful(10).future
+        f onSuccess {
+          case _ =>
+            assertEC()
+            done()
+        }
+      }
+    }
+
+    // should be onSuccess called once in proper EC
+    assert(count == 1)
+  }
+
+  def testCallbackChainCustomEC(): Unit = {
+    val count = countExecs { implicit ec =>
+      once { done =>
+        assertNoEC()
+        val addOne = { x: Int => assertEC(); x + 1 }
+        val f = Promise.successful(10).future
+        f.map(addOne).filter { x =>
+           assertEC()
+           x == 11
+         } flatMap { x =>
+           Promise.successful(x + 1).future.map(addOne).map(addOne)
+         } onComplete {
+          case Left(t) =>
+            try {
+              throw new AssertionError("error in test: " + t.getMessage, t)
+            } finally {
+              done()
+            }
+          case Right(x) =>
+            assertEC()
+            assert(x == 14)
+            done()
+        }
+        assertNoEC()
+      }
+    }
+
+    // the count is not defined (other than >=1)
+    // due to the batching optimizations.
+    assert(count >= 1)
+  }
+
+  testOnSuccessCustomEC()
+  testKeptPromiseCustomEC()
+  testCallbackChainCustomEC()
+}
+
 object Test
 extends App
 with FutureCallbacks
@@ -740,6 +936,7 @@ with FutureProjections
 with Promises
 with Exceptions
 with TryEitherExtractor
+with CustomExecutionContext
 {
   System.exit(0)
 }

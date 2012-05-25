@@ -404,6 +404,7 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val JavaSerializableClass = requiredClass[java.io.Serializable] modifyInfo fixupAsAnyTrait
     lazy val ComparableClass       = requiredClass[java.lang.Comparable[_]] modifyInfo fixupAsAnyTrait
     lazy val JavaCloneableClass    = requiredClass[java.lang.Cloneable]
+    lazy val JavaNumberClass       = requiredClass[java.lang.Number]
     lazy val RemoteInterfaceClass  = requiredClass[java.rmi.Remote]
     lazy val RemoteExceptionClass  = requiredClass[java.rmi.RemoteException]
 
@@ -609,6 +610,7 @@ trait Definitions extends reflect.api.StandardDefinitions {
     def isTupleTypeOrSubtype(tp: Type) = isTupleType(tp)
 
     def tupleField(n: Int, j: Int) = getMember(TupleClass(n), nme.productAccessorName(j))
+    // NOTE: returns true for NoSymbol since it's included in the TupleClass array -- is this intensional?
     def isTupleSymbol(sym: Symbol) = TupleClass contains unspecializedSymbol(sym)
     def isProductNClass(sym: Symbol) = ProductClass contains sym
 

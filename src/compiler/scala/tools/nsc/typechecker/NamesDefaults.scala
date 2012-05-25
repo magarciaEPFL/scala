@@ -260,19 +260,18 @@ trait NamesDefaults { self: Analyzer =>
     def argValDefs(args: List[Tree], paramTypes: List[Type], blockTyper: Typer): List[ValDef] = {
       val context = blockTyper.context
       val symPs = map2(args, paramTypes)((arg, tpe) => {
-        val byName = isByNameParamType(tpe)
-        val (argTpe, repeated) =
-          if (isScalaRepeatedParamType(tpe)) arg match {
-            case Typed(expr, Ident(tpnme.WILDCARD_STAR)) =>
-              (expr.tpe, true)
-            case _ =>
-              (seqType(arg.tpe), true)
-          } else (arg.tpe, false)
-        val s = context.owner.newValue(unit.freshTermName("x$"), arg.pos)
-        val valType = if (byName) functionType(List(), argTpe)
-                      else if (repeated) argTpe
-                      else argTpe
-        s.setInfo(valType)
+        val byName   = isByNameParamType(tpe)
+        val repeated = isScalaRepeatedParamType(tpe)
+        val argTpe = (
+          if (repeated) arg match {
+            case Typed(expr, Ident(tpnme.WILDCARD_STAR)) => expr.tpe
+            case _                                       => seqType(arg.tpe)
+          }
+          else arg.tpe
+        ).widen // have to widen or types inferred from literal defaults will be singletons
+        val s = context.owner.newValue(unit.freshTermName("x$"), arg.pos) setInfo (
+          if (byName) functionType(Nil, argTpe) else argTpe
+        )
         (context.scope.enter(s), byName, repeated)
       })
       map2(symPs, args) {
@@ -478,7 +477,18 @@ trait NamesDefaults { self: Analyzer =>
         // instead of arg, but can't do that because eventually setType(ErrorType)
         // is called, and EmptyTree can only be typed NoType.  Thus we need to
         // disable conforms as a view...
-        try typer.silent(_.typed(arg, subst(paramtpe))) match {
+        val errsBefore = reporter.ERROR.count
+        try typer.silent { tpr =>
+          val res = tpr.typed(arg, subst(paramtpe))
+          // better warning for SI-5044: if `silent` was not actually silent give a hint to the user
+          // [H]: the reason why `silent` is not silent is because the cyclic reference exception is
+          // thrown in a context completely different from `context` here. The exception happens while
+          // completing the type, and TypeCompleter is created/run with a non-silent Namer `context`
+          // and there is at the moment no way to connect the two unless we go through some global state.
+          if (errsBefore < reporter.ERROR.count)
+            WarnAfterNonSilentRecursiveInference(param, arg)(context)
+          res
+        } match {
           case SilentResultValue(t)  => !t.isErroneous // #4041
           case _        => false
         }
@@ -487,7 +497,7 @@ trait NamesDefaults { self: Analyzer =>
           // CyclicReferences.  Fix for #3685
           case cr @ CyclicReference(sym, _) =>
             (sym.name == param.name) && sym.accessedOrSelf.isVariable && {
-              NameClashError(sym, arg)(typer.context)
+              NameClashError(sym, arg)(context)
               true
             }
         }
@@ -507,7 +517,7 @@ trait NamesDefaults { self: Analyzer =>
     // maps indices from (order written by user) to (order of definition)
     val argPos            = Array.fill(args.length)(-1)
     var positionalAllowed = true
-    val namelessArgs = mapWithIndex(args) { (arg, index) =>
+    val namelessArgs = mapWithIndex(args) { (arg, argIndex) =>
       arg match {
         case arg @ AssignOrNamedArg(Ident(name), rhs) =>
           def matchesName(param: Symbol) = !param.isSynthetic && (
@@ -519,30 +529,35 @@ trait NamesDefaults { self: Analyzer =>
               case _ => false
             })
           )
-          val pos = params indexWhere matchesName
-          if (pos == -1) {
+          val paramPos = params indexWhere matchesName
+          if (paramPos == -1) {
             if (positionalAllowed) {
-              argPos(index) = index
+              argPos(argIndex) = argIndex
               // prevent isNamed from being true when calling doTypedApply recursively,
               // treat the arg as an assignment of type Unit
               Assign(arg.lhs, rhs) setPos arg.pos
             }
             else UnknownParameterNameNamesDefaultError(arg, name)
           }
-          else if (argPos contains pos)
-            DoubleParamNamesDefaultError(arg, name)
-          else if (isAmbiguousAssignment(typer, params(pos), arg))
+          else if (argPos contains paramPos) {
+            val existingArgIndex = argPos.indexWhere(_ == paramPos)
+            val otherName = args(paramPos) match {
+              case AssignOrNamedArg(Ident(oName), rhs) if oName != name => Some(oName)
+              case _ => None
+            }
+            DoubleParamNamesDefaultError(arg, name, existingArgIndex+1, otherName)
+          } else if (isAmbiguousAssignment(typer, params(paramPos), arg))
             AmbiguousReferenceInNamesDefaultError(arg, name)
           else {
             // if the named argument is on the original parameter
             // position, positional after named is allowed.
-            if (index != pos)
+            if (argIndex != paramPos)
               positionalAllowed = false
-            argPos(index) = pos
+            argPos(argIndex) = paramPos
             rhs
           }
         case _ =>
-          argPos(index) = index
+          argPos(argIndex) = argIndex
           if (positionalAllowed) arg
           else PositionalAfterNamedNamesDefaultError(arg)
       }

@@ -114,6 +114,8 @@ trait Typers extends Modes with Adaptations with Taggings {
       case MethodType(params, _) =>
         val argResultsBuff = new ListBuffer[SearchResult]()
         val argBuff = new ListBuffer[Tree]()
+        // paramFailed cannot be initialized with params.exists(_.tpe.isError) because that would
+        // hide some valid errors for params preceding the erroneous one.
         var paramFailed = false
 
         def mkPositionalArg(argTree: Tree, paramName: Name) = argTree
@@ -129,7 +131,7 @@ trait Typers extends Modes with Adaptations with Taggings {
           for(ar <- argResultsBuff)
             paramTp = paramTp.subst(ar.subst.from, ar.subst.to)
 
-          val res = if (paramFailed) SearchFailure else inferImplicit(fun, paramTp, context.reportErrors, false, context)
+          val res = if (paramFailed || (paramTp.isError && {paramFailed = true; true})) SearchFailure else inferImplicit(fun, paramTp, context.reportErrors, false, context)
           argResultsBuff += res
 
           if (res != SearchFailure) {
@@ -2325,7 +2327,7 @@ trait Typers extends Modes with Adaptations with Taggings {
           val methodBodyTyper = newTyper(context.makeNewScope(context.tree, methodSym)) // should use the DefDef for the context's tree, but it doesn't exist yet (we need the typer we're creating to create it)
           paramSyms foreach (methodBodyTyper.context.scope enter _)
 
-          val match_ = methodBodyTyper.typedMatch(selector, cases, mode, ptRes)
+          val match_ = methodBodyTyper.typedMatch(gen.mkUnchecked(selector), cases, mode, ptRes)
           val resTp = match_.tpe
 
           val methFormals = paramSyms map (_.tpe)
@@ -2365,7 +2367,7 @@ trait Typers extends Modes with Adaptations with Taggings {
           val methodBodyTyper = newTyper(context.makeNewScope(context.tree, methodSym)) // should use the DefDef for the context's tree, but it doesn't exist yet (we need the typer we're creating to create it)
           paramSyms foreach (methodBodyTyper.context.scope enter _)
 
-          val match_ = methodBodyTyper.typedMatch(selector, cases, mode, ptRes)
+          val match_ = methodBodyTyper.typedMatch(gen.mkUnchecked(selector), cases, mode, ptRes)
           val resTp = match_.tpe
 
           anonClass setInfo ClassInfoType(parentsPartial(List(argTp, resTp)), newScope, anonClass)
@@ -2392,7 +2394,7 @@ trait Typers extends Modes with Adaptations with Taggings {
           paramSyms foreach (methodBodyTyper.context.scope enter _)
           methodSym setInfoAndEnter MethodType(paramSyms, BooleanClass.tpe)
 
-          val match_ = methodBodyTyper.typedMatch(selector, casesTrue, mode, BooleanClass.tpe)
+          val match_ = methodBodyTyper.typedMatch(gen.mkUnchecked(selector), casesTrue, mode, BooleanClass.tpe)
           val body   = methodBodyTyper.virtualizedMatch(match_ withAttachment DefaultOverrideMatchAttachment(FALSE_typed), mode, BooleanClass.tpe)
 
           DefDef(methodSym, body)
@@ -2508,10 +2510,7 @@ trait Typers extends Modes with Adaptations with Taggings {
       namer.enterSyms(stats)
       // need to delay rest of typedRefinement to avoid cyclic reference errors
       unit.toCheck += { () =>
-        // go to next outer context which is not silent, see #3614
-        var c = context
-        while (c.bufferErrors) c = c.outer
-        val stats1 = newTyper(c).typedStats(stats, NoSymbol)
+        val stats1 = typedStats(stats, NoSymbol)
         for (stat <- stats1 if stat.isDef) {
           val member = stat.symbol
           if (!(context.owner.ancestors forall
@@ -3246,7 +3245,9 @@ trait Typers extends Modes with Adaptations with Taggings {
           reportAnnotationError(NestedAnnotationError(ann, annType))
         } else {
           val typedAnn = if (selfsym == NoSymbol) {
-            typed(ann, mode, annClass.tpe)
+            // local dummy fixes SI-5544
+            val localTyper = newTyper(context.make(ann, context.owner.newLocalDummy(ann.pos)))
+            localTyper.typed(ann, mode, annClass.tpe)
           } else {
             // Since a selfsym is supplied, the annotation should have
             // an extra "self" identifier in scope for type checking.
