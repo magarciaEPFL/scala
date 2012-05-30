@@ -86,4 +86,8 @@ public final class Statics {
 
     return x.hashCode();
   }
+
+    public static void nullCheck(Object x) {
+      if (x == null) throw new NullPointerException();
+    }
 }

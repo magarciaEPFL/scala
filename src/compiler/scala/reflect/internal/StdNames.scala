@@ -723,6 +723,7 @@ trait StdNames {
     val withFilter: NameType           = "withFilter"
     val wrap: NameType                 = "wrap"
     val zip: NameType                  = "zip"
+    val nullCheck_ : NameType          = "nullCheck"
 
     val synthSwitch: NameType          = "$synthSwitch"
 

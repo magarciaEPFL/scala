@@ -383,6 +383,8 @@ trait Definitions extends reflect.api.StandardDefinitions {
       def arrayClassMethod = getMember(ScalaRunTimeModule, nme.arrayClass)
       def arrayElementClassMethod = getMember(ScalaRunTimeModule, nme.arrayElementClass)
 
+      def nullCheckMethod = getMember(RuntimeStaticsModule, nme.nullCheck_)
+
     // classes with special meanings
     lazy val StringAddClass             = requiredClass[scala.runtime.StringAdd]
     lazy val ArrowAssocClass            = getRequiredClass("scala.Predef.ArrowAssoc") // SI-5731

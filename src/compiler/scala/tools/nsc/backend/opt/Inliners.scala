@@ -338,8 +338,9 @@ abstract class Inliners extends SubComponent {
                   count += 1
 
                 pair.doInline(bb, i)
-                if (!inc.inline || inc.isMonadic)
+                if (!inc.inline || inc.isMonadic) {
                   caller.inlinedCalls += 1
+                }
                 inlinedMethodCount(inc.sym) += 1
 
                 /* Remove this method from the cache, as the calls-private relation
@@ -537,6 +538,9 @@ abstract class Inliners extends SubComponent {
        */
       def doInline(block: BasicBlock, instr: CALL_METHOD) {
 
+        assert(instr.style.hasInstance,
+               "A null-check on the receiver will be added on the assumption there's a receiver for the callee-to-be-inlined.")
+
         staleOut += block
 
         tfa.remainingCALLs.remove(instr) // this bookkpeeping is done here and not in MTFAGrowable.reinit due to (1st) convenience and (2nd) necessity.
@@ -567,9 +571,12 @@ abstract class Inliners extends SubComponent {
         val instrBefore = block.toList takeWhile instrBeforeFilter
         val instrAfter  = block.toList drop (instrBefore.length + 1)
 
-        assert(!instrAfter.isEmpty, "CALL_METHOD cannot be the last instruction in block!")
+        assert(!instrAfter.isEmpty,
+               "CALL_METHOD cannot be the last instruction in block! " +
+               "BasicBlock.directSuccessors lists the control-flow instructions that may close a block.")
 
         // store the '$this' into the special local
+        // TODO why does $inlThis get a REFERENCE(ObjectClass) as type?
         val inlinedThis = newLocal("$inlThis", REFERENCE(ObjectClass))
 
         /** buffer for the returned value */
@@ -652,8 +659,9 @@ abstract class Inliners extends SubComponent {
         caller addLocals (inc.locals map dupLocal)
         caller addLocal inlinedThis
 
-        if (retVal ne null)
+        if (retVal ne null) {
           caller addLocal retVal
+        }
 
         inc.m foreachBlock { b =>
           inlinedBlock += (b -> newBlock())
@@ -669,7 +677,10 @@ abstract class Inliners extends SubComponent {
         inc.m.params.reverse foreach (p => blockEmit(STORE_LOCAL(inlinedLocals(p))))
         blockEmit(STORE_LOCAL(inlinedThis))
 
-        // jump to the start block of the callee
+        // SI-5850 Throw NPE if the original receiver is null, otherwise jump to the start block of the callee.
+        // Creating and throwing an NPE takes 8 bytes of opcodes. Instead, the static call nullCheck() adds just 3 bytes.
+        blockEmit(LOAD_LOCAL(inlinedThis))
+        blockEmit(CALL_METHOD(definitions.nullCheckMethod, Static(false)))
         blockEmit(JUMP(inlinedBlock(inc.m.startBlock)))
         block.close
 
