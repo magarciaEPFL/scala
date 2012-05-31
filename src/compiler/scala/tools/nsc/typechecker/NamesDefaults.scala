@@ -260,19 +260,18 @@ trait NamesDefaults { self: Analyzer =>
     def argValDefs(args: List[Tree], paramTypes: List[Type], blockTyper: Typer): List[ValDef] = {
       val context = blockTyper.context
       val symPs = map2(args, paramTypes)((arg, tpe) => {
-        val byName = isByNameParamType(tpe)
-        val (argTpe, repeated) =
-          if (isScalaRepeatedParamType(tpe)) arg match {
-            case Typed(expr, Ident(tpnme.WILDCARD_STAR)) =>
-              (expr.tpe, true)
-            case _ =>
-              (seqType(arg.tpe), true)
-          } else (arg.tpe, false)
-        val s = context.owner.newValue(unit.freshTermName("x$"), arg.pos)
-        val valType = if (byName) functionType(List(), argTpe)
-                      else if (repeated) argTpe
-                      else argTpe
-        s.setInfo(valType)
+        val byName   = isByNameParamType(tpe)
+        val repeated = isScalaRepeatedParamType(tpe)
+        val argTpe = (
+          if (repeated) arg match {
+            case Typed(expr, Ident(tpnme.WILDCARD_STAR)) => expr.tpe
+            case _                                       => seqType(arg.tpe)
+          }
+          else arg.tpe
+        ).widen // have to widen or types inferred from literal defaults will be singletons
+        val s = context.owner.newValue(unit.freshTermName("x$"), arg.pos) setInfo (
+          if (byName) functionType(Nil, argTpe) else argTpe
+        )
         (context.scope.enter(s), byName, repeated)
       })
       map2(symPs, args) {
@@ -482,6 +481,10 @@ trait NamesDefaults { self: Analyzer =>
         try typer.silent { tpr =>
           val res = tpr.typed(arg, subst(paramtpe))
           // better warning for SI-5044: if `silent` was not actually silent give a hint to the user
+          // [H]: the reason why `silent` is not silent is because the cyclic reference exception is
+          // thrown in a context completely different from `context` here. The exception happens while
+          // completing the type, and TypeCompleter is created/run with a non-silent Namer `context`
+          // and there is at the moment no way to connect the two unless we go through some global state.
           if (errsBefore < reporter.ERROR.count)
             WarnAfterNonSilentRecursiveInference(param, arg)(context)
           res

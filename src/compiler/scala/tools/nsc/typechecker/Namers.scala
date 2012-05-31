@@ -473,12 +473,8 @@ trait Namers extends MethodSynthesis {
 
         if (from != nme.WILDCARD && base != ErrorType) {
           if (isValid(from)) {
-            if (currentRun.compileSourceFor(expr, from)) {
-              // side effecting, apparently
-              typeSig(tree)
-            }
             // for Java code importing Scala objects
-            else if (!nme.isModuleName(from) || isValid(nme.stripModuleSuffix(from))) {
+            if (!nme.isModuleName(from) || isValid(nme.stripModuleSuffix(from))) {
               typer.TyperErrorGen.NotAMemberError(tree, expr, from)
               typer.infer.setError(tree)
             }
@@ -636,7 +632,7 @@ trait Namers extends MethodSynthesis {
         classAndNamerOfModule(m) = (tree, null)
       }
       val owner = tree.symbol.owner
-      if (settings.lint.value && owner.isPackageObjectClass) {
+      if (settings.lint.value && owner.isPackageObjectClass && !mods.isImplicit) {
         context.unit.warning(tree.pos,
           "it is not recommended to define classes/objects inside of package objects.\n" +
           "If possible, define " + tree.symbol + " in " + owner.skipPackageObject + " instead."
@@ -1306,14 +1302,18 @@ trait Namers extends MethodSynthesis {
           if (expr1.symbol != null && expr1.symbol.isRootPackage)
             RootImportError(tree)
 
-          val newImport = treeCopy.Import(tree, expr1, selectors).asInstanceOf[Import]
-          checkSelectors(newImport)
-          transformed(tree) = newImport
-          // copy symbol and type attributes back into old expression
-          // so that the structure builder will find it.
-          expr.symbol = expr1.symbol
-          expr.tpe = expr1.tpe
-          ImportType(expr1)
+          if (expr1.isErrorTyped)
+            ErrorType
+          else {
+            val newImport = treeCopy.Import(tree, expr1, selectors).asInstanceOf[Import]
+            checkSelectors(newImport)
+            transformed(tree) = newImport
+            // copy symbol and type attributes back into old expression
+            // so that the structure builder will find it.
+            expr.symbol = expr1.symbol
+            expr.tpe = expr1.tpe
+            ImportType(expr1)
+          }
       }
 
       val result =

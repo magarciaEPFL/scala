@@ -24,6 +24,9 @@ trait Platform {
   /** The root symbol loader. */
   def rootLoader: LazyType
 
+  /** Update classpath with a substitution that maps entries to entries */
+  def updateClassPath(subst: Map[ClassPath[BinaryRepr], ClassPath[BinaryRepr]])
+
   /** Any platform-specific phases. */
   def platformPhases: List[SubComponent]
 

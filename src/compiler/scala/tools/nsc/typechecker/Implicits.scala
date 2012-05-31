@@ -346,7 +346,11 @@ trait Implicits {
         case _ => tp
       }
       def stripped(tp: Type): Type = {
-        deriveTypeWithWildcards(freeTypeParametersNoSkolems.collect(tp))(tp)
+        // `t.typeSymbol` returns the symbol of the normalized type. If that normalized type
+        // is a `PolyType`, the symbol of the result type is collected. This is precisely
+        // what we require for SI-5318.
+        val syms = for (t <- tp; if t.typeSymbol.isTypeParameter) yield t.typeSymbol
+        deriveTypeWithWildcards(syms.distinct)(tp)
       }
       def sum(xs: List[Int]) = (0 /: xs)(_ + _)
       def complexity(tp: Type): Int = tp.normalize match {
@@ -554,7 +558,11 @@ trait Implicits {
 
       val itree = atPos(pos.focus) {
         if (info.pre == NoPrefix) Ident(info.name)
-        else Select(gen.mkAttributedQualifier(info.pre), info.name)
+        else {
+          // SI-2405 Not info.name, which might be an aliased import
+          val implicitMemberName = info.sym.name
+          Select(gen.mkAttributedQualifier(info.pre), implicitMemberName)
+        }
       }
       printTyping("typedImplicit1 %s, pt=%s, from implicit %s:%s".format(
         typeDebug.ptTree(itree), wildPt, info.name, info.tpe)
@@ -929,7 +937,7 @@ trait Implicits {
               }
             case None =>
               if (pre.isStable) {
-                val companion = sym.companionModule
+                val companion = companionSymbolOf(sym, context)
                 companion.moduleClass match {
                   case mc: ModuleClassSymbol =>
                     val infos =

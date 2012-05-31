@@ -1973,7 +1973,7 @@ trait Types extends api.Types { self: SymbolTable =>
     require(sym.isPackageClass, sym)
     override protected def finishPrefix(rest: String) = packagePrefix + rest
   }
-  class RefinementTypeRef(sym0: Symbol) extends NoArgsTypeRef(NoType, sym0) with ClassTypeRef {
+  class RefinementTypeRef(pre0: Type, sym0: Symbol) extends NoArgsTypeRef(pre0, sym0) with ClassTypeRef {
     require(sym.isRefinementClass, sym)
 
     // I think this is okay, but see #1241 (r12414), #2208, and typedTypeConstructor in Typers
@@ -2359,7 +2359,7 @@ trait Types extends api.Types { self: SymbolTable =>
       else {
         if (sym.isAliasType)              new NoArgsTypeRef(pre, sym) with AliasTypeRef
         else if (sym.isAbstractType)      new NoArgsTypeRef(pre, sym) with AbstractTypeRef
-        else if (sym.isRefinementClass)   new RefinementTypeRef(sym)
+        else if (sym.isRefinementClass)   new RefinementTypeRef(pre, sym)
         else if (sym.isPackageClass)      new PackageTypeRef(pre, sym)
         else if (sym.isModuleClass)       new ModuleTypeRef(pre, sym)
         else                              new NoArgsTypeRef(pre, sym) with ClassTypeRef
@@ -4318,7 +4318,7 @@ trait Types extends api.Types { self: SymbolTable =>
               def throwError = abort("" + tp + sym.locationString + " cannot be instantiated from " + pre.widen)
 
               val symclazz = sym.owner
-              if (symclazz == clazz && !pre.isInstanceOf[TypeVar] && (pre.widen.typeSymbol isNonBottomSubClass symclazz)) {
+              if (symclazz == clazz && !pre.widen.isInstanceOf[TypeVar] && (pre.widen.typeSymbol isNonBottomSubClass symclazz)) {
                 // have to deconst because it may be a Class[T].
                 pre.baseType(symclazz).deconst match {
                   case TypeRef(_, basesym, baseargs) =>
