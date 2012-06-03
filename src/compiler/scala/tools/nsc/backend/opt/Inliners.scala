@@ -775,10 +775,10 @@ abstract class Inliners extends SubComponent {
 
       def isStampedForInlining(stackLength: Int) =
         !sameSymbols && inc.m.hasCode && shouldInline &&
-        isSafeToInline(stackLength) && {
-          // `isSafeToInline()` must be invoked last in this AND expr because
+        isSafeToInline(stackLength, true) && {
+          // `isSafeToInline(stackLength, true)` must be invoked last in this AND expr because
           // it mutates the `knownSafe` and `knownUnsafe` maps for good.
-          // It may also populates the list on which `inc.doMakePublic()` acts.
+          // It may also populate the list on which `inc.doMakePublic()` acts.
           true
         }
 
@@ -791,14 +791,14 @@ abstract class Inliners extends SubComponent {
            |  shouldInline: %s
         """.stripMargin.format(
           inc.m, sameSymbols, inlinedMethodCount(inc.sym) < 2,
-          inc.m.hasCode, isSafeToInline(stackLength), shouldInline
+          inc.m.hasCode, isSafeToInline(stackLength, false), shouldInline
         )
       )
 
       def failureReason(stackLength: Int) =
         if (!inc.m.hasCode) "bytecode was unavailable"
         else if (inc.m.symbol.hasFlag(Flags.SYNCHRONIZED)) "method is synchronized"
-        else if (!isSafeToInline(stackLength)) "it is unsafe (target may reference private fields)"
+        else if (!isSafeToInline(stackLength, false)) "it is unsafe (target may reference private fields)"
         else "of a bug (run with -Ylog:inline -Ydebug for more information)"
 
       def canAccess(level: NonPublicRefs.Value) = level match {
@@ -817,16 +817,21 @@ abstract class Inliners extends SubComponent {
        * Note:
        *    - synthetic private members are made public in this pass.
        */
-      def isSafeToInline(stackLength: Int): Boolean = {
+      def isSafeToInline(stackLength: Int, recordDecision: Boolean): Boolean = {
 
         if(tfa.blackballed(inc.sym)) { return false }
         if(tfa.knownSafe(inc.sym))   { return true  }
 
-        if(helperIsSafeToInline(stackLength)) {
-          tfa.knownSafe += inc.sym;   true
+        val isSafe = helperIsSafeToInline(stackLength)
+
+        if(isSafe) {
+          if(recordDecision) { tfa.knownSafe += inc.sym }
         } else {
-          tfa.knownUnsafe += inc.sym; false
+          // it's ok to always record a negative outcome, it's the positive one that requires doMakePublic() to run.
+          tfa.knownUnsafe += inc.sym
         }
+
+        isSafe
       }
 
       private def helperIsSafeToInline(stackLength: Int): Boolean = {
