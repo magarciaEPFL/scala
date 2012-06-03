@@ -539,6 +539,10 @@ abstract class Inliners extends SubComponent {
           (m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) &&
           { toBecomePublic = f :: toBecomePublic; true }
 
+        /* A safety check to consider as private, for the purposes of inlining,
+         * a public field that is presumed synthetic (due to a dollar sign in its name),
+         * where the field was potentially publicized by `doMakePublic()`.
+         * We don't want to rely on it being public, as under other compilation conditions that won't be the case. */
         def potentiallyPublicized(f: Symbol): Boolean = {
           (m.sourceFile eq NoSourceFile) && f.name.containsChar('$')
         }
