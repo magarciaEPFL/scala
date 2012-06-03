@@ -539,7 +539,12 @@ abstract class Inliners extends SubComponent {
           (m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) &&
           { toBecomePublic = f :: toBecomePublic; true }
 
-        def checkField(f: Symbol)   = check(f, f.isPrivate && !canMakePublic(f))
+        def potentiallyPublicized(f: Symbol): Boolean = {
+          (m.sourceFile eq NoSourceFile) && f.name.containsChar('$')
+        }
+
+        def checkField(f: Symbol)   = check(f, potentiallyPublicized(f) ||
+                                               (f.isPrivate && !canMakePublic(f)))
         def checkSuper(n: Symbol)   = check(n, n.isPrivate || !n.isClassConstructor)
         def checkMethod(n: Symbol)  = check(n, n.isPrivate)
 
