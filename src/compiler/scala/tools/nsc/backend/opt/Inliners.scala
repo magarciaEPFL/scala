@@ -350,6 +350,7 @@ abstract class Inliners extends SubComponent {
               }
               else {
                 if(inc.accessNeeded == NonPublicRefs.Public) { tfa.knownUnsafe += inc.sym }
+                inc.toBecomePublic = Nil
 
                 if (settings.debug.value) { pair logFailure stackLength }
 
@@ -836,14 +837,17 @@ abstract class Inliners extends SubComponent {
           return false
         }
 
-        val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
-        if(isIllegalStack) { debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.") }
+        if(stackLength > inc.minimumStack && inc.hasNonFinalizerHandler) {
+          debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.")
+          return false
+        }
 
-        val isSafe = !isIllegalStack && canAccess(inc.accessNeeded)
+        if(!canAccess(inc.accessNeeded)) {
+          inc.toBecomePublic = Nil
+          return false
+        }
 
-        if(!isSafe) { inc.toBecomePublic = Nil }
-
-        isSafe
+        true
       }
 
       /** Decide whether to inline or not. Heuristics:
