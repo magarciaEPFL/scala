@@ -524,7 +524,7 @@ abstract class Inliners extends SubComponent {
       def addLocal(l: Local)          = addLocals(List(l))
       def addHandlers(exhs: List[ExceptionHandler]) = m.exh = exhs ::: m.exh
 
-      private var toBecomePublic: List[Symbol] = Nil
+      var toBecomePublic: List[Symbol] = Nil
 
       lazy val accessNeeded: NonPublicRefs.Value = {
 
@@ -815,6 +815,7 @@ abstract class Inliners extends SubComponent {
        *    - synthetic private members are made public in this pass.
        */
       def isSafeToInline(stackLength: Int): Boolean = {
+        assert(inc.toBecomePublic.isEmpty, "a previous round of inc.toBecomePublic wasn't fully processed.")
 
         if(tfa.blackballed(inc.sym)) { return false }
         if(tfa.knownSafe(inc.sym))   { return true  }
@@ -838,7 +839,11 @@ abstract class Inliners extends SubComponent {
         val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
         if(isIllegalStack) { debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.") }
 
-        !isIllegalStack && canAccess(inc.accessNeeded)
+        val isSafe = !isIllegalStack && canAccess(inc.accessNeeded)
+
+        if(!isSafe) { inc.toBecomePublic = Nil }
+
+        isSafe
       }
 
       /** Decide whether to inline or not. Heuristics:
