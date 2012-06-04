@@ -350,12 +350,13 @@ abstract class Inliners extends SubComponent {
               }
               else {
                 if(inc.accessNeeded == NonPublicRefs.Public) { tfa.knownUnsafe += inc.sym }
-                inc.toBecomePublic = Nil
 
                 if (settings.debug.value) { pair logFailure stackLength }
 
                 warnNoInline(pair failureReason stackLength)
               }
+              inc.toBecomePublic = Nil
+
             case None =>
               warnNoInline("bytecode was not available")
               debuglog("could not find icode\n\treceiver: " + receiver + "\n\tmethod: " + concreteMethod)
