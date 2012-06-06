@@ -344,10 +344,8 @@ abstract class Inliners extends SubComponent {
                          f setFlag Flags.notPRIVATE
                          f setFlag Flags.notPROTECTED
                        }
-                       if(accessNeeded == NonPublicRefs.Public) {
-                         // only add to `knownSafe` after all `toBecomePublic` fields actually made public.
-                         tfa.knownSafe += inc.sym
-                       }
+                       // only add to `knownSafe` after all `toBecomePublic` fields actually made public.
+                       if(accessNeeded == NonPublicRefs.Public) { tfa.knownSafe += inc.sym }
 
                      case InlineableAtThisCaller => ()
 
@@ -358,7 +356,7 @@ abstract class Inliners extends SubComponent {
                    if (isCountable) { count += 1 };
 
                    pair.doInline(bb, i)
-                   if (!inc.inline || inc.isMonadic) { caller.inlinedCalls += 1 };
+                   if (!inc.forceInline || inc.isMonadic) { caller.inlinedCalls += 1 };
                    inlinedMethodCount(inc.sym) += 1
 
                    // Remove the caller from the cache (this inlining might have changed its calls-private relation).
@@ -375,7 +373,7 @@ abstract class Inliners extends SubComponent {
 
             case Some(callee) =>
               assert(!callee.hasCode, "The case clause right before this one should have handled this case.")
-              warnNoInline("callee.hasCode is false")
+              warnNoInline("callee (" + callee + ") has no code")
               ()
 
             case None =>
@@ -515,8 +513,8 @@ abstract class Inliners extends SubComponent {
       def paramTypes    = sym.info.paramTypes
       def minimumStack  = paramTypes.length + 1
 
-      def inline        = hasInline(sym)
-      def noinline      = hasNoInline(sym)
+      def forceInline   = hasInline(sym)
+      def forbidInline  = hasNoInline(sym)
 
       def isBridge      = sym.isBridge
       def isInClosure   = isClosureClass(owner)
@@ -834,7 +832,7 @@ abstract class Inliners extends SubComponent {
 
           val reasonWhyNever =
             if(inc.isRecursive)         "is recursive"
-            else if(inc.noinline)       "annotated @noinline"
+            else if(inc.forbidInline)   "annotated @noinline"
             else if(inc.isSynchronized) "is synchronized method"
             else null
 
@@ -862,7 +860,7 @@ abstract class Inliners extends SubComponent {
          * As a result of (b), some synthetic private members can be chosen to become public.
          */
 
-        if(!inc.inline && !isScoreOK) {
+        if(!inc.forceInline && !isScoreOK) {
           // During inlining retry, a previous caller-callee pair that scored low may pass.
           // Thus, adding the callee to tfa.knownUnsafe isn't warranted.
           return DontInlineHere("too low score (heuristics)")
@@ -903,7 +901,7 @@ abstract class Inliners extends SubComponent {
        *   - it's bad (useless) to inline inside bridge methods
        */
       def isScoreOK: Boolean = {
-        debuglog("isScoreOK: " + caller.m + " with " + inc.m)
+        debuglog("[Score] Caller: " + caller.m + " , callee:" + inc.m)
         // TODO state preconds
 
         var score = 0
@@ -916,7 +914,7 @@ abstract class Inliners extends SubComponent {
         if (inc.isLarge) score -= 1;
         if (caller.isSmall && isLargeSum) {
           score -= 1
-          debuglog("isScoreOK: score decreased to " + score + " because small " + caller + " would become large")
+          debuglog("[Score] Score decreased to " + score + " because small " + caller.m + " would become large")
         }
 
         if (inc.isMonadic)          score += 3
@@ -925,7 +923,7 @@ abstract class Inliners extends SubComponent {
         if (inc.isInClosure)                 score += 2;
         if (inlinedMethodCount(inc.sym) > 2) score -= 2;
 
-        log("isScoreOK(" + inc.m + ") score: " + score)
+        log("[Score] amounts to " + score + " for (" + inc.m + ")")
 
         score > 0
       }
