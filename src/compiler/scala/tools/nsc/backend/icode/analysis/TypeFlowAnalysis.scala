@@ -588,7 +588,7 @@ abstract class TypeFlowAnalysis {
     }
 
     def conclusives(b: BasicBlock): List[opcodes.CALL_METHOD] = {
-      knownBeforehand(b) filter { cm => inliner.isMonadicMethod(cm.method) || inliner.hasInline(cm.method) }
+      knownBeforehand(b) filter { cm => inliner.isMonadicMethod(cm.method) || inliner.hasInlineAnn(cm.method) }
     }
 
     def knownBeforehand(b: BasicBlock): List[opcodes.CALL_METHOD] = {

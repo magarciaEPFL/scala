@@ -118,8 +118,8 @@ abstract class Inliners extends SubComponent {
     }
   }
 
-  def hasInline(sym: Symbol)    = sym hasAnnotation ScalaInlineClass
-  def hasNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
+  def hasInlineAnn(sym: Symbol)    = sym hasAnnotation ScalaInlineClass
+  def hasAnnNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
 
   /**
    * Simple inliner.
@@ -138,7 +138,8 @@ abstract class Inliners extends SubComponent {
     private def warn(pos: Position, msg: String) = currentIClazz.cunit.inlinerWarning(pos, msg)
 
     val recentTFAs = mutable.Map.empty[Symbol, Tuple2[Boolean, analysis.MethodTFA]]
-    private def getRecentTFA(incm: IMethod): (Boolean, analysis.MethodTFA) = {
+
+    private def getRecentTFA(incm: IMethod, forceable: Boolean): (Boolean, analysis.MethodTFA) = {
 
         def containsRETURN(blocks: List[BasicBlock]) = blocks exists { bb => bb.lastInstruction.isInstanceOf[RETURN] }
 
@@ -154,7 +155,7 @@ abstract class Inliners extends SubComponent {
       var a: analysis.MethodTFA = null
       if(hasRETURN) { a = new analysis.MethodTFA(incm); a.run }
 
-      if(hasInline(incm.symbol)) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
+      if(forceable) { recentTFAs.put(incm.symbol, (hasRETURN, a)) }
 
       (hasRETURN, a)
     }
@@ -181,7 +182,7 @@ abstract class Inliners extends SubComponent {
         this.currentIClazz = cls
         val ms = cls.methods filterNot { _.symbol.isConstructor }
         ms foreach { im =>
-          if(hasInline(im.symbol)) {
+          if(hasInlineAnn(im.symbol)) {
             log("Not inlining into " + im.symbol.originalName.decode + " because it is marked @inline.")
           } else if(im.hasCode && !im.symbol.isBridge) {
             analyzeMethod(im)
@@ -286,14 +287,15 @@ abstract class Inliners extends SubComponent {
        */
       def analyzeInc(i: CALL_METHOD, bb: BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol): Boolean = {
         var inlined = false
-        val msym = i.method
+        val shouldWarn = hasInlineAnn(i.method)
 
-        def warnNoInline(reason: String) = {
-          if (hasInline(msym) && !caller.isBridge)
-            warn(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
-        }
+            def warnNoInline(reason: String) = {
+              if (shouldWarn) {
+                warn(i.pos, "Could not inline required method %s because %s.".format(i.method.originalName.decode, reason))
+              }
+            }
 
-        def isAvailable = icodes available concreteMethod.enclClass
+            def isAvailable = icodes available concreteMethod.enclClass
 
         if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
           // Until r22824 this line was:
@@ -307,18 +309,20 @@ abstract class Inliners extends SubComponent {
           icodes.load(concreteMethod.enclClass)
         }
 
-        def isCandidate = (
-             isClosureClass(receiver)
-          || concreteMethod.isEffectivelyFinal
-          || receiver.isEffectivelyFinal
-        )
-        def isApply     = concreteMethod.name == nme.apply
-        def isCountable = !(
-             isClosureClass(receiver)
-          || isApply
-          || isMonadicMethod(concreteMethod)
-          || receiver.enclosingPackage == definitions.RuntimePackage
-        )   // only count non-closures
+            def isCandidate = (
+                 isClosureClass(receiver)
+              || concreteMethod.isEffectivelyFinal
+              || receiver.isEffectivelyFinal
+            )
+
+            def isApply     = concreteMethod.name == nme.apply
+
+            def isCountable = !(
+                 isClosureClass(receiver)
+              || isApply
+              || isMonadicMethod(concreteMethod)
+              || receiver.enclosingPackage == definitions.RuntimePackage
+            )   // only count non-closures
 
         debuglog("Treating " + i
               + "\n\treceiver: " + receiver
@@ -356,7 +360,7 @@ abstract class Inliners extends SubComponent {
                    if (isCountable) { count += 1 };
 
                    pair.doInline(bb, i)
-                   if (!inc.forceInline || inc.isMonadic) { caller.inlinedCalls += 1 };
+                   if (!pair.isInlineForced || inc.isMonadic) { caller.inlinedCalls += 1 };
                    inlinedMethodCount(inc.sym) += 1
 
                    // Remove the caller from the cache (this inlining might have changed its calls-private relation).
@@ -501,7 +505,7 @@ abstract class Inliners extends SubComponent {
       def alwaysLoad    = (receiver.enclosingPackage == RuntimePackage) || (receiver == PredefModule.moduleClass)
       def loadCondition = sym.isEffectivelyFinal && isMonadicMethod(sym) && isHigherOrderMethod(sym)
 
-      val res = hasInline(sym) || alwaysLoad || loadCondition
+      val res = hasInlineAnn(sym) || alwaysLoad || loadCondition
       debuglog("shouldLoadImplFor: " + receiver + "." + sym + ": " + res)
       res
     }
@@ -512,9 +516,6 @@ abstract class Inliners extends SubComponent {
       def owner         = sym.owner
       def paramTypes    = sym.info.paramTypes
       def minimumStack  = paramTypes.length + 1
-
-      def forceInline   = hasInline(sym)
-      def forbidInline  = hasNoInline(sym)
 
       def isBridge      = sym.isBridge
       def isInClosure   = isClosureClass(owner)
@@ -637,6 +638,9 @@ abstract class Inliners extends SubComponent {
 
       private def isKnownToInlineSafely: Boolean = { tfa.knownSafe(inc.sym) }
 
+      val isInlineForced    = hasInlineAnn(inc.sym)
+      val isInlineForbidden = hasAnnNoInline(inc.sym)
+
       /** Inline 'inc' into 'caller' at the given block and instruction.
        *  The instruction must be a CALL_METHOD.
        */
@@ -654,7 +658,7 @@ abstract class Inliners extends SubComponent {
         def newLocal(baseName: String, kind: TypeKind) =
           new Local(caller.sym.newVariable(freshName(baseName), targetPos), kind, false)
 
-        val (hasRETURN, a) = getRecentTFA(inc.m)
+        val (hasRETURN, a) = getRecentTFA(inc.m, isInlineForced)
 
         /* The exception handlers that are active at the current block. */
         val activeHandlers = caller.handlers filter (_ covered block)
@@ -832,7 +836,7 @@ abstract class Inliners extends SubComponent {
 
           val reasonWhyNever =
             if(inc.isRecursive)         "is recursive"
-            else if(inc.forbidInline)   "annotated @noinline"
+            else if(isInlineForbidden)  "annotated @noinline"
             else if(inc.isSynchronized) "is synchronized method"
             else null
 
@@ -860,7 +864,7 @@ abstract class Inliners extends SubComponent {
          * As a result of (b), some synthetic private members can be chosen to become public.
          */
 
-        if(!inc.forceInline && !isScoreOK) {
+        if(!isInlineForced && !isScoreOK) {
           // During inlining retry, a previous caller-callee pair that scored low may pass.
           // Thus, adding the callee to tfa.knownUnsafe isn't warranted.
           return DontInlineHere("too low score (heuristics)")
