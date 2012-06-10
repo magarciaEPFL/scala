@@ -518,7 +518,7 @@ abstract class Inliners extends SubComponent {
       def minimumStack  = paramTypes.length + 1
 
       def isBridge      = sym.isBridge
-      def isInClosure   = isClosureClass(owner)
+      val isInClosure   = isClosureClass(owner)
       val isHigherOrder = isHigherOrderMethod(sym)
       def isMonadic     = isMonadicMethod(sym)
 
@@ -628,6 +628,28 @@ abstract class Inliners extends SubComponent {
 
       assert(!caller.isBridge && inc.m.hasCode,
              "A guard in Inliner.analyzeClass() should have prevented from getting here.")
+
+      // A penalty metric used in `isScoreOK`. A penalty metric cannot assume positive values.
+      val callerPenalty = {
+        // better not inline inside closures, but hope that the closure itself is repeatedly inlined
+        if (caller.isInClosure) -2 else 0
+      }
+
+      // A scoring metric used in `isScoreOK` whose value is determined by properties of the callee only (which are thus independent of the caller).
+      val calleeScore = {
+        var result = 0;
+
+        if (inc.isSmall)   result += 1;
+        if (inc.isLarge)   result -= 1;
+
+        if (inc.isMonadic)          result += 3
+        else if (inc.isHigherOrder) result += 1
+
+        if (inc.isInClosure) result += 2;
+
+        result
+      }
+
 
       def isLargeSum  = caller.length + inc.length - 1 > SMALL_METHOD_SIZE
 
@@ -905,32 +927,36 @@ abstract class Inliners extends SubComponent {
        *   - it's bad (useless) to inline inside bridge methods
        */
       def isScoreOK: Boolean = {
-        debuglog("[Score] Caller: " + caller.m + " , callee:" + inc.m)
-        // TODO state preconds
-
-        var score = 0
-
-        // better not inline inside closures, but hope that the closure itself is repeatedly inlined
-        if (caller.isInClosure)           score -= 2
-        else if (caller.inlinedCalls < 1) score -= 1 // only monadic methods can trigger the first inline
-
-        if (inc.isSmall) score += 1;
-        if (inc.isLarge) score -= 1;
-        if (caller.isSmall && isLargeSum) {
-          score -= 1
-          debuglog("[Score] Score decreased to " + score + " because small " + caller.m + " would become large")
+        val fluctuating = {
+          // only monadic methods (and @inline methods) can trigger the first inline
+          if (!caller.isInClosure && caller.inlinedCalls < 1) -1 else 0;
         }
 
-        if (inc.isMonadic)          score += 3
-        else if (inc.isHigherOrder) score += 1
+        /* The "canOnlyGetWorse penalty", once it becomes negative, either remains at that level or becomes lower when evaluated again.
+         * This penalty sticks because
+         *    (a) the size of the caller can only increase, and
+         *    (b) the size a given callee won't change during for this activation of `analyzeMethod()`
+         */
+        var canOnlyGetWorse  = 0
+        if (caller.isSmall && isLargeSum) {
+          canOnlyGetWorse -= 1
+          debuglog("isScoreOK: canOnlyGetWorse decreased to " + canOnlyGetWorse + " because small " + caller + " would become large")
+        }
+        if (inlinedMethodCount(inc.sym) > 2) canOnlyGetWorse -= 2;
 
-        if (inc.isInClosure)                 score += 2;
-        if (inlinedMethodCount(inc.sym) > 2) score -= 2;
+        val recurringScore = (callerPenalty + calleeScore)
 
-        log("[Score] amounts to " + score + " for (" + inc.m + ")")
+        if(!isInlineForced) {
+          if(calleeScore <= 0)                            { tfa.knownNever  += inc.sym }
+          else if((recurringScore + canOnlyGetWorse) < 0) { tfa.knownUnsafe += inc.sym }
+        }
 
-        score > 0
+        val finalScore = (recurringScore + canOnlyGetWorse + fluctuating)
+        log("[Score] amounts to " + finalScore + " for \n\tcaller: " + caller.m + "\n\tcallee: " + inc.m)
+
+        finalScore > 0
       }
+
     }
 
     def lookupIMethod(meth: Symbol, receiver: Symbol): Option[IMethod] = {
