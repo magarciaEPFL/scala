@@ -952,7 +952,7 @@ abstract class Inliners extends SubComponent {
         }
 
         val finalScore = (recurringScore + canOnlyGetWorse + fluctuating)
-        log("[Score] amounts to " + finalScore + " for \n\tcaller: " + caller.m + "\n\tcallee: " + inc.m)
+        log("shouldInline(" + inc.m + ") score: " + finalScore)
 
         finalScore > 0
       }
