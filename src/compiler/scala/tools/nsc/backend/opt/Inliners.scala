@@ -370,7 +370,7 @@ abstract class Inliners extends SubComponent {
 
                  case DontInlineHere(msg) =>
                    debuglog("inline failed, reason: " + msg)
-                   warnNoInline("inline failed, reason: " + msg)
+                   warnNoInline(msg)
 
                  case NeverSafeToInline => ()
               }
@@ -424,6 +424,7 @@ abstract class Inliners extends SubComponent {
 
         tfa.reinit(m, staleOut.toList, splicedBlocks, staleIn)
         tfa.run
+
         staleOut.clear()
         splicedBlocks.clear()
         staleIn.clear()
@@ -847,11 +848,9 @@ abstract class Inliners extends SubComponent {
         if(!isKnownToInlineSafely) {
 
           if(inc.openBlocks.nonEmpty) {
-            inc.openBlocks foreach { b =>
-              val msg = ("Encountered open block in isSafeToInline: this indicates a bug in the optimizer!\n" +
-                         "  caller = " + caller.m + ", callee = " + inc.m)
-              warn(inc.sym.pos, msg)
-            }
+            val msg = ("Encountered " + inc.openBlocks.size + " open block(s) in isSafeToInline: this indicates a bug in the optimizer!\n" +
+                       "  caller = " + caller.m + ", callee = " + inc.m)
+            warn(inc.sym.pos, msg)
             tfa.knownNever += inc.sym
             return DontInlineHere("Open blocks in " + inc.m)
           }
