@@ -269,7 +269,7 @@ abstract class Inliners extends SubComponent {
           breakable {
             for(ocm <- easyCake) {
               assert(ocm.method.isEffectivelyFinal && ocm.method.owner.isEffectivelyFinal)
-              if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method)) {
+              if(analyzeInc(ocm, x, ocm.method.owner, -1, ocm.method, null)) {
                 inlineCount += 1
                 break
               }
@@ -285,13 +285,18 @@ abstract class Inliners extends SubComponent {
        *  at the program point given by `i` (a callsite). The boolean result indicates whether inlining was performed.
        *
        */
-      def analyzeInc(i: CALL_METHOD, bb: BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol): Boolean = {
+      def analyzeInc(cm: CALL_METHOD,
+                     bb: BasicBlock,
+                     receiver:       Symbol,
+                     stackLength:    Int,
+                     concreteMethod: Symbol,
+                     lastParamFirst: Array[TypeKind]): Boolean = {
         var inlined = false
-        val shouldWarn = hasInlineAnn(i.method)
+        val shouldWarn = hasInlineAnn(cm.method)
 
             def warnNoInline(reason: String) = {
               if (shouldWarn) {
-                warn(i.pos, "Could not inline required method %s because %s.".format(i.method.originalName.decode, reason))
+                warn(cm.pos, "Could not inline required method %s because %s.".format(cm.method.originalName.decode, reason))
               }
             }
 
@@ -324,7 +329,7 @@ abstract class Inliners extends SubComponent {
               || receiver.enclosingPackage == definitions.RuntimePackage
             )   // only count non-closures
 
-        debuglog("Treating " + i
+        debuglog("Treating " + cm
               + "\n\treceiver: " + receiver
               + "\n\ticodes.available: " + isAvailable
               + "\n\tconcreteMethod.isEffectivelyFinal: " + concreteMethod.isEffectivelyFinal)
@@ -359,7 +364,7 @@ abstract class Inliners extends SubComponent {
                    inlined = true
                    if (isCountable) { count += 1 };
 
-                   pair.doInline(bb, i)
+                   pair.doInline(bb, cm, lastParamFirst)
                    if (!pair.isInlineForced || inc.isMonadic) { caller.inlinedCalls += 1 };
                    inlinedMethodCount(inc.sym) += 1
 
@@ -434,8 +439,8 @@ abstract class Inliners extends SubComponent {
           val cms = bb.toList collect { case cm : CALL_METHOD => cm }
           breakable {
             for (cm <- cms; if tfa.remainingCALLs.isDefinedAt(cm)) {
-              val analysis.CallsiteInfo(_, receiver, stackLength, concreteMethod) = tfa.remainingCALLs(cm)
-              if (analyzeInc(cm, bb, receiver, stackLength, concreteMethod)) {
+              val analysis.CallsiteInfo(_, receiver, stackLength, concreteMethod, lastParamFirst) = tfa.remainingCALLs(cm)
+              if (analyzeInc(cm, bb, receiver, stackLength, concreteMethod, lastParamFirst)) {
                 break
               }
             }
@@ -667,7 +672,7 @@ abstract class Inliners extends SubComponent {
       /** Inline 'inc' into 'caller' at the given block and instruction.
        *  The instruction must be a CALL_METHOD.
        */
-      def doInline(block: BasicBlock, instr: CALL_METHOD) {
+      def doInline(block: BasicBlock, instr: CALL_METHOD, lastParamFirst: Array[TypeKind]) {
 
         staleOut += block
 
@@ -731,9 +736,27 @@ abstract class Inliners extends SubComponent {
 
         /** alfa-rename `l` in caller's context. */
         def dupLocal(l: Local): Local = {
+
+          var tk = l.kind
+          if(lastParamFirst != null) {
+            val idx = inc.m.params.indexOf(l)
+            if(idx >= 0) {
+              val argTK = lastParamFirst((lastParamFirst.size - 2) - idx)
+              if(argTK.isRefOrArrayType) {
+                if(argTK.<:<(l.kind)) {
+                  tk = argTK // e.g., argTK denotes an anon-closure-class while l.kind denotes Function1.
+                } else {
+                  // ICode-level TypeKind computed by TFA for an argument does not conform to formal param's declared type.
+                  // The only such situation so far: tfa computes REF(class Any) for an REF(class Object) param.
+                }
+                tk = argTK // e.g., argTK denotes an anon-closure-class while l.kind denotes Function1, and so on.
+              }
+            }
+          }
+
           val sym = caller.sym.newVariable(freshName(l.sym.name.toString), l.sym.pos)
           // sym.setInfo(l.sym.tpe)
-          val dupped = new Local(sym, l.kind, false)
+          val dupped = new Local(sym, tk, false)
           inlinedLocals(l) = dupped
           dupped
         }

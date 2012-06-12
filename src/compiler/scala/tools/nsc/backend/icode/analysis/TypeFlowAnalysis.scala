@@ -410,7 +410,7 @@ abstract class TypeFlowAnalysis {
 	}
   }
 
-  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol)
+  case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol, lastParamFirst: Array[icodes.TypeKind])
 
   /**
 
@@ -507,8 +507,11 @@ abstract class TypeFlowAnalysis {
         if(isOnWatchlist(i)) {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
-          val paramsLength = msym.info.paramTypes.size
-          val receiver = result.stack.types.drop(paramsLength).head match {
+          val paramsLength   = msym.info.paramTypes.size
+          val lastParamFirst = result.stack.types.take(paramsLength + 1).toArray // includes receiver (as last element)
+          assert(lastParamFirst.last == result.stack.types.drop(paramsLength).head,
+                 "two different ways to get to the same call-receiver don't match.")
+          val receiver = lastParamFirst.last match {
             case REFERENCE(s) => s
             case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
           }
@@ -518,7 +521,7 @@ abstract class TypeFlowAnalysis {
             !blackballed(concreteMethod)
           }
           if(isCandidate) {
-            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod))
+            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, lastParamFirst))
           } else {
             remainingCALLs.remove(cm)
             isOnWatchlist.remove(cm)
