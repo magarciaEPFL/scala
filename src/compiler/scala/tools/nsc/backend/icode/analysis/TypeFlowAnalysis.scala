@@ -444,7 +444,7 @@ abstract class TypeFlowAnalysis {
     @author Miguel Garcia, http://lampwww.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
 
    */
-  class MTFAGrowable extends MethodTFA {
+  final class MTFAGrowable extends MethodTFA {
 
     import icodes._
 
@@ -457,7 +457,7 @@ abstract class TypeFlowAnalysis {
     override def run {
 
       timer.start
-      forwardAnalysis(blockTransfer)
+      combWorklist()
       val t = timer.stop
 
       /* Now that `forwardAnalysis(blockTransfer)` has finished, all inlining candidates can be found in `remainingCALLs`,
@@ -764,6 +764,10 @@ abstract class TypeFlowAnalysis {
       }
     }
 
+    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
+      throw new UnsupportedOperationException("Use combWorklist() instead.")
+    }
+
     /*
       This is basically the plain-old forward-analysis part of a dataflow algorithm,
       adapted to skip non-relevant blocks (as determined by `reinit()` via `populatePerimeter()`).
@@ -782,13 +786,13 @@ abstract class TypeFlowAnalysis {
           That's what `shrinkedWatchlist` detects. Provided the block was on the perimeter, we know we can skip it from now now,
           and we can also constrain the CFG-subgraph by finding a new perimeter (thus the invocation to `populatePerimeter()`).
      */
-    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
+    def combWorklist() {
       while (!worklist.isEmpty && relevantBBs.nonEmpty) {
         if (stat) iterations += 1
         val point = worklist.iterator.next; worklist -= point;
         if(relevantBBs(point)) {
           shrinkedWatchlist = false
-          val output = f(point, in(point))
+          val output = blockTransfer(point, in(point))
           visited += point;
           if(isOnPerimeter(point)) {
             if(shrinkedWatchlist && !isWatching(point)) {
