@@ -454,6 +454,10 @@ abstract class TypeFlowAnalysis {
 
     var callerLin: Traversable[BasicBlock] = null
 
+    // by piggybacking on the TFA, we can resolve some calls from virtual-dispatch to static-dispatch.
+    val resolvedInvocations = mutable.Map.empty[opcodes.CALL_METHOD, opcodes.CALL_METHOD]
+    val resolvedBlocks      = mutable.Set.empty[BasicBlock]
+
     override def run {
 
       timer.start
@@ -516,16 +520,27 @@ abstract class TypeFlowAnalysis {
             case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
           }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
-          val isCandidate = {
-            ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal ) &&
-            !blackballed(concreteMethod)
-          }
-          if(isCandidate) {
+          val canDispatchStatic = ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal )
+          if(canDispatchStatic && !blackballed(concreteMethod)) {
             remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, lastParamFirst))
           } else {
             remainingCALLs.remove(cm)
             isOnWatchlist.remove(cm)
             shrinkedWatchlist = true
+          }
+          if((concreteMethod != msym) && !cm.style.isSuper) {
+            // TODO skip in case resolvedInvocations.isDefinedAt(cm), add assert about similar contents.
+            assert(cm.style.hasInstance, "All MTFAGrowable.isPreCandidate were supposed to have an instance as receiver.")
+            // TODO `newStyle` shuold ideally be `opcodes.Static(true)` when `canDispatchStatic` but usually can't,
+            //      because the type-flow algorithm in the JVM complains the receiver might be null ("Illegal use of nonvirtual function call").
+            val newStyle = /* TODO if(canDispatchStatic) icodes.opcodes.Static(true) else */ cm.style
+            val newCM    = cm.copy(concreteMethod, newStyle).setHostClass(concreteMethod.owner) // TODO what is setHostClass() for?
+            newCM.setTargetTypeKind(cm.targetTypeKind) // TODO what is setTargetTypeKind() for?
+            resolvedInvocations += (cm -> newCM)
+            resolvedBlocks += b
+          } else {
+            // a previous iteration of the DFA might have added `cm` and now its more-lubbed receiver doesn't warrant de-virtualization anymore.
+            resolvedInvocations.remove(cm)
           }
         }
 
@@ -576,6 +591,8 @@ abstract class TypeFlowAnalysis {
 
     override def init(m: icodes.IMethod) {
       super.init(m)
+      resolvedInvocations.clear()
+      resolvedBlocks.clear()
       remainingCALLs.clear()
       knownUnsafe.clear()
       knownSafe.clear()

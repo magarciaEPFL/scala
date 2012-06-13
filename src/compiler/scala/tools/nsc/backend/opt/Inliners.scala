@@ -167,6 +167,9 @@ abstract class Inliners extends SubComponent {
       tfa.knownUnsafe.clear()
       tfa.knownSafe.clear()
       tfa.knownNever.clear()
+      // resolved callsites
+      tfa.resolvedInvocations.clear()
+      tfa.resolvedBlocks.clear()
       // basic blocks
       tfa.preCandidates.clear()
       tfa.relevantBBs.clear()
@@ -491,6 +494,20 @@ abstract class Inliners extends SubComponent {
           log(m.symbol.fullName + " iterations: " + tfa.iterations + " (size: " + caller.length + ")")
       }
       while (retry && count < MAX_INLINE_RETRY)
+
+      if(tfa.resolvedInvocations.nonEmpty) { // TODO make resolvedInvocations a Map[BasicBlock, Buffer[Pair[CALL_METHOD, CALLMETHOD
+        val saved = m.code.touched
+        for(b <- tfa.callerLin;
+            if tfa resolvedBlocks b;
+            oldCM <- b.toList.collect( { case cm: CALL_METHOD => cm } );
+            newCM <- tfa.resolvedInvocations.get(oldCM)) {
+          b.replaceInstruction(oldCM, newCM)
+          // Console.println("replaced " + newCM.method + "\n\t old: " + oldCM.method.owner + "\n\t new: " + newCM.method.owner)
+        }
+        tfa.resolvedBlocks.clear()
+        tfa.resolvedInvocations.clear()
+        m.code.touched = saved
+      }
 
       m.normalize
       if (sizeBeforeInlining > 0) {
