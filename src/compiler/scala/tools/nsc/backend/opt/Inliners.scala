@@ -171,7 +171,7 @@ abstract class Inliners extends SubComponent {
       tfa.resolvedInvocations.clear()
       tfa.resolvedBlocks.clear()
       // basic blocks
-      tfa.preCandidates.clear()
+      tfa.isRemainingBB.clear()
       tfa.relevantBBs.clear()
       // callsites
       tfa.remainingCALLs.clear()
@@ -438,7 +438,7 @@ abstract class Inliners extends SubComponent {
         staleIn.clear()
 
         import scala.util.control.Breaks._
-        for(bb <- tfa.callerLin; if tfa.preCandidates(bb)) {
+        for(bb <- tfa.callerLin; if tfa.isRemainingBB(bb)) {
           val cms = bb.toList collect { case cm : CALL_METHOD => cm }
           breakable {
             for (cm <- cms; if tfa.remainingCALLs.isDefinedAt(cm)) {

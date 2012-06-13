@@ -450,7 +450,7 @@ abstract class TypeFlowAnalysis {
 
     val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
 
-    val preCandidates  = mutable.Set.empty[BasicBlock]
+    val isRemainingBB  = mutable.Set.empty[BasicBlock]
 
     var callerLin: Traversable[BasicBlock] = null
 
@@ -467,13 +467,13 @@ abstract class TypeFlowAnalysis {
       /* Now that `forwardAnalysis(blockTransfer)` has finished, all inlining candidates can be found in `remainingCALLs`,
          whose keys are callsites and whose values are pieces of information about the typestack just before the callsite in question.
          In order to keep `analyzeMethod()` simple, we collect in `preCandidates` those basic blocks containing at least one candidate. */
-      preCandidates.clear()
+      isRemainingBB.clear()
       for(rc <- remainingCALLs) {
-        preCandidates += rc._2.bb
+        isRemainingBB += rc._2.bb
       }
 
       if (settings.debug.value) {
-        for(b <- callerLin; if (b != method.startBlock) && preCandidates(b)) {
+        for(b <- callerLin; if (b != method.startBlock) && isRemainingBB(b)) {
           assert(visited.contains(b),
                  "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited)
         }
