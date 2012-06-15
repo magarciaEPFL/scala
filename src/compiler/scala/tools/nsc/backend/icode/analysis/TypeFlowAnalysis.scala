@@ -738,13 +738,16 @@ abstract class TypeFlowAnalysis {
 
       Regarding (1)
       -------------
-        The goal is avoiding computing type-flows for blocks we don't need
+        `combWorklist()` already takes care of skipping computing type-flows for blocks we don't need
         (ie blocks not tracked in `relevantBBs`, which is initially populated by `putOnRadar`).
-
-        Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
-        There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
+        Beyond that, `blockTransfer()` can also skip some work by not updating the frame-state till the very last instruction in this basic block.
+        Frequently the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
+        There are cases where the typeflows computed past this `lastInstruction` are needed, and cases where they aren't.
         The reasoning behind this decision is described in `populatePerimeter()`.
-        To know at which instruction to stop, `blockTransfer()` first needs to know whether `isOnPerimeter(BasicBlock)`.
+        To know at which instruction to stop, `blockTransfer()` first needs to know whether `isOnPerimeter(BasicBlock)` and  then `lastInstruction(b)`.
+        Both are ready for use by now, prepared by `populatePerimeter()`. The other role `blockTransfer()` plays in connection to this
+        is setting `shrinkedWatchlist = true` upon removing a callsite from the candidates list,
+        which prompts `combWorklist()` to update `isOnPerimeter` and  `lastInstruction`.
 
       Regarding (2)
       -------------
