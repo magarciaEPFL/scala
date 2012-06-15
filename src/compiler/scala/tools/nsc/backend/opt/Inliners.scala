@@ -194,7 +194,6 @@ abstract class Inliners extends SubComponent {
       }
 
     val tfa   = new analysis.MTFAGrowable()
-    tfa.stat  = global.opt.printStats
     val staleOut      = new mutable.ListBuffer[BasicBlock]
     val splicedBlocks = mutable.Set.empty[BasicBlock]
     val staleIn       = mutable.Set.empty[BasicBlock]
@@ -463,7 +462,7 @@ abstract class Inliners extends SubComponent {
          *
          *   (2) Additionally, its new containing block won't be visited either (*in this iteration*)
          *       because the new blocks don't show up in the linearization computed before inlinings started:
-         *       `for(bb <- tfa.callerLin; if tfa.preCandidates(bb)) {`
+         *       `for(bb <- tfa.callerLin; if tfa.isRemainingBB(bb)) {`
          *
          * For a next iteration, the new home of any instructions that have moved
          * will be tracked properly in `remainingCALLs` after `MTFAGrowable.reinit()` puts on radar their new homes.
@@ -490,8 +489,6 @@ abstract class Inliners extends SubComponent {
         }
         */
 
-        if (tfa.stat)
-          log(m.symbol.fullName + " iterations: " + tfa.iterations + " (size: " + caller.length + ")")
       }
       while (retry && count < MAX_INLINE_RETRY)
 
@@ -700,8 +697,16 @@ abstract class Inliners extends SubComponent {
         log("Inlining " + inc.m + " in " + caller.m + " at pos: " + posToStr(targetPos))
 
         def blockEmit(i: Instruction) = block.emit(i, targetPos)
-        def newLocal(baseName: String, kind: TypeKind) =
-          new Local(caller.sym.newVariable(freshName(baseName), targetPos), kind, false)
+
+        var nextLocalIdx = caller.m.locals.size;
+
+        def newLocal(baseName: String, kind: TypeKind, pos: Position) = {
+          val v = new Local(caller.sym.newVariable(freshName(baseName), pos), kind, false)
+          v.index = nextLocalIdx // it's important to initialize Local.index because SinglePassTFA.computeDelta relies on it being >= 0.
+          nextLocalIdx += 1;
+
+          v
+        }
 
         val (hasRETURN, a) = getRecentTFA(inc.m, isInlineForced)
 
@@ -724,12 +729,12 @@ abstract class Inliners extends SubComponent {
         assert(!instrAfter.isEmpty, "CALL_METHOD cannot be the last instruction in block!")
 
         // store the '$this' into the special local
-        val inlinedThis = newLocal("$inlThis", REFERENCE(ObjectClass))
+        val inlinedThis = newLocal("$inlThis", REFERENCE(ObjectClass), targetPos)
 
         /** buffer for the returned value */
         val retVal = inc.m.returnType match {
           case UNIT  => null
-          case x     => newLocal("$retVal", x)
+          case x     => newLocal("$retVal", x, targetPos)
         }
 
         val inlinedLocals = mutable.HashMap.empty[Local, Local]
@@ -751,7 +756,8 @@ abstract class Inliners extends SubComponent {
           handler
         }
 
-        /** alfa-rename `l` in caller's context. */
+        /** alfa-rename `l` in caller's context, and
+         *  ascribe a possibly more specific type to it (a type given by that TFA'ed for the actual argument). */
         def dupLocal(l: Local): Local = {
 
           var tk = l.kind
@@ -771,9 +777,7 @@ abstract class Inliners extends SubComponent {
             }
           }
 
-          val sym = caller.sym.newVariable(freshName(l.sym.name.toString), l.sym.pos)
-          // sym.setInfo(l.sym.tpe)
-          val dupped = new Local(sym, tk, false)
+          val dupped = newLocal(l.sym.name.toString, tk, l.sym.pos)
           inlinedLocals(l) = dupped
           dupped
         }

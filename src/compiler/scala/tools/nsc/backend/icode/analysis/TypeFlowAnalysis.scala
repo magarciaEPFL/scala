@@ -340,32 +340,346 @@ abstract class TypeFlowAnalysis {
 
   }
 
+  val bottomXTK = XTK(typeLattice.bottom)
+
+  /* TypeKind extended with flags for type-exactness and non-nullness. */
+  final class XTK private (val tk: icodes.TypeKind, val isExact: Boolean, val isNonNull: Boolean) {
+    assert((bottomXTK == null)        ||
+           (tk != typeLattice.bottom) ||
+           isBottom, "there can be only one bottomXTK, one has been found even after bottomXTK has been initialized.")
+
+    @inline def isBottom = (this eq bottomXTK)
+
+    override def equals(that: Any) = {
+      that match {
+        case XTK(t, e, n) => (t == tk) && (e == isExact) && (n == isNonNull)
+        case _            => false
+      }
+    }
+    override def hashCode = (tk.hashCode)
+
+  }
+  object XTK {
+    def apply(tk: icodes.TypeKind, isExact: Boolean, isNonNull: Boolean): XTK = {
+      if(tk == typeLattice.bottom) {
+        if(bottomXTK == null) new XTK(typeLattice.bottom, false, false)
+        else bottomXTK
+      }
+      else new XTK(tk, isExact, isNonNull)
+    }
+    def apply(tk: icodes.TypeKind): XTK = apply(tk, false, false)
+    def unapply(xtk: XTK): Option[Tuple3[icodes.TypeKind, Boolean, Boolean]] = {
+      Some(Tuple3(xtk.tk, xtk.isExact, xtk.isNonNull))
+    }
+  }
+
+  /* Used by MTFAGrowable which in turn is used during the inlining analysis. */
+  case class FrameState(
+    locals: Array[XTK], // safer would be Vector, or a `FunctionalArray` custom wrapper.
+    stack:  Array[XTK]  // top is at index 0, includes both net stack increase and incoming stack.
+  ) {
+      override def equals(other: Any): Boolean = other match {
+        case that: FrameState => locals.sameElements(that.locals) && stack.sameElements(that.stack)
+        case _ => false
+      }
+      override def hashCode: Int = { // similar to j.u.Arrays.deepHashCode()
+        var res = 0
+        var i = 0; while(i < locals.length) { res += locals(i).hashCode; i += 1 }
+        i = 0;     while(i < stack.length)  { res += stack(i).hashCode;  i += 1 }
+        res
+      }
+      @inline def isBottom = (this eq frameLattice.bottom)
+  }
+
+  /** The type flow lattice used in MTFAGrowable. Doesn't extend SemiLattice on purpose.
+   */
+  object frameLattice {
+
+    type Elem = FrameState // for informational purposes
+
+    val emptyXTKs = Array.empty[XTK]
+    val top       = FrameState(emptyXTKs, emptyXTKs) // TODO use case object
+    val bottom    = FrameState(emptyXTKs, emptyXTKs)
+
+    def lub(a: XTK, b: XTK): XTK = {
+      if      (a.isBottom) b
+      else if (b.isBottom) a
+      else {
+        val u = icodes.lub(a.tk, b.tk)
+        val e = (a.isExact   && b.isExact)
+        val n = (a.isNonNull && b.isNonNull)
+        XTK(u, e, n)
+      }
+    }
+
+    def lubArr(a: Array[XTK], b: Array[XTK]): Array[XTK] = {
+      val newLength = math.max(a.length, b.length)
+      var c = new Array[XTK](newLength)
+      val minLength = math.min(a.length, b.length)
+      var i = 0
+      while(i < minLength) {
+        assert(a(i) != null, "should be REFERENCE(typeLattice.bottom)")
+        assert(b(i) != null, "should be REFERENCE(typeLattice.bottom)")
+        c(i) = lub(a(i), b(i))
+        i += 1
+      }
+      while(i < a.length) {
+        assert(a(i) != null, "should be REFERENCE(typeLattice.bottom)")
+        c(i) = a(i)
+        i += 1
+      }
+      while(i < b.length) {
+        assert(b(i) != null, "should be REFERENCE(typeLattice.bottom)")
+        c(i) = b(i)
+        i += 1
+      }
+      c
+    }
+
+    def lub(exceptional: Boolean)(a: FrameState, b: FrameState) = {
+      if      (a.isBottom) b
+      else if (b.isBottom) a
+      else {
+        val FrameState(env1, _) = a
+        val FrameState(env2, _) = b
+
+        val locals = lubArr(env1, env2)
+        val stack: Array[XTK]  =
+          if (exceptional) emptyXTKs
+          else {
+            assert(a.stack.length == b.stack.length,
+                   "mismatched arrays of locals can be lub-ed (they are an artifact of doInline.newLocal, " +
+                   "but the stack heights of two frame-states should match.")
+            lubArr(a.stack, b.stack)
+          }
+
+        FrameState(locals, stack)
+      }
+    }
+
+  }
+
+  abstract class SinglePassTFA {
+
+    import icodes._
+
+    private val STRING = REFERENCE(StringClass)
+
+    trait AbstractTK
+    case class FixedTK(xtk: XTK) extends AbstractTK
+    case class StackRelTK(n: Int)       extends AbstractTK
+    case class LocalRelTK(v: Int)       extends AbstractTK
+    case class AArrOf(atk: AbstractTK)  extends AbstractTK
+    case class AElemOf(atk: AbstractTK) extends AbstractTK
+
+    case class Delta(
+      outLocals: Array[AbstractTK],
+      netStack:  Array[AbstractTK], // top is at index 0, includes only net stack increase by a BasicBlock (excludes the incoming stack)
+      stackTrim: Int
+    )
+
+    def computeDelta(numLocals: Int, instrs0: List[Instruction]): Delta = {
+      val outLocals = new Array[AbstractTK](numLocals)
+      var outStack: List[AbstractTK] = Nil
+      var stackTrim: Int = 0
+
+          def push(atk: AbstractTK) { outStack ::= atk }
+          def load(tk: TypeKind)    { outStack ::= FixedTK(XTK(tk, false, false)) }
+          def xload(tk: TypeKind, isExactType: Boolean, isNonNull: Boolean) { outStack ::= FixedTK(XTK(tk, isExactType, isNonNull)) }
+          def pop(): AbstractTK = {
+            if(outStack.isEmpty) { val oldStackTrim = stackTrim; stackTrim += 1; StackRelTK(oldStackTrim) }
+            else { val h = outStack.head; outStack = outStack.tail; h }
+          }
+          def pop2() { pop(); pop() }
+          def pop3() { pop(); pop(); pop() }
+          def popN(n: Int) { var i = n; while(i > 0) { pop(); i -= 1} }
+          def elemOf(atk: AbstractTK): AbstractTK = {
+            atk match {
+              case FixedTK(arr) =>
+                val componentTK = arr.tk.asInstanceOf[icodes.ARRAY].elem;
+                FixedTK(XTK(componentTK, false, false))
+              case AArrOf(atk)  => atk
+              case _            => AElemOf(atk)
+            }
+          }
+
+          def computeCallPrim(primitive: Primitive) {
+            primitive match {
+              case Negation(kind)       => pop();  load(kind)
+              case Test(_, kind, zero)  => pop();  if (!zero) pop(); load(BOOL)
+              case Comparison(_, _)     => pop2(); load(INT)
+
+              case Arithmetic(op, kind) =>
+                pop();
+                if (op != NOT) { pop() }
+                val k = kind match {
+                  case BYTE | SHORT | CHAR => INT
+                  case _ => kind
+                }
+                load(k)
+
+              case Logical(op, kind)    => pop2(); load(kind)
+              case Shift(op, kind)      => pop2(); load(kind)
+              case Conversion(src, dst) => pop();  load(dst)
+              case ArrayLength(kind)    => pop();  load(INT)
+              case StartConcat          => load(ConcatClass)
+              case EndConcat            => pop();  load(STRING)
+              case StringConcat(el)     => pop2(); load(ConcatClass)
+            }
+          }
+
+      var instrs = instrs0
+      while(!instrs.isEmpty) {
+        val i  = instrs.head
+
+        import opcodes._
+
+        i match {
+
+          case THIS(clasz)                 =>
+            xload(toTypeKind(clasz.tpe),
+                  false,
+                  true) // TODO not sure about isExactType == true. Conservatively picking false.
+
+          case CONSTANT(const)             =>
+            val isNull = (const.value == null)
+            val isRef  = List(StringTag, ClazzTag, EnumTag).contains(const.tag)
+            xload(toTypeKind(const.tpe),
+                  true,
+                  !isNull && !isRef) // TODO actually, can a string constant be null? And what about an enum literal?
+
+          case LOAD_ARRAY_ITEM(kind)       => pop(); push(elemOf(pop()))
+
+          case LOAD_LOCAL(local)           =>
+            val t = outLocals(local.index)
+            if(t == null) { push(LocalRelTK(local.index)) }
+            else          { push(t) }
+
+          case LOAD_FIELD(field, isStatic) => if (!isStatic) pop(); load(toTypeKind(field.tpe))
+
+          case LOAD_MODULE(module)         =>
+            xload(toTypeKind(module.tpe),
+                  true,
+                  false) // giving isNonNull == true would place us at odds with the JVM's assumption that module-fields may hold nulls.
+
+          case STORE_ARRAY_ITEM(kind)      => pop3()
+          case STORE_LOCAL(local)          => outLocals(local.index) = pop()
+          case STORE_THIS(_)               => pop()
+          case STORE_FIELD(_, isStatic)    => if (isStatic) pop() else pop2()
+          case CALL_PRIMITIVE(primitive)   => computeCallPrim(primitive)
+          case cm : CALL_METHOD            => popN(cm.consumed); cm.producedTypes foreach load
+          case BOX(kind)                   => pop(); xload(BOXED(kind), true, true)
+          case UNBOX(kind)                 => pop(); load(kind)
+          case NEW(kind)                   => xload(kind, true, true)
+          case CREATE_ARRAY(elem, dims)    => popN(dims); xload(ARRAY(elem), true, true)
+          case IS_INSTANCE(tpe)            => pop(); load(BOOL)
+          case CHECK_CAST(tpe)             => pop(); load(tpe) // no assurances about type-exactness or non-nullness.
+          case SWITCH(tags, labels)        => pop()
+          case JUMP(whereto)               => ()
+          case CJUMP(_, _, _, _)           => pop2()
+          case CZJUMP(_, _, _, _)          => pop()
+          case RETURN(kind)                => if (kind != UNIT) { pop() }
+          case THROW(_)                    => pop()
+          case DROP(_)                     => pop()
+          case DUP(_)                      => val t = pop(); push(t); push(t)
+          case MONITOR_ENTER()             => pop()
+          case MONITOR_EXIT()              => pop()
+          case SCOPE_ENTER(_)              => ()
+          case SCOPE_EXIT(_)               => ()
+          case LOAD_EXCEPTION(clasz)       =>
+            outStack = Nil;
+            load(toTypeKind(clasz.tpe)) // no assurances about type-exactness or non-nullness.
+          case _                           => dumpClassesAndAbort("Unknown instruction: " + i)
+        }
+
+        instrs = instrs.tail
+      }
+
+      Delta(outLocals, outStack.toArray, stackTrim)
+    }
+
+    def applyDelta(input: FrameState, delta: Delta): FrameState = {
+      val mostCurrentNumLocals = delta.outLocals.size
+      assert(input.locals.size <= delta.outLocals.size, "input.locals needs to be extended when doInline.newLocal added vars, but never contracted.")
+
+          def xlate(atk: AbstractTK): XTK = {
+            atk match {
+              case FixedTK(xtk)    => xtk
+              case StackRelTK(n)   => input.stack(n)
+              case LocalRelTK(v)   => val loc = input.locals(v); assert(loc != null, "should be REFERENCE(typeLattice.bottom)"); loc
+              case AArrOf(nested)  =>
+                // Some rationale: in `computeDelta`, CREATE_ARRAY results in a `Fixed` type-repr, not an `AArrOf`.
+                // Thus nobody ever instantiates an `AArrOf`.
+                // Still, given that CREATE_ARRAY is the only instruction that might result in `AArrOf`,
+                // we translate it anyway with isExactType == isNonNull == true.
+                XTK(ARRAY(xlate(nested).tk), true, true)
+              case AElemOf(nested) =>
+                val componentTK = xlate(nested).tk.asInstanceOf[icodes.ARRAY].elem
+                XTK(componentTK, false, false)
+            }
+          }
+
+      val newLocals = {
+        val res =
+          if(input.locals.size < mostCurrentNumLocals) {
+            val arr = new Array[XTK](mostCurrentNumLocals)
+            val ilCnt = input.locals.length
+            java.lang.System.arraycopy(input.locals, 0, arr, 0, ilCnt)
+            var j = ilCnt; while(j < arr.length) { arr(j) = bottomXTK; j += 1 }
+
+            arr
+          } else {
+            input.locals.clone
+          }
+        var i = 0
+        while(i < delta.outLocals.length) {
+          val d = delta.outLocals(i)
+          if(d != null) { res(i) = xlate(d) }
+          i += 1
+        }
+        res
+      }
+      val nonTrimmed = input.stack.length - delta.stackTrim
+      val newStack   = new Array[XTK](nonTrimmed + delta.netStack.length)
+      val addedStack = delta.netStack map xlate;
+
+      java.lang.System.arraycopy( addedStack,               0, newStack,                 0, addedStack.length)
+      java.lang.System.arraycopy(input.stack, delta.stackTrim, newStack, addedStack.length,        nonTrimmed)
+
+      FrameState(newLocals, newStack)
+    }
+
+  }
+
   case class CallsiteInfo(bb: icodes.BasicBlock, receiver: Symbol, stackLength: Int, concreteMethod: Symbol, lastParamFirst: Array[icodes.TypeKind])
 
   /**
 
-    A full type-flow analysis on a method computes in- and out-flows for each basic block (that's what MethodTFA does).
+    A type-flow analysis on a method computes in- and out-flows for each basic block (e.g., that's what MethodTFA does).
 
     For the purposes of Inliner, doing so guarantees that an abstract typestack-slot is available by the time an inlining candidate (a CALL_METHOD instruction) is visited.
-    This subclass (MTFAGrowable) of MethodTFA also aims at performing such analysis on CALL_METHOD instructions, with some differences:
+    Like MethodTFA, MTFAGrowable also aims at performing such analysis on CALL_METHOD instructions, with some differences to make it faster:
 
       (a) early screening is performed while the type-flow is being computed (in an override of `blockTransfer`) by testing a subset of the conditions that Inliner checks later.
           The reasoning here is: if the early check fails at some iteration, there's no chance a follow-up iteration (with a yet more lub-ed typestack-slot) will succeed.
           Failure is sufficient to remove that particular CALL_METHOD from the typeflow's `remainingCALLs`.
-          A forward note: in case inlining occurs at some basic block B, all blocks reachable from B get their CALL_METHOD instructions considered again as candidates
-          (because of the more precise types that -- perhaps -- can be computed).
+          A forward note: in case inlining occurs at some basic block B, all blocks reachable from B get their CALL_METHOD instructions considered again as candidates in the next round
+          (on the expectation that more precise types can be computed).
 
       (b) in case the early check does not fail, no conclusive decision can be made, thus the CALL_METHOD stays `isOnwatchlist`.
 
-    In other words, `remainingCALLs` tracks those callsites that still remain as candidates for inlining, so that Inliner can focus on those.
-    `remainingCALLs` also caches info about the typestack just before the callsite, so as to spare computing them again at inlining time.
+    In other words, `remainingCALLs` tracks those callsites that later on (once the DFA has converged) Inliner will focus on.
+    `remainingCALLs` also caches info about the typestack just before the callsite, so as to spare Inliner computing them again.
 
-    Besides caching, a further optimization involves skipping those basic blocks whose in-flow and out-flow isn't needed anyway (as explained next).
-    A basic block lacking a callsite in `remainingCALLs`, when visisted by the standard algorithm, won't cause any inlining.
+    Besides caching as described above, a further optimization involves skipping those basic blocks
+    whose in-flow and out-flow isn't needed anyway, as described next.
+
+    A basic block lacking a callsite in `remainingCALLs` won't lead to inlining, calling into question the effort to compute the block's in- and out-flow.
     But as we know from the way type-flows are computed, computing the in- and out-flow for a basic block relies in general on those of other basic blocks.
+    How to find the right balance, so as not to skip computing type-flow information that is actually needed?
     In detail, we want to focus on that sub-graph of the CFG such that control flow may reach a remaining candidate callsite.
-    Those basic blocks not in that subgraph can be skipped altogether. That's why:
-       - `forwardAnalysis()` in `MTFAGrowable` now checks for inclusion of a basic block in `relevantBBs`
+    The basic blocks that aren't part of that subgraph can be skipped altogether. That's why:
+       - `combWorklist()` in `MTFAGrowable` now checks for inclusion of a basic block in `relevantBBs`
        - same check is performed before adding a block to the worklist, and as part of choosing successors.
     The bookkeeping supporting on-the-fly pruning of irrelevant blocks requires overridding most methods of the dataflow-analysis.
 
@@ -374,33 +688,35 @@ abstract class TypeFlowAnalysis {
     @author Miguel Garcia, http://lampwww.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
 
    */
-  final class MTFAGrowable extends MethodTFA {
+  final class MTFAGrowable extends SinglePassTFA {
 
     import icodes._
 
-    val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
+    var method: IMethod = _
+    def numLocals: Int  = method.locals.size // `Inliner.CallerCalleeInfo.doInline()` adds a local for each formal param of an inlined method.
 
+    val worklist: mutable.Set[BasicBlock]        = new mutable.LinkedHashSet
+    val in:  mutable.Map[BasicBlock, FrameState] = new mutable.HashMap
+    val out: mutable.Map[BasicBlock, FrameState] = new mutable.HashMap
+    val visited: mutable.HashSet[BasicBlock]     = new mutable.HashSet
+
+    val remainingCALLs = mutable.Map.empty[opcodes.CALL_METHOD, CallsiteInfo]
     val isRemainingBB  = mutable.Set.empty[BasicBlock]
 
     var callerLin: Traversable[BasicBlock] = null
 
-    // by piggybacking on the TFA, we can resolve some calls from virtual-dispatch to static-dispatch.
+    // by piggybacking on the TFA, some calls can be resolved from virtual-dispatch to static-dispatch.
     val resolvedInvocations = mutable.Map.empty[opcodes.CALL_METHOD, opcodes.CALL_METHOD]
     val resolvedBlocks      = mutable.Set.empty[BasicBlock]
 
-    override def run {
+    def run {
+      timer.start; combWorklist(); val t = timer.stop
 
-      timer.start
-      combWorklist()
-      val t = timer.stop
-
-      /* Now that `forwardAnalysis(blockTransfer)` has finished, all inlining candidates can be found in `remainingCALLs`,
-         whose keys are callsites and whose values are pieces of information about the typestack just before the callsite in question.
-         In order to keep `analyzeMethod()` simple, we collect in `preCandidates` those basic blocks containing at least one candidate. */
+      /* Now that the forward-analysis has converged, all inlining candidates are tracked in map `remainingCALLs`,
+         which maps callsites to typestack-information just before the callsite in question (see `CallsiteInfo`).
+         In order to keep `analyzeMethod()` simple, we collect in `isRemainingBB` those basic blocks containing one or more candidates. */
       isRemainingBB.clear()
-      for(rc <- remainingCALLs) {
-        isRemainingBB += rc._2.bb
-      }
+      for(rc <- remainingCALLs) { isRemainingBB += rc._2.bb }
 
       if (settings.debug.value) {
         for(b <- callerLin; if (b != method.startBlock) && isRemainingBB(b)) {
@@ -408,28 +724,28 @@ abstract class TypeFlowAnalysis {
                  "Block " + b + " in " + this.method + " has input equal to bottom -- not visited? .." + visited)
         }
       }
-
     }
 
     var shrinkedWatchlist = false
 
     /*
-      This is the method where information cached elsewhere is put to use. References are given those other places that populate those caches.
+      In this method information cached elsewhere is used, the description mentions which methods populate those caches.
 
-      The goal is avoiding computing type-flows for blocks we don't need (ie blocks not tracked in `relevantBBs`). The method used to add to `relevantBBs` is `putOnRadar`.
+      The goal is avoiding computing type-flows for blocks we don't need
+      (ie blocks not tracked in `relevantBBs`, which is initially populated by `putOnRadar`).
 
       Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
       There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
-      The reasoning behind this decsision is described in `populatePerimeter()`. All `blockTransfer()` needs to do (in order to know at which instruction it can stop)
-      is querying `isOnPerimeter`.
+      The reasoning behind this decision is described in `populatePerimeter()`.
+      To know at which instruction to stop, all `blockTransfer()` first needs test `isOnPerimeter(BasicBlock)`.
 
       Upon visiting a CALL_METHOD that's an inlining candidate, the relevant pieces of information about the pre-instruction typestack are collected for future use.
       That is, unless the candidacy test fails. The reasoning here is: if such early check fails at some iteration, there's no chance a follow-up iteration
       (with a yet more lub-ed typestack-slot) will succeed. In case of failure we can safely remove the CALL_METHOD from both `isOnWatchlist` and `remainingCALLs`.
 
      */
-    override def blockTransfer(b: BasicBlock, in: lattice.Elem): lattice.Elem = {
-      var result = lattice.IState(new VarBinding(in.vars), new TypeStack(in.stack))
+    def blockTransfer(b: BasicBlock, in: FrameState): FrameState = {
+      var result = FrameState(in.locals, in.stack)
 
       val stopAt = if(isOnPerimeter(b)) lastInstruction(b) else null;
       var isPastLast = false
@@ -442,17 +758,17 @@ abstract class TypeFlowAnalysis {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
           val paramsLength   = msym.info.paramTypes.size
-          val lastParamFirst = result.stack.types.take(paramsLength + 1).toArray // includes receiver (as last element)
-          assert(lastParamFirst.last == result.stack.types.drop(paramsLength).head,
+          val lastParamFirst = result.stack.take(paramsLength + 1) // includes receiver (as last element)
+          assert(lastParamFirst.last == result.stack.drop(paramsLength).head,
                  "two different ways to get to the same call-receiver don't match.")
           val receiver = lastParamFirst.last match {
-            case REFERENCE(s) => s
-            case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
+            case XTK(REFERENCE(s), _, _) => s
+            case _                       => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
           }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val canDispatchStatic = ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal )
           if(canDispatchStatic && !blackballed(concreteMethod)) {
-            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, lastParamFirst))
+            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, (lastParamFirst map { xtk => xtk.tk} ) ))
           } else {
             remainingCALLs.remove(cm)
             isOnWatchlist.remove(cm)
@@ -461,11 +777,11 @@ abstract class TypeFlowAnalysis {
           if((concreteMethod != msym) && !cm.style.isSuper) {
             // TODO skip in case resolvedInvocations.isDefinedAt(cm), add assert about similar contents.
             assert(cm.style.hasInstance, "All MTFAGrowable.isPreCandidate were supposed to have an instance as receiver.")
-            // TODO `newStyle` shuold ideally be `opcodes.Static(true)` when `canDispatchStatic` but usually can't,
+            // TODO `newStyle` should ideally be `opcodes.Static(true)` when `canDispatchStatic` but usually can't,
             //      because the type-flow algorithm in the JVM complains the receiver might be null ("Illegal use of nonvirtual function call").
             val newStyle = /* TODO if(canDispatchStatic) icodes.opcodes.Static(true) else */ cm.style
-            val newCM    = cm.copy(concreteMethod, newStyle).setHostClass(concreteMethod.owner) // TODO what is setHostClass() for?
-            newCM.setTargetTypeKind(cm.targetTypeKind) // TODO what is setTargetTypeKind() for?
+            val newCM    = cm.copy(concreteMethod, newStyle)
+            // TODO not setting setHostClass() nor setTargetTypeKind() because I don't know what they are for.
             resolvedInvocations += (cm -> newCM)
             resolvedBlocks += b
           } else {
@@ -477,13 +793,19 @@ abstract class TypeFlowAnalysis {
         isPastLast = (i eq stopAt)
 
         if(!isPastLast) {
-          result = mutatingInterpret(result, i)
+          result = updatedFrame(result, i)
           instrs = instrs.tail
         }
       }
 
       result
     } // end of method blockTransfer
+
+    private def updatedFrame(frame: FrameState, i: Instruction): FrameState = {
+      val delta   = computeDelta(numLocals, List(i))
+      val updated = applyDelta(frame, delta)
+      updated
+    }
 
     val isOnWatchlist = mutable.Set.empty[Instruction]
 
@@ -519,8 +841,31 @@ abstract class TypeFlowAnalysis {
       (style.isDynamic  || (style.hasInstance && style.isStatic))
     }
 
-    override def init(m: icodes.IMethod) {
-      super.init(m)
+    /** Initialize the in/out maps for the analysis of the given method. */
+    def init(m: icodes.IMethod) {
+      in.clear; out.clear; worklist.clear; visited.clear;
+      method = m
+      worklist += m.startBlock
+      worklist ++= (m.exh map (_.startBlock))
+      m foreachBlock { b =>
+        in(b)  = frameLattice.bottom
+        out(b) = frameLattice.bottom
+      }
+
+      val localsOnEntry = {
+        var idx = 0
+        val res = new Array[XTK](numLocals)
+        for(l <- m.locals) { l.index = idx; res(idx) = bottomXTK; idx += 1 }
+        for(p <- m.params) { res(p.index) = XTK(p.kind) }
+        res
+      }
+      // start block has var bindings for each of its parameters
+      in(m.startBlock) = FrameState(localsOnEntry, frameLattice.emptyXTKs)
+
+      m.exh foreach { e =>
+        in(e.startBlock) = FrameState(localsOnEntry, frameLattice.emptyXTKs)
+      }
+
       resolvedInvocations.clear()
       resolvedBlocks.clear()
       remainingCALLs.clear()
@@ -682,7 +1027,7 @@ abstract class TypeFlowAnalysis {
       // never rewrite in(m.startBlock)
       staleOut foreach { b =>
         enqueue(b)
-        out(b)    = typeFlowLattice.bottom
+        out(b) = frameLattice.bottom
       }
       // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
       blankOut(inlined)
@@ -697,7 +1042,7 @@ abstract class TypeFlowAnalysis {
     /* this is not a general purpose method to add to the worklist,
      * because the assert is expected to hold only when called from MTFAGrowable.reinit() */
     private def enqueue(b: BasicBlock) {
-      assert(in(b) ne typeFlowLattice.bottom)
+      assert(in(b) ne frameLattice.bottom)
       if(!worklist.contains(b)) { worklist += b }
     }
 
@@ -709,13 +1054,9 @@ abstract class TypeFlowAnalysis {
 
     private def blankOut(blocks: collection.Set[BasicBlock]) {
       blocks foreach { b =>
-        in(b)  = typeFlowLattice.bottom
-        out(b) = typeFlowLattice.bottom
+        in(b)  = frameLattice.bottom
+        out(b) = frameLattice.bottom
       }
-    }
-
-    override def forwardAnalysis(f: (P, lattice.Elem) => lattice.Elem): Unit = {
-      throw new UnsupportedOperationException("Use combWorklist() instead.")
     }
 
     /*
@@ -733,12 +1074,11 @@ abstract class TypeFlowAnalysis {
 
         - given that the transfer function may remove callsite-candidates from the watchlist (thus, they are not candidates anymore)
           there's an opportunity to detect whether a previously relevant block has been left without candidates.
-          That's what `shrinkedWatchlist` detects. Provided the block was on the perimeter, we know we can skip it from now now,
-          and we can also constrain the CFG-subgraph by finding a new perimeter (thus the invocation to `populatePerimeter()`).
+          That's what `shrinkedWatchlist` detects. Provided the block was on the perimeter, we know we can skip it from now on,
+          and we can also try reducing the CFG-subgraph of interest, by finding a new perimeter (see `populatePerimeter()`).
      */
     def combWorklist() {
       while (!worklist.isEmpty && relevantBBs.nonEmpty) {
-        if (stat) iterations += 1
         val point = worklist.iterator.next; worklist -= point;
         if(relevantBBs(point)) {
           shrinkedWatchlist = false
@@ -750,13 +1090,13 @@ abstract class TypeFlowAnalysis {
               populatePerimeter()
             }
           } else {
-            val propagate = ((lattice.bottom == out(point)) || output != out(point))
+            val propagate = ((frameLattice.bottom == out(point)) || output != out(point))
             if (propagate) {
               out(point) = output
               val succs = point.successors filter relevantBBs
               succs foreach { p =>
                 assert((p.predecessors filter isOnPerimeter).isEmpty)
-                val updated = lattice.lub(List(output, in(p)), p.exceptionHandlerStart)
+                val updated = frameLattice.lub(p.exceptionHandlerStart)(output, in(p))
                 if(updated != in(p)) {
                   in(p) = updated
                   enqueue(p)
@@ -766,6 +1106,7 @@ abstract class TypeFlowAnalysis {
           }
         }
       }
+      worklist.clear()
     }
 
   }
