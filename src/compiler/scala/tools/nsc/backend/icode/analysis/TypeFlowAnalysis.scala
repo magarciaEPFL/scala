@@ -402,6 +402,8 @@ abstract class TypeFlowAnalysis {
     val bottom    = FrameState(emptyXTKs, emptyXTKs)
 
     def lub(a: XTK, b: XTK): XTK = {
+      assert(a != null, "a.tk should be REFERENCE(typeLattice.bottom)")
+      assert(b != null, "b.tk should be REFERENCE(typeLattice.bottom)")
       if      (a.isBottom) b
       else if (b.isBottom) a
       else {
@@ -418,18 +420,16 @@ abstract class TypeFlowAnalysis {
       val minLength = math.min(a.length, b.length)
       var i = 0
       while(i < minLength) {
-        assert(a(i) != null, "should be REFERENCE(typeLattice.bottom)")
-        assert(b(i) != null, "should be REFERENCE(typeLattice.bottom)")
         c(i) = lub(a(i), b(i))
         i += 1
       }
       while(i < a.length) {
-        assert(a(i) != null, "should be REFERENCE(typeLattice.bottom)")
+        assert(a(i) != null, "a(i).tk should be REFERENCE(typeLattice.bottom)")
         c(i) = a(i)
         i += 1
       }
       while(i < b.length) {
-        assert(b(i) != null, "should be REFERENCE(typeLattice.bottom)")
+        assert(b(i) != null, "b(i).tk should be REFERENCE(typeLattice.bottom)")
         c(i) = b(i)
         i += 1
       }
@@ -448,8 +448,8 @@ abstract class TypeFlowAnalysis {
           if (exceptional) emptyXTKs
           else {
             assert(a.stack.length == b.stack.length,
-                   "mismatched arrays of locals can be lub-ed (they are an artifact of doInline.newLocal, " +
-                   "but the stack heights of two frame-states should match.")
+                   "mismatched arrays of locals can be lub-ed (they are an artifact of doInline.newLocal) " +
+                   "but frame-states should have identical stack heights, before merge.")
             lubArr(a.stack, b.stack)
           }
 
@@ -522,7 +522,7 @@ abstract class TypeFlowAnalysis {
               case Shift(op, kind)      => pop2(); load(kind)
               case Conversion(src, dst) => pop();  load(dst)
               case ArrayLength(kind)    => pop();  load(INT)
-              case StartConcat          => load(ConcatClass)
+              case StartConcat          => load(ConcatClass) // TODO consider isExact == isNonNull == true
               case EndConcat            => pop();  load(STRING)
               case StringConcat(el)     => pop2(); load(ConcatClass)
             }
@@ -538,8 +538,8 @@ abstract class TypeFlowAnalysis {
 
           case THIS(clasz)                 =>
             xload(toTypeKind(clasz.tpe),
-                  false,
-                  true) // TODO not sure about isExactType == true. Conservatively picking false.
+                  false, // TODO not sure about isExactType == true. Conservatively picking false.
+                  true)
 
           case CONSTANT(const)             =>
             val isNull = (const.value == null)
@@ -729,19 +729,28 @@ abstract class TypeFlowAnalysis {
     var shrinkedWatchlist = false
 
     /*
-      In this method information cached elsewhere is used, the description mentions which methods populate those caches.
+      In this method information cached elsewhere is used (as described next) to realize three shortcuts:
+        (1) when applying the transfer-function, sometimes it need not be applied till the very last instruction
+        (2) upong visiting a callsite as part of applying the transfer-function, some decisions can be made:
+            (a) discard the callsite from the list of candidates, and/or
+            (b) collect information about the simulated type-stack for later use, and/or
+            (c) hint whether the callsite can be resolved from invoke-virtual to invoke-static.
 
-      The goal is avoiding computing type-flows for blocks we don't need
-      (ie blocks not tracked in `relevantBBs`, which is initially populated by `putOnRadar`).
+      Regarding (1)
+      -------------
+        The goal is avoiding computing type-flows for blocks we don't need
+        (ie blocks not tracked in `relevantBBs`, which is initially populated by `putOnRadar`).
 
-      Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
-      There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
-      The reasoning behind this decision is described in `populatePerimeter()`.
-      To know at which instruction to stop, all `blockTransfer()` first needs test `isOnPerimeter(BasicBlock)`.
+        Moreover, it's often the case that the last CALL_METHOD of interest ("of interest" equates to "being tracked in `isOnWatchlist`) isn't the last instruction on the block.
+        There are cases where the typeflows computed past this `lastInstruction` are needed, and cases when they aren't.
+        The reasoning behind this decision is described in `populatePerimeter()`.
+        To know at which instruction to stop, `blockTransfer()` first needs to know whether `isOnPerimeter(BasicBlock)`.
 
-      Upon visiting a CALL_METHOD that's an inlining candidate, the relevant pieces of information about the pre-instruction typestack are collected for future use.
-      That is, unless the candidacy test fails. The reasoning here is: if such early check fails at some iteration, there's no chance a follow-up iteration
-      (with a yet more lub-ed typestack-slot) will succeed. In case of failure we can safely remove the CALL_METHOD from both `isOnWatchlist` and `remainingCALLs`.
+      Regarding (2)
+      -------------
+        Upon visiting a CALL_METHOD that's an inlining candidate, some information about the pre-instruction typestack is collected for future use.
+        That is, unless the candidacy test fails. The reasoning here is: if such early check fails at some iteration, there's no chance a follow-up iteration
+        (with a yet more lub-ed typestack-slot) will succeed. In case of failure we can safely remove the CALL_METHOD from both `isOnWatchlist` and `remainingCALLs`.
 
      */
     def blockTransfer(b: BasicBlock, in: FrameState): FrameState = {
@@ -757,6 +766,9 @@ abstract class TypeFlowAnalysis {
         if(isOnWatchlist(i)) {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
+          // -----------------------------------------------------------------------
+          // (2.b) collect information about the simulated type-stack for later use.
+          // -----------------------------------------------------------------------
           val paramsLength   = msym.info.paramTypes.size
           val lastParamFirst = result.stack.take(paramsLength + 1) // includes receiver (as last element)
           assert(lastParamFirst.last == result.stack.drop(paramsLength).head,
@@ -767,6 +779,9 @@ abstract class TypeFlowAnalysis {
           }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val canDispatchStatic = ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal )
+          // -------------------------------------------------------
+          // (2.a) discard the callsite from the list of candidates.
+          // -------------------------------------------------------
           if(canDispatchStatic && !blackballed(concreteMethod)) {
             remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, (lastParamFirst map { xtk => xtk.tk} ) ))
           } else {
@@ -774,6 +789,9 @@ abstract class TypeFlowAnalysis {
             isOnWatchlist.remove(cm)
             shrinkedWatchlist = true
           }
+          // -------------------------------------------------------------------------------------
+          // (2.c) hint whether the callsite can be resolved from invoke-virtual to invoke-static.
+          // -------------------------------------------------------------------------------------
           if((concreteMethod != msym) && !cm.style.isSuper) {
             // TODO skip in case resolvedInvocations.isDefinedAt(cm), add assert about similar contents.
             assert(cm.style.hasInstance, "All MTFAGrowable.isPreCandidate were supposed to have an instance as receiver.")
