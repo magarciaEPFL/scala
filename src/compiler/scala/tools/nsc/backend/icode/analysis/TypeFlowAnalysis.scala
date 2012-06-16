@@ -346,7 +346,7 @@ abstract class TypeFlowAnalysis {
   final class XTK private (val tk: icodes.TypeKind, val isExact: Boolean, val isNonNull: Boolean) {
     assert((bottomXTK == null)        ||
            (tk != typeLattice.bottom) ||
-           isBottom, "there can be only one bottomXTK, one has been found even after bottomXTK has been initialized.")
+           isBottom, "there can be only one bottomXTK, but another has been found even after bottomXTK has been initialized.")
 
     @inline def isBottom = (this eq bottomXTK)
 
@@ -407,6 +407,8 @@ abstract class TypeFlowAnalysis {
       if      (a.isBottom) b
       else if (b.isBottom) a
       else {
+        assert(a.tk != typeLattice.bottom, "for XTK.isBottom to use eq, typeLattice.bottom has to be interned.")
+        assert(b.tk != typeLattice.bottom, "for XTK.isBottom to use eq, typeLattice.bottom has to be interned.")
         val u = icodes.lub(a.tk, b.tk)
         val e = (a.isExact   && b.isExact)
         val n = (a.isNonNull && b.isNonNull)
@@ -621,16 +623,8 @@ abstract class TypeFlowAnalysis {
 
       val newLocals = {
         val res =
-          if(input.locals.size < mostCurrentNumLocals) {
-            val arr = new Array[XTK](mostCurrentNumLocals)
-            val ilCnt = input.locals.length
-            java.lang.System.arraycopy(input.locals, 0, arr, 0, ilCnt)
-            var j = ilCnt; while(j < arr.length) { arr(j) = bottomXTK; j += 1 }
-
-            arr
-          } else {
-            input.locals.clone
-          }
+          if(input.locals.size < mostCurrentNumLocals) extendWithBottom(input.locals, mostCurrentNumLocals)
+          else input.locals.clone
         var i = 0
         while(i < delta.outLocals.length) {
           val d = delta.outLocals(i)
@@ -647,6 +641,15 @@ abstract class TypeFlowAnalysis {
       java.lang.System.arraycopy(input.stack, delta.stackTrim, newStack, addedStack.length,        nonTrimmed)
 
       FrameState(newLocals, newStack)
+    }
+
+    def extendWithBottom(input: Array[XTK], newLength: Int): Array[XTK] = {
+      assert(newLength >= input.length, "As implied by the name of this method, it's supposed to extend (not shrink) the result array.")
+      val arr = new Array[XTK](newLength)
+      java.lang.System.arraycopy(input, 0, arr, 0, input.length)
+      var j = input.length; while(j < arr.length) { arr(j) = bottomXTK; j += 1 }
+
+      arr
     }
 
   }
@@ -786,7 +789,7 @@ abstract class TypeFlowAnalysis {
           // (2.a) discard the callsite from the list of candidates.
           // -------------------------------------------------------
           if(canDispatchStatic && !blackballed(concreteMethod)) {
-            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, (lastParamFirst map { xtk => xtk.tk} ) ))
+            remainingCALLs += Pair(cm, CallsiteInfo(b, receiver, result.stack.length, concreteMethod, (lastParamFirst map { xtk => xtk.tk } ) ))
           } else {
             remainingCALLs.remove(cm)
             isOnWatchlist.remove(cm)
@@ -1045,10 +1048,14 @@ abstract class TypeFlowAnalysis {
       isOnWatchlist.clear()
       relevantBBs.clear()
 
-      // never rewrite in(m.startBlock)
+      // never rewrite in(m.startBlock), except to add locals.
       staleOut foreach { b =>
         enqueue(b)
         out(b) = frameLattice.bottom
+        val oldInflow = in(b)
+        assert(numLocals > oldInflow.locals.size, "doInline should have added at least one local, $inlThis")
+        val newInflowLocals = extendWithBottom(oldInflow.locals, numLocals)
+        in(b) = FrameState(newInflowLocals, oldInflow.stack)
       }
       // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
       blankOut(inlined)

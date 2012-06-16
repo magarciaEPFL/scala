@@ -506,6 +506,10 @@ abstract class Inliners extends SubComponent {
         m.code.touched = saved
       }
 
+      if(settings.debug.value) {
+        compare(m, tfa)
+      }
+
       m.normalize
       if (sizeBeforeInlining > 0) {
         val instrAfterInlining = m.code.instructionCount
@@ -513,7 +517,82 @@ abstract class Inliners extends SubComponent {
         log(prefix + " %s blocks before inlining: %d (%d) after: %d (%d)".format(
           m.symbol.fullName, sizeBeforeInlining, instrBeforeInlining, m.code.blockCount, instrAfterInlining))
       }
+
     }
+
+    def compare(m: icodes.IMethod, spTFA: analysis.MTFAGrowable) {
+      assert(m.hasCode)
+      // m.normalize()
+
+      val mtfa = new analysis.MethodTFA()
+      mtfa.init(m)
+      mtfa.run
+
+      val arrInOld = mtfa.in.toArray.sortBy(e => e._1.label)
+      val arrInNew = spTFA.in.toArray.sortBy(e => e._1.label)
+
+      val arrOutOld = mtfa.out.toArray.sortBy(e => e._1.label)
+      val arrOutNew = spTFA.out.toArray.sortBy(e => e._1.label)
+
+          def tksMatch(t1: icodes.TypeKind, t2: icodes.TypeKind): Boolean = {
+            val res = {
+              (t1 == t2) ||
+              ( (t1 <:< t2) && (t2 <:< t1) ) // because of REFERENCE(AnyRefReference) vs REFERENCE(ObjectReference)
+            }
+            res
+          }
+
+          def tkArraysMatch(t1s: Array[icodes.TypeKind], t2s: Array[icodes.TypeKind]): Boolean = {
+            (t1s.length == t1s.length) &&
+            (t1s.corresponds(t2s)(tksMatch))
+          }
+
+
+      var testB = icodes.linearizer.linearize(m)
+      while(!testB.isEmpty) {
+        val b = testB.head
+
+        if(spTFA.in.isDefinedAt(b) && !spTFA.in(b).isBottom) {
+
+          val spInput  = spTFA.in(b)
+          val spOutput = spTFA.out(b)
+
+          val wasTailSkipped = spTFA.out(b).isBottom
+
+          // compare in and out at b
+          for(varbind <- mtfa.in(b).vars) {
+            val Pair(v: icodes.Local, tk: icodes.TypeKind) = varbind
+            val otherXTKin = spTFA.in(b).locals(v.index)
+            if(!otherXTKin.isBottom) {
+              // MTFAGrowable tracks uninitialized state of local-vars, in the form of TypeKind REFERENCE(NothingClass).
+              // In contrast, MethodTFA sets on entry a binding of v.kind for each Local v.
+              assert(tksMatch(otherXTKin.tk, tk))
+            }
+          }
+          if(!wasTailSkipped) {
+            for(varbind <- mtfa.out(b).vars) {
+              val Pair(v: icodes.Local, tk: icodes.TypeKind) = varbind
+              val otherTKout = spTFA.out(b).locals(v.index).tk
+              assert(tksMatch(otherTKout, tk))
+            }
+          }
+          if(!b.exceptionHandlerStart) {
+            val inStack  = mtfa.in(b).stack.types.toArray
+            val outStack = mtfa.out(b).stack.types.toArray
+            val otherInStack = spTFA.in(b).stack    map { xtk => xtk.tk }
+            val otherOutStack = spTFA.out(b).stack  map { xtk => xtk.tk }
+            assert(tkArraysMatch(inStack,  otherInStack))
+            if(!wasTailSkipped) {
+              assert(tkArraysMatch(outStack, otherOutStack))
+            }
+          }
+        }
+
+        testB = testB.tail
+      }
+
+    }
+
 
     private def isHigherOrderMethod(sym: Symbol) = (
          sym.isMethod
@@ -729,7 +808,10 @@ abstract class Inliners extends SubComponent {
         assert(!instrAfter.isEmpty, "CALL_METHOD cannot be the last instruction in block!")
 
         // store the '$this' into the special local
-        val inlinedThis = newLocal("$inlThis", REFERENCE(ObjectClass), targetPos)
+        val inlinedThis = {
+          val inlThisTK = if(lastParamFirst != null) lastParamFirst.last else REFERENCE(ObjectClass);
+          newLocal("$inlThis", inlThisTK, targetPos)
+        }
 
         /** buffer for the returned value */
         val retVal = inc.m.returnType match {
