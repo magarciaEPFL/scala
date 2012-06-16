@@ -557,23 +557,30 @@ abstract class Inliners extends SubComponent {
           val spInput  = spTFA.in(b)
           val spOutput = spTFA.out(b)
 
-          val wasTailSkipped = spTFA.out(b).isBottom
+          val wasTailSkipped = {
+            val output = spTFA.out(b)
+
+            output.isBottom || (output.locals.size < m.locals.size)
+          }
 
           // compare in and out at b
           for(varbind <- mtfa.in(b).vars) {
             val Pair(v: icodes.Local, tk: icodes.TypeKind) = varbind
-            val otherXTKin = spTFA.in(b).locals(v.index)
-            if(!otherXTKin.isBottom) {
+            val xtk = spTFA.in(b).locals(v.index)
+            if(!xtk.isBottom) {
               // MTFAGrowable tracks uninitialized state of local-vars, in the form of TypeKind REFERENCE(NothingClass).
               // In contrast, MethodTFA sets on entry a binding of v.kind for each Local v.
-              assert(tksMatch(otherXTKin.tk, tk))
+              assert(tksMatch(xtk.tk, tk))
             }
           }
           if(!wasTailSkipped) {
             for(varbind <- mtfa.out(b).vars) {
               val Pair(v: icodes.Local, tk: icodes.TypeKind) = varbind
-              val otherTKout = spTFA.out(b).locals(v.index).tk
-              assert(tksMatch(otherTKout, tk))
+              val xtk = spTFA.out(b).locals(v.index)
+              if(!xtk.isBottom) {
+                // SinglePassTFA tracks uninitialized vars as such and comparing with MethodTFA's Local.kind isn't fair.
+                assert(tksMatch(xtk.tk, tk))
+              }
             }
           }
           if(!b.exceptionHandlerStart) {

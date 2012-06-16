@@ -340,15 +340,13 @@ abstract class TypeFlowAnalysis {
 
   }
 
-  val bottomXTK = XTK(typeLattice.bottom)
-
   /* TypeKind extended with flags for type-exactness and non-nullness. */
   final class XTK private (val tk: icodes.TypeKind, val isExact: Boolean, val isNonNull: Boolean) {
-    assert((bottomXTK == null)        ||
-           (tk != typeLattice.bottom) ||
-           isBottom, "there can be only one bottomXTK, but another has been found even after bottomXTK has been initialized.")
+    // assert((XTK.bottomXTK == null)    ||
+    //        (tk != typeLattice.bottom) ||
+    //        isBottom, "there can be only one bottomXTK, but another has been found even after bottomXTK has been initialized.")
 
-    @inline def isBottom = (this eq bottomXTK)
+    @inline def isBottom = (tk == typeLattice.bottom) // TODO interning allows (this eq bottomXTK)
 
     override def equals(that: Any) = {
       that match {
@@ -360,11 +358,11 @@ abstract class TypeFlowAnalysis {
 
   }
   object XTK {
+
+    val bottomXTK = new XTK(typeLattice.bottom, false, false)
+
     def apply(tk: icodes.TypeKind, isExact: Boolean, isNonNull: Boolean): XTK = {
-      if(tk == typeLattice.bottom) {
-        if(bottomXTK == null) new XTK(typeLattice.bottom, false, false)
-        else bottomXTK
-      }
+      if(tk == typeLattice.bottom) bottomXTK
       else new XTK(tk, isExact, isNonNull)
     }
     def apply(tk: icodes.TypeKind): XTK = apply(tk, false, false)
@@ -647,7 +645,7 @@ abstract class TypeFlowAnalysis {
       assert(newLength >= input.length, "As implied by the name of this method, it's supposed to extend (not shrink) the result array.")
       val arr = new Array[XTK](newLength)
       java.lang.System.arraycopy(input, 0, arr, 0, input.length)
-      var j = input.length; while(j < arr.length) { arr(j) = bottomXTK; j += 1 }
+      var j = input.length; while(j < arr.length) { arr(j) = XTK.bottomXTK; j += 1 }
 
       arr
     }
@@ -879,7 +877,7 @@ abstract class TypeFlowAnalysis {
       val localsOnEntry = {
         var idx = 0
         val res = new Array[XTK](numLocals)
-        for(l <- m.locals) { l.index = idx; res(idx) = bottomXTK; idx += 1 }
+        for(l <- m.locals) { l.index = idx; res(idx) = XTK.bottomXTK; idx += 1 }
         for(p <- m.params) { res(p.index) = XTK(p.kind) }
         res
       }
@@ -961,7 +959,7 @@ abstract class TypeFlowAnalysis {
     }
 
     /* A basic block B is "on the perimeter" of the current control-flow subgraph if none of its successors belongs to that subgraph.
-     * In that case, for the purposes of inlining, we're interested in the typestack right before the last inline candidate in B, not in those afterwards.
+     * For an on-the-perimeter block B, we're interested in the typestack right before the last inline candidate in B, not in those afterwards.
      * In particular we can do without computing the outflow at B. */
     private def populatePerimeter() {
       isOnPerimeter.clear()
@@ -1034,6 +1032,9 @@ abstract class TypeFlowAnalysis {
         return;
       }
 
+      init(m)
+      return // TODO this is an experiment.
+
       worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
 
       // asserts conveying an idea what CFG shapes arrive here:
@@ -1081,6 +1082,8 @@ abstract class TypeFlowAnalysis {
     }
 
     private def blankOut(blocks: collection.Set[BasicBlock]) {
+      assert(!blocks.contains(method.startBlock),
+             "The inflow of the start block can be no other than FrameState(localsOnEntry, frameLattice.emptyXTKs), see MFTAGrowable.init().")
       blocks foreach { b =>
         in(b)  = frameLattice.bottom
         out(b) = frameLattice.bottom
