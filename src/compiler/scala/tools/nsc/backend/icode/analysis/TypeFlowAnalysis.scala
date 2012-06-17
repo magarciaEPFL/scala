@@ -480,8 +480,17 @@ abstract class TypeFlowAnalysis {
       stackTrim: Int
     )
 
-    def computeDelta(numLocals: Int, instrs0: List[Instruction]): Delta = {
-      val outLocals = new Array[AbstractTK](numLocals)
+    private def zeroDelta(numloc: Int): Delta = {
+      val outLocals = new Array[AbstractTK](numloc)
+
+      Delta(outLocals, Array.empty, 0)
+    }
+
+    def computeDelta(numloc: Int, instrs0: List[Instruction]): Delta = {
+      if(instrs0.isEmpty) {
+        return zeroDelta(numloc)
+      }
+      val outLocals = new Array[AbstractTK](numloc)
       var outStack: List[AbstractTK] = Nil
       var stackTrim: Int = 0
 
@@ -600,9 +609,10 @@ abstract class TypeFlowAnalysis {
       Delta(outLocals, outStack.toArray, stackTrim)
     }
 
-    def applyDelta(input: FrameState, delta: Delta): FrameState = {
-      val mostCurrentNumLocals = delta.outLocals.size
-      assert(input.locals.size <= delta.outLocals.size, "input.locals needs to be extended when doInline.newLocal added vars, but never contracted.")
+    def applyDelta(numloc: Int, input: FrameState, delta: Delta): FrameState = {
+      assert(input.locals.size    <= numloc, "input.locals can't be larger than the most-current-number-of-locals.")
+      assert(delta.outLocals.size <= numloc, "delta.outLocals can't be larger than the most-current-number-of-locals.")
+      // it's ok for delta.outLocals not to mention some vars in input.locals, ie the former is shorter than the latter.
 
           def xlate(atk: AbstractTK): XTK = {
             atk match {
@@ -623,7 +633,7 @@ abstract class TypeFlowAnalysis {
 
       val newLocals = {
         val res =
-          if(input.locals.size < mostCurrentNumLocals) extendWithBottom(input.locals, mostCurrentNumLocals)
+          if(input.locals.size < numloc) extendWithBottom(input.locals, numloc)
           else input.locals.clone
         var i = 0
         while(i < delta.outLocals.length) {
@@ -648,9 +658,15 @@ abstract class TypeFlowAnalysis {
       val arr = new Array[XTK](newLength)
       java.lang.System.arraycopy(input, 0, arr, 0, input.length)
       var j = input.length; while(j < arr.length) { arr(j) = XTK.bottomXTK; j += 1 }
+      assert(arr startsWith input, "`input` should have been extended with one or more XTK.bottomXTK.")
 
       arr
     }
+
+    /* `delta` allows computing the frame-state right before `cm`. In other words, `cm` was not used to prepare `delta`.*/
+    case class CallDelta(cm: opcodes.CALL_METHOD, delta: Delta)
+
+    val deltas = mutable.Map.empty[BasicBlock, List[CallDelta]]
 
   }
 
@@ -713,7 +729,7 @@ abstract class TypeFlowAnalysis {
     val resolvedBlocks      = mutable.Set.empty[BasicBlock]
 
     def run {
-      timer.start; combWorklist(); val t = timer.stop
+      timer.start; combWorklist(numLocals); val t = timer.stop
 
       /* Now that the forward-analysis has converged, all inlining candidates are tracked in map `remainingCALLs`,
          which maps callsites to typestack-information just before the callsite in question (see `CallsiteInfo`).
@@ -759,18 +775,21 @@ abstract class TypeFlowAnalysis {
         (with a yet more lub-ed typestack-slot) will succeed. In case of failure we can safely remove the CALL_METHOD from both `isOnWatchlist` and `remainingCALLs`.
 
      */
-    def blockTransfer(b: BasicBlock, in: FrameState): FrameState = {
-      var result = FrameState(in.locals, in.stack)
+    def blockTransfer(numloc: Int, b: BasicBlock, in: FrameState): FrameState = {
+      debugConsistency_auxPreCands()
+      var result = in
 
       val stopAt = if(isOnPerimeter(b)) lastInstruction(b) else null;
       var isPastLast = false
 
-      var instrs = b.toList
-      while(!isPastLast && !instrs.isEmpty) {
-        val i  = instrs.head
+      var callDeltas: List[CallDelta] = deltas.getOrElseUpdate(b, computeBlockDeltas(numloc, b))
+      while(!isPastLast && !callDeltas.isEmpty) {
+        val CallDelta(cm, delta) = callDeltas.head
 
-        if(isOnWatchlist(i)) {
-          val cm = i.asInstanceOf[opcodes.CALL_METHOD]
+        result = applyDelta(numloc, result, delta)
+        // `result` now contains the frame-state right before callsite `cm`.
+
+        if((cm != null) && isOnWatchlist(cm)) {
           val msym = cm.method
           // -----------------------------------------------------------------------
           // (2.b) collect information about the simulated type-stack for later use.
@@ -814,21 +833,33 @@ abstract class TypeFlowAnalysis {
           }
         }
 
-        isPastLast = (i eq stopAt)
-
-        if(!isPastLast) {
-          result = updatedFrame(result, i)
-          instrs = instrs.tail
-        }
+        callDeltas = callDeltas.tail
+        isPastLast = (cm eq stopAt)
       }
 
       result
     } // end of method blockTransfer
 
-    private def updatedFrame(frame: FrameState, i: Instruction): FrameState = {
-      val delta   = computeDelta(numLocals, List(i))
-      val updated = applyDelta(frame, delta)
-      updated
+    def computeBlockDeltas(numloc: Int, b: BasicBlock): List[CallDelta] = {
+      assert(b.toList.nonEmpty, "A BasicBlock well-formedness rule. Nothing specific to inlining.")
+      var res: List[CallDelta] = Nil
+      var instrs = b.toList
+      var pres = preCands(b)
+      assert(pres forall instrs.contains, "The idea is to partition b.toList into consecutive segments demarcated by preCand(b).")
+      while(pres.nonEmpty) {
+        val cm = pres.head
+        val (step, rest) = instrs span { i => i ne cm }
+        instrs = rest
+        res ::= CallDelta(cm, computeDelta(numloc, step))
+        pres = pres.tail
+      }
+      assert(instrs.nonEmpty,
+             "A zero-delta exists (e.g., for an empty list of instructions) but a non-empty BasicBlock must have some instructions left.")
+      res ::= CallDelta(null, computeDelta(numloc, instrs))
+      // the instructions before the first pre-candidate callsite make for an additional delta.
+      assert(res.size == (preCands(b).size + 1), "Each pre-candidate CALL_METHOD starts a segment with its dedicated delta.")
+
+      res.reverse
     }
 
     val isOnWatchlist = mutable.Set.empty[Instruction]
@@ -844,6 +875,24 @@ abstract class TypeFlowAnalysis {
     @inline final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever(msym) }
 
     val relevantBBs   = mutable.Set.empty[BasicBlock]
+
+    val auxPreCands = mutable.Map.empty[BasicBlock, List[opcodes.CALL_METHOD]]
+    def preCands(b: BasicBlock): List[opcodes.CALL_METHOD] = {
+      val res =
+        auxPreCands.getOrElseUpdate(b, {
+          b.toList collect { case cm : opcodes.CALL_METHOD if isPreCandidate(cm) => cm }
+        })
+      assert(res forall b.toList.contains, "Stale entries found in cache.")
+      res
+    }
+    def debugConsistency_auxPreCands(): Boolean = {
+      for( Pair(b, callsites) <- auxPreCands; c <- callsites ) {
+        if(!b.toList.contains(c)) {
+          return false;
+        }
+      }
+      return true
+    }
 
     /*
      * Rationale to prevent some methods from ever being inlined:
@@ -865,9 +914,23 @@ abstract class TypeFlowAnalysis {
       (style.isDynamic  || (style.hasInstance && style.isStatic))
     }
 
+    /* All locals uninitialized except for params, empty stack. */
+    def entryFrameState = {
+
+      val localsOnEntry = {
+        var idx = 0
+        val res = new Array[XTK](numLocals)
+        for(l <- method.locals) { l.index = idx; res(idx) = XTK.bottomXTK; idx += 1 }
+        for(p <- method.params) { res(p.index) = XTK(p.kind) }
+        res
+      }
+
+      FrameState(localsOnEntry, frameLattice.emptyXTKs)
+    }
+
     /** Initialize the in/out maps for the analysis of the given method. */
     def init(m: icodes.IMethod) {
-      in.clear; out.clear; worklist.clear; visited.clear;
+      in.clear; out.clear; worklist.clear;
       method = m
       worklist += m.startBlock
       worklist ++= (m.exh map (_.startBlock))
@@ -876,33 +939,23 @@ abstract class TypeFlowAnalysis {
         out(b) = frameLattice.bottom
       }
 
-      val localsOnEntry = {
-        var idx = 0
-        val res = new Array[XTK](numLocals)
-        for(l <- m.locals) { l.index = idx; res(idx) = XTK.bottomXTK; idx += 1 }
-        for(p <- m.params) { res(p.index) = XTK(p.kind) }
-        res
-      }
-      // start block has var bindings for each of its parameters
-      in(m.startBlock) = FrameState(localsOnEntry, frameLattice.emptyXTKs)
-
-      m.exh foreach { e =>
-        in(e.startBlock) = FrameState(localsOnEntry, frameLattice.emptyXTKs)
-      }
+      val efs = entryFrameState
+      in(m.startBlock) = efs
+      m.exh foreach { e => in(e.startBlock) = efs }
 
       resolvedInvocations.clear()
       resolvedBlocks.clear()
       remainingCALLs.clear()
-      knownUnsafe.clear()
-      knownSafe.clear()
-      // initially populate the watchlist with all callsites standing a chance of being inlined
+
       isOnWatchlist.clear()
       relevantBBs.clear()
+
         /* TODO Do we want to perform inlining in non-finally exception handlers?
          * Seems counterproductive (the larger the method the less likely it will be JITed.
          * It's not that putting on radar only `linearizer linearizeAt (m, m.startBlock)` makes for much shorter inlining times (a minor speedup nonetheless)
          * but the effect on method size could be explored.  */
-      putOnRadar(m.linearizedBlocks(linearizer))
+      assert(callerLin == method.linearizedBlocks(), "Inliner.analyzeInc() should have established this precondition.")
+      putOnRadar(callerLin)
       populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
     }
@@ -912,7 +965,7 @@ abstract class TypeFlowAnalysis {
     }
 
     def knownBeforehand(b: BasicBlock): List[opcodes.CALL_METHOD] = {
-      b.toList collect { case c : opcodes.CALL_METHOD => c } filter { cm => isPreCandidate(cm) && isReceiverKnown(cm) }
+      preCands(b) filter { cm => isReceiverKnown(cm) }
     }
 
     private def isReceiverKnown(cm: opcodes.CALL_METHOD): Boolean = {
@@ -920,14 +973,7 @@ abstract class TypeFlowAnalysis {
     }
 
     private def putOnRadar(blocks: Traversable[BasicBlock]) {
-      for(bb <- blocks) {
-        val preCands = bb.toList collect {
-          case cm : opcodes.CALL_METHOD
-            if isPreCandidate(cm) /* && !isReceiverKnown(cm) */
-          => cm
-        }
-        isOnWatchlist ++= preCands
-      }
+      for(bb <- blocks) { isOnWatchlist ++= preCands(bb) }
       relevantBBs ++= blocks
     }
 
@@ -1028,13 +1074,13 @@ abstract class TypeFlowAnalysis {
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
       if (this.method == null || this.method.symbol != m.symbol) {
         init(m)
+        visited.clear
+        deltas.clear;
+        auxPreCands.clear;
+        knownUnsafe.clear()
+        knownSafe.clear()
         return
-      } else if(staleOut.isEmpty && inlined.isEmpty && staleIn.isEmpty) {
-        // this promotes invoking reinit if in doubt, no performance degradation will ensue!
-        return;
       }
-
-      worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
 
       // asserts conveying an idea what CFG shapes arrive here:
       //   staleIn foreach (p => assert( !in.isDefinedAt(p), p))
@@ -1044,41 +1090,15 @@ abstract class TypeFlowAnalysis {
       //   inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
       //   staleOut foreach (p => assert(  in.isDefinedAt(p), p))
 
-      // remainingCALLs.clear()
-      isOnWatchlist.clear()
-      relevantBBs.clear()
-
-      assert(callerLin == method.linearizedBlocks(), "Inliner.analyzeInc() should have established this precondition.")
+      init(m)
 
       for(so <- staleOut) {
-        val contaminated = ((linearizer linearizeAt (m, so)) filter callerLin.toSet )
-        putOnRadar(contaminated)
-        blankOut(contaminated)
+        deltas      -= so;
+        auxPreCands -= so;
       }
-      assert(((staleOut ++ inlined ++ staleIn) filter callerLin.toSet) forall { b => ( in(b).isBottom || b == m.startBlock ) && out(b).isBottom },
+      assert(debugConsistency_auxPreCands())
+      assert(((staleOut ++ inlined ++ staleIn) filter callerLin.toSet) forall { b => ( in(b).isBottom || b == m.startBlock || b.exceptionHandlerStart) && out(b).isBottom },
              "The in- and out-flows of blocks affected by inlining should be re-computed.")
-
-      /*
-      var wavefront: mutable.Set[BasicBlock] = new mutable.LinkedHashSet
-      wavefront += m.startBlock
-      var pending = (immutable.Set.empty ++ relevantBBs)
-      while(pending.nonEmpty) {
-        val point = wavefront.iterator.next; wavefront -= point;
-        val inflowsToCompute = (point.successors filter { succ => relevantBBs(succ) }) // TODO exists would be enough.
-        if(inflowsToCompute.nonEmpty) {
-          assert(in(point).nonBottom)
-          worklist ++= inflowsToCompute
-          pending = (pending filterNot inflowsToCompute.toSet)
-          wavefront ++= inflowsToCompute
-        } else {
-          wavefront ++= point.successors
-        }
-      }
-      */
-
-      worklist += method.startBlock
-
-      populatePerimeter()
 
     } // end of method reinit
 
@@ -1097,10 +1117,12 @@ abstract class TypeFlowAnalysis {
 
     private def blankOut(blocks: collection.Traversable[BasicBlock]) {
       for(b <- blocks) {
-        if(b != method.startBlock) {
-         // The inflow of the start block can be no other than FrameState(localsOnEntry, frameLattice.emptyXTKs), see MFTAGrowable.init().
-          in(b)  = frameLattice.bottom
-        }
+        // The inflow of the start block (and that of an exception-handler-start-block)
+        // can be no other than FrameState(localsOnEntry, frameLattice.emptyXTKs), see MFTAGrowable.init().
+        in(b) =
+          if((b == method.startBlock) || !b.exceptionHandlerStart) entryFrameState
+          else frameLattice.bottom
+
         out(b) = frameLattice.bottom
       }
     }
@@ -1123,13 +1145,13 @@ abstract class TypeFlowAnalysis {
           That's what `shrinkedWatchlist` detects. Provided the block was on the perimeter, we know we can skip it from now on,
           and we can also try reducing the CFG-subgraph of interest, by finding a new perimeter (see `populatePerimeter()`).
      */
-    def combWorklist() {
+    def combWorklist(numloc: Int) {
       while (!worklist.isEmpty && relevantBBs.nonEmpty) {
         val point = worklist.iterator.next; worklist -= point;
         assert(in(point).nonBottom, "By the time a program point P is removed from the worklist, the in-flow at P should be defined.")
         if(relevantBBs(point)) {
           shrinkedWatchlist = false
-          val output = blockTransfer(point, in(point))
+          val output = blockTransfer(numloc, point, in(point))
           visited += point;
           if(isOnPerimeter(point)) {
             if(shrinkedWatchlist && !isWatching(point)) {

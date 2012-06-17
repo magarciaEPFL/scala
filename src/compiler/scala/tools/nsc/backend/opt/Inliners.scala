@@ -173,9 +173,11 @@ abstract class Inliners extends SubComponent {
       // basic blocks
       tfa.isRemainingBB.clear()
       tfa.relevantBBs.clear()
+      tfa.deltas.clear()
       // callsites
       tfa.remainingCALLs.clear()
       tfa.isOnWatchlist.clear()
+      tfa.auxPreCands.clear()
     }
 
     def analyzeClass(cls: IClass): Unit =
@@ -243,6 +245,11 @@ abstract class Inliners extends SubComponent {
       val inlinedMethodCount = mutable.HashMap.empty[Symbol, Int] withDefaultValue 0
 
       val caller = new IMethodInfo(m)
+      tfa.callerLin = caller.m.linearizedBlocks()
+      staleOut.clear()
+      splicedBlocks.clear()
+      staleIn.clear()
+      tfa.reinit(m, staleOut.toList, splicedBlocks, staleIn)
 
       def preInline(isFirstRound: Boolean): Int = {
         val inputBlocks = caller.m.linearizedBlocks()
@@ -265,6 +272,7 @@ abstract class Inliners extends SubComponent {
        *
        */
       def inlineWithoutTFA(inputBlocks: Traversable[BasicBlock], callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]]): Int = {
+        tfa.debugConsistency_auxPreCands()
         var inlineCount = 0
         import scala.util.control.Breaks._
         for(x <- inputBlocks; easyCake = callsites(x); if easyCake.nonEmpty) {
@@ -284,7 +292,7 @@ abstract class Inliners extends SubComponent {
 
       /**
        *  Decides whether it's feasible and desirable to inline the body of the method given by `concreteMethod`
-       *  at the program point given by `i` (a callsite). The boolean result indicates whether inlining was performed.
+       *  at the program point given by `cm` (a callsite). The boolean result indicates whether inlining was performed.
        *
        */
       def analyzeInc(cm: CALL_METHOD,
@@ -293,6 +301,8 @@ abstract class Inliners extends SubComponent {
                      stackLength:    Int,
                      concreteMethod: Symbol,
                      lastParamFirst: Array[TypeKind]): Boolean = {
+        assert(bb.toList contains cm, "Candidate callsite does not belong to BasicBlock.")
+
         var inlined = false
         val shouldWarn = hasInlineAnn(cm.method)
 
@@ -413,11 +423,9 @@ abstract class Inliners extends SubComponent {
         val firstRound = preInline(true)
         if(firstRound == 0) 0 else (firstRound + preInline(false))
       }
-      staleOut.clear()
-      splicedBlocks.clear()
-      staleIn.clear()
 
       do {
+        tfa.debugConsistency_auxPreCands()
         retry = false
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
 
@@ -780,6 +788,8 @@ abstract class Inliners extends SubComponent {
 
         tfa.remainingCALLs.remove(instr) // this bookkpeeping is done here and not in MTFAGrowable.reinit due to (1st) convenience and (2nd) necessity.
         tfa.isOnWatchlist.remove(instr)  // ditto
+        tfa.auxPreCands -= block // reinit() does this too, ie when it's called, and preInline() doesn't call reinit(), and preInline() does rely on preCands().
+        tfa.deltas      -= block // for consistency with above (although preInline doesn't query tfa.deltas, at least not as of now).
 
         val targetPos = instr.pos
         log("Inlining " + inc.m + " in " + caller.m + " at pos: " + posToStr(targetPos))
