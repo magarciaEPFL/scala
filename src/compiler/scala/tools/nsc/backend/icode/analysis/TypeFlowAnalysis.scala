@@ -346,7 +346,8 @@ abstract class TypeFlowAnalysis {
     //        (tk != typeLattice.bottom) ||
     //        isBottom, "there can be only one bottomXTK, but another has been found even after bottomXTK has been initialized.")
 
-    @inline def isBottom = (tk == typeLattice.bottom) // TODO interning allows (this eq bottomXTK)
+    @inline def isBottom  = (tk == typeLattice.bottom) // TODO interning allows (this eq bottomXTK)
+    @inline def nonBottom = !isBottom
 
     override def equals(that: Any) = {
       that match {
@@ -386,7 +387,8 @@ abstract class TypeFlowAnalysis {
         i = 0;     while(i < stack.length)  { res += stack(i).hashCode;  i += 1 }
         res
       }
-      @inline def isBottom = (this eq frameLattice.bottom)
+      @inline def isBottom  = (this eq frameLattice.bottom)
+      @inline def nonBottom = !isBottom
   }
 
   /** The type flow lattice used in MTFAGrowable. Doesn't extend SemiLattice on purpose.
@@ -1032,9 +1034,6 @@ abstract class TypeFlowAnalysis {
         return;
       }
 
-      init(m)
-      return // TODO this is an experiment.
-
       worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
 
       // asserts conveying an idea what CFG shapes arrive here:
@@ -1049,21 +1048,36 @@ abstract class TypeFlowAnalysis {
       isOnWatchlist.clear()
       relevantBBs.clear()
 
-      // never rewrite in(m.startBlock), except to add locals.
-      staleOut foreach { b =>
-        enqueue(b)
-        out(b) = frameLattice.bottom
-        val oldInflow = in(b)
-        assert(numLocals > oldInflow.locals.size, "doInline should have added at least one local, $inlThis")
-        val newInflowLocals = extendWithBottom(oldInflow.locals, numLocals)
-        in(b) = FrameState(newInflowLocals, oldInflow.stack)
-      }
-      // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
-      blankOut(inlined)
-      blankOut(staleIn)
-      // no need to add startBlocks from m.exh
+      assert(callerLin == method.linearizedBlocks(), "Inliner.analyzeInc() should have established this precondition.")
 
-      staleOut foreach { so => putOnRadar(linearizer linearizeAt (m, so)) }
+      for(so <- staleOut) {
+        val contaminated = ((linearizer linearizeAt (m, so)) filter callerLin.toSet )
+        putOnRadar(contaminated)
+        blankOut(contaminated)
+      }
+      assert(((staleOut ++ inlined ++ staleIn) filter callerLin.toSet) forall { b => ( in(b).isBottom || b == m.startBlock ) && out(b).isBottom },
+             "The in- and out-flows of blocks affected by inlining should be re-computed.")
+
+      /*
+      var wavefront: mutable.Set[BasicBlock] = new mutable.LinkedHashSet
+      wavefront += m.startBlock
+      var pending = (immutable.Set.empty ++ relevantBBs)
+      while(pending.nonEmpty) {
+        val point = wavefront.iterator.next; wavefront -= point;
+        val inflowsToCompute = (point.successors filter { succ => relevantBBs(succ) }) // TODO exists would be enough.
+        if(inflowsToCompute.nonEmpty) {
+          assert(in(point).nonBottom)
+          worklist ++= inflowsToCompute
+          pending = (pending filterNot inflowsToCompute.toSet)
+          wavefront ++= inflowsToCompute
+        } else {
+          wavefront ++= point.successors
+        }
+      }
+      */
+
+      worklist += method.startBlock
+
       populatePerimeter()
 
     } // end of method reinit
@@ -1081,11 +1095,12 @@ abstract class TypeFlowAnalysis {
       bs foreach enqueue
     }
 
-    private def blankOut(blocks: collection.Set[BasicBlock]) {
-      assert(!blocks.contains(method.startBlock),
-             "The inflow of the start block can be no other than FrameState(localsOnEntry, frameLattice.emptyXTKs), see MFTAGrowable.init().")
-      blocks foreach { b =>
-        in(b)  = frameLattice.bottom
+    private def blankOut(blocks: collection.Traversable[BasicBlock]) {
+      for(b <- blocks) {
+        if(b != method.startBlock) {
+         // The inflow of the start block can be no other than FrameState(localsOnEntry, frameLattice.emptyXTKs), see MFTAGrowable.init().
+          in(b)  = frameLattice.bottom
+        }
         out(b) = frameLattice.bottom
       }
     }
@@ -1111,6 +1126,7 @@ abstract class TypeFlowAnalysis {
     def combWorklist() {
       while (!worklist.isEmpty && relevantBBs.nonEmpty) {
         val point = worklist.iterator.next; worklist -= point;
+        assert(in(point).nonBottom, "By the time a program point P is removed from the worklist, the in-flow at P should be defined.")
         if(relevantBBs(point)) {
           shrinkedWatchlist = false
           val output = blockTransfer(point, in(point))
