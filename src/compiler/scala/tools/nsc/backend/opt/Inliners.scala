@@ -50,6 +50,7 @@ abstract class Inliners extends SubComponent {
     )
     def lookup(clazz: Symbol): Symbol = {
       // println("\t\tlooking up " + meth + " in " + clazz.fullName + " meth.owner = " + meth.owner)
+      assert(clazz != NoSymbol)
       if (sym.owner == clazz || isBottomType(clazz)) sym
       else sym.overridingSymbol(clazz) match {
         case NoSymbol  => if (sym.owner.isTrait) sym else lookup(clazz.superClass)
@@ -246,10 +247,7 @@ abstract class Inliners extends SubComponent {
 
       val caller = new IMethodInfo(m)
       tfa.callerLin = caller.m.linearizedBlocks()
-      staleOut.clear()
-      splicedBlocks.clear()
-      staleIn.clear()
-      tfa.reinit(m, staleOut.toList, splicedBlocks, staleIn)
+      tfa.init(m)
 
       def preInline(isFirstRound: Boolean): Int = {
         val inputBlocks = caller.m.linearizedBlocks()
@@ -423,6 +421,11 @@ abstract class Inliners extends SubComponent {
         val firstRound = preInline(true)
         if(firstRound == 0) 0 else (firstRound + preInline(false))
       }
+      staleOut.clear()
+      splicedBlocks.clear()
+      staleIn.clear()
+      tfa.callerLin = caller.m.linearizedBlocks()
+      tfa.init(m)
 
       do {
         tfa.debugConsistency_auxPreCands()

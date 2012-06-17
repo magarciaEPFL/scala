@@ -958,6 +958,12 @@ abstract class TypeFlowAnalysis {
       putOnRadar(callerLin)
       populatePerimeter()
       assert(relevantBBs.isEmpty || relevantBBs.contains(m.startBlock), "you gave me dead code")
+
+      visited.clear
+      deltas.clear;
+      auxPreCands.clear;
+      knownUnsafe.clear()
+      knownSafe.clear()
     }
 
     def conclusives(b: BasicBlock): List[opcodes.CALL_METHOD] = {
@@ -1074,13 +1080,13 @@ abstract class TypeFlowAnalysis {
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
       if (this.method == null || this.method.symbol != m.symbol) {
         init(m)
-        visited.clear
-        deltas.clear;
-        auxPreCands.clear;
-        knownUnsafe.clear()
-        knownSafe.clear()
         return
+      } else if(staleOut.isEmpty && inlined.isEmpty && staleIn.isEmpty) {
+        // this promotes invoking reinit if in doubt, no performance degradation will ensue!
+        return;
       }
+
+      worklist.clear // calling reinit(f: => Unit) would also clear visited, thus forgetting about blocks visited before reinit.
 
       // asserts conveying an idea what CFG shapes arrive here:
       //   staleIn foreach (p => assert( !in.isDefinedAt(p), p))
@@ -1090,15 +1096,26 @@ abstract class TypeFlowAnalysis {
       //   inlined foreach (p => assert(!p.successors.isEmpty || p.lastInstruction.isInstanceOf[icodes.opcodes.THROW], p))
       //   staleOut foreach (p => assert(  in.isDefinedAt(p), p))
 
-      init(m)
+      remainingCALLs.clear()
+      isOnWatchlist.clear()
+      relevantBBs.clear()
 
+      // never rewrite in(m.startBlock)
       for(so <- staleOut) {
+        enqueue(so)
+        out(so) = frameLattice.bottom
         deltas      -= so;
         auxPreCands -= so;
+        putOnRadar(linearizer linearizeAt (m, so))
       }
+      // nothing else is added to the worklist, bb's reachable via succs will be tfa'ed
+      blankOut(inlined)
+      blankOut(staleIn)
+      // no need to add startBlocks from m.exh
+
+      populatePerimeter()
+
       assert(debugConsistency_auxPreCands())
-      assert(((staleOut ++ inlined ++ staleIn) filter callerLin.toSet) forall { b => ( in(b).isBottom || b == m.startBlock || b.exceptionHandlerStart) && out(b).isBottom },
-             "The in- and out-flows of blocks affected by inlining should be re-computed.")
 
     } // end of method reinit
 
@@ -1120,7 +1137,7 @@ abstract class TypeFlowAnalysis {
         // The inflow of the start block (and that of an exception-handler-start-block)
         // can be no other than FrameState(localsOnEntry, frameLattice.emptyXTKs), see MFTAGrowable.init().
         in(b) =
-          if((b == method.startBlock) || !b.exceptionHandlerStart) entryFrameState
+          if((b == method.startBlock) || b.exceptionHandlerStart) entryFrameState
           else frameLattice.bottom
 
         out(b) = frameLattice.bottom
