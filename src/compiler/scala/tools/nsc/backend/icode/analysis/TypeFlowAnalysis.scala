@@ -610,9 +610,16 @@ abstract class TypeFlowAnalysis {
     }
 
     def applyDelta(numloc: Int, input: FrameState, delta: Delta): FrameState = {
-      assert(input.locals.size    <= numloc, "input.locals can't be larger than the most-current-number-of-locals.")
-      assert(delta.outLocals.size <= numloc, "delta.outLocals can't be larger than the most-current-number-of-locals.")
-      // it's ok for delta.outLocals not to mention some vars in input.locals, ie the former is shorter than the latter.
+      assert(input.locals.size    <= numloc,
+        "One or more local variables vanished from the time input.locals was computed till now.")
+      assert(delta.outLocals.size <= numloc,
+        "The delta computed a while ago (probably not that long ago) makes us believe there are more locals than what an argument tells us.")
+      /*
+      * It's ok for delta.outLocals not to mention some vars in input.locals, ie the former is shorter than the latter.
+      * This occurs
+      *   - after `doInline()` populates `staleOut` (adding at least a local under the name of `$inlThis`) and then
+      *   - arriving at `blockTransfer()` to re-compute the outflow for one such stale-out BasicBlock, whose inflow still reflects the "old" number of locals.
+      **/
 
           def xlate(atk: AbstractTK): XTK = {
             atk match {
@@ -776,7 +783,6 @@ abstract class TypeFlowAnalysis {
 
      */
     def blockTransfer(numloc: Int, b: BasicBlock, in: FrameState): FrameState = {
-      debugConsistency_auxPreCands()
       var result = in
 
       val stopAt = if(isOnPerimeter(b)) lastInstruction(b) else null;
@@ -885,14 +891,6 @@ abstract class TypeFlowAnalysis {
       assert(res forall b.toList.contains, "Stale entries found in cache.")
       res
     }
-    def debugConsistency_auxPreCands(): Boolean = {
-      for( Pair(b, callsites) <- auxPreCands; c <- callsites ) {
-        if(!b.toList.contains(c)) {
-          return false;
-        }
-      }
-      return true
-    }
 
     /*
      * Rationale to prevent some methods from ever being inlined:
@@ -918,10 +916,14 @@ abstract class TypeFlowAnalysis {
     def entryFrameState = {
 
       val localsOnEntry = {
-        var idx = 0
+        var nextFreeIdx = 0
+        for(v <- method.locals; if v.index >= 0) { nextFreeIdx += 1 }
+        for(v <- method.locals; if v.index  < 0) { v.index = nextFreeIdx; nextFreeIdx += 1 }
         val res = new Array[XTK](numLocals)
-        for(l <- method.locals) { l.index = idx; res(idx) = XTK.bottomXTK; idx += 1 }
-        for(p <- method.params) { res(p.index) = XTK(p.kind) }
+        for(l <- method.locals) { res(l.index) = XTK.bottomXTK }
+        for(p <- method.params) { res(p.index) = XTK(p.kind)   }
+        assert(method.locals.map(_.index).toSet == (0 until method.locals.size).toSet,
+               "Numbering of locals supposed to start at 0 and run without gaps upwards by one.")
         res
       }
 
@@ -1078,10 +1080,10 @@ abstract class TypeFlowAnalysis {
 
      */
     def reinit(m: icodes.IMethod, staleOut: List[BasicBlock], inlined: collection.Set[BasicBlock], staleIn: collection.Set[BasicBlock]) {
-      if (this.method == null || this.method.symbol != m.symbol) {
-        init(m)
-        return
-      } else if(staleOut.isEmpty && inlined.isEmpty && staleIn.isEmpty) {
+      assert(this.method != null,            "Should have called init() before.")
+      assert(this.method.symbol == m.symbol, "Should have called init() before.")
+
+      if(staleOut.isEmpty && inlined.isEmpty && staleIn.isEmpty) {
         // this promotes invoking reinit if in doubt, no performance degradation will ensue!
         return;
       }
@@ -1114,8 +1116,6 @@ abstract class TypeFlowAnalysis {
       // no need to add startBlocks from m.exh
 
       populatePerimeter()
-
-      assert(debugConsistency_auxPreCands())
 
     } // end of method reinit
 

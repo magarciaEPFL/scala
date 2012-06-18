@@ -50,7 +50,8 @@ abstract class Inliners extends SubComponent {
     )
     def lookup(clazz: Symbol): Symbol = {
       // println("\t\tlooking up " + meth + " in " + clazz.fullName + " meth.owner = " + meth.owner)
-      assert(clazz != NoSymbol)
+      assert(clazz != NoSymbol, "Walked up past Object.superClass looking for " + sym +
+                                ", most likely this reveals the TFA at fault (receiver and callee don't match).")
       if (sym.owner == clazz || isBottomType(clazz)) sym
       else sym.overridingSymbol(clazz) match {
         case NoSymbol  => if (sym.owner.isTrait) sym else lookup(clazz.superClass)
@@ -246,8 +247,6 @@ abstract class Inliners extends SubComponent {
       val inlinedMethodCount = mutable.HashMap.empty[Symbol, Int] withDefaultValue 0
 
       val caller = new IMethodInfo(m)
-      tfa.callerLin = caller.m.linearizedBlocks()
-      tfa.init(m)
 
       def preInline(isFirstRound: Boolean): Int = {
         val inputBlocks = caller.m.linearizedBlocks()
@@ -270,7 +269,6 @@ abstract class Inliners extends SubComponent {
        *
        */
       def inlineWithoutTFA(inputBlocks: Traversable[BasicBlock], callsites: Function1[BasicBlock, List[opcodes.CALL_METHOD]]): Int = {
-        tfa.debugConsistency_auxPreCands()
         var inlineCount = 0
         import scala.util.control.Breaks._
         for(x <- inputBlocks; easyCake = callsites(x); if easyCake.nonEmpty) {
@@ -417,18 +415,23 @@ abstract class Inliners extends SubComponent {
        * As a whole, both `preInline()` invocations amount to priming the inlining process,
        * so that the first TFA that is run afterwards is able to gain more information as compared to a cold-start.
        */
+
       val totalPreInlines = {
         val firstRound = preInline(true)
-        if(firstRound == 0) 0 else (firstRound + preInline(false))
+        val totalPreInlines0 = if(firstRound == 0) 0 else (firstRound + preInline(false))
+        // `doInline()` inserted into some `MTFAGrowable` maps, but `tfa.init()` is just a few instructions away, so don't bother clearing them.
+        // However we need to clear maps that `tfa.reinit()` expects empty before `tfa.run()` has run.
+        staleOut.clear()
+        splicedBlocks.clear()
+        staleIn.clear()
+        for(v <- m.locals) { v.index = -1 } // recreate the pristine state for `entryFrameState()`.
+
+        totalPreInlines0
       }
-      staleOut.clear()
-      splicedBlocks.clear()
-      staleIn.clear()
       tfa.callerLin = caller.m.linearizedBlocks()
       tfa.init(m)
 
       do {
-        tfa.debugConsistency_auxPreCands()
         retry = false
         log("Analyzing " + m + " count " + count + " with " + caller.length + " blocks")
 
