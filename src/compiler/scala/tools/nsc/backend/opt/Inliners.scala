@@ -332,25 +332,26 @@ abstract class Inliners extends SubComponent {
               val pair  = new CallerCalleeInfo(caller, inc, fresh, inlinedMethodCount)
 
               if (pair isStampedForInlining stackLength) {
+
+                inc.doMakePublic() // `helperIsSafeToInline() populated a list on which `doMakePublic()` acts.
+                if(inc.accessNeeded == NonPublicRefs.Public) { tfa.knownSafe += inc.sym }
+
                 retry = true
                 inlined = true
-                if (isCountable)
-                  count += 1
+                if (isCountable) { count += 1 };
 
                 pair.doInline(bb, i)
-                if (!inc.inline || inc.isMonadic)
-                  caller.inlinedCalls += 1
+                if (!inc.inline || inc.isMonadic) { caller.inlinedCalls += 1 };
                 inlinedMethodCount(inc.sym) += 1
 
-                /* Remove this method from the cache, as the calls-private relation
-                 * might have changed after the inlining.
-                 */
+                // Remove the caller from the cache (this inlining might have changed its calls-private relation).
                 usesNonPublics -= m
                 recentTFAs     -= m.symbol
               }
               else {
-                if (settings.debug.value)
-                  pair logFailure stackLength
+                if(inc.accessNeeded == NonPublicRefs.Public) { tfa.knownUnsafe += inc.sym }
+
+                if (settings.debug.value) { pair logFailure stackLength }
 
                 warnNoInline(pair failureReason stackLength)
               }
@@ -522,6 +523,67 @@ abstract class Inliners extends SubComponent {
       def addLocals(ls: List[Local])  = m.locals ++= ls
       def addLocal(l: Local)          = addLocals(List(l))
       def addHandlers(exhs: List[ExceptionHandler]) = m.exh = exhs ::: m.exh
+
+      private var toBecomePublic: List[Symbol] = Nil
+
+      lazy val accessNeeded: NonPublicRefs.Value = {
+
+        def check(sym: Symbol, cond: Boolean) =
+          if (cond) Private
+          else if (sym.isProtected) Protected
+          else Public
+
+        def canMakePublic(f: Symbol): Boolean =
+          (m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) &&
+          { toBecomePublic = f :: toBecomePublic; true }
+
+        /* A safety check to consider as private, for the purposes of inlining,
+         * a public field that is presumed synthetic (due to a dollar sign in its name),
+         * where the field was potentially publicized by `doMakePublic()`.
+         * We don't want to rely on it being public, as under other compilation conditions that won't be the case. */
+        def potentiallyPublicized(f: Symbol): Boolean = {
+          (m.sourceFile eq NoSourceFile) && f.name.containsChar('$')
+        }
+
+        def checkField(f: Symbol)   = check(f, potentiallyPublicized(f) ||
+                                               (f.isPrivate && !canMakePublic(f)))
+        def checkSuper(n: Symbol)   = check(n, n.isPrivate || !n.isClassConstructor)
+        def checkMethod(n: Symbol)  = check(n, n.isPrivate)
+
+        def getAccess(i: Instruction) = i match {
+          case CALL_METHOD(n, SuperCall(_)) => checkSuper(n)
+          case CALL_METHOD(n, _)            => checkMethod(n)
+          case LOAD_FIELD(f, _)             => checkField(f)
+          case STORE_FIELD(f, _)            => checkField(f)
+          case _                            => Public
+        }
+
+        toBecomePublic = Nil
+        var seen = Public
+        val iter = instructions.iterator
+        while((seen ne Private) && iter.hasNext) {
+          val i = iter.next()
+          getAccess(i) match {
+            case Private    =>
+              log("instruction " + i + " requires private access.")
+              toBecomePublic = Nil
+              seen = Private
+            case Protected  => seen = Protected
+            case _          => ()
+          }
+        }
+
+        seen
+      }
+
+      def doMakePublic() {
+        for(f <- toBecomePublic) {
+          debuglog("Making not-private symbol out of synthetic: " + f)
+          f setFlag Flags.notPRIVATE
+        }
+        toBecomePublic = Nil
+      }
+
     }
 
     class CallerCalleeInfo(val caller: IMethodInfo, val inc: IMethodInfo, fresh: mutable.Map[String, Int], inlinedMethodCount: collection.Map[Symbol, Int]) {
@@ -711,7 +773,11 @@ abstract class Inliners extends SubComponent {
 
       def isStampedForInlining(stackLength: Int) =
         !sameSymbols && inc.m.hasCode && shouldInline &&
-        isSafeToInline(stackLength) // `isSafeToInline()` must be invoked last in this AND expr bc it mutates the `knownSafe` and `knownUnsafe` maps for good.
+        isSafeToInline(stackLength) && {
+          // `isSafeToInline(stackLength, true)` must be invoked last in this AND expr because
+          // it prepares input for `doMakePublic()`, which in turn is invoked right before `doInline()`.
+          true
+        }
 
       def logFailure(stackLength: Int) = log(
         """|inline failed for %s:
@@ -753,71 +819,26 @@ abstract class Inliners extends SubComponent {
         if(tfa.blackballed(inc.sym)) { return false }
         if(tfa.knownSafe(inc.sym))   { return true  }
 
-        if(helperIsSafeToInline(stackLength)) {
-          tfa.knownSafe += inc.sym;   true
-        } else {
-          tfa.knownUnsafe += inc.sym; false
-        }
+        helperIsSafeToInline(stackLength)
       }
 
       private def helperIsSafeToInline(stackLength: Int): Boolean = {
-        def makePublic(f: Symbol): Boolean =
-          /*
-           * Completely disabling member publifying. This shouldn't have been done in the first place. :|
-           */
-          false
-          // (inc.m.sourceFile ne NoSourceFile) && (f.isSynthetic || f.isParamAccessor) && {
-          //   debuglog("Making not-private symbol out of synthetic: " + f)
-
-          //   f setNotFlag Flags.PRIVATE
-          //   true
-          // }
 
         if (!inc.m.hasCode || inc.isRecursive)        { return false }
         if (inc.m.symbol.hasFlag(Flags.SYNCHRONIZED)) { return false }
 
-        val accessNeeded = usesNonPublics.getOrElseUpdate(inc.m, {
-          // Avoiding crashing the compiler if there are open blocks.
-          inc.openBlocks foreach { b =>
-            warn(inc.sym.pos,
-                "Encountered open block in isSafeToInline: this indicates a bug in the optimizer!\n" +
-                "  caller = " + caller.m + ", callee = " + inc.m
+        inc.openBlocks foreach { b =>
+          warn(inc.sym.pos,
+               "Encountered open block in isSafeToInline: this indicates a bug in the optimizer!\n" +
+               "  caller = " + caller.m + ", callee = " + inc.m
               )
-            return false
-          }
-          def check(sym: Symbol, cond: Boolean) =
-            if (cond) Private
-            else if (sym.isProtected) Protected
-            else Public
-
-          def checkField(f: Symbol)   = check(f, f.isPrivate && !makePublic(f))
-          def checkSuper(m: Symbol)   = check(m, m.isPrivate || !m.isClassConstructor)
-          def checkMethod(m: Symbol)  = check(m, m.isPrivate)
-
-          def getAccess(i: Instruction) = i match {
-            case CALL_METHOD(m, SuperCall(_)) => checkSuper(m)
-            case CALL_METHOD(m, _)            => checkMethod(m)
-            case LOAD_FIELD(f, _)             => checkField(f)
-            case STORE_FIELD(f, _)            => checkField(f)
-            case _                            => Public
-          }
-
-          def iterate(): NonPublicRefs.Value = inc.instructions.foldLeft(Public)((res, inc) => getAccess(inc) match {
-            case Private    => log("instruction " + inc + " requires private access.") ; return Private
-            case Protected  => Protected
-            case Public     => res
-          })
-          iterate()
-        })
-
-        canAccess(accessNeeded) && {
-          val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
-
-          !isIllegalStack || {
-            debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.")
-            false
-          }
+          return false
         }
+
+        val isIllegalStack = (stackLength > inc.minimumStack && inc.hasNonFinalizerHandler)
+        if(isIllegalStack) { debuglog("method " + inc.sym + " is used on a non-empty stack with finalizer.") }
+
+        !isIllegalStack && canAccess(inc.accessNeeded)
       }
 
       /** Decide whether to inline or not. Heuristics:
