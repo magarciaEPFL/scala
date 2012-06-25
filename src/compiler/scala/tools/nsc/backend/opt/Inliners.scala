@@ -111,13 +111,27 @@ abstract class Inliners extends SubComponent {
     def name = phaseName
     val inliner = new Inliner
 
-    override def apply(c: IClass) {
-      inliner analyzeClass c
+    object iclassOrdering extends Ordering[IClass] {
+      def compare(a: IClass, b: IClass) = {
+        val sourceNamesComparison = (a.cunit.toString() compare b.cunit.toString())
+        if(sourceNamesComparison != 0) sourceNamesComparison
+        else {
+          val namesComparison = (a.toString() compare b.toString())
+          if(namesComparison != 0) namesComparison
+          else {
+            a.symbol.id compare b.symbol.id
+          }
+        }
+      }
     }
+    val queue = new mutable.PriorityQueue[IClass]()(iclassOrdering)
+
+    override def apply(c: IClass) { queue += c }
 
     override def run() {
       try {
         super.run()
+        for(c <- queue) { inliner analyzeClass c }
       } finally {
         inliner.clearCaches()
       }
@@ -200,12 +214,22 @@ abstract class Inliners extends SubComponent {
       tfa.isOnWatchlist.clear()
     }
 
+    object imethodOrdering extends Ordering[IMethod] {
+      def compare(a: IMethod, b: IMethod) = {
+        val namesComparison = (a.toString() compare b.toString())
+        if(namesComparison != 0) namesComparison
+        else {
+          a.symbol.id compare b.symbol.id
+        }
+      }
+    }
+
     def analyzeClass(cls: IClass): Unit =
       if (settings.inline.value) {
         debuglog("Analyzing " + cls)
 
         this.currentIClazz = cls
-        val ms = cls.methods filterNot { _.symbol.isConstructor }
+        val ms = cls.methods filterNot { _.symbol.isConstructor } sorted imethodOrdering
         ms foreach { im =>
           if(hasInline(im.symbol)) {
             log("Not inlining into " + im.symbol.originalName.decode + " because it is marked @inline.")
