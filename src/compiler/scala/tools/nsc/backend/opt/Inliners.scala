@@ -12,6 +12,29 @@ import scala.tools.nsc.symtab._
 import scala.reflect.internal.util.NoSourceFile
 
 /**
+ * Inliner balances two competing goals:
+ *   (a) aggressive inlining of:
+ *       (a.1) the apply methods of anonymous closures, so that their anon-classes can be eliminated;
+ *       (a.2) higher-order-methods defined in an external library, e.g. `Range.foreach()` among many others.
+ *   (b) circumventing the barrier to inter-library inlining that private accesses in the callee impose.
+ *
+ * Summing up the discussion in SI-5442 and SI-5891,
+ * the current implementation achieves to a large degree both goals above, and
+ * overcomes a problem exhibited by previous versions:
+ *
+ *   (1) Problem: Attempting to access a private member `p` at runtime resulting in an `IllegalAccessError`,
+ *                where `p` is defined in a library L, and is accessed from a library C (for Client),
+ *                where C was compiled against L', an optimized version of L where the inliner made `p` public at the bytecode level.
+ *                The only such members are fields, either synthetic or isParamAccessor, and thus having a dollar sign in their name
+ *                (the accesibility of methods and constructors isn't touched by the inliner).
+ *
+ * Thus we add one more goal to our list:
+ *   (c) Compile C (either optimized or not) against any of L or L',
+ *       so that it runs with either L or L' (in particular, compile against L' and run with L).
+ *
+ * The chosen strategy is described in some detail in the comments for `accessRequirements()` and `potentiallyPublicized()`.
+ * Documentation at http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/2011Q4/Inliner.pdf
+ *
  *  @author Iulian Dragos
  */
 abstract class Inliners extends SubComponent {
@@ -551,6 +574,16 @@ abstract class Inliners extends SubComponent {
       def addLocal(l: Local)          = addLocals(List(l))
       def addHandlers(exhs: List[ExceptionHandler]) = m.exh = exhs ::: m.exh
 
+      /**
+       * This method inspects the callee's instructions, finding out the most restrictive accessibility implied by them.
+       *
+       * Rather than giving up upon encountering an access to a private field `p`, it provisorily admits `p` as "can-be-made-public", provided:
+       *   - `p` is being compiled as part of this compilation run, and
+       *   - `p` is synthetic or param-accessor.
+       *
+       * This method is side-effect free, in particular it lets the invoker decide
+       * whether the accessibility of the `toBecomePublic` fields should be changed or not.
+       */
       def accessRequirements: AccessReq = {
 
         var toBecomePublic: List[Symbol] = Nil
@@ -570,6 +603,10 @@ abstract class Inliners extends SubComponent {
          *   (2) can be presumed synthetic (due to a dollar sign in its name).
          * Such field was made public by `doMakePublic()` and we don't want to rely on that,
          * because under other compilation conditions (ie no -optimize) that won't be the case anymore.
+         *
+         * This allows aggressive intra-library inlining (making public if needed)
+         * that does not break inter-library scenarios (see comment for `Inliners`).
+         *
          * TODO handle more robustly the case of a trait var changed at the source-level from public to private[this]
          *      (eg by having ICodeReader use unpickler, see SI-5442).
          * */
@@ -609,6 +646,23 @@ abstract class Inliners extends SubComponent {
 
     }
 
+    /**
+     * Classifies a pair (caller, callee) into one of four categories:
+     *
+     *   (a) inlining should be performed, classified in turn into:
+     *       (a.1) `InlineableAtThisCaller`: unconditionally at this caller
+     *       (a.2) `FeasibleInline`: it only remains for certain access requirements to be met (see `IMethodInfo.accessRequirements()`)
+     *
+     *   (b) inlining shouldn't be performed, classified in turn into:
+     *       (b.1) `DontInlineHere`: indicates that this particular occurrence of the callee at the caller shouldn't be inlined.
+     *                - Nothing is said about the outcome for other callers, or for other occurrences of the callee for the same caller.
+     *                - In particular inlining might be possible, but heuristics gave a low score for it.
+     *       (b.2) `NeverSafeToInline`: the callee can't be inlined anywhere, irrespective of caller.
+     *
+     * The classification above is computed by `isStampedForInlining()` based on which `analyzeInc()` goes on to:
+     *   - either log the reason for failure --- case (b) ---,
+     *   - or perform inlining --- case (a) ---.
+     */
     sealed abstract class InlineSafetyInfo {
       def isSafe   = false
       def isUnsafe = !isSafe
@@ -616,8 +670,8 @@ abstract class Inliners extends SubComponent {
     case object NeverSafeToInline           extends InlineSafetyInfo
     case object InlineableAtThisCaller      extends InlineSafetyInfo { override def isSafe = true }
     case class  DontInlineHere(msg: String) extends InlineSafetyInfo
-    case class  FeasibleInline (accessNeeded: NonPublicRefs.Value,
-                                toBecomePublic: List[Symbol]) extends InlineSafetyInfo {
+    case class  FeasibleInline(accessNeeded: NonPublicRefs.Value,
+                               toBecomePublic: List[Symbol]) extends InlineSafetyInfo {
       override def isSafe = true
     }
 
@@ -626,7 +680,7 @@ abstract class Inliners extends SubComponent {
       toBecomePublic: List[Symbol]
     )
 
-    class CallerCalleeInfo(val caller: IMethodInfo, val inc: IMethodInfo, fresh: mutable.Map[String, Int], inlinedMethodCount: collection.Map[Symbol, Int]) {
+    final class CallerCalleeInfo(val caller: IMethodInfo, val inc: IMethodInfo, fresh: mutable.Map[String, Int], inlinedMethodCount: collection.Map[Symbol, Int]) {
 
       assert(!caller.isBridge && inc.m.hasCode,
              "A guard in Inliner.analyzeClass() should have prevented from getting here.")
@@ -835,11 +889,13 @@ abstract class Inliners extends SubComponent {
             return DontInlineHere("Open blocks in " + inc.m)
           }
 
-          val reasonWhyNever =
-            if(inc.isRecursive)         "is recursive"
-            else if(isInlineForbidden)  "annotated @noinline"
-            else if(inc.isSynchronized) "is synchronized method"
-            else null
+          val reasonWhyNever: String = {
+            var rs: List[String] = Nil
+            if(inc.isRecursive)    { rs ::= "is recursive"           }
+            if(isInlineForbidden)  { rs ::= "is annotated @noinline" }
+            if(inc.isSynchronized) { rs ::= "is synchronized method" }
+            if(rs.isEmpty) null else rs.mkString("", ", and ", "")
+          }
 
           if(reasonWhyNever != null) {
             tfa.knownNever += inc.sym
