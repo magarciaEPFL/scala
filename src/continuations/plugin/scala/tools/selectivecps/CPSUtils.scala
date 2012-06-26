@@ -3,6 +3,7 @@
 package scala.tools.selectivecps
 
 import scala.tools.nsc.Global
+import scala.collection.mutable.ListBuffer
 
 trait CPSUtils {
   val global: Global
@@ -29,14 +30,14 @@ trait CPSUtils {
     val shiftUnitR      = newTermName("shiftUnitR")
   }
 
-  lazy val MarkerCPSSym        = definitions.getRequiredClass("scala.util.continuations.cpsSym")
-  lazy val MarkerCPSTypes      = definitions.getRequiredClass("scala.util.continuations.cpsParam")
-  lazy val MarkerCPSSynth      = definitions.getRequiredClass("scala.util.continuations.cpsSynth")
-  lazy val MarkerCPSAdaptPlus  = definitions.getRequiredClass("scala.util.continuations.cpsPlus")
-  lazy val MarkerCPSAdaptMinus = definitions.getRequiredClass("scala.util.continuations.cpsMinus")
+  lazy val MarkerCPSSym        = rootMirror.getRequiredClass("scala.util.continuations.cpsSym")
+  lazy val MarkerCPSTypes      = rootMirror.getRequiredClass("scala.util.continuations.cpsParam")
+  lazy val MarkerCPSSynth      = rootMirror.getRequiredClass("scala.util.continuations.cpsSynth")
+  lazy val MarkerCPSAdaptPlus  = rootMirror.getRequiredClass("scala.util.continuations.cpsPlus")
+  lazy val MarkerCPSAdaptMinus = rootMirror.getRequiredClass("scala.util.continuations.cpsMinus")
 
-  lazy val Context = definitions.getRequiredClass("scala.util.continuations.ControlContext")
-  lazy val ModCPS = definitions.getRequiredModule("scala.util.continuations")
+  lazy val Context = rootMirror.getRequiredClass("scala.util.continuations.ControlContext")
+  lazy val ModCPS = rootMirror.getRequiredModule("scala.util.continuations")
 
   lazy val MethShiftUnit  = definitions.getMember(ModCPS, cpsNames.shiftUnit)
   lazy val MethShiftUnit0 = definitions.getMember(ModCPS, cpsNames.shiftUnit0)
@@ -135,4 +136,43 @@ trait CPSUtils {
       case _ => None
     }
   }
+
+  def isTailReturn(retExpr: Tree, body: Tree): Boolean = {
+    val removed = ListBuffer[Tree]()
+    removeTailReturn(body, removed)
+    removed contains retExpr
+  }
+
+  def removeTailReturn(tree: Tree, removed: ListBuffer[Tree]): Tree = tree match {
+    case Block(stms, r @ Return(expr)) =>
+      removed += r
+      treeCopy.Block(tree, stms, expr)
+
+    case Block(stms, expr) =>
+      treeCopy.Block(tree, stms, removeTailReturn(expr, removed))
+
+    case If(cond, r1 @ Return(thenExpr), r2 @ Return(elseExpr)) =>
+      removed ++= Seq(r1, r2)
+      treeCopy.If(tree, cond, removeTailReturn(thenExpr, removed), removeTailReturn(elseExpr, removed))
+
+    case If(cond, thenExpr, elseExpr) =>
+      treeCopy.If(tree, cond, removeTailReturn(thenExpr, removed), removeTailReturn(elseExpr, removed))
+
+    case Try(block, catches, finalizer) =>
+      treeCopy.Try(tree,
+        removeTailReturn(block, removed),
+        (catches map (t => removeTailReturn(t, removed))).asInstanceOf[List[CaseDef]],
+        removeTailReturn(finalizer, removed))
+
+    case CaseDef(pat, guard, r @ Return(expr)) =>
+      removed += r
+      treeCopy.CaseDef(tree, pat, guard, expr)
+
+    case CaseDef(pat, guard, body) =>
+      treeCopy.CaseDef(tree, pat, guard, removeTailReturn(body, removed))
+
+    case _ =>
+      tree
+  }
+
 }

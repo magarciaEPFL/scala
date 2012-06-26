@@ -8,6 +8,10 @@
 
 package scala.collection
 
+import scala.reflect.ClassTag
+import scala.collection.generic.CanBuildFrom
+import scala.annotation.unchecked.{ uncheckedVariance => uV }
+
 /** A template trait for all traversable-once objects which may be
  *  traversed in parallel.
  *
@@ -459,7 +463,7 @@ trait GenTraversableOnce[+A] extends Any {
 
   /** Converts this $coll to an array.
    *
-   *  @tparam A1 the type of the elements of the array. An `ArrayTag` for
+   *  @tparam A1 the type of the elements of the array. An `ClassTag` for
    *             this type must be available.
    *  @return    an array containing all elements of this $coll.
    *
@@ -469,9 +473,9 @@ trait GenTraversableOnce[+A] extends Any {
    *    $willNotTerminateInf
    *
    *    @return  an array containing all elements of this $coll.
-   *             An `ArrayTag` must be available for the element type of this $coll.
+   *             An `ClassTag` must be available for the element type of this $coll.
    */
-  def toArray[A1 >: A: ArrayTag]: Array[A1]
+  def toArray[A1 >: A: ClassTag]: Array[A1]
 
   /** Converts this $coll to a list.
    *  $willNotTerminateInf
@@ -550,4 +554,21 @@ trait GenTraversableOnce[+A] extends Any {
    *               containing all key/value pairs of type `(T, U)` of this $coll.
    */
   def toMap[K, V](implicit ev: A <:< (K, V)): GenMap[K, V]
+
+  /** Converts this $coll to a Vector.
+   *  $willNotTerminateInf
+   *  @return a vector containing all elements of this $coll.
+   */
+  def toVector: Vector[A]
+
+  /** Converts this $coll into another by copying all elements.
+   *  @tparam Col  The collection type to build.
+   *  @return a new collection containing all elements of this $coll.
+   *  
+   *  @usecase def convertTo[Col[_]]: Col[A]
+   *    @inheritdoc
+   *    $willNotTerminateInf
+   *    @return a new collection containing all elements of this $coll.
+   */
+  def convertTo[Col[_]](implicit cbf: CanBuildFrom[Nothing, A, Col[A @uV]]): Col[A @uV]
 }

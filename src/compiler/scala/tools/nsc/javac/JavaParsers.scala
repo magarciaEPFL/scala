@@ -8,7 +8,7 @@
 package scala.tools.nsc
 package javac
 
-import scala.tools.nsc.util.OffsetPosition
+import scala.reflect.internal.util.OffsetPosition
 import scala.collection.mutable.ListBuffer
 import symtab.Flags
 import JavaTokens._
@@ -911,7 +911,8 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
         buf ++= importDecl()
       while (in.token != EOF && in.token != RBRACE) {
         while (in.token == SEMI) in.nextToken
-        buf ++= typeDecl(modifiers(false))
+        if (in.token != EOF)
+          buf ++= typeDecl(modifiers(false))
       }
       accept(EOF)
       atPos(pos) {

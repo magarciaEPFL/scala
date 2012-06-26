@@ -5,11 +5,12 @@
 **                                                                         **
 **  This software is released under the terms of the Revised BSD License.  **
 **  There is NO WARRANTY. See the file LICENSE for the full text.          **
-\*-------------------------------------------------------------------------*/
+\*------------------------------------------------------------------------ */
 
 package org.scalacheck.util
 
 import scala.collection._
+import scala.reflect.ClassTag
 
 trait Buildable[T,C[_]] {
   def builder: mutable.Builder[T,C[T]]
@@ -30,7 +31,7 @@ object Buildable {
     def builder = (new mutable.ListBuffer[T]).mapResult(_.toStream)
   }
 
-  implicit def buildableArray[T](implicit t: ClassTag[T]) =
+  implicit def buildableArray[T](implicit cm: ClassTag[T]) =
     new Buildable[T,Array] {
       def builder = mutable.ArrayBuilder.make[T]
     }

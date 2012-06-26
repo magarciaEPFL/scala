@@ -9,8 +9,10 @@
 package scala.collection
 
 import mutable.{ Buffer, Builder, ListBuffer, ArrayBuffer }
+import generic.CanBuildFrom
 import annotation.unchecked.{ uncheckedVariance => uV }
 import language.{implicitConversions, higherKinds}
+import reflect.ClassTag
 
 /** A template trait for collections which can be traversed either once only
  *  or one or more times.
@@ -227,7 +229,7 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
   def copyToArray[B >: A](xs: Array[B]): Unit =
     copyToArray(xs, 0, xs.length)
 
-  def toArray[B >: A : ArrayTag]: Array[B] = {
+  def toArray[B >: A : ClassTag]: Array[B] = {
     if (isTraversableAgain) {
       val result = new Array[B](size)
       copyToArray(result, 0)
@@ -238,17 +240,25 @@ trait TraversableOnce[+A] extends Any with GenTraversableOnce[A] {
 
   def toTraversable: Traversable[A]
 
-  def toList: List[A] = (new ListBuffer[A] ++= seq).toList
+  def toList: List[A] = convertTo[List]
 
   def toIterable: Iterable[A] = toStream
 
   def toSeq: Seq[A] = toStream
 
-  def toIndexedSeq: immutable.IndexedSeq[A] = immutable.IndexedSeq() ++ seq
+  def toIndexedSeq: immutable.IndexedSeq[A] = convertTo[immutable.IndexedSeq]
 
-  def toBuffer[B >: A]: mutable.Buffer[B] = new ArrayBuffer[B] ++= seq
+  def toBuffer[B >: A]: mutable.Buffer[B] = convertTo[ArrayBuffer].asInstanceOf[mutable.Buffer[B]]
 
-  def toSet[B >: A]: immutable.Set[B] = immutable.Set() ++ seq
+  def toSet[B >: A]: immutable.Set[B] = convertTo[immutable.Set].asInstanceOf[immutable.Set[B]]
+
+  def toVector: Vector[A] = convertTo[Vector]
+
+  def convertTo[Col[_]](implicit cbf: CanBuildFrom[Nothing, A, Col[A @uV]]): Col[A @uV] = {
+    val b = cbf()
+    b ++= seq
+    b.result
+  }
 
   def toMap[T, U](implicit ev: A <:< (T, U)): immutable.Map[T, U] = {
     val b = immutable.Map.newBuilder[T, U]

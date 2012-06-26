@@ -24,6 +24,7 @@ import scala.collection.GenIterable
 import scala.collection.GenTraversableOnce
 import scala.collection.GenTraversable
 import immutable.HashMapCombiner
+import reflect.{ClassTag, classTag}
 
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -183,25 +184,25 @@ self: ParIterableLike[T, Repr, Sequential] =>
   def hasDefiniteSize = true
 
   def isEmpty = size == 0
-  
+
   def nonEmpty = size != 0
-  
+
   def head = iterator.next
-  
+
   def headOption = if (nonEmpty) Some(head) else None
-  
+
   def tail = drop(1)
-  
+
   def last = {
     var lst = head
     for (x <- this.seq) lst = x
     lst
   }
-  
+
   def lastOption = if (nonEmpty) Some(last) else None
-  
+
   def init = take(size - 1)
-  
+
   /** Creates a new parallel iterator used to traverse the elements of this parallel collection.
    *  This iterator is more specific than the iterator of the returned by `iterator`, and augmented
    *  with additional accessor and transformer methods.
@@ -303,7 +304,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected implicit def builder2ops[Elem, To](cb: Builder[Elem, To]) = new BuilderOps[Elem, To] {
     def ifIs[Cmb](isbody: Cmb => Unit) = new Otherwise[Cmb] {
       def otherwise(notbody: => Unit)(implicit t: ClassTag[Cmb]) {
-        if (cb.getClass == t.erasure) isbody(cb.asInstanceOf[Cmb]) else notbody
+        if (cb.getClass == t.runtimeClass) isbody(cb.asInstanceOf[Cmb]) else notbody
       }
     }
     def isCombiner = cb.isInstanceOf[Combiner[_, _]]
@@ -822,7 +823,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
     def size = splitter.remaining
   }
 
-  override def toArray[U >: T: ArrayTag]: Array[U] = {
+  override def toArray[U >: T: ClassTag]: Array[U] = {
     val arr = new Array[U](size)
     copyToArray(arr)
     arr
@@ -849,6 +850,12 @@ self: ParIterableLike[T, Repr, Sequential] =>
   override def toSet[U >: T]: immutable.ParSet[U] = toParCollection[U, immutable.ParSet[U]](() => immutable.ParSet.newCombiner[U])
 
   override def toMap[K, V](implicit ev: T <:< (K, V)): immutable.ParMap[K, V] = toParMap[K, V, immutable.ParMap[K, V]](() => immutable.ParMap.newCombiner[K, V])
+
+  // TODO(@alex22): make these better
+  override def toVector: Vector[T] = seq.toVector
+
+  override def convertTo[Col[_]](implicit cbf: CanBuildFrom[Nothing, T, Col[T @uncheckedVariance]]): Col[T @uncheckedVariance] = seq.convertTo[Col]
+  
 
   /* tasks */
 
