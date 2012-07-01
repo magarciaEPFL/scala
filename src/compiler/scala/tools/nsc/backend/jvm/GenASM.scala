@@ -29,7 +29,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
   val phaseName = "jvm"
 
-  case class WorkUnit(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol)
+  case class WorkUnit(label: String, jclassName: String, jclass: asm.ClassWriter, outF: AbstractFile)
 
   type WorkUnitQueue = _root_.java.util.concurrent.LinkedBlockingQueue[WorkUnit]
 
@@ -156,7 +156,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
     // Allow overlapping disk write of classfiles with building of the next classfiles.
     // -----------------------------------------------------------------------------------------
 
-    val q = new WorkUnitQueue
+    val q = new WorkUnitQueue(500)
 
     class WriteTask(bytecodeWriter: BytecodeWriter) extends _root_.java.lang.Runnable {
 
@@ -164,19 +164,19 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
         var stop = false
         try {
           while (!stop) {
-            val WorkUnit(label, jclassName, jclass, sym) = q.take
+            val WorkUnit(label, jclassName, jclass, outF) = q.take
             if(jclass eq null) { stop = true }
-            else { writeIfNotTooBig(label, jclassName, jclass, sym) }
+            else { writeIfNotTooBig(label, jclassName, jclass, outF) }
           }
         } catch {
           case ex: InterruptedException => throw ex
         }
       }
 
-      private def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
+      private def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, outF: AbstractFile) {
         try {
           val arr = jclass.toByteArray()
-          bytecodeWriter.writeClass(label, jclassName, arr, sym)
+          bytecodeWriter.writeClass(label, jclassName, arr, outF)
         } catch {
           case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
             // TODO check where ASM throws the equivalent of CodeSizeTooBigException
@@ -203,10 +203,12 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
       var sortedClasses = classes.values.toList sortBy ("" + _.symbol.fullName)
 
       debuglog("Created new bytecode generator for " + classes.size + " classes.")
-      val bytecodeWriter  = initBytecodeWriter(sortedClasses filter isJavaEntryPoint)
-      val plainCodeGen    = new JPlainBuilder(q)
-      val mirrorCodeGen   = new JMirrorBuilder(q)
-      val beanInfoCodeGen = new JBeanInfoBuilder(q)
+      val bytecodeWriter        = initBytecodeWriter(sortedClasses filter isJavaEntryPoint)
+      val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
+
+      val plainCodeGen    = new JPlainBuilder(q, needsOutfileForSymbol)
+      val mirrorCodeGen   = new JMirrorBuilder(q, needsOutfileForSymbol)
+      val beanInfoCodeGen = new JBeanInfoBuilder(q, needsOutfileForSymbol)
 
       new _root_.java.lang.Thread(new WriteTask(bytecodeWriter)).start()
 
@@ -496,7 +498,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
   val JAVA_LANG_STRING = asm.Type.getObjectType("java/lang/String")
 
   /** basic functionality for class file building */
-  abstract class JBuilder(wuQ: WorkUnitQueue) {
+  abstract class JBuilder(wuQ: WorkUnitQueue, needsOutfileForSymbol: Boolean) {
 
     val EMPTY_JTYPE_ARRAY  = Array.empty[asm.Type]
     val EMPTY_STRING_ARRAY = Array.empty[String]
@@ -765,11 +767,18 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
       }
     }
 
+    def enqueue(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
+      val outF: scala.tools.nsc.io.AbstractFile = {
+        if(needsOutfileForSymbol) getFile(sym, jclassName, ".class") else null
+      }
+      wuQ put WorkUnit(label, jclassName, jclass, outF)
+    }
+
   } // end of class JBuilder
 
 
   /** functionality for building plain and mirror classes */
-  abstract class JCommonBuilder(wuQ: WorkUnitQueue) extends JBuilder(wuQ) {
+  abstract class JCommonBuilder(wuQ: WorkUnitQueue, needsOutfileForSymbol: Boolean) extends JBuilder(wuQ, needsOutfileForSymbol) {
 
     // -----------------------------------------------------------------------------------------
     // more constants
@@ -1327,8 +1336,8 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
   case class BlockInteval(start: BasicBlock, end: BasicBlock)
 
   /** builder of plain classes */
-  class JPlainBuilder(wuQ: WorkUnitQueue)
-    extends JCommonBuilder(wuQ)
+  class JPlainBuilder(wuQ: WorkUnitQueue, needsOutfileForSymbol: Boolean)
+    extends JCommonBuilder(wuQ, needsOutfileForSymbol)
     with    JAndroidBuilder {
 
     val MIN_SWITCH_DENSITY = 0.7
@@ -1482,7 +1491,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
       addInnerClasses(clasz.symbol, jclass)
       jclass.visitEnd()
-      wuQ put WorkUnit("" + c.symbol.name, thisName, jclass, c.symbol)
+      enqueue("" + c.symbol.name, thisName, jclass, c.symbol)
 
     }
 
@@ -2900,7 +2909,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
 
   /** builder of mirror classes */
-  class JMirrorBuilder(wuQ: WorkUnitQueue) extends JCommonBuilder(wuQ) {
+  class JMirrorBuilder(wuQ: WorkUnitQueue, needsOutfileForSymbol: Boolean) extends JCommonBuilder(wuQ, needsOutfileForSymbol) {
 
     private var cunit: CompilationUnit = _
     def getCurrentCUnit(): CompilationUnit = cunit;
@@ -2944,7 +2953,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
       addInnerClasses(modsym, mirrorClass)
       mirrorClass.visitEnd()
-      wuQ put WorkUnit("" + modsym.name, mirrorName, mirrorClass, modsym)
+      enqueue("" + modsym.name, mirrorName, mirrorClass, modsym)
     }
 
 
@@ -2952,7 +2961,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
 
   /** builder of bean info classes */
-  class JBeanInfoBuilder(wuQ: WorkUnitQueue) extends JBuilder(wuQ) {
+  class JBeanInfoBuilder(wuQ: WorkUnitQueue, needsOutfileForSymbol: Boolean) extends JBuilder(wuQ, needsOutfileForSymbol) {
 
     /**
      * Generate a bean info class that describes the given class.
@@ -3073,7 +3082,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
       addInnerClasses(clasz.symbol, beanInfoClass)
       beanInfoClass.visitEnd()
 
-      wuQ put WorkUnit("BeanInfo ", beanInfoName, beanInfoClass, clasz.symbol)
+      enqueue("BeanInfo ", beanInfoName, beanInfoClass, clasz.symbol)
     }
 
   } // end of class JBeanInfoBuilder
