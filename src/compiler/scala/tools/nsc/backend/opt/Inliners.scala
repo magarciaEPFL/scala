@@ -361,6 +361,11 @@ abstract class Inliners extends SubComponent {
           return false
         }
 
+        if(concreteMethod.isModule) {
+          warnNoInline("doesn't seem profitable module-inlining: " + concreteMethod)
+          return false
+        }
+
 
         var isAvailable = icodes available receiver
 
@@ -400,9 +405,13 @@ abstract class Inliners extends SubComponent {
           val newWay = lookupIMethod(concreteMethod, receiver)
           val oldWay = lookupIMethodOldWay(concreteMethod, receiver)
 
-          if(newWay != oldWay) {
+          if(
+            (!newWay.isDefined && oldWay.isDefined) ||
+            (newWay.isDefined && oldWay.isDefined && (newWay.get.symbol != oldWay.get.symbol) && (!newWay.get.hasCode && oldWay.get.hasCode) )
+          ) {
             Console.println()
             val againNew = lookupIMethod(concreteMethod, receiver)
+            val isM  = againNew.isDefined && againNew.get.symbol.isModule
 
             val againOld = lookupIMethodOldWay(concreteMethod, receiver)
           }
@@ -1046,35 +1055,65 @@ abstract class Inliners extends SubComponent {
       val iter = bcs.iterator
 
       var actualClass = classSym
-      while ((iter.hasNext) && !isJDKClass(actualClass)) {
+      while (iter.hasNext) {
         actualClass = iter.next
-        val (ov, foundBy) =
-          if(methSym.owner == actualClass) (methSym, "found by methSym.owner == actualClass")
-          else (methSym.overridingSymbol(actualClass), "found by methSym.overridingSymbol(actualClass)")
-        if (ov != NoSymbol) {
-          if(isNative(ov)) {
-            return None
-          }
-          assert(ov.owner == actualClass)
-          var hadToLoad = false
-          val icOpt = {
-            if(!icodes.available(actualClass)) {
-              icodes.load(actualClass)
-              hadToLoad = true
+        if(!isIface(actualClass) && !isJDKClass(actualClass)) {
+
+          val (found, foundBy) =
+            if(methSym.owner == actualClass) (methSym, "found by methSym.owner == actualClass")
+            else {
+              var hadToLoad = false
+              if(!icodes.available(actualClass)) {
+                icodes.load(actualClass)
+                hadToLoad = true
+              }
+              val icOpt = icodes icode actualClass
+              icOpt match {
+                case Some(ic) =>
+                  (ic lookupMethod methSym) match {
+                    case Some(im) =>
+                      if(isIface(ic.symbol) && im.hasCode) {
+                        Console.println("just found a method body in an interface.")
+                      }
+                      (methSym, "found IMethod with == symbol in IClass.")
+                    case None =>
+                      val ov = methSym.overridingSymbol(actualClass)
+                      (ic lookupMethod ov) match {
+                        case Some(im2) =>
+                          (ov, "found IMethod with overridden symbol in IClass.")
+                        case None =>
+                          (NoSymbol, "nothing worked")
+                      }
+                  }
+                case None =>
+                  (NoSymbol, "couldn't find IClass")
+              }
             }
-            icodes.icode(actualClass)
+
+          if (found != NoSymbol) {
+            if(isNative(found)) {
+              return None
+            }
+            if(found.owner != actualClass) {
+              // Console.println("a bit surprising, but is it wrong?") // e.g. the IMethod we want (for stripPrefix) from class StringOps has a symbol whose owner is StringLike. The body of that IMethod just forwards to StringLike$class.stripPrefix.
+            }
+            val icOpt = {
+              if(!icodes.available(actualClass)) {
+                icodes.load(actualClass)
+              }
+
+            }
+            val res = icOpt flatMap { ic => ic.lookupMethod(found) }
+            // counterintuitive as it comes, we may have `res.get.isAbstractMethod && res.get.hasCode`. That can't be an assertion.
+            return res
           }
-          val res = icOpt flatMap { ic => ic.lookupMethod(ov) }
-          if(!res.isEmpty && res.get.isAbstractMethod) {
-            Console.println("abstract where concrete expected.")
-          }
-          return res
-        } else {
-          // actualClass = iter.next
+
         }
       }
-      None // shouldn't get here too often (but possible e.g when reaching j.l.Object).
+      None // shouldn't get here too often (but possible e.g when walking all the way up to j.l.Object).
     }
+
+    def isIface(csym: Symbol) = csym.isTrait && !csym.isImplClass
 
     def lookupIMethodOldWay(meth: Symbol, receiver: Symbol): Option[IMethod] = {
 
@@ -1083,12 +1122,17 @@ abstract class Inliners extends SubComponent {
         icOpt match {
           case Some(ic) =>
             val res = ic lookupMethod meth
+            val foundAtIface = res.isDefined && isIface(ic.symbol)
+            if(isIface(ic.symbol) && res.isDefined && res.get.hasCode) {
+              Console.println("just found a method body in an interface.")
+            }
             res
           case None     => None
         }
       }
 
       val bcs = receiver.info.baseClasses
+      // val nonIfaces = (bcs.iterator filterNot isIface).toList
 
       val toFlatten = bcs.iterator map tryParent find (_.isDefined)
 
