@@ -95,17 +95,21 @@ abstract class ICodeReader extends ClassfileParser {
         (jflags, NoSymbol)
       else {
         val owner = getOwner(jflags)
-        var sym = owner.info.findMember(name, 0, 0, false).suchThat(old => sameType(old.tpe, tpe))
-        if (sym == NoSymbol)
-          sym = owner.info.findMember(newTermName(name + nme.LOCAL_SUFFIX_STRING), 0, 0, false).suchThat(_.tpe =:= tpe)
-        if (sym == NoSymbol) {
-          log("Could not find symbol for " + name + ": " + tpe)
-          log(owner.info.member(name).tpe + " : " + tpe)
-          sym = if (field) owner.newValue(name, owner.pos, toScalaFieldFlags(jflags)) else dummySym
-          sym setInfoAndEnter tpe
-          log("added " + sym + ": " + sym.tpe)
+        if(owner == NoSymbol) {
+          (jflags, NoSymbol)
+        } else {
+          var sym = owner.info.findMember(name, 0, 0, false).suchThat(old => sameType(old.tpe, tpe))
+          if (sym == NoSymbol)
+            sym = owner.info.findMember(newTermName(name + nme.LOCAL_SUFFIX_STRING), 0, 0, false).suchThat(_.tpe =:= tpe)
+          if (sym == NoSymbol) {
+            log("Could not find symbol for " + name + ": " + tpe)
+            log(owner.info.member(name).tpe + " : " + tpe)
+            sym = if (field) owner.newValue(name, owner.pos, toScalaFieldFlags(jflags)) else dummySym
+            sym setInfoAndEnter tpe
+            log("added " + sym + ": " + sym.tpe)
+          }
+          (jflags, sym)
         }
-        (jflags, sym)
       }
     } catch {
       case e: MissingRequirementError =>

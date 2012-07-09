@@ -162,7 +162,7 @@ abstract class Inliners extends SubComponent {
 
   /* for a more complete version see https://github.com/scala/scala/pull/849 */
   object JdkClassIdentifier extends (String => Boolean) {
-    private val knownJdkPackages = "java javax com.sun sun" split ' ' map (_ + ".") toVector
+    private val knownJdkPackages = "java javax com.sun sun scala.actors.threadpool scala.tools.asm" split ' ' map (_ + ".") toVector
 
     def apply[T](implicit ctag: reflect.ClassTag[T]): Boolean = apply(ctag.runtimeClass.getName)
     def apply(name: String): Boolean = {
@@ -1048,12 +1048,9 @@ abstract class Inliners extends SubComponent {
 
     // look up methSym for a receiver instance of classSym:
     def lookupIMethod(methSym: Symbol, classSym: Symbol): Option[IMethod] = {
-      val bcs  = classSym.info.baseClasses
-      val iter = bcs.iterator
-
       var actualClass = classSym
-      while (iter.hasNext) {
-        actualClass = iter.next
+      while (actualClass != NoSymbol) {
+
         if(!isIface(actualClass) && !isJDKClass(actualClass)) {
 
           val (found, foundBy) =
@@ -1101,6 +1098,8 @@ abstract class Inliners extends SubComponent {
           }
 
         }
+
+        actualClass = actualClass.superClass
       }
       None // shouldn't get here too often (but possible e.g when walking all the way up to j.l.Object).
     }
