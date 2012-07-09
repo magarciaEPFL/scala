@@ -160,7 +160,17 @@ abstract class Inliners extends SubComponent {
   def hasInline(sym: Symbol)    = sym hasAnnotation ScalaInlineClass
   def hasNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
 
-  def isJDKClass(csym: Symbol)  = csym.isJavaDefined && csym.fullName.startsWith("java") // TODO this needs improvement
+  /* for a more complete version see https://github.com/scala/scala/pull/849 */
+  object JdkClassIdentifier extends (String => Boolean) {
+    private val knownJdkPackages = "java javax com.sun sun" split ' ' map (_ + ".") toVector
+
+    def apply[T](implicit ctag: reflect.ClassTag[T]): Boolean = apply(ctag.runtimeClass.getName)
+    def apply(name: String): Boolean = {
+      knownJdkPackages.exists(name startsWith _)
+    }
+  }
+
+  def isJDKClass(csym: Symbol)  = csym.isJavaDefined && JdkClassIdentifier(csym.fullName)
   def isIface(csym: Symbol)     = csym.isTrait && !csym.isImplClass
   def isNative(msym: Symbol)    = msym.hasAnnotation(definitions.NativeAttr)
 
