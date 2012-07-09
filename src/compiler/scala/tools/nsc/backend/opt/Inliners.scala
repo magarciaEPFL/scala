@@ -397,7 +397,17 @@ abstract class Inliners extends SubComponent {
               + "\n\tconcreteMethod.isEffectivelyFinal: " + concreteMethod.isEffectivelyFinal)
 
         if (isAvailable && isCandidate) {
-          lookupIMethod(concreteMethod, receiver) match {
+          val newWay = lookupIMethod(concreteMethod, receiver)
+          val oldWay = lookupIMethodOldWay(concreteMethod, receiver)
+
+          if(newWay != oldWay) {
+            Console.println()
+            val againNew = lookupIMethod(concreteMethod, receiver)
+
+            val againOld = lookupIMethodOldWay(concreteMethod, receiver)
+          }
+
+           newWay match {
 
             case Some(callee) if callee.hasCode =>
               val inc   = new IMethodInfo(callee)
@@ -1032,27 +1042,59 @@ abstract class Inliners extends SubComponent {
 
     // look up methSym for a receiver instance of classSym:
     def lookupIMethod(methSym: Symbol, classSym: Symbol): Option[IMethod] = {
+      val bcs  = classSym.info.baseClasses
+      val iter = bcs.iterator
+
       var actualClass = classSym
-      var actualMeth = methSym
-      while ((actualClass != NoSymbol) && !isJDKClass(actualClass)) {
-        val ov = actualMeth.overridingSymbol(actualClass)
+      while ((iter.hasNext) && !isJDKClass(actualClass)) {
+        actualClass = iter.next
+        val (ov, foundBy) =
+          if(methSym.owner == actualClass) (methSym, "found by methSym.owner == actualClass")
+          else (methSym.overridingSymbol(actualClass), "found by methSym.overridingSymbol(actualClass)")
         if (ov != NoSymbol) {
-          actualMeth = ov
-          if(isNative(actualMeth)) { return None }
-          assert(actualMeth.owner == actualClass)
+          if(isNative(ov)) {
+            return None
+          }
+          assert(ov.owner == actualClass)
+          var hadToLoad = false
           val icOpt = {
             if(!icodes.available(actualClass)) {
               icodes.load(actualClass)
+              hadToLoad = true
             }
             icodes.icode(actualClass)
           }
-          val res = icOpt flatMap { ic => ic.lookupMethod(actualMeth) }
+          val res = icOpt flatMap { ic => ic.lookupMethod(ov) }
+          if(!res.isEmpty && res.get.isAbstractMethod) {
+            Console.println("abstract where concrete expected.")
+          }
           return res
         } else {
-          actualClass = actualClass.superClass
+          // actualClass = iter.next
         }
       }
-      None
+      None // shouldn't get here too often (but possible e.g when reaching j.l.Object).
     }
+
+    def lookupIMethodOldWay(meth: Symbol, receiver: Symbol): Option[IMethod] = {
+
+      def tryParent(csym: Symbol): Option[IMethod] = {
+        val icOpt = icodes icode csym
+        icOpt match {
+          case Some(ic) =>
+            val res = ic lookupMethod meth
+            res
+          case None     => None
+        }
+      }
+
+      val bcs = receiver.info.baseClasses
+
+      val toFlatten = bcs.iterator map tryParent find (_.isDefined)
+
+      toFlatten.flatten
+
+    }
+
   } /* class Inliner */
 } /* class Inliners */
