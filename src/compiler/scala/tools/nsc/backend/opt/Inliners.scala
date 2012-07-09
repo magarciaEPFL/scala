@@ -356,7 +356,7 @@ abstract class Inliners extends SubComponent {
           return false
         }
 
-        if(isJDKClass(receiver)) {
+        if(isJDKClass(receiver)) { // TODO use better `isJDKClass`
           warnNoInline("we don't inline methods from JDK classes: " + receiver.fullName)
           return false
         }
@@ -402,21 +402,8 @@ abstract class Inliners extends SubComponent {
               + "\n\tconcreteMethod.isEffectivelyFinal: " + concreteMethod.isEffectivelyFinal)
 
         if (isAvailable && isCandidate) {
-          val newWay = lookupIMethod(concreteMethod, receiver)
-          val oldWay = lookupIMethodOldWay(concreteMethod, receiver)
 
-          if(
-            (!newWay.isDefined && oldWay.isDefined) ||
-            (newWay.isDefined && oldWay.isDefined && (newWay.get.symbol != oldWay.get.symbol) && (!newWay.get.hasCode && oldWay.get.hasCode) )
-          ) {
-            Console.println()
-            val againNew = lookupIMethod(concreteMethod, receiver)
-            val isM  = againNew.isDefined && againNew.get.symbol.isModule
-
-            val againOld = lookupIMethodOldWay(concreteMethod, receiver)
-          }
-
-           newWay match {
+          lookupIMethod(concreteMethod, receiver) match {
 
             case Some(callee) if callee.hasCode =>
               val inc   = new IMethodInfo(callee)
@@ -1062,10 +1049,8 @@ abstract class Inliners extends SubComponent {
           val (found, foundBy) =
             if(methSym.owner == actualClass) (methSym, "found by methSym.owner == actualClass")
             else {
-              var hadToLoad = false
               if(!icodes.available(actualClass)) {
                 icodes.load(actualClass)
-                hadToLoad = true
               }
               val icOpt = icodes icode actualClass
               icOpt match {
@@ -1091,20 +1076,17 @@ abstract class Inliners extends SubComponent {
             }
 
           if (found != NoSymbol) {
-            if(isNative(found)) {
-              return None
-            }
-            if(found.owner != actualClass) {
-              // Console.println("a bit surprising, but is it wrong?") // e.g. the IMethod we want (for stripPrefix) from class StringOps has a symbol whose owner is StringLike. The body of that IMethod just forwards to StringLike$class.stripPrefix.
-            }
+            if(isNative(found)) { return None }
+            /* It may happen that `(found.owner != actualClass)`
+             * For example, say we want the IMethod for stripPrefix from class StringOps. That IMethod has a symbol whose owner is StringLike.
+             * The body of that IMethod just forwards to StringLike$class.stripPrefix
+             */
             val icOpt = {
-              if(!icodes.available(actualClass)) {
-                icodes.load(actualClass)
-              }
-
+              if(!icodes.available(actualClass)) { icodes.load(actualClass) }
+              icodes icode actualClass
             }
             val res = icOpt flatMap { ic => ic.lookupMethod(found) }
-            // counterintuitive as it comes, we may have `res.get.isAbstractMethod && res.get.hasCode`. That can't be an assertion.
+            // Counterintuitive as it comes, we may have `res.get.isAbstractMethod && res.get.hasCode`. That can't be an assertion.
             return res
           }
 
@@ -1114,31 +1096,6 @@ abstract class Inliners extends SubComponent {
     }
 
     def isIface(csym: Symbol) = csym.isTrait && !csym.isImplClass
-
-    def lookupIMethodOldWay(meth: Symbol, receiver: Symbol): Option[IMethod] = {
-
-      def tryParent(csym: Symbol): Option[IMethod] = {
-        val icOpt = icodes icode csym
-        icOpt match {
-          case Some(ic) =>
-            val res = ic lookupMethod meth
-            val foundAtIface = res.isDefined && isIface(ic.symbol)
-            if(isIface(ic.symbol) && res.isDefined && res.get.hasCode) {
-              Console.println("just found a method body in an interface.")
-            }
-            res
-          case None     => None
-        }
-      }
-
-      val bcs = receiver.info.baseClasses
-      // val nonIfaces = (bcs.iterator filterNot isIface).toList
-
-      val toFlatten = bcs.iterator map tryParent find (_.isDefined)
-
-      toFlatten.flatten
-
-    }
 
   } /* class Inliner */
 } /* class Inliners */
