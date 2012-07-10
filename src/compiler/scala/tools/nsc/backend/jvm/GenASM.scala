@@ -2237,9 +2237,14 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
             val st = pending.getOrElseUpdate(lv, mutable.Stack.empty[Label])
             st.push(start)
           }
-          def popScope(lv: Local, end: Label) {
-            val start = pending(lv).pop()
-            seen ::= LocVarEntry(lv, start, end)
+          def popScope(lv: Local, end: Label, iPos: Position) {
+            pending.get(lv) match {
+              case Some(st) if st.nonEmpty =>
+                val start = st.pop()
+                seen ::= LocVarEntry(lv, start, end)
+              case _ =>
+                getCurrentCUnit().warning(iPos, "Visited SCOPE_EXIT before visiting corresponding SCOPE_ENTER. Unbalanced scopes?")
+            }
           }
 
           def getMerged(): collection.Map[Local, List[Interval]] = {
@@ -2452,7 +2457,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
                     // similarly, these labels aren't tracked in the `labels` map.
                     val end = new asm.Label
                     jmethod.visitLabel(end)
-                    scoping.popScope(lv, end)
+                    scoping.popScope(lv, end, instr.pos)
                   }
             }
 
