@@ -195,9 +195,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
       if (settings.debug.value)
         inform("[running phase " + name + " on icode]")
 
-      if (settings.Xdce.value)
-        for ((sym, cls) <- icodes.classes if inliner.isClosureClass(sym) && !deadCode.liveClosures(sym))
-          icodes.classes -= sym
+      // non-alive anon-closures already eliminated at the end of DeadCodeEliminationPhase.run()
 
       // For predictably ordered error messages.
       var sortedClasses = classes.values.toList sortBy ("" + _.symbol.fullName)
@@ -2243,7 +2241,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
                 val start = st.pop()
                 seen ::= LocVarEntry(lv, start, end)
               case _ =>
-                getCurrentCUnit().warning(iPos, "Visited SCOPE_EXIT before visiting corresponding SCOPE_ENTER. Unbalanced scopes?")
+                getCurrentCUnit().warning(iPos, "Visited SCOPE_EXIT before visiting corresponding SCOPE_ENTER. SI-6049.")
             }
           }
 

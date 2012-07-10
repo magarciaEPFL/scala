@@ -30,6 +30,16 @@ abstract class DeadCodeElimination extends SubComponent {
     def name = phaseName
     val dce = new DeadCode()
 
+    override def run() {
+      super.run()
+      if (settings.Xdce.value) {
+        for ((sym, cls) <- icodes.classes
+             if inliner.isClosureClass(sym) && !deadCode.liveClosures(sym)) {
+          icodes.classes -= sym
+        }
+      }
+    }
+
     override def apply(c: IClass) {
       if (settings.Xdce.value)
         dce.analyzeClass(c)

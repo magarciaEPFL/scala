@@ -121,9 +121,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       if (settings.debug.value)
         inform("[running phase " + name + " on icode]")
 
-      if (settings.Xdce.value)
-        for ((sym, cls) <- icodes.classes if inliner.isClosureClass(sym) && !deadCode.liveClosures(sym))
-          icodes.classes -= sym
+      // non-alive anon-closures already eliminated at the end of DeadCodeEliminationPhase.run()
 
       // For predictably ordered error messages.
       val sortedClasses = classes.values.toList sortBy ("" + _.symbol.fullName)
