@@ -267,6 +267,7 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
   /** functionality for building plain and mirror classes */
   abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter)
     extends JBuilder(bytecodeWriter)
+    with BCAnnotGen
     with BCPickles {
 
     def debugLevel = settings.debuginfo.indexOfChoice
@@ -300,15 +301,6 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
         javaName(const.typeValue.typeSymbol)
       }
     }
-
-    /** Whether an annotation should be emitted as a Java annotation
-     *   .initialize: if 'annot' is read from pickle, atp might be un-initialized
-     */
-    private def shouldEmitAnnotation(annot: AnnotationInfo) =
-      annot.symbol.initialize.isJavaDefined &&
-      annot.matches(ClassfileAnnotationClass) &&
-      annot.args.isEmpty &&
-      !annot.matches(DeprecatedAttr)
 
     // @M don't generate java generics sigs for (members of) implementation
     // classes, as they are monomorphic (TODO: ok?)
@@ -385,144 +377,6 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
       }
 
       sig
-    }
-
-    def ubytesToCharArray(bytes: Array[Byte]): Array[Char] = {
-      val ca = new Array[Char](bytes.size)
-      var idx = 0
-      while(idx < bytes.size) {
-        val b: Byte = bytes(idx)
-        assert((b & ~0x7f) == 0)
-        ca(idx) = b.asInstanceOf[Char]
-        idx += 1
-      }
-
-      ca
-    }
-
-    // TODO this method isn't exercised during bootstrapping. Open question: is it bug free?
-    private def arrEncode(sb: ScalaSigBytes): Array[String] = {
-      var strs: List[String]  = Nil
-      val bSeven: Array[Byte] = sb.sevenBitsMayBeZero
-      // chop into slices of at most 65535 bytes, counting 0x00 as taking two bytes (as per JVMS 4.4.7 The CONSTANT_Utf8_info Structure)
-      var prevOffset = 0
-      var offset     = 0
-      var encLength  = 0
-      while(offset < bSeven.size) {
-        val newEncLength = encLength.toLong + (if(bSeven(offset) == 0) 2 else 1)
-        if(newEncLength > 65535) {
-          val ba     = bSeven.slice(prevOffset, offset)
-          strs     ::= new java.lang.String(ubytesToCharArray(ba))
-          encLength  = 0
-          prevOffset = offset
-        } else {
-          encLength += 1
-          offset    += 1
-        }
-      }
-      if(prevOffset < offset) {
-        assert(offset == bSeven.length)
-        val ba = bSeven.slice(prevOffset, offset)
-        strs ::= new java.lang.String(ubytesToCharArray(ba))
-      }
-      assert(strs.size > 1, "encode instead as one String via strEncode()") // TODO too strict?
-      strs.reverse.toArray
-    }
-
-    private def strEncode(sb: ScalaSigBytes): String = {
-      val ca = ubytesToCharArray(sb.sevenBitsMayBeZero)
-      new java.lang.String(ca)
-      // debug val bvA = new asm.ByteVector; bvA.putUTF8(s)
-      // debug val enc: Array[Byte] = scala.reflect.internal.pickling.ByteCodecs.encode(bytes)
-      // debug assert(enc(idx) == bvA.getByte(idx + 2))
-      // debug assert(bvA.getLength == enc.size + 2)
-    }
-
-    def emitArgument(av:   asm.AnnotationVisitor,
-                     name: String,
-                     arg:  ClassfileAnnotArg) {
-      arg match {
-
-        case LiteralAnnotArg(const) =>
-          if(const.isNonUnitAnyVal) { av.visit(name, const.value) }
-          else {
-            const.tag match {
-              case StringTag  =>
-                assert(const.value != null, const) // TODO this invariant isn't documented in `case class Constant`
-                av.visit(name, const.stringValue)  // `stringValue` special-cases null, but that execution path isn't exercised for a const with StringTag
-              case ClazzTag   => av.visit(name, javaType(const.typeValue))
-              case EnumTag =>
-                val edesc  = descriptor(const.tpe) // the class descriptor of the enumeration class.
-                val evalue = const.symbolValue.name.toString // value the actual enumeration value.
-                av.visitEnum(name, edesc, evalue)
-            }
-          }
-
-        case sb@ScalaSigBytes(bytes) =>
-          // see http://www.scala-lang.org/sid/10 (Storage of pickled Scala signatures in class files)
-          // also JVMS Sec. 4.7.16.1 The element_value structure and JVMS Sec. 4.4.7 The CONSTANT_Utf8_info Structure.
-          val assocValue = (if(sb.fitsInOneString) strEncode(sb) else arrEncode(sb))
-          av.visit(name, assocValue)
-          // for the lazy val in ScalaSigBytes to be GC'ed, the invoker of emitAnnotations() should hold the ScalaSigBytes in a method-local var that doesn't escape.
-
-        case ArrayAnnotArg(args) =>
-          val arrAnnotV: asm.AnnotationVisitor = av.visitArray(name)
-          for(arg <- args) { emitArgument(arrAnnotV, null, arg) }
-          arrAnnotV.visitEnd()
-
-        case NestedAnnotArg(annInfo) =>
-          val AnnotationInfo(typ, args, assocs) = annInfo
-          assert(args.isEmpty, args)
-          val desc = descriptor(typ) // the class descriptor of the nested annotation class
-          val nestedVisitor = av.visitAnnotation(name, desc)
-          emitAssocs(nestedVisitor, assocs)
-      }
-    }
-
-    def emitAssocs(av: asm.AnnotationVisitor, assocs: List[(Name, ClassfileAnnotArg)]) {
-      for ((name, value) <- assocs) {
-        emitArgument(av, name.toString(), value)
-      }
-      av.visitEnd()
-    }
-
-    def emitAnnotations(cw: asm.ClassVisitor, annotations: List[AnnotationInfo]) {
-      for(annot <- annotations; if shouldEmitAnnotation(annot)) {
-        val AnnotationInfo(typ, args, assocs) = annot
-        assert(args.isEmpty, args)
-        val av = cw.visitAnnotation(descriptor(typ), true)
-        emitAssocs(av, assocs)
-      }
-    }
-
-    def emitAnnotations(mw: asm.MethodVisitor, annotations: List[AnnotationInfo]) {
-      for(annot <- annotations; if shouldEmitAnnotation(annot)) {
-        val AnnotationInfo(typ, args, assocs) = annot
-        assert(args.isEmpty, args)
-        val av = mw.visitAnnotation(descriptor(typ), true)
-        emitAssocs(av, assocs)
-      }
-    }
-
-    def emitAnnotations(fw: asm.FieldVisitor, annotations: List[AnnotationInfo]) {
-      for(annot <- annotations; if shouldEmitAnnotation(annot)) {
-        val AnnotationInfo(typ, args, assocs) = annot
-        assert(args.isEmpty, args)
-        val av = fw.visitAnnotation(descriptor(typ), true)
-        emitAssocs(av, assocs)
-      }
-    }
-
-    def emitParamAnnotations(jmethod: asm.MethodVisitor, pannotss: List[List[AnnotationInfo]]) {
-      val annotationss = pannotss map (_ filter shouldEmitAnnotation)
-      if (annotationss forall (_.isEmpty)) return
-      for (Pair(annots, idx) <- annotationss.zipWithIndex;
-           annot <- annots) {
-        val AnnotationInfo(typ, args, assocs) = annot
-        assert(args.isEmpty, args)
-        val pannVisitor: asm.AnnotationVisitor = jmethod.visitParameterAnnotation(idx, descriptor(typ), true)
-        emitAssocs(pannVisitor, assocs)
-      }
     }
 
     /** Adds a @remote annotation, actual use unknown.
