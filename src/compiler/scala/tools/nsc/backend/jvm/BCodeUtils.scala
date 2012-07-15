@@ -19,7 +19,7 @@ import asm.Label
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded
  *
  */
-abstract class BCodeUtils extends SubComponent {
+abstract class BCodeUtils extends SubComponent with BytecodeWriters {
   import global._
   import icodes._
   import icodes.opcodes._
@@ -261,6 +261,102 @@ abstract class BCodeUtils extends SubComponent {
 
   val JAVA_LANG_OBJECT = asm.Type.getObjectType("java/lang/Object")
   val JAVA_LANG_STRING = asm.Type.getObjectType("java/lang/String")
+
+  trait BCCommonPhase extends global.GlobalPhase {
+
+    def isJavaEntryPoint(sym: Symbol, csymCompUnit: CompilationUnit) = {
+      def fail(msg: String, pos: Position = sym.pos) = {
+        csymCompUnit.warning(sym.pos,
+          sym.name + " has a main method with parameter type Array[String], but " + sym.fullName('.') + " will not be a runnable program.\n" +
+          "  Reason: " + msg
+          // TODO: make this next claim true, if possible
+          //   by generating valid main methods as static in module classes
+          //   not sure what the jvm allows here
+          // + "  You can still run the program by calling it as " + sym.javaSimpleName + " instead."
+        )
+        false
+      }
+      def failNoForwarder(msg: String) = {
+        fail(msg + ", which means no static forwarder can be generated.\n")
+      }
+      val possibles = if (sym.hasModuleFlag) (sym.tpe nonPrivateMember nme.main).alternatives else Nil
+      val hasApproximate = possibles exists { m =>
+        m.info match {
+          case MethodType(p :: Nil, _) => p.tpe.typeSymbol == ArrayClass
+          case _                       => false
+        }
+      }
+      // At this point it's a module with a main-looking method, so either succeed or warn that it isn't.
+      hasApproximate && {
+        // Before erasure so we can identify generic mains.
+        beforeErasure {
+          val companion     = sym.linkedClassOfClass
+          val companionMain = companion.tpe.member(nme.main)
+
+          if (hasJavaMainMethod(companion))
+            failNoForwarder("companion contains its own main method")
+          else if (companion.tpe.member(nme.main) != NoSymbol)
+            // this is only because forwarders aren't smart enough yet
+            failNoForwarder("companion contains its own main method (implementation restriction: no main is allowed, regardless of signature)")
+          else if (companion.isTrait)
+            failNoForwarder("companion is a trait")
+          // Now either succeeed, or issue some additional warnings for things which look like
+          // attempts to be java main methods.
+          else possibles exists { m =>
+            m.info match {
+              case PolyType(_, _) =>
+                fail("main methods cannot be generic.")
+              case MethodType(params, res) =>
+                if (res.typeSymbol :: params exists (_.isAbstractType))
+                  fail("main methods cannot refer to type parameters or abstract types.", m.pos)
+                else
+                  isJavaMainMethod(m) || fail("main method must have exact signature (Array[String])Unit", m.pos)
+              case tp =>
+                fail("don't know what this is: " + tp, m.pos)
+            }
+          }
+        }
+      }
+    }
+
+    def initBytecodeWriter(entryPoints: List[Symbol]): BytecodeWriter = {
+      settings.outputDirs.getSingleOutput match {
+        case Some(f) if f hasExtension "jar" =>
+          // If no main class was specified, see if there's only one
+          // entry point among the classes going into the jar.
+          if (settings.mainClass.isDefault) {
+            entryPoints map (_.fullName('.')) match {
+              case Nil      =>
+                log("No Main-Class designated or discovered.")
+              case name :: Nil =>
+                log("Unique entry point: setting Main-Class to " + name)
+                settings.mainClass.value = name
+              case names =>
+                log("No Main-Class due to multiple entry points:\n  " + names.mkString("\n  "))
+            }
+          }
+          else log("Main-Class was specified: " + settings.mainClass.value)
+
+          new DirectToJarfileWriter(f.file)
+
+        case _                               =>
+          if (settings.Ygenjavap.isDefault) {
+            if(settings.Ydumpclasses.isDefault)
+              new ClassBytecodeWriter { }
+            else
+              new ClassBytecodeWriter with DumpBytecodeWriter { }
+          }
+          else new ClassBytecodeWriter with JavapBytecodeWriter { }
+
+          // TODO A ScalapBytecodeWriter could take asm.util.Textifier as starting point.
+          //      Three areas where javap ouput is less than ideal (e.g. when comparing versions of the same classfile) are:
+          //        (a) unreadable pickle;
+          //        (b) two constant pools, while having identical contents, are displayed differently due to physical layout.
+          //        (c) stack maps (classfile version 50 and up) are displayed in encoded form by javap, their expansion makes more sense instead.
+      }
+    }
+
+  }
 
   /*
    * Custom attribute (JVMS 4.7.1) "ScalaSig" used as marker only

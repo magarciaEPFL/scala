@@ -32,10 +32,13 @@ abstract class GenBCode extends BCodeUtils {
 
   class BCodePhase(prev: Phase)
     extends StdPhase(prev)
-    with BCInnerClassGen
-    with BCPickles {
+       with BCInnerClassGen
+       with BCPickles
+       with BCCommonPhase {
 
-    override def description = "Generate bytecode from the AST"
+    override def name = phaseName
+    override def description = "Generate bytecode from ASTs"
+    override def erasedTypes = true
 
     override def run() {
       scalaPrimitives.init
