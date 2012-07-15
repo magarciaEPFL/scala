@@ -30,7 +30,10 @@ abstract class GenBCode extends BCodeUtils {
 
   override def newPhase(prev: Phase) = new BCodePhase(prev)
 
-  class BCodePhase(prev: Phase) extends StdPhase(prev) with BCPickles {
+  class BCodePhase(prev: Phase)
+    extends StdPhase(prev)
+    with BCInnerClassGen
+    with BCPickles {
 
     override def description = "Generate bytecode from the AST"
 
@@ -43,6 +46,12 @@ abstract class GenBCode extends BCodeUtils {
       // this.unit = unit
       // gen(unit.body)
       // this.unit = NoCompilationUnit
+    }
+
+    var mnode: asm.tree.MethodNode = null
+
+    object bc extends JCodeMethodN {
+      override def jmethod = BCodePhase.this.mnode
     }
 
   } // end of class BCodePhase

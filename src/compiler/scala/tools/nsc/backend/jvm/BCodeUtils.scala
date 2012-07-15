@@ -577,6 +577,270 @@ abstract class BCodeUtils extends SubComponent {
       }
     }
 
+
+    /** Just a namespace for utilities that encapsulate MethodVisitor idioms.
+     *  In the ASM world, org.objectweb.asm.commons.InstructionAdapter plays a similar role,
+     *  but the methods here allow choosing when to transition from ICode to ASM types
+     *  (including not at all, e.g. for performance).
+     */
+    abstract class JCodeMethodV {
+
+      def jmethod: asm.MethodVisitor
+
+      import asm.Opcodes;
+
+      def aconst(cst: AnyRef) {
+        if (cst == null) { jmethod.visitInsn(Opcodes.ACONST_NULL) }
+        else             { jmethod.visitLdcInsn(cst) }
+      }
+
+      @inline final def boolconst(b: Boolean) { iconst(if(b) 1 else 0) }
+
+      def iconst(cst: Int) {
+        if (cst >= -1 && cst <= 5) {
+          jmethod.visitInsn(Opcodes.ICONST_0 + cst)
+        } else if (cst >= java.lang.Byte.MIN_VALUE && cst <= java.lang.Byte.MAX_VALUE) {
+          jmethod.visitIntInsn(Opcodes.BIPUSH, cst)
+        } else if (cst >= java.lang.Short.MIN_VALUE && cst <= java.lang.Short.MAX_VALUE) {
+          jmethod.visitIntInsn(Opcodes.SIPUSH, cst)
+        } else {
+          jmethod.visitLdcInsn(new Integer(cst))
+        }
+      }
+
+      def lconst(cst: Long) {
+        if (cst == 0L || cst == 1L) {
+          jmethod.visitInsn(Opcodes.LCONST_0 + cst.asInstanceOf[Int])
+        } else {
+          jmethod.visitLdcInsn(new java.lang.Long(cst))
+        }
+      }
+
+      def fconst(cst: Float) {
+        val bits: Int = java.lang.Float.floatToIntBits(cst)
+        if (bits == 0L || bits == 0x3f800000 || bits == 0x40000000) { // 0..2
+          jmethod.visitInsn(Opcodes.FCONST_0 + cst.asInstanceOf[Int])
+        } else {
+          jmethod.visitLdcInsn(new java.lang.Float(cst))
+        }
+      }
+
+      def dconst(cst: Double) {
+        val bits: Long = java.lang.Double.doubleToLongBits(cst)
+        if (bits == 0L || bits == 0x3ff0000000000000L) { // +0.0d and 1.0d
+          jmethod.visitInsn(Opcodes.DCONST_0 + cst.asInstanceOf[Int])
+        } else {
+          jmethod.visitLdcInsn(new java.lang.Double(cst))
+        }
+      }
+
+      def newarray(elem: TypeKind) {
+        if(elem.isRefOrArrayType) {
+          jmethod.visitTypeInsn(Opcodes.ANEWARRAY, javaType(elem).getInternalName)
+        } else {
+          val rand = {
+            if(elem.isIntSizedType) {
+              (elem: @unchecked) match {
+                case BOOL   => Opcodes.T_BOOLEAN
+                case BYTE   => Opcodes.T_BYTE
+                case SHORT  => Opcodes.T_SHORT
+                case CHAR   => Opcodes.T_CHAR
+                case INT    => Opcodes.T_INT
+              }
+            } else {
+              (elem: @unchecked) match {
+                case LONG   => Opcodes.T_LONG
+                case FLOAT  => Opcodes.T_FLOAT
+                case DOUBLE => Opcodes.T_DOUBLE
+              }
+            }
+          }
+          jmethod.visitIntInsn(Opcodes.NEWARRAY, rand)
+        }
+      }
+
+
+      @inline def load( idx: Int, tk: TypeKind) { emitVarInsn(Opcodes.ILOAD,  idx, tk) }
+      @inline def store(idx: Int, tk: TypeKind) { emitVarInsn(Opcodes.ISTORE, idx, tk) }
+
+      @inline def aload( tk: TypeKind) { emitTypeBased(aloadOpcodes,  tk) }
+      @inline def astore(tk: TypeKind) { emitTypeBased(astoreOpcodes, tk) }
+
+      @inline def neg(tk: TypeKind) { emitPrimitive(negOpcodes, tk) }
+      @inline def add(tk: TypeKind) { emitPrimitive(addOpcodes, tk) }
+      @inline def sub(tk: TypeKind) { emitPrimitive(subOpcodes, tk) }
+      @inline def mul(tk: TypeKind) { emitPrimitive(mulOpcodes, tk) }
+      @inline def div(tk: TypeKind) { emitPrimitive(divOpcodes, tk) }
+      @inline def rem(tk: TypeKind) { emitPrimitive(remOpcodes, tk) }
+
+      @inline def invokespecial(owner: String, name: String, desc: String) {
+        jmethod.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, name, desc)
+      }
+      @inline def invokestatic(owner: String, name: String, desc: String) {
+        jmethod.visitMethodInsn(Opcodes.INVOKESTATIC, owner, name, desc)
+      }
+      @inline def invokeinterface(owner: String, name: String, desc: String) {
+        jmethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, owner, name, desc)
+      }
+      @inline def invokevirtual(owner: String, name: String, desc: String) {
+        jmethod.visitMethodInsn(Opcodes.INVOKEVIRTUAL, owner, name, desc)
+      }
+
+      @inline def goTo(label: asm.Label) { jmethod.visitJumpInsn(Opcodes.GOTO, label) }
+      @inline def emitIF(cond: TestOp, label: asm.Label)      { jmethod.visitJumpInsn(cond.opcodeIF,     label) }
+      @inline def emitIF_ICMP(cond: TestOp, label: asm.Label) { jmethod.visitJumpInsn(cond.opcodeIFICMP, label) }
+      @inline def emitIF_ACMP(cond: TestOp, label: asm.Label) {
+        assert((cond == EQ) || (cond == NE), cond)
+        val opc = (if(cond == EQ) Opcodes.IF_ACMPEQ else Opcodes.IF_ACMPNE)
+        jmethod.visitJumpInsn(opc, label)
+      }
+      @inline def emitIFNONNULL(label: asm.Label) { jmethod.visitJumpInsn(Opcodes.IFNONNULL, label) }
+      @inline def emitIFNULL   (label: asm.Label) { jmethod.visitJumpInsn(Opcodes.IFNULL,    label) }
+
+      @inline def emitRETURN(tk: TypeKind) {
+        if(tk == UNIT) { jmethod.visitInsn(Opcodes.RETURN) }
+        else           { emitTypeBased(returnOpcodes, tk)      }
+      }
+
+      /** Emits one of tableswitch or lookoupswitch. */
+      def emitSWITCH(keys: Array[Int], branches: Array[asm.Label], defaultBranch: asm.Label, minDensity: Double) {
+        assert(keys.length == branches.length)
+
+        // For empty keys, it makes sense emitting LOOKUPSWITCH with defaultBranch only.
+        // Similar to what javac emits for a switch statement consisting only of a default case.
+        if (keys.length == 0) {
+          jmethod.visitLookupSwitchInsn(defaultBranch, keys, branches)
+          return
+        }
+
+        // sort `keys` by increasing key, keeping `branches` in sync. TODO FIXME use quicksort
+        var i = 1
+        while (i < keys.length) {
+          var j = 1
+          while (j <= keys.length - i) {
+            if (keys(j) < keys(j - 1)) {
+              val tmp     = keys(j)
+              keys(j)     = keys(j - 1)
+              keys(j - 1) = tmp
+              val tmpL        = branches(j)
+              branches(j)     = branches(j - 1)
+              branches(j - 1) = tmpL
+            }
+            j += 1
+          }
+          i += 1
+        }
+
+        // check for duplicate keys to avoid "VerifyError: unsorted lookupswitch" (SI-6011)
+        i = 1
+        while (i < keys.length) {
+          if(keys(i-1) == keys(i)) {
+            abort("duplicate keys in SWITCH, can't pick arbitrarily one of them to evict, see SI-6011.")
+          }
+          i += 1
+        }
+
+        val keyMin = keys(0)
+        val keyMax = keys(keys.length - 1)
+
+        val isDenseEnough: Boolean = {
+          /** Calculate in long to guard against overflow. TODO what overflow??? */
+          val keyRangeD: Double = (keyMax.asInstanceOf[Long] - keyMin + 1).asInstanceOf[Double]
+          val klenD:     Double = keys.length
+          val kdensity:  Double = (klenD / keyRangeD)
+
+          kdensity >= minDensity
+        }
+
+        if (isDenseEnough) {
+          // use a table in which holes are filled with defaultBranch.
+          val keyRange    = (keyMax - keyMin + 1)
+          val newBranches = new Array[asm.Label](keyRange)
+          var oldPos = 0;
+          var i = 0
+          while(i < keyRange) {
+            val key = keyMin + i;
+            if (keys(oldPos) == key) {
+              newBranches(i) = branches(oldPos)
+              oldPos += 1
+            } else {
+              newBranches(i) = defaultBranch
+            }
+            i += 1
+          }
+          assert(oldPos == keys.length, "emitSWITCH")
+          jmethod.visitTableSwitchInsn(keyMin, keyMax, defaultBranch, newBranches: _*)
+        } else {
+          jmethod.visitLookupSwitchInsn(defaultBranch, keys, branches)
+        }
+      }
+
+      // internal helpers -- not part of the public API of `jcode`
+      // don't make private otherwise inlining will suffer
+
+      def emitVarInsn(opc: Int, idx: Int, tk: TypeKind) {
+        assert((opc == Opcodes.ILOAD) || (opc == Opcodes.ISTORE), opc)
+        jmethod.visitVarInsn(javaType(tk).getOpcode(opc), idx)
+      }
+
+      // ---------------- array load and store ----------------
+
+      val aloadOpcodes  = { import Opcodes._; Array(AALOAD,  BALOAD,  SALOAD,  CALOAD,  IALOAD,  LALOAD,  FALOAD,  DALOAD)  }
+      val astoreOpcodes = { import Opcodes._; Array(AASTORE, BASTORE, SASTORE, CASTORE, IASTORE, LASTORE, FASTORE, DASTORE) }
+
+      val returnOpcodes = { import Opcodes._; Array(ARETURN, IRETURN, IRETURN, IRETURN, IRETURN, LRETURN, FRETURN, DRETURN) }
+
+      def emitTypeBased(opcs: Array[Int], tk: TypeKind) {
+        assert(tk != UNIT, tk)
+        val opc = {
+          if(tk.isRefOrArrayType) {   opcs(0) }
+          else if(tk.isIntSizedType) {
+            (tk: @unchecked) match {
+              case BOOL | BYTE     => opcs(1)
+              case SHORT           => opcs(2)
+              case CHAR            => opcs(3)
+              case INT             => opcs(4)
+            }
+          } else {
+            (tk: @unchecked) match {
+              case LONG            => opcs(5)
+              case FLOAT           => opcs(6)
+              case DOUBLE          => opcs(7)
+            }
+          }
+        }
+        jmethod.visitInsn(opc)
+      }
+
+      // ---------------- primitive operations ----------------
+
+      val negOpcodes: Array[Int] = { import Opcodes._; Array(INEG, LNEG, FNEG, DNEG) }
+      val addOpcodes: Array[Int] = { import Opcodes._; Array(IADD, LADD, FADD, DADD) }
+      val subOpcodes: Array[Int] = { import Opcodes._; Array(ISUB, LSUB, FSUB, DSUB) }
+      val mulOpcodes: Array[Int] = { import Opcodes._; Array(IMUL, LMUL, FMUL, DMUL) }
+      val divOpcodes: Array[Int] = { import Opcodes._; Array(IDIV, LDIV, FDIV, DDIV) }
+      val remOpcodes: Array[Int] = { import Opcodes._; Array(IREM, LREM, FREM, DREM) }
+
+      def emitPrimitive(opcs: Array[Int], tk: TypeKind) {
+        val opc = {
+          if(tk.isIntSizedType) { opcs(0) }
+          else {
+            (tk: @unchecked) match {
+              case LONG   => opcs(1)
+              case FLOAT  => opcs(2)
+              case DOUBLE => opcs(3)
+            }
+          }
+        }
+        jmethod.visitInsn(opc)
+      }
+
+    } // end of class JCodeMethodV
+
+    abstract class JCodeMethodN extends JCodeMethodV {
+      override def jmethod: asm.tree.MethodNode
+    }
+
   } // end of trait BCInnerClassGen
 
   trait BCAnnotGen extends BCInnerClassGen {
