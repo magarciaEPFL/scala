@@ -212,15 +212,7 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
   } // end of class AsmPhase
 
   /** basic functionality for class file building */
-  abstract class JBuilder(bytecodeWriter: BytecodeWriter) extends BCInnerClass {
-
-    val EMPTY_JTYPE_ARRAY  = Array.empty[asm.Type]
-    val EMPTY_STRING_ARRAY = Array.empty[String]
-
-    val mdesc_arglessvoid = "()V"
-
-    val CLASS_CONSTRUCTOR_NAME    = "<clinit>"
-    val INSTANCE_CONSTRUCTOR_NAME = "<init>"
+  abstract class JBuilder(bytecodeWriter: BytecodeWriter) extends BCInnerClassGen {
 
     // -----------------------------------------------------------------------------------------
     // factory methods
@@ -776,7 +768,7 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
   /** builder of plain classes */
   class JPlainBuilder(bytecodeWriter: BytecodeWriter)
     extends JCommonBuilder(bytecodeWriter)
-    with    BCClass
+    with    BCClassGen
     with    JAndroidBuilder {
 
     val MIN_SWITCH_DENSITY = 0.7
@@ -794,42 +786,6 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
 
     def serialVUID: Option[Long] = clasz.symbol getAnnotation SerialVersionUIDAttr collect {
       case AnnotationInfo(_, Literal(const) :: _, _) => const.longValue
-    }
-
-    private def getSuperInterfaces(c: IClass): Array[String] = {
-
-        // Additional interface parents based on annotations and other cues
-        def newParentForAttr(attr: Symbol): Option[Symbol] = attr match {
-          case SerializableAttr => Some(SerializableClass)
-          case CloneableAttr    => Some(CloneableClass)
-          case RemoteAttr       => Some(RemoteInterfaceClass)
-          case _                => None
-        }
-
-        /** Drop redundant interfaces (ones which are implemented by some other parent) from the immediate parents.
-         *  This is important on Android because there is otherwise an interface explosion.
-         */
-        def minimizeInterfaces(lstIfaces: List[Symbol]): List[Symbol] = {
-          var rest   = lstIfaces
-          var leaves = List.empty[Symbol]
-          while(!rest.isEmpty) {
-            val candidate = rest.head
-            val nonLeaf = leaves exists { lsym => lsym isSubClass candidate }
-            if(!nonLeaf) {
-              leaves = candidate :: (leaves filterNot { lsym => candidate isSubClass lsym })
-            }
-            rest = rest.tail
-          }
-
-          leaves
-        }
-
-      val ps = c.symbol.info.parents
-      val superInterfaces0: List[Symbol] = if(ps.isEmpty) Nil else c.symbol.mixinClasses;
-      val superInterfaces = superInterfaces0 ++ c.symbol.annotations.flatMap(ann => newParentForAttr(ann.symbol)) distinct
-
-      if(superInterfaces.isEmpty) EMPTY_STRING_ARRAY
-      else mkArray(minimizeInterfaces(superInterfaces) map javaName)
     }
 
     var clasz:    IClass = _           // this var must be assigned only by genClass()
@@ -852,7 +808,7 @@ abstract class GenASM extends BCodeUtils with BytecodeWriters {
       val ps = c.symbol.info.parents
       val superClass: String = if(ps.isEmpty) JAVA_LANG_OBJECT.getInternalName else javaName(ps.head.typeSymbol);
 
-      val ifaces = getSuperInterfaces(c)
+      val ifaces = getSuperInterfaces(c.symbol)
 
       val thisSignature = getGenericSignature(c.symbol, c.symbol.owner)
       val flags = mkFlags(

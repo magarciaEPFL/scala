@@ -162,7 +162,7 @@ abstract class BCodeUtils extends SubComponent {
     val res0 =
       if (nme.isModuleName(name)) rootMirror.getModule(nme.stripModuleSuffix(name))
       else                        rootMirror.getClassByName(name.replace('/', '.')) // TODO fails for inner classes (but this hasn't been tested).
-    assert(res0 != NoSymbol)
+    assert(res0 != NoSymbol, "inameToSymbol() returned NoSymbol.")
     val res = jsymbol(res0)
     res
   }
@@ -182,8 +182,8 @@ abstract class BCodeUtils extends SubComponent {
   }
 
   def firstCommonSuffix(as: List[Symbol], bs: List[Symbol]): Symbol = {
-    assert(!(as contains NoSymbol))
-    assert(!(bs contains NoSymbol))
+    assert(!(as contains NoSymbol), "firstCommonSuffix() detected NoSymbol in " + as.toList.mkString)
+    assert(!(bs contains NoSymbol), "firstCommonSuffix() detected NoSymbol in " + bs.toList.mkString)
     var chainA = as
     var chainB = bs
     var fcs: Symbol = NoSymbol
@@ -200,8 +200,8 @@ abstract class BCodeUtils extends SubComponent {
 
   @inline final def jvmWiseLUB(a: Symbol, b: Symbol): Symbol = {
 
-    assert(a.isClass)
-    assert(b.isClass)
+    assert(a.isClass, "jvmWiseLUB() received a non-class " + a.fullName)
+    assert(b.isClass, "jvmWiseLUB() received a non-class " + b.fullName)
 
     val res = Pair(a.isInterface, b.isInterface) match {
       case (true, true) =>
@@ -213,7 +213,7 @@ abstract class BCodeUtils extends SubComponent {
       case _ =>
         firstCommonSuffix(superClasses(a), superClasses(b))
     }
-    assert(res != NoSymbol)
+    assert(res != NoSymbol, "jvmWiseLUB() returned NoSymbol.")
     res
   }
 
@@ -339,7 +339,15 @@ abstract class BCodeUtils extends SubComponent {
 
   }
 
-  trait BCInnerClass {
+  trait BCInnerClassGen {
+
+    val EMPTY_JTYPE_ARRAY  = Array.empty[asm.Type]
+    val EMPTY_STRING_ARRAY = Array.empty[String]
+
+    val mdesc_arglessvoid = "()V"
+
+    val CLASS_CONSTRUCTOR_NAME    = "<clinit>"
+    val INSTANCE_CONSTRUCTOR_NAME = "<init>"
 
     val INNER_CLASSES_FLAGS =
       (asm.Opcodes.ACC_PUBLIC    | asm.Opcodes.ACC_PRIVATE | asm.Opcodes.ACC_PROTECTED |
@@ -558,9 +566,9 @@ abstract class BCodeUtils extends SubComponent {
       }
     }
 
-  } // end of trait BCInnerClass
+  } // end of trait BCInnerClassGen
 
-  trait BCClass extends BCInnerClass {
+  trait BCClassGen extends BCInnerClassGen {
 
     /**
      * @param owner internal name of the enclosing class of the class.
@@ -600,6 +608,42 @@ abstract class BCodeUtils extends SubComponent {
       res
     }
 
-  } // end of trait BCClass
+    def getSuperInterfaces(csym: Symbol): Array[String] = {
+
+        // Additional interface parents based on annotations and other cues
+        def newParentForAttr(attr: Symbol): Option[Symbol] = attr match {
+          case SerializableAttr => Some(SerializableClass)
+          case CloneableAttr    => Some(CloneableClass)
+          case RemoteAttr       => Some(RemoteInterfaceClass)
+          case _                => None
+        }
+
+        /** Drop redundant interfaces (ones which are implemented by some other parent) from the immediate parents.
+         *  This is important on Android because there is otherwise an interface explosion.
+         */
+        def minimizeInterfaces(lstIfaces: List[Symbol]): List[Symbol] = {
+          var rest   = lstIfaces
+          var leaves = List.empty[Symbol]
+          while(!rest.isEmpty) {
+            val candidate = rest.head
+            val nonLeaf = leaves exists { lsym => lsym isSubClass candidate }
+            if(!nonLeaf) {
+              leaves = candidate :: (leaves filterNot { lsym => candidate isSubClass lsym })
+            }
+            rest = rest.tail
+          }
+
+          leaves
+        }
+
+      val ps = csym.info.parents
+      val superInterfaces0: List[Symbol] = if(ps.isEmpty) Nil else csym.mixinClasses;
+      val superInterfaces = superInterfaces0 ++ csym.annotations.flatMap(ann => newParentForAttr(ann.symbol)) distinct
+
+      if(superInterfaces.isEmpty) EMPTY_STRING_ARRAY
+      else mkArray(minimizeInterfaces(superInterfaces) map javaName)
+    }
+
+  } // end of trait BCClassGen
 
 }
