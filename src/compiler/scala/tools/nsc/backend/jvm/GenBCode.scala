@@ -40,19 +40,29 @@ abstract class GenBCode extends BCodeUtils {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
+    private var bytecodeWriter  : BytecodeWriter   = null
+    private var mirrorCodeGen   : JMirrorBuilder   = null
+    private var beanInfoCodeGen : JBeanInfoBuilder = null
+
+    private var cunit: CompilationUnit     = null
+    private var cnode: asm.tree.ClassNode  = null
+    private var mnode: asm.tree.MethodNode = null
+
     override def run() {
       scalaPrimitives.init
+      bytecodeWriter  = initBytecodeWriter(cleanup.getEntryPoints)
+      mirrorCodeGen   = new JMirrorBuilder(bytecodeWriter)
+      beanInfoCodeGen = new JBeanInfoBuilder(bytecodeWriter)
       super.run()
+      bytecodeWriter.close()
+      reverseJavaName.clear()
     }
 
     override def apply(unit: CompilationUnit): Unit = {
-      // this.unit = unit
+      this.cunit = unit
       // gen(unit.body)
-      // this.unit = NoCompilationUnit
+      this.cunit = NoCompilationUnit
     }
-
-    var cnode: asm.tree.ClassNode  = null
-    var mnode: asm.tree.MethodNode = null
 
     object bc extends JCodeMethodN {
       override def jmethod = BCodePhase.this.mnode
