@@ -102,15 +102,6 @@ abstract class GenASM extends BCodeUtils {
   } // end of class AsmPhase
 
 
-  /** functionality for building plain and mirror classes */
-  abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter)
-    extends JBuilder(bytecodeWriter)
-    with    BCAnnotGen
-    with    BCForwardersGen
-    with    BCPickles {
-
-  } // end of class JCommonBuilder
-
 
   trait JAndroidBuilder {
     self: JPlainBuilder =>
@@ -1415,60 +1406,6 @@ abstract class GenASM extends BCodeUtils {
     }
 
   } // end of class JPlainBuilder
-
-
-  /** builder of mirror classes */
-  class JMirrorBuilder(bytecodeWriter: BytecodeWriter) extends JCommonBuilder(bytecodeWriter) {
-
-    private var cunit: CompilationUnit = _
-    def getCurrentCUnit(): CompilationUnit = cunit;
-
-    /** Generate a mirror class for a top-level module. A mirror class is a class
-     *  containing only static methods that forward to the corresponding method
-     *  on the MODULE instance of the given Scala object.  It will only be
-     *  generated if there is no companion class: if there is, an attempt will
-     *  instead be made to add the forwarder methods to the companion class.
-     */
-    def genMirrorClass(modsym: Symbol, cunit: CompilationUnit) {
-      assert(modsym.companionClass == NoSymbol, modsym)
-      innerClassBuffer.clear()
-      this.cunit = cunit
-      val moduleName = javaName(modsym) // + "$"
-      val mirrorName = moduleName.substring(0, moduleName.length() - 1)
-
-      val flags = (asm.Opcodes.ACC_SUPER | asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL)
-      val mirrorClass = createJClass(flags,
-                                     mirrorName,
-                                     null /* no java-generic-signature */,
-                                     JAVA_LANG_OBJECT.getInternalName,
-                                     EMPTY_STRING_ARRAY)
-
-      log("Dumping mirror class for '%s'".format(mirrorName))
-
-      // typestate: entering mode with valid call sequences:
-      //   [ visitSource ] [ visitOuterClass ] ( visitAnnotation | visitAttribute )*
-
-      if(emitSource) {
-        mirrorClass.visitSource("" + cunit.source,
-                                null /* SourceDebugExtension */)
-      }
-
-      val ssa = getAnnotPickle(mirrorName, modsym.companionSymbol)
-      mirrorClass.visitAttribute(if(ssa.isDefined) pickleMarkerLocal else pickleMarkerForeign)
-      emitAnnotations(mirrorClass, modsym.annotations ++ ssa)
-
-      // typestate: entering mode with valid call sequences:
-      //   ( visitInnerClass | visitField | visitMethod )* visitEnd
-
-      addForwarders(isRemote(modsym), mirrorClass, mirrorName, modsym)
-
-      addInnerClasses(modsym, mirrorClass)
-      mirrorClass.visitEnd()
-      writeIfNotTooBig("" + modsym.name, mirrorName, mirrorClass, modsym)
-    }
-
-
-  } // end of class JMirrorBuilder
 
 
   /** builder of bean info classes */
