@@ -103,76 +103,6 @@ abstract class GenASM extends BCodeUtils {
 
 
 
-  trait JAndroidBuilder {
-    self: JPlainBuilder =>
-
-    /** From the reference documentation of the Android SDK:
-     *  The `Parcelable` interface identifies classes whose instances can be written to and restored from a `Parcel`.
-     *  Classes implementing the `Parcelable` interface must also have a static field called `CREATOR`,
-     *  which is an object implementing the `Parcelable.Creator` interface.
-     */
-    private val androidFieldName = newTermName("CREATOR")
-
-    private lazy val AndroidParcelableInterface = rootMirror.getClassIfDefined("android.os.Parcelable")
-    private lazy val AndroidCreatorClass        = rootMirror.getClassIfDefined("android.os.Parcelable$Creator")
-
-    def isAndroidParcelableClass(sym: Symbol) =
-      (AndroidParcelableInterface != NoSymbol) &&
-      (sym.parentSymbols contains AndroidParcelableInterface)
-
-    /* Typestate: should be called before emitting fields (because it adds an IField to the current IClass). */
-    def addCreatorCode(block: BasicBlock) {
-      val fieldSymbol = (
-        clasz.symbol.newValue(newTermName(androidFieldName), NoPosition, Flags.STATIC | Flags.FINAL)
-          setInfo AndroidCreatorClass.tpe
-      )
-      val methodSymbol = definitions.getMember(clasz.symbol.companionModule, androidFieldName)
-      clasz addField new IField(fieldSymbol)
-      block emit CALL_METHOD(methodSymbol, Static(false))
-      block emit STORE_FIELD(fieldSymbol, true)
-    }
-
-    def legacyAddCreatorCode(clinit: asm.MethodVisitor) {
-      val creatorType: asm.Type = javaType(AndroidCreatorClass)
-      val tdesc_creator = creatorType.getDescriptor
-
-      jclass.visitField(
-        PublicStaticFinal,
-        androidFieldName,
-        tdesc_creator,
-        null, // no java-generic-signature
-        null  // no initial value
-      ).visitEnd()
-
-      val moduleName = javaName(clasz.symbol)+"$"
-
-      // GETSTATIC `moduleName`.MODULE$ : `moduleName`;
-      clinit.visitFieldInsn(
-        asm.Opcodes.GETSTATIC,
-        moduleName,
-        strMODULE_INSTANCE_FIELD,
-        asm.Type.getObjectType(moduleName).getDescriptor
-      )
-
-      // INVOKEVIRTUAL `moduleName`.CREATOR() : android.os.Parcelable$Creator;
-      clinit.visitMethodInsn(
-        asm.Opcodes.INVOKEVIRTUAL,
-        moduleName,
-        androidFieldName,
-        asm.Type.getMethodDescriptor(creatorType, Array.empty[asm.Type]: _*)
-      )
-
-      // PUTSTATIC `thisName`.CREATOR;
-      clinit.visitFieldInsn(
-        asm.Opcodes.PUTSTATIC,
-        thisName,
-        androidFieldName,
-        tdesc_creator
-      )
-    }
-
-  } // end of trait JAndroidBuilder
-
   case class BlockInteval(start: BasicBlock, end: BasicBlock)
 
   /** builder of plain classes */
@@ -470,7 +400,7 @@ abstract class GenASM extends BCodeUtils {
             lastBlock emit CALL_METHOD(m.symbol.enclClass.primaryConstructor, Static(true))
           }
 
-          if (isParcelableClass) { addCreatorCode(lastBlock) }
+          if (isParcelableClass) { addAndroidCreatorCode(lastBlock) }
 
           lastBlock emit RETURN(UNIT)
           lastBlock.close
@@ -492,6 +422,18 @@ abstract class GenASM extends BCodeUtils {
       }
     }
 
+    /* Typestate: should be called before emitting fields (because it adds an IField to the current IClass). */
+    private def addAndroidCreatorCode(block: BasicBlock) {
+      val fieldSymbol = (
+        clasz.symbol.newValue(newTermName(androidFieldName), NoPosition, Flags.STATIC | Flags.FINAL)
+          setInfo AndroidCreatorClass.tpe
+      )
+      val methodSymbol = definitions.getMember(clasz.symbol.companionModule, androidFieldName)
+      clasz addField new IField(fieldSymbol)
+      block emit CALL_METHOD(methodSymbol, Static(false))
+      block emit STORE_FIELD(fieldSymbol, true)
+    }
+
     /* used only from addStaticInit() */
     private def legacyStaticInitializer(clinit: asm.MethodVisitor) {
       if (isStaticModule(clasz.symbol)) {
@@ -500,7 +442,7 @@ abstract class GenASM extends BCodeUtils {
                                thisName, INSTANCE_CONSTRUCTOR_NAME, mdesc_arglessvoid)
       }
 
-      if (isParcelableClass) { legacyAddCreatorCode(clinit) }
+      if (isParcelableClass) { legacyAddCreatorCode(clinit, jclass, clasz.symbol, thisName) }
 
       clinit.visitInsn(asm.Opcodes.RETURN)
     }

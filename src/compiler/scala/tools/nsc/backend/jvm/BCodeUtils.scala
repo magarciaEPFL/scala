@@ -1580,7 +1580,6 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   } // end of class JMirrorBuilder
 
-
   /** builder of bean info classes */
   class JBeanInfoBuilder(bytecodeWriter: BytecodeWriter) extends JBuilder(bytecodeWriter) {
 
@@ -1707,5 +1706,65 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
     }
 
   } // end of class JBeanInfoBuilder
+
+  trait JAndroidBuilder {
+    self: BCInnerClassGen =>
+
+    /** From the reference documentation of the Android SDK:
+     *  The `Parcelable` interface identifies classes whose instances can be written to and restored from a `Parcel`.
+     *  Classes implementing the `Parcelable` interface must also have a static field called `CREATOR`,
+     *  which is an object implementing the `Parcelable.Creator` interface.
+     */
+    val androidFieldName = newTermName("CREATOR")
+
+    private lazy val AndroidParcelableInterface = rootMirror.getClassIfDefined("android.os.Parcelable")
+    lazy val AndroidCreatorClass        = rootMirror.getClassIfDefined("android.os.Parcelable$Creator")
+
+    def isAndroidParcelableClass(sym: Symbol) =
+      (AndroidParcelableInterface != NoSymbol) &&
+      (sym.parentSymbols contains AndroidParcelableInterface)
+
+    // TODO see JPlainBuilder.addAndroidCreatorCode()
+
+    def legacyAddCreatorCode(clinit: asm.MethodVisitor, jclass: asm.ClassWriter, csym: Symbol, thisName: String) {
+      val creatorType: asm.Type = javaType(AndroidCreatorClass)
+      val tdesc_creator = creatorType.getDescriptor
+
+      jclass.visitField(
+        PublicStaticFinal,
+        androidFieldName,
+        tdesc_creator,
+        null, // no java-generic-signature
+        null  // no initial value
+      ).visitEnd()
+
+      val moduleName = javaName(csym)+"$"
+
+      // GETSTATIC `moduleName`.MODULE$ : `moduleName`;
+      clinit.visitFieldInsn(
+        asm.Opcodes.GETSTATIC,
+        moduleName,
+        strMODULE_INSTANCE_FIELD,
+        asm.Type.getObjectType(moduleName).getDescriptor
+      )
+
+      // INVOKEVIRTUAL `moduleName`.CREATOR() : android.os.Parcelable$Creator;
+      clinit.visitMethodInsn(
+        asm.Opcodes.INVOKEVIRTUAL,
+        moduleName,
+        androidFieldName,
+        asm.Type.getMethodDescriptor(creatorType, Array.empty[asm.Type]: _*)
+      )
+
+      // PUTSTATIC `thisName`.CREATOR;
+      clinit.visitFieldInsn(
+        asm.Opcodes.PUTSTATIC,
+        thisName,
+        androidFieldName,
+        tdesc_creator
+      )
+    }
+
+  } // end of trait JAndroidBuilder
 
 } // end of class BCodeUtils
