@@ -126,21 +126,9 @@ abstract class GenASM extends BCodeUtils {
       clasz = c
       innerClassBuffer.clear()
 
-      thisName = javaName(c.symbol) // the internal name of the class being emitted
-
-      val ps = c.symbol.info.parents
-      val superClass: String = if(ps.isEmpty) JAVA_LANG_OBJECT.getInternalName else javaName(ps.head.typeSymbol);
-
-      val ifaces = getSuperInterfaces(c.symbol)
-
-      val thisSignature = getGenericSignature(c.symbol, c.symbol.owner)
-      val flags = mkFlags(
-        javaFlags(c.symbol),
-        if(isDeprecated(c.symbol)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
-      )
-      jclass  = createJClass(flags,
-                             thisName, thisSignature,
-                             superClass, ifaces)
+      thisName = javaName(c.symbol)
+      jclass = new CClassWriter(extraProc)
+      initJClass(jclass, c.symbol, thisName, getGenericSignature(c.symbol, c.symbol.owner))
 
       // typestate: entering mode with valid call sequences:
       //   [ visitSource ] [ visitOuterClass ] ( visitAnnotation | visitAttribute )*
