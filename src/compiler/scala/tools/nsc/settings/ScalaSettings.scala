@@ -227,4 +227,7 @@ trait ScalaSettings extends AbsScalaSettings
 
   /** Test whether this is scaladoc we're looking at */
   def isScaladoc = false
+
+  /** Test whether GenBCode will run instead of GenASM */
+  def isBCodeActive = !(optimiseSettings.exists(_.value))
 }

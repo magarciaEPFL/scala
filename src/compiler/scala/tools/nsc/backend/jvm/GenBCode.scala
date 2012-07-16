@@ -51,6 +51,7 @@ abstract class GenBCode extends BCodeUtils {
       // this.unit = NoCompilationUnit
     }
 
+    var cnode: asm.tree.ClassNode  = null
     var mnode: asm.tree.MethodNode = null
 
     object bc extends JCodeMethodN {

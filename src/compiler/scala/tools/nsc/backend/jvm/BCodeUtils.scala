@@ -310,9 +310,9 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
     )
   }
 
-  trait BCCommonPhase extends global.GlobalPhase {
+  object isJavaEntryPoint {
 
-    def isJavaEntryPoint(sym: Symbol, csymCompUnit: CompilationUnit) = {
+    def apply(sym: Symbol, csymCompUnit: CompilationUnit): Boolean = {
       def fail(msg: String, pos: Position = sym.pos) = {
         csymCompUnit.warning(sym.pos,
           sym.name + " has a main method with parameter type Array[String], but " + sym.fullName('.') + " will not be a runnable program.\n" +
@@ -366,6 +366,10 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
         }
       }
     }
+
+  }
+
+  trait BCCommonPhase extends global.GlobalPhase {
 
     def initBytecodeWriter(entryPoints: List[Symbol]): BytecodeWriter = {
       settings.outputDirs.getSingleOutput match {
