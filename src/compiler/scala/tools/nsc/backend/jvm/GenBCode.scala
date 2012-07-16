@@ -89,8 +89,23 @@ abstract class GenBCode extends BCodeUtils {
           pkg.pop()
 
         case cd: ClassDef =>
+          // mirror class, if needed
+          if (isStaticModule(cd.symbol) && isTopLevelModule(cd.symbol)) {
+            if (cd.symbol.companionClass == NoSymbol) {
+              mirrorCodeGen.genMirrorClass(cd.symbol, cunit)
+            } else {
+              log("No mirror class for module with linked class: " + cd.symbol.fullName)
+            }
+          }
+          // "plain" class
           genPlainClass(cd)
-          // TODO mirror and bean info, if needed.
+          // bean info class, if needed
+          if (cd.symbol hasAnnotation BeanInfoAttr) {
+            val methodSymbols: List[Symbol] = (
+              cd.impl.body collect { case dd: DefDef => dd } map { dd => cd.symbol }
+            )
+            beanInfoCodeGen.genBeanInfoClass(cd.symbol, cunit, fieldSymbols(cd.symbol), methodSymbols)
+          }
 
         case ModuleDef(mods, name, impl) =>
           abort("Modules should have been eliminated by refchecks: " + tree)
@@ -114,8 +129,8 @@ abstract class GenBCode extends BCodeUtils {
           }
 
           val returnType =
-            if (tree.symbol.isConstructor) UNIT
-            else toTypeKind(tree.symbol.info.resultType)
+            if (msym.isConstructor) UNIT
+            else toTypeKind(msym.info.resultType)
 
           // addMethodParams(vparamss)
           val isNative = msym.hasAnnotation(definitions.NativeAttr)
@@ -177,6 +192,10 @@ abstract class GenBCode extends BCodeUtils {
 
     } // end of method genPlainClass()
 
+    private def fieldSymbols(cls: Symbol): List[Symbol] = {
+      for (f <- cls.info.decls.toList ; if !f.isMethod && f.isTerm && !f.isModule) yield f;
+    }
+
     def addClassFields(cls: Symbol) {
       /** Non-method term members are fields, except for module members. Module
        *  members can only happen on .NET (no flatten) for inner traits. There,
@@ -185,7 +204,7 @@ abstract class GenBCode extends BCodeUtils {
        *  backend emits them as static).
        *  No code is needed for this module symbol.
        */
-      for (f <- cls.info.decls ; if !f.isMethod && f.isTerm && !f.isModule) {
+      for (f <- fieldSymbols(cls)) {
         val javagensig = getGenericSignature(f, cls)
         val flags = mkFlags(
           javaFieldFlags(f),
@@ -205,7 +224,7 @@ abstract class GenBCode extends BCodeUtils {
 
     } // end of method addClassFields()
 
-    /* if you look closely, there's almost no code duplication with JBuilder's `writeIfNotTooBig()` */
+    /* if you look closely, you'll find almost no code duplication with JBuilder's `writeIfNotTooBig()` */
     def writeIfNotTooBig(label: String, jclassName: String, cnode: asm.tree.ClassNode, sym: Symbol) {
       try {
         val cw = new CClassWriter(extraProc)

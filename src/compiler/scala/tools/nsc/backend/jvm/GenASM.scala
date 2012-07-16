@@ -38,8 +38,6 @@ abstract class GenASM extends BCodeUtils {
     override def erasedTypes = true
     def apply(cls: IClass) = sys.error("no implementation")
 
-    val BeanInfoAttr = rootMirror.getRequiredClass("scala.beans.BeanInfo")
-
     override def run() {
 
       if (settings.debug.value)
@@ -68,7 +66,7 @@ abstract class GenASM extends BCodeUtils {
         plainCodeGen.genClass(c)
 
         if (c.symbol hasAnnotation BeanInfoAttr) {
-          beanInfoCodeGen.genBeanInfoClass(c)
+          beanInfoCodeGen.genBeanInfoClass(c.symbol, c.cunit, c.fields.map(_.symbol), c.methods.map(_.symbol))
         }
 
         sortedClasses = sortedClasses.tail

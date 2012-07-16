@@ -371,6 +371,8 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   trait BCCommonPhase extends global.GlobalPhase {
 
+    val BeanInfoAttr = rootMirror.getRequiredClass("scala.beans.BeanInfo")
+
     def initBytecodeWriter(entryPoints: List[Symbol]): BytecodeWriter = {
       settings.outputDirs.getSingleOutput match {
         case Some(f) if f hasExtension "jar" =>
@@ -1635,7 +1637,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
      *
      * @author Ross Judson (ross.judson@soletta.com)
      */
-    def genBeanInfoClass(clasz: IClass) {
+    def genBeanInfoClass(cls: Symbol, cunit: CompilationUnit, fieldSymbols: List[Symbol], methodSymbols: List[Symbol]) {
 
       // val BeanInfoSkipAttr    = definitions.getRequiredClass("scala.beans.BeanInfoSkip")
       // val BeanDisplayNameAttr = definitions.getRequiredClass("scala.beans.BeanDisplayName")
@@ -1645,11 +1647,11 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       innerClassBuffer.clear()
 
       val flags = mkFlags(
-        javaFlags(clasz.symbol),
-        if(isDeprecated(clasz.symbol)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
+        javaFlags(cls),
+        if(isDeprecated(cls)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
       )
 
-      val beanInfoName = (javaName(clasz.symbol) + "BeanInfo")
+      val beanInfoName = (javaName(cls) + "BeanInfo")
       val beanInfoClass = createJClass(
             flags,
             beanInfoName,
@@ -1662,29 +1664,29 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       //   [ visitSource ] [ visitOuterClass ] ( visitAnnotation | visitAttribute )*
 
       beanInfoClass.visitSource(
-        clasz.cunit.source.toString,
+        cunit.source.toString,
         null /* SourceDebugExtension */
       )
 
       var fieldList = List[String]()
 
-      for (f <- clasz.fields if f.symbol.hasGetter;
-	         g = f.symbol.getter(clasz.symbol);
-	         s = f.symbol.setter(clasz.symbol);
-	         if g.isPublic && !(f.symbol.name startsWith "$")
+      for (f <- fieldSymbols if f.hasGetter;
+	         g = f.getter(cls);
+	         s = f.setter(cls);
+	         if g.isPublic && !(f.name startsWith "$")
           ) {
              // inserting $outer breaks the bean
-             fieldList = javaName(f.symbol) :: javaName(g) :: (if (s != NoSymbol) javaName(s) else null) :: fieldList
+             fieldList = javaName(f) :: javaName(g) :: (if (s != NoSymbol) javaName(s) else null) :: fieldList
       }
 
       val methodList: List[String] =
-	     for (m <- clasz.methods
-	          if !m.symbol.isConstructor &&
-	          m.symbol.isPublic &&
-	          !(m.symbol.name startsWith "$") &&
-	          !m.symbol.isGetter &&
-	          !m.symbol.isSetter)
-       yield javaName(m.symbol)
+	     for (m <- methodSymbols
+	          if !m.isConstructor &&
+	          m.isPublic &&
+	          !(m.name startsWith "$") &&
+	          !m.isGetter &&
+	          !m.isSetter)
+       yield javaName(m)
 
       // beanInfoClass typestate: entering mode with valid call sequences:
       //   ( visitInnerClass | visitField | visitMethod )* visitEnd
@@ -1726,7 +1728,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       constructor.visitVarInsn(asm.Opcodes.ALOAD, 0)
       // push the class
-      constructor.visitLdcInsn(javaType(clasz.symbol))
+      constructor.visitLdcInsn(javaType(cls))
 
       // push the string array of field information
       constructor.visitLdcInsn(new java.lang.Integer(fieldList.length))
@@ -1746,10 +1748,10 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       constructor.visitMaxs(0, 0) // just to follow protocol, dummy arguments
       constructor.visitEnd()
 
-      addInnerClasses(clasz.symbol, beanInfoClass)
+      addInnerClasses(cls, beanInfoClass)
       beanInfoClass.visitEnd()
 
-      writeIfNotTooBig("BeanInfo ", beanInfoName, beanInfoClass, clasz.symbol)
+      writeIfNotTooBig("BeanInfo ", beanInfoName, beanInfoClass, cls)
     }
 
   } // end of class JBeanInfoBuilder
