@@ -32,8 +32,7 @@ abstract class GenASM extends BCodeUtils {
   /** Create a new phase */
   override def newPhase(p: Phase): Phase = new AsmPhase(p)
 
-  /** JVM code generation phase
-   */
+  /** JVM code generation phase */
   class AsmPhase(prev: Phase) extends ICodePhase(prev) with BCCommonPhase {
     def name = phaseName
     override def erasedTypes = true
@@ -236,53 +235,6 @@ abstract class GenASM extends BCodeUtils {
     }
 
   } // end of trait JAndroidBuilder
-
-  /** Map from type kinds to the Java reference types.
-   *  It is used to push class literals onto the operand stack.
-   *  @see Predef.classOf
-   *  @see genConstant()
-   */
-  private val classLiteral = immutable.Map[TypeKind, asm.Type](
-    UNIT   -> asm.Type.getObjectType("java/lang/Void"),
-    BOOL   -> asm.Type.getObjectType("java/lang/Boolean"),
-    BYTE   -> asm.Type.getObjectType("java/lang/Byte"),
-    SHORT  -> asm.Type.getObjectType("java/lang/Short"),
-    CHAR   -> asm.Type.getObjectType("java/lang/Character"),
-    INT    -> asm.Type.getObjectType("java/lang/Integer"),
-    LONG   -> asm.Type.getObjectType("java/lang/Long"),
-    FLOAT  -> asm.Type.getObjectType("java/lang/Float"),
-    DOUBLE -> asm.Type.getObjectType("java/lang/Double")
-  )
-
-  def isNonUnitValueTK(tk: TypeKind): Boolean = { tk.isValueType && tk != UNIT }
-
-  case class MethodNameAndType(mname: String, mdesc: String)
-
-  private val jBoxTo: Map[TypeKind, MethodNameAndType] = {
-    Map(
-      BOOL   -> MethodNameAndType("boxToBoolean",   "(Z)Ljava/lang/Boolean;"  ) ,
-      BYTE   -> MethodNameAndType("boxToByte",      "(B)Ljava/lang/Byte;"     ) ,
-      CHAR   -> MethodNameAndType("boxToCharacter", "(C)Ljava/lang/Character;") ,
-      SHORT  -> MethodNameAndType("boxToShort",     "(S)Ljava/lang/Short;"    ) ,
-      INT    -> MethodNameAndType("boxToInteger",   "(I)Ljava/lang/Integer;"  ) ,
-      LONG   -> MethodNameAndType("boxToLong",      "(J)Ljava/lang/Long;"     ) ,
-      FLOAT  -> MethodNameAndType("boxToFloat",     "(F)Ljava/lang/Float;"    ) ,
-      DOUBLE -> MethodNameAndType("boxToDouble",    "(D)Ljava/lang/Double;"   )
-    )
-  }
-
-  private val jUnboxTo: Map[TypeKind, MethodNameAndType] = {
-    Map(
-      BOOL   -> MethodNameAndType("unboxToBoolean", "(Ljava/lang/Object;)Z") ,
-      BYTE   -> MethodNameAndType("unboxToByte",    "(Ljava/lang/Object;)B") ,
-      CHAR   -> MethodNameAndType("unboxToChar",    "(Ljava/lang/Object;)C") ,
-      SHORT  -> MethodNameAndType("unboxToShort",   "(Ljava/lang/Object;)S") ,
-      INT    -> MethodNameAndType("unboxToInt",     "(Ljava/lang/Object;)I") ,
-      LONG   -> MethodNameAndType("unboxToLong",    "(Ljava/lang/Object;)J") ,
-      FLOAT  -> MethodNameAndType("unboxToFloat",   "(Ljava/lang/Object;)F") ,
-      DOUBLE -> MethodNameAndType("unboxToDouble",  "(Ljava/lang/Object;)D")
-    )
-  }
 
   case class BlockInteval(start: BasicBlock, end: BasicBlock)
 
@@ -619,48 +571,6 @@ abstract class GenASM extends BCodeUtils {
     // -----------------------------------------------------------------------------------------
     // Emitting bytecode instructions.
     // -----------------------------------------------------------------------------------------
-
-    private def genConstant(mv: asm.MethodVisitor, const: Constant) {
-      const.tag match {
-
-        case BooleanTag => jcode.boolconst(const.booleanValue)
-
-        case ByteTag    => jcode.iconst(const.byteValue)
-        case ShortTag   => jcode.iconst(const.shortValue)
-        case CharTag    => jcode.iconst(const.charValue)
-        case IntTag     => jcode.iconst(const.intValue)
-
-        case LongTag    => jcode.lconst(const.longValue)
-        case FloatTag   => jcode.fconst(const.floatValue)
-        case DoubleTag  => jcode.dconst(const.doubleValue)
-
-        case UnitTag    => ()
-
-        case StringTag  =>
-          assert(const.value != null, const) // TODO this invariant isn't documented in `case class Constant`
-          mv.visitLdcInsn(const.stringValue) // `stringValue` special-cases null, but not for a const with StringTag
-
-        case NullTag    => mv.visitInsn(asm.Opcodes.ACONST_NULL)
-
-        case ClazzTag   =>
-          val kind = toTypeKind(const.typeValue)
-          val toPush: asm.Type =
-            if (kind.isValueType) classLiteral(kind)
-            else javaType(kind);
-          mv.visitLdcInsn(toPush)
-
-        case EnumTag   =>
-          val sym = const.symbolValue
-          mv.visitFieldInsn(
-            asm.Opcodes.GETSTATIC,
-            javaName(sym.owner),
-            javaName(sym),
-            javaType(sym.tpe.underlying).getDescriptor()
-          )
-
-        case _ => abort("Unknown constant value: " + const)
-      }
-    }
 
     object jcode extends JCodeMethodV {
       override def jmethod = JPlainBuilder.this.jmethod
@@ -1103,7 +1013,7 @@ abstract class GenASM extends BCodeUtils {
               case LOAD_EXCEPTION(_) => ()
             }
 
-            case icodes.constCat => genConstant(jmethod, instr.asInstanceOf[CONSTANT].constant)
+            case icodes.constCat => jcode.genConstant(instr.asInstanceOf[CONSTANT].constant)
 
             case icodes.arilogCat => genPrimitive(instr.asInstanceOf[CALL_PRIMITIVE].primitive, instr.pos)
 

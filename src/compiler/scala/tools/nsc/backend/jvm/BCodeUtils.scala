@@ -234,6 +234,12 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
     lcaName // TODO ASM caches the answer during the lifetime of a ClassWriter. We outlive that. Do some caching.
   }
 
+  def isNonUnitValueTK(tk: TypeKind): Boolean = { tk.isValueType && tk != UNIT }
+
+  // -----------------------------------------------------------------------------------------
+  // asm.ClassWriter using jvmWiseLUB()
+  // -----------------------------------------------------------------------------------------
+
   class CClassWriter(flags: Int) extends asm.ClassWriter(flags) {
     override def getCommonSuperClass(iname1: String, iname2: String): String = {
       BCodeUtils.this.getCommonSuperClass(iname1, iname2)
@@ -261,6 +267,51 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   val JAVA_LANG_OBJECT = asm.Type.getObjectType("java/lang/Object")
   val JAVA_LANG_STRING = asm.Type.getObjectType("java/lang/String")
+
+  /** Map from type kinds to the Java reference types.
+   *  It is used to push class literals onto the operand stack.
+   *  @see Predef.classOf
+   *  @see genConstant()
+   */
+  private val classLiteral = immutable.Map[TypeKind, asm.Type](
+    UNIT   -> asm.Type.getObjectType("java/lang/Void"),
+    BOOL   -> asm.Type.getObjectType("java/lang/Boolean"),
+    BYTE   -> asm.Type.getObjectType("java/lang/Byte"),
+    SHORT  -> asm.Type.getObjectType("java/lang/Short"),
+    CHAR   -> asm.Type.getObjectType("java/lang/Character"),
+    INT    -> asm.Type.getObjectType("java/lang/Integer"),
+    LONG   -> asm.Type.getObjectType("java/lang/Long"),
+    FLOAT  -> asm.Type.getObjectType("java/lang/Float"),
+    DOUBLE -> asm.Type.getObjectType("java/lang/Double")
+  )
+
+  case class MethodNameAndType(mname: String, mdesc: String)
+
+  val jBoxTo: Map[TypeKind, MethodNameAndType] = {
+    Map(
+      BOOL   -> MethodNameAndType("boxToBoolean",   "(Z)Ljava/lang/Boolean;"  ) ,
+      BYTE   -> MethodNameAndType("boxToByte",      "(B)Ljava/lang/Byte;"     ) ,
+      CHAR   -> MethodNameAndType("boxToCharacter", "(C)Ljava/lang/Character;") ,
+      SHORT  -> MethodNameAndType("boxToShort",     "(S)Ljava/lang/Short;"    ) ,
+      INT    -> MethodNameAndType("boxToInteger",   "(I)Ljava/lang/Integer;"  ) ,
+      LONG   -> MethodNameAndType("boxToLong",      "(J)Ljava/lang/Long;"     ) ,
+      FLOAT  -> MethodNameAndType("boxToFloat",     "(F)Ljava/lang/Float;"    ) ,
+      DOUBLE -> MethodNameAndType("boxToDouble",    "(D)Ljava/lang/Double;"   )
+    )
+  }
+
+  val jUnboxTo: Map[TypeKind, MethodNameAndType] = {
+    Map(
+      BOOL   -> MethodNameAndType("unboxToBoolean", "(Ljava/lang/Object;)Z") ,
+      BYTE   -> MethodNameAndType("unboxToByte",    "(Ljava/lang/Object;)B") ,
+      CHAR   -> MethodNameAndType("unboxToChar",    "(Ljava/lang/Object;)C") ,
+      SHORT  -> MethodNameAndType("unboxToShort",   "(Ljava/lang/Object;)S") ,
+      INT    -> MethodNameAndType("unboxToInt",     "(Ljava/lang/Object;)I") ,
+      LONG   -> MethodNameAndType("unboxToLong",    "(Ljava/lang/Object;)J") ,
+      FLOAT  -> MethodNameAndType("unboxToFloat",   "(Ljava/lang/Object;)F") ,
+      DOUBLE -> MethodNameAndType("unboxToDouble",  "(Ljava/lang/Object;)D")
+    )
+  }
 
   trait BCCommonPhase extends global.GlobalPhase {
 
@@ -684,6 +735,48 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       def jmethod: asm.MethodVisitor
 
       import asm.Opcodes;
+
+      def genConstant(const: Constant) {
+        const.tag match {
+
+          case BooleanTag => boolconst(const.booleanValue)
+
+          case ByteTag    => iconst(const.byteValue)
+          case ShortTag   => iconst(const.shortValue)
+          case CharTag    => iconst(const.charValue)
+          case IntTag     => iconst(const.intValue)
+
+          case LongTag    => lconst(const.longValue)
+          case FloatTag   => fconst(const.floatValue)
+          case DoubleTag  => dconst(const.doubleValue)
+
+          case UnitTag    => ()
+
+          case StringTag  =>
+            assert(const.value != null, const) // TODO this invariant isn't documented in `case class Constant`
+            jmethod.visitLdcInsn(const.stringValue) // `stringValue` special-cases null, but not for a const with StringTag
+
+          case NullTag    => jmethod.visitInsn(asm.Opcodes.ACONST_NULL)
+
+          case ClazzTag   =>
+            val kind = toTypeKind(const.typeValue)
+            val toPush: asm.Type =
+              if (kind.isValueType) classLiteral(kind)
+              else javaType(kind);
+            jmethod.visitLdcInsn(toPush)
+
+          case EnumTag   =>
+            val sym = const.symbolValue
+            jmethod.visitFieldInsn(
+              asm.Opcodes.GETSTATIC,
+              javaName(sym.owner),
+              javaName(sym),
+              javaType(sym.tpe.underlying).getDescriptor()
+            )
+
+          case _ => abort("Unknown constant value: " + const)
+        }
+      }
 
       def aconst(cst: AnyRef) {
         if (cst == null) { jmethod.visitInsn(Opcodes.ACONST_NULL) }
