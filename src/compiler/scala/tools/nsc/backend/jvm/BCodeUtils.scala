@@ -725,6 +725,33 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       }
     }
 
+    /**
+     * Returns a new ClassWriter for the class given by arguments.
+     *
+     * @param access the class's access flags. This parameter also indicates if the class is deprecated.
+     *
+     * @param name the internal name of the class.
+     *
+     * @param signature the signature of this class. May be <tt>null</tt> if
+     *        the class is not a generic one, and does not extend or implement
+     *        generic classes or interfaces.
+     *
+     * @param superName the internal of name of the super class. For interfaces,
+     *        the super class is {@link Object}. May be <tt>null</tt>, but
+     *        only for the {@link Object} class.
+     *
+     * @param interfaces the internal names of the class's interfaces (see
+     *        {@link Type#getInternalName() getInternalName}). May be
+     *        <tt>null</tt>.
+     */
+    def createJClass(access: Int, name: String, signature: String, superName: String, interfaces: Array[String]): asm.ClassWriter = {
+      val cw = new CClassWriter(extraProc)
+      cw.visit(classfileVersion,
+               access, name, signature,
+               superName, interfaces)
+
+      cw
+    }
 
     /** Just a namespace for utilities that encapsulate MethodVisitor idioms.
      *  In the ASM world, org.objectweb.asm.commons.InstructionAdapter plays a similar role,
@@ -1514,34 +1541,6 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   /** basic functionality for class file building of plain, mirror, and beaninfo classes. */
   abstract class JBuilder(bytecodeWriter: BytecodeWriter) extends BCInnerClassGen {
-
-    /**
-     * Returns a new ClassWriter for the class given by arguments.
-     *
-     * @param access the class's access flags. This parameter also indicates if the class is deprecated.
-     *
-     * @param name the internal name of the class.
-     *
-     * @param signature the signature of this class. May be <tt>null</tt> if
-     *        the class is not a generic one, and does not extend or implement
-     *        generic classes or interfaces.
-     *
-     * @param superName the internal of name of the super class. For interfaces,
-     *        the super class is {@link Object}. May be <tt>null</tt>, but
-     *        only for the {@link Object} class.
-     *
-     * @param interfaces the internal names of the class's interfaces (see
-     *        {@link Type#getInternalName() getInternalName}). May be
-     *        <tt>null</tt>.
-     */
-    def createJClass(access: Int, name: String, signature: String, superName: String, interfaces: Array[String]): asm.ClassWriter = {
-      val cw = new CClassWriter(extraProc)
-      cw.visit(classfileVersion,
-               access, name, signature,
-               superName, interfaces)
-
-      cw
-    }
 
     def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
       try {
