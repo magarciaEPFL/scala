@@ -45,12 +45,10 @@ abstract class GenASM extends BCodeUtils {
       if (settings.debug.value)
         inform("[running phase " + name + " on icode]")
 
-      if (settings.Xdce.value)
-        for ((sym, cls) <- icodes.classes if inliner.isClosureClass(sym) && !deadCode.liveClosures(sym))
-          icodes.classes -= sym
+      // non-alive anon-closures already eliminated at the end of DeadCodeEliminationPhase.run()
 
       // For predictably ordered error messages.
-      var sortedClasses = classes.values.toList sortBy ("" + _.symbol.fullName)
+      var sortedClasses   = classes.values.toList sortBy ("" + _.symbol.fullName)
       val bytecodeWriter  = initBytecodeWriter( sortedClasses filter { ic => isJavaEntryPoint(ic.symbol, ic.cunit) } map (_.symbol) )
       val plainCodeGen    = new JPlainBuilder(bytecodeWriter)
       val mirrorCodeGen   = new JMirrorBuilder(bytecodeWriter)
