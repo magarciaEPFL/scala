@@ -51,8 +51,6 @@ abstract class GenASM extends BCodeUtils {
 
       // For predictably ordered error messages.
       var sortedClasses = classes.values.toList sortBy ("" + _.symbol.fullName)
-
-      debuglog("Created new bytecode generator for " + classes.size + " classes.")
       val bytecodeWriter  = initBytecodeWriter( sortedClasses filter { ic => isJavaEntryPoint(ic.symbol, ic.cunit) } map (_.symbol) )
       val plainCodeGen    = new JPlainBuilder(bytecodeWriter)
       val mirrorCodeGen   = new JMirrorBuilder(bytecodeWriter)
@@ -103,65 +101,13 @@ abstract class GenASM extends BCodeUtils {
 
   } // end of class AsmPhase
 
-  /** basic functionality for class file building */
-  abstract class JBuilder(bytecodeWriter: BytecodeWriter) extends BCInnerClassGen {
-
-    // -----------------------------------------------------------------------------------------
-    // factory methods
-    // -----------------------------------------------------------------------------------------
-
-    /**
-     * Returns a new ClassWriter for the class given by arguments.
-     *
-     * @param access the class's access flags. This parameter also indicates if the class is deprecated.
-     *
-     * @param name the internal name of the class.
-     *
-     * @param signature the signature of this class. May be <tt>null</tt> if
-     *        the class is not a generic one, and does not extend or implement
-     *        generic classes or interfaces.
-     *
-     * @param superName the internal of name of the super class. For interfaces,
-     *        the super class is {@link Object}. May be <tt>null</tt>, but
-     *        only for the {@link Object} class.
-     *
-     * @param interfaces the internal names of the class's interfaces (see
-     *        {@link Type#getInternalName() getInternalName}). May be
-     *        <tt>null</tt>.
-     */
-    def createJClass(access: Int, name: String, signature: String, superName: String, interfaces: Array[String]): asm.ClassWriter = {
-      val cw = new CClassWriter(extraProc)
-      cw.visit(classfileVersion,
-               access, name, signature,
-               superName, interfaces)
-
-      cw
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // utitilies useful when emitting plain, mirror, and beaninfo classes.
-    // -----------------------------------------------------------------------------------------
-
-    def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
-      try {
-        val arr = jclass.toByteArray()
-        bytecodeWriter.writeClass(label, jclassName, arr, sym)
-      } catch {
-        case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
-          // TODO check where ASM throws the equivalent of CodeSizeTooBigException
-          log("Skipped class "+jclassName+" because it exceeds JVM limits (it's too big or has methods that are too long).")
-      }
-    }
-
-  } // end of class JBuilder
-
 
   /** functionality for building plain and mirror classes */
   abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter)
     extends JBuilder(bytecodeWriter)
-    with BCAnnotGen
-    with BCForwardersGen
-    with BCPickles {
+    with    BCAnnotGen
+    with    BCForwardersGen
+    with    BCPickles {
 
   } // end of class JCommonBuilder
 

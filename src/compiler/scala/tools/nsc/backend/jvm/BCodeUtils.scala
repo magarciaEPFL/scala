@@ -236,10 +236,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   def isNonUnitValueTK(tk: TypeKind): Boolean = { tk.isValueType && tk != UNIT }
 
-  // -----------------------------------------------------------------------------------------
-  // asm.ClassWriter using jvmWiseLUB()
-  // -----------------------------------------------------------------------------------------
-
+  /** An `asm.ClassWriter` that uses `jvmWiseLUB()`  */
   class CClassWriter(flags: Int) extends asm.ClassWriter(flags) {
     override def getCommonSuperClass(iname1: String, iname2: String): String = {
       BCodeUtils.this.getCommonSuperClass(iname1, iname2)
@@ -407,7 +404,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       }
     }
 
-  }
+  } // end of trait BCCommonPhase
 
   /*
    * Custom attribute (JVMS 4.7.1) "ScalaSig" used as marker only
@@ -484,7 +481,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       }
     }
 
-  }
+  } // end of trait BCPickles
 
   trait BCInnerClassGen {
 
@@ -1482,4 +1479,48 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   } // end of trait BCClassGen
 
-}
+  /** basic functionality for class file building of plain, mirror, and beaninfo classes. */
+  abstract class JBuilder(bytecodeWriter: BytecodeWriter) extends BCInnerClassGen {
+
+    /**
+     * Returns a new ClassWriter for the class given by arguments.
+     *
+     * @param access the class's access flags. This parameter also indicates if the class is deprecated.
+     *
+     * @param name the internal name of the class.
+     *
+     * @param signature the signature of this class. May be <tt>null</tt> if
+     *        the class is not a generic one, and does not extend or implement
+     *        generic classes or interfaces.
+     *
+     * @param superName the internal of name of the super class. For interfaces,
+     *        the super class is {@link Object}. May be <tt>null</tt>, but
+     *        only for the {@link Object} class.
+     *
+     * @param interfaces the internal names of the class's interfaces (see
+     *        {@link Type#getInternalName() getInternalName}). May be
+     *        <tt>null</tt>.
+     */
+    def createJClass(access: Int, name: String, signature: String, superName: String, interfaces: Array[String]): asm.ClassWriter = {
+      val cw = new CClassWriter(extraProc)
+      cw.visit(classfileVersion,
+               access, name, signature,
+               superName, interfaces)
+
+      cw
+    }
+
+    def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
+      try {
+        val arr = jclass.toByteArray()
+        bytecodeWriter.writeClass(label, jclassName, arr, sym)
+      } catch {
+        case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
+          // TODO check where ASM throws the equivalent of CodeSizeTooBigException
+          log("Skipped class "+jclassName+" because it exceeds JVM limits (it's too big or has methods that are too long).")
+      }
+    }
+
+  } // end of class JBuilder
+
+} // end of class BCodeUtils

@@ -32,9 +32,9 @@ abstract class GenBCode extends BCodeUtils {
 
   class BCodePhase(prev: Phase)
     extends StdPhase(prev)
-       with BCInnerClassGen
-       with BCPickles
-       with BCCommonPhase {
+    with    BCInnerClassGen
+    with    BCPickles
+    with    BCCommonPhase {
 
     override def name = phaseName
     override def description = "Generate bytecode from ASTs"
