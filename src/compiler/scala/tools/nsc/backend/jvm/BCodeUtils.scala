@@ -1407,6 +1407,35 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   trait BCClassGen extends BCInnerClassGen {
 
+    val MIN_SWITCH_DENSITY = 0.7
+
+    val StringBuilderClassName = javaName(definitions.StringBuilderClass)
+    val BoxesRunTime = "scala/runtime/BoxesRunTime"
+
+    val StringBuilderType = asm.Type.getObjectType(StringBuilderClassName)
+    val mdesc_toString    = "()Ljava/lang/String;"
+    val mdesc_arrayClone  = "()Ljava/lang/Object;"
+
+    val tdesc_long        = asm.Type.LONG_TYPE.getDescriptor // ie. "J"
+
+    private def serialVUID(csym: Symbol): Option[Long] = csym getAnnotation SerialVersionUIDAttr collect {
+      case AnnotationInfo(_, Literal(const) :: _, _) => const.longValue
+    }
+
+    def addSerialVUID(csym: Symbol, jclass: asm.ClassVisitor) {
+      // add static serialVersionUID field if `clasz` annotated with `@SerialVersionUID(uid: Long)`
+      serialVUID(csym) foreach { value =>
+        val fieldName = "serialVersionUID"
+        jclass.visitField(
+          PublicStaticFinal,
+          fieldName,
+          tdesc_long,
+          null, // no java-generic-signature
+          value
+        ).visitEnd()
+      }
+    }
+
     /**
      * @param owner internal name of the enclosing class of the class.
      *

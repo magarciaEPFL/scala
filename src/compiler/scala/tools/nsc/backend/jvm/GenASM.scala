@@ -109,22 +109,7 @@ abstract class GenASM extends BCodeUtils {
     with    BCClassGen
     with    JAndroidBuilder {
 
-    val MIN_SWITCH_DENSITY = 0.7
-
-    val StringBuilderClassName = javaName(definitions.StringBuilderClass)
-    val BoxesRunTime = "scala/runtime/BoxesRunTime"
-
-    val StringBuilderType = asm.Type.getObjectType(StringBuilderClassName)
-    val mdesc_toString    = "()Ljava/lang/String;"
-    val mdesc_arrayClone  = "()Ljava/lang/Object;"
-
-    val tdesc_long        = asm.Type.LONG_TYPE.getDescriptor // ie. "J"
-
     def isParcelableClass = isAndroidParcelableClass(clasz.symbol)
-
-    def serialVUID: Option[Long] = clasz.symbol getAnnotation SerialVersionUIDAttr collect {
-      case AnnotationInfo(_, Literal(const) :: _, _) => const.longValue
-    }
 
     var clasz:    IClass = _           // this var must be assigned only by genClass()
     var jclass:   asm.ClassWriter = _  // the classfile being emitted
@@ -209,17 +194,7 @@ abstract class GenASM extends BCodeUtils {
 
       }
 
-      // add static serialVersionUID field if `clasz` annotated with `@SerialVersionUID(uid: Long)`
-      serialVUID foreach { value =>
-        val fieldName = "serialVersionUID"
-        jclass.visitField(
-          PublicStaticFinal,
-          fieldName,
-          tdesc_long,
-          null, // no java-generic-signature
-          value
-        ).visitEnd()
-      }
+      addSerialVUID(clasz.symbol, jclass)
 
       clasz.fields  foreach genField
       clasz.methods foreach { im => genMethod(im, c.symbol.isInterface) }
