@@ -1580,4 +1580,132 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
   } // end of class JMirrorBuilder
 
+
+  /** builder of bean info classes */
+  class JBeanInfoBuilder(bytecodeWriter: BytecodeWriter) extends JBuilder(bytecodeWriter) {
+
+    /**
+     * Generate a bean info class that describes the given class.
+     *
+     * @author Ross Judson (ross.judson@soletta.com)
+     */
+    def genBeanInfoClass(clasz: IClass) {
+
+      // val BeanInfoSkipAttr    = definitions.getRequiredClass("scala.beans.BeanInfoSkip")
+      // val BeanDisplayNameAttr = definitions.getRequiredClass("scala.beans.BeanDisplayName")
+      // val BeanDescriptionAttr = definitions.getRequiredClass("scala.beans.BeanDescription")
+      // val description = c.symbol getAnnotation BeanDescriptionAttr
+      // informProgress(description.toString)
+      innerClassBuffer.clear()
+
+      val flags = mkFlags(
+        javaFlags(clasz.symbol),
+        if(isDeprecated(clasz.symbol)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
+      )
+
+      val beanInfoName = (javaName(clasz.symbol) + "BeanInfo")
+      val beanInfoClass = createJClass(
+            flags,
+            beanInfoName,
+            null, // no java-generic-signature
+            "scala/beans/ScalaBeanInfo",
+            EMPTY_STRING_ARRAY
+      )
+
+      // beanInfoClass typestate: entering mode with valid call sequences:
+      //   [ visitSource ] [ visitOuterClass ] ( visitAnnotation | visitAttribute )*
+
+      beanInfoClass.visitSource(
+        clasz.cunit.source.toString,
+        null /* SourceDebugExtension */
+      )
+
+      var fieldList = List[String]()
+
+      for (f <- clasz.fields if f.symbol.hasGetter;
+	         g = f.symbol.getter(clasz.symbol);
+	         s = f.symbol.setter(clasz.symbol);
+	         if g.isPublic && !(f.symbol.name startsWith "$")
+          ) {
+             // inserting $outer breaks the bean
+             fieldList = javaName(f.symbol) :: javaName(g) :: (if (s != NoSymbol) javaName(s) else null) :: fieldList
+      }
+
+      val methodList: List[String] =
+	     for (m <- clasz.methods
+	          if !m.symbol.isConstructor &&
+	          m.symbol.isPublic &&
+	          !(m.symbol.name startsWith "$") &&
+	          !m.symbol.isGetter &&
+	          !m.symbol.isSetter)
+       yield javaName(m.symbol)
+
+      // beanInfoClass typestate: entering mode with valid call sequences:
+      //   ( visitInnerClass | visitField | visitMethod )* visitEnd
+
+      val constructor = beanInfoClass.visitMethod(
+        asm.Opcodes.ACC_PUBLIC,
+        INSTANCE_CONSTRUCTOR_NAME,
+        mdesc_arglessvoid,
+        null, // no java-generic-signature
+        EMPTY_STRING_ARRAY // no throwable exceptions
+      )
+
+      // constructor typestate: entering mode with valid call sequences:
+      //   [ visitAnnotationDefault ] ( visitAnnotation | visitParameterAnnotation | visitAttribute )*
+
+      val stringArrayJType: asm.Type = javaArrayType(JAVA_LANG_STRING)
+      val conJType: asm.Type =
+        asm.Type.getMethodType(
+          asm.Type.VOID_TYPE,
+          Array(javaType(ClassClass), stringArrayJType, stringArrayJType): _*
+        )
+
+      def push(lst: List[String]) {
+        var fi = 0
+        for (f <- lst) {
+          constructor.visitInsn(asm.Opcodes.DUP)
+          constructor.visitLdcInsn(new java.lang.Integer(fi))
+          if (f == null) { constructor.visitInsn(asm.Opcodes.ACONST_NULL) }
+          else           { constructor.visitLdcInsn(f) }
+          constructor.visitInsn(JAVA_LANG_STRING.getOpcode(asm.Opcodes.IASTORE))
+          fi += 1
+        }
+      }
+
+      // constructor typestate: entering mode with valid call sequences:
+      //   [ visitCode ( visitFrame | visitXInsn | visitLabel | visitTryCatchBlock | visitLocalVariable | visitLineNumber )* visitMaxs ] visitEnd
+
+      constructor.visitCode()
+
+      constructor.visitVarInsn(asm.Opcodes.ALOAD, 0)
+      // push the class
+      constructor.visitLdcInsn(javaType(clasz.symbol))
+
+      // push the string array of field information
+      constructor.visitLdcInsn(new java.lang.Integer(fieldList.length))
+      constructor.visitTypeInsn(asm.Opcodes.ANEWARRAY, JAVA_LANG_STRING.getInternalName)
+      push(fieldList)
+
+      // push the string array of method information
+      constructor.visitLdcInsn(new java.lang.Integer(methodList.length))
+      constructor.visitTypeInsn(asm.Opcodes.ANEWARRAY, JAVA_LANG_STRING.getInternalName)
+      push(methodList)
+
+      // invoke the superclass constructor, which will do the
+      // necessary java reflection and create Method objects.
+      constructor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, "scala/beans/ScalaBeanInfo", INSTANCE_CONSTRUCTOR_NAME, conJType.getDescriptor)
+      constructor.visitInsn(asm.Opcodes.RETURN)
+
+      constructor.visitMaxs(0, 0) // just to follow protocol, dummy arguments
+      constructor.visitEnd()
+
+      addInnerClasses(clasz.symbol, beanInfoClass)
+      beanInfoClass.visitEnd()
+
+      writeIfNotTooBig("BeanInfo ", beanInfoName, beanInfoClass, clasz.symbol)
+    }
+
+  } // end of class JBeanInfoBuilder
+
 } // end of class BCodeUtils
