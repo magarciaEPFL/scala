@@ -52,6 +52,18 @@ abstract class GenBCode extends BCodeUtils {
     private var thisName: String           = null // the internal name of the class being emitted
     private var mnode: asm.tree.MethodNode = null
 
+    // bookkeeping for method-local vars and params
+    private val locIdx = mutable.Map.empty[Symbol, Int] // (local-or-param-sym -> index-of-local-in-method)
+    private var nxtIdx = 0 // next available index for local-var
+    private def sizeOf(k: TypeKind): Int = if(k.isWideType) 2 else 1
+    private def index(sym: Symbol): Int = {
+      locIdx.getOrElseUpdate(sym, {
+        val idx = nxtIdx;
+        nxtIdx += sizeOf(toTypeKind(sym.info))
+        idx
+      })
+    }
+
     override def getCurrentCUnit(): CompilationUnit = { cunit }
 
     override def run() {
@@ -126,7 +138,21 @@ abstract class GenBCode extends BCodeUtils {
       // TODO
     }
 
-    /* ---------------- helper utils invoked from gen() methods ---------------- */
+    /* if you look closely, you'll notice almost no code duplication with JBuilder's `writeIfNotTooBig()` */
+    def writeIfNotTooBig(label: String, jclassName: String, cnode: asm.tree.ClassNode, sym: Symbol) {
+      try {
+        val cw = new CClassWriter(extraProc)
+        cnode.accept(cw)
+        val arr = cw.toByteArray
+        bytecodeWriter.writeClass(label, jclassName, arr, sym)
+      } catch {
+        case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
+          // TODO check where ASM throws the equivalent of CodeSizeTooBigException
+          log("Skipped class "+jclassName+" because it exceeds JVM limits (it's too big or has methods that are too long).")
+      }
+    }
+
+    /* ---------------- helper utils for generating classes and fiels ---------------- */
 
     def genPlainClass(cd: ClassDef) {
       assert(cnode == null, "GenBCode detected nested methods.")
@@ -151,7 +177,10 @@ abstract class GenBCode extends BCodeUtils {
       gen(cd.impl)
       addInnerClasses(csym, cnode)
 
-      // TODO this is the time for dce, locals optimization, collapsing of jump-chains, etc. on the asm.tree.ClassNode.
+      /*
+       * TODO this is the time for collapsing of jump-chains, dce, locals optimization, etc. on the asm.tree.ClassNode.
+       * See Ch. 8. "Method Analysis" in the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
+       **/
       writeIfNotTooBig("" + csym.name, thisName, cnode, csym)
       cnode = null
 
@@ -164,7 +193,6 @@ abstract class GenBCode extends BCodeUtils {
     private def skipMethod(msym: Symbol): Boolean = {
       msym.isStaticConstructor || definitions.isGetClass(msym)
     }
-
 
     def addClassFields(cls: Symbol) {
       /** Non-method term members are fields, except for module members. Module
@@ -194,10 +222,13 @@ abstract class GenBCode extends BCodeUtils {
 
     } // end of method addClassFields()
 
-    private def genDefDef(dd: DefDef) {
+    /* ---------------- helper utils for generating methods and code ---------------- */
+
+    def genDefDef(dd: DefDef) {
       assert(mnode == null, "GenBCode detected nested method.")
       val msym = dd.symbol
       // clear method-specific stuff
+      locIdx.clear()
           // TODO local-ranges table
           // TODO exh-handlers table
 
@@ -218,9 +249,11 @@ abstract class GenBCode extends BCodeUtils {
       mnode = jmethod0.asInstanceOf[asm.tree.MethodNode]
 
       // add params
-      val paramIdx = if (msym.isStaticMember) 0 else 1;
+      nxtIdx = if (msym.isStaticMember) 0 else 1;
       for (p <- params) {
-        // TODO val lv = new Local(p.symbol, toTypeKind(p.symbol.info), true)
+        val tk = toTypeKind(p.symbol.info)
+        locIdx += (p.symbol -> nxtIdx)
+        nxtIdx += sizeOf(tk)
       }
 
       val returnType =
@@ -239,25 +272,11 @@ abstract class GenBCode extends BCodeUtils {
               else "")
             )
           case _ =>
-            // TODO ctx1.bb.closeWith(RETURN(m.returnType), rhs.pos)
+            bc emitRETURN returnType
         }
       }
       mnode = null
     } // end of method genDefDef()
-
-    /* if you look closely, you'll notice almost no code duplication with JBuilder's `writeIfNotTooBig()` */
-    def writeIfNotTooBig(label: String, jclassName: String, cnode: asm.tree.ClassNode, sym: Symbol) {
-      try {
-        val cw = new CClassWriter(extraProc)
-        cnode.accept(cw)
-        val arr = cw.toByteArray
-        bytecodeWriter.writeClass(label, jclassName, arr, sym)
-      } catch {
-        case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
-          // TODO check where ASM throws the equivalent of CodeSizeTooBigException
-          log("Skipped class "+jclassName+" because it exceeds JVM limits (it's too big or has methods that are too long).")
-      }
-    }
 
   } // end of class BCodePhase
 
