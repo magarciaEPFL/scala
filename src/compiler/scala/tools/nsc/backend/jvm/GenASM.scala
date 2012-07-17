@@ -191,41 +191,15 @@ abstract class GenASM extends BCodeUtils {
       method = m
       computeLocalVarsIndex(m)
 
-      var resTpe: asm.Type = javaType(m.symbol.tpe.resultType)
-      if (m.symbol.isClassConstructor)
-        resTpe = asm.Type.VOID_TYPE
-
-      val flags = mkFlags(
-        javaFlags(m.symbol),
-        if (isJInterface)          asm.Opcodes.ACC_ABSTRACT   else 0,
-        if (m.symbol.isStrictFP)   asm.Opcodes.ACC_STRICT     else 0,
-        if (method.native)         asm.Opcodes.ACC_NATIVE     else 0, // native methods of objects are generated in mirror classes
-        if(isDeprecated(m.symbol)) asm.Opcodes.ACC_DEPRECATED else 0  // ASM pseudo access flag
-      )
-
-      // TODO needed? for(ann <- m.symbol.annotations) { ann.symbol.initialize }
-      val jgensig = getGenericSignature(m.symbol, clasz.symbol)
-      addRemoteExceptionAnnot(isRemote(clasz.symbol), hasPublicBitSet(flags), m.symbol)
-      val (excs, others) = m.symbol.annotations partition (_.symbol == ThrowsClass)
-      val thrownExceptions: List[String] = getExceptions(excs)
-
       jMethodName = javaName(m.symbol)
-      val mdesc = asm.Type.getMethodDescriptor(resTpe, (m.params map (p => javaType(p.kind))): _*)
-      jmethod = jclass.visitMethod(
-        flags,
-        jMethodName,
-        mdesc,
-        jgensig,
-        mkArray(thrownExceptions)
+      val Pair(flags, jmethod0) = initJMethod(
+        jclass,
+        m.symbol,     method.native,
+        clasz.symbol, isJInterface,
+        (m.params map (p => javaType(p.kind))),
+        m.params.map(_.sym.annotations)
       )
-
-      // TODO param names: (m.params map (p => javaName(p.sym)))
-
-      // typestate: entering mode with valid call sequences:
-      //   [ visitAnnotationDefault ] ( visitAnnotation | visitParameterAnnotation | visitAttribute )*
-
-      emitAnnotations(jmethod, others)
-      emitParamAnnotations(jmethod, m.params.map(_.sym.annotations))
+      jmethod = jmethod0
 
       // typestate: entering mode with valid call sequences:
       //   [ visitCode ( visitFrame | visitXInsn | visitLabel | visitTryCatchBlock | visitLocalVariable | visitLineNumber )* visitMaxs ] visitEnd

@@ -1594,8 +1594,6 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       // typestate: entering mode with valid call sequences:
       //   ( visitInnerClass | visitField | visitMethod )* visitEnd
 
-      // the invoker has to `addStaticInit(c.lookupStaticCtor)`
-
       if (isStaticModule(csym) || isAndroidParcelableClass(csym)) {
 
         if (isStaticModule(csym)) { addModuleInstanceField(jclass, thisName) }
@@ -1620,7 +1618,9 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       }
 
-    }
+      // the invoker is responsible for adding a class-static constructor.
+
+    } // end of method initJClass
 
     def addModuleInstanceField(jclass: asm.ClassVisitor, thisName: String) {
       val fv =
@@ -1641,6 +1641,54 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       assert(thisName != null, "thisDescr invoked too soon.")
       asm.Type.getObjectType(thisName).getDescriptor
     }
+
+    def initJMethod(jclass:           asm.ClassVisitor,
+                    msym:             Symbol,
+                    isNative:         Boolean,
+                    csym:             Symbol,
+                    isJInterface:     Boolean,
+                    paramTypes:       List[asm.Type],
+                    paramAnnotations: List[List[AnnotationInfo]]
+    ): Pair[Int, asm.MethodVisitor] = {
+
+      var resTpe: asm.Type = javaType(msym.info.resultType) // TODO confirm: was msym.tpe.resultType
+      if (msym.isClassConstructor)
+        resTpe = asm.Type.VOID_TYPE
+
+      val flags = mkFlags(
+        javaFlags(msym),
+        if (isJInterface)      asm.Opcodes.ACC_ABSTRACT   else 0,
+        if (msym.isStrictFP)   asm.Opcodes.ACC_STRICT     else 0,
+        if (isNative)          asm.Opcodes.ACC_NATIVE     else 0, // native methods of objects are generated in mirror classes
+        if(isDeprecated(msym)) asm.Opcodes.ACC_DEPRECATED else 0  // ASM pseudo access flag
+      )
+
+      // TODO needed? for(ann <- m.symbol.annotations) { ann.symbol.initialize }
+      val jgensig = getGenericSignature(msym, csym)
+      addRemoteExceptionAnnot(isRemote(csym), hasPublicBitSet(flags), msym)
+      val (excs, others) = msym.annotations partition (_.symbol == ThrowsClass)
+      val thrownExceptions: List[String] = getExceptions(excs)
+
+      val jMethodName = javaName(msym)
+      val mdesc = asm.Type.getMethodDescriptor(resTpe, paramTypes: _*)
+      val jmethod = jclass.visitMethod(
+        flags,
+        jMethodName,
+        mdesc,
+        jgensig,
+        mkArray(thrownExceptions)
+      )
+
+      // TODO param names: (m.params map (p => javaName(p.sym)))
+
+      // typestate: entering mode with valid call sequences:
+      //   [ visitAnnotationDefault ] ( visitAnnotation | visitParameterAnnotation | visitAttribute )*
+
+      emitAnnotations(jmethod, others)
+      emitParamAnnotations(jmethod, paramAnnotations)
+
+      Pair(flags, jmethod)
+    } // end of method initJMethod
 
   }
 

@@ -101,7 +101,7 @@ abstract class GenBCode extends BCodeUtils {
             beanInfoCodeGen.genBeanInfoClass(
               cd.symbol, cunit,
               fieldSymbols(cd.symbol),
-              methodSymbols(cd) filterNot skipMethodSymbol
+              methodSymbols(cd) filterNot skipMethod
             )
           }
 
@@ -112,7 +112,7 @@ abstract class GenBCode extends BCodeUtils {
           () // fields are added in the case handler for ClassDef
 
         case dd : DefDef =>
-          if(!skipMethodSymbol(dd.symbol)) { genDefDef(dd) }
+          if(!skipMethod(dd.symbol)) { genDefDef(dd) }
 
         case Template(_, _, body) =>
           body foreach gen
@@ -161,7 +161,7 @@ abstract class GenBCode extends BCodeUtils {
       for (f <- cls.info.decls.toList ; if !f.isMethod && f.isTerm && !f.isModule) yield f;
     }
 
-    private def skipMethodSymbol(msym: Symbol): Boolean = {
+    private def skipMethod(msym: Symbol): Boolean = {
       msym.isStaticConstructor || definitions.isGetClass(msym)
     }
 
@@ -195,25 +195,37 @@ abstract class GenBCode extends BCodeUtils {
     } // end of method addClassFields()
 
     private def genDefDef(dd: DefDef) {
-      assert(mnode == null, "GenBCode detected flatten didn't run.")
+      assert(mnode == null, "GenBCode detected nested method.")
       val msym = dd.symbol
       // clear method-specific stuff
           // TODO local-ranges table
           // TODO exh-handlers table
-      val DefDef(mods, name, tparams, vparamss, tpt, rhs) = dd
-      // add params
+
+      val DefDef(_, _, _, vparamss, _, rhs) = dd
       assert(vparamss.isEmpty || vparamss.tail.isEmpty, "Malformed parameter list: " + vparamss)
+      val isNative = msym.hasAnnotation(definitions.NativeAttr)
+      val isAbstractMethod = msym.isDeferred || msym.owner.isInterface
+
+      val params      = vparamss.head
+      val csym        = msym.owner
+      val Pair(flags, jmethod0) = initJMethod(
+        cnode,
+        msym,  isNative,
+        csym,  csym.isInterface,
+        params.map(p => javaType(p.symbol.info)),
+        params.map(p => p.symbol.annotations)
+      )
+      mnode = jmethod0.asInstanceOf[asm.tree.MethodNode]
+
+      // add params
       val paramIdx = if (msym.isStaticMember) 0 else 1;
-      for (p <- vparamss.head) {
+      for (p <- params) {
         // TODO val lv = new Local(p.symbol, toTypeKind(p.symbol.info), true)
       }
 
       val returnType =
         if (msym.isConstructor) UNIT
         else toTypeKind(msym.info.resultType)
-
-      val isNative = msym.hasAnnotation(definitions.NativeAttr)
-      val isAbstractMethod = msym.isDeferred || msym.owner.isInterface
 
       if (!isAbstractMethod && !isNative) {
         genLoad(rhs, returnType)

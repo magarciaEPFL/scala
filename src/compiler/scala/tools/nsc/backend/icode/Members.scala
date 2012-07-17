@@ -132,7 +132,7 @@ trait Members {
     def lookupMethod(s: Symbol) = methods find (_.symbol == s)
     def lookupMethod(s: Name)   = methods find (_.symbol.name == s)
 
-    /* returns this methods static ctor if it has one. */
+    /* returns the static ctor of this IClass if it has one. */
     def lookupStaticCtor: Option[IMethod] = methods find (_.symbol.isStaticConstructor)
   }
 
