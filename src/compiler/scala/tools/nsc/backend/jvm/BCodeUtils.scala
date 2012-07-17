@@ -1054,6 +1054,30 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
         jmethod.visitInsn(opc)
       }
 
+      // ---------------- field load and store ----------------
+
+      def fieldLoad( field: Symbol) {
+        fieldOp(field, isLoad = true)
+      }
+      def fieldStore(field: Symbol, hostClass: Symbol = null) {
+        fieldOp(field, isLoad = false, hostClass)
+      }
+
+      private def fieldOp(field: Symbol, isLoad: Boolean, hostClass: Symbol = null) {
+        // LOAD_FIELD.hostClass , CALL_METHOD.hostClass , and #4283
+        val owner      =
+          if(hostClass == null) javaName(field.owner)
+          else                  javaName(hostClass)
+        val fieldJName = javaName(field)
+        val fieldDescr = descriptor(field)
+        val isStatic   = field.isStaticMember
+        val opc =
+          if(isLoad) { if (isStatic) Opcodes.GETSTATIC else Opcodes.GETFIELD }
+          else       { if (isStatic) Opcodes.PUTSTATIC else Opcodes.PUTFIELD }
+        jmethod.visitFieldInsn(opc, owner, fieldJName, fieldDescr)
+
+      }
+
     } // end of class JCodeMethodV
 
     abstract class JCodeMethodN extends JCodeMethodV {

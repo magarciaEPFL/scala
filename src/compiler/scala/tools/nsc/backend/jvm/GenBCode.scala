@@ -134,10 +134,6 @@ abstract class GenBCode extends BCodeUtils {
       }
     } // end of method gen(Tree)
 
-    def genLoad(tree: Tree, expectedType: TypeKind) {
-      // TODO
-    }
-
     /* if you look closely, you'll notice almost no code duplication with JBuilder's `writeIfNotTooBig()` */
     def writeIfNotTooBig(label: String, jclassName: String, cnode: asm.tree.ClassNode, sym: Symbol) {
       try {
@@ -278,6 +274,38 @@ abstract class GenBCode extends BCodeUtils {
       mnode = null
     } // end of method genDefDef()
 
+    /**
+     * Emits code that adds nothing to the operand stack.
+     * Two main cases: `tree` is an assignment,
+     * otherwise an `adapt()` to UNIT is performed if needed.
+     *
+     */
+    private def genStat(tree: Tree) {
+      tree match {
+        case Assign(lhs @ Select(_, _), rhs) =>
+          val isStatic = lhs.symbol.isStaticMember
+          if (!isStatic) { genLoadQualifier(lhs) }
+          genLoad(rhs, toTypeKind(lhs.symbol.info))
+          bc fieldStore lhs.symbol
+
+        case Assign(lhs, rhs) =>
+          val tk = toTypeKind(lhs.symbol.info)
+          genLoad(rhs, tk)
+          bc.store(index(lhs.symbol), tk)
+
+        case _ =>
+          genLoad(tree, UNIT)
+      }
+    }
+
+    def genLoad(tree: Tree, expectedType: TypeKind) {
+      // TODO
+    }
+
+    /** Load the qualifier of `tree` on top of the stack. */
+    def genLoadQualifier(tree: Tree) {
+      // TODO
+    }
   } // end of class BCodePhase
 
 } // end of class GenBCode
