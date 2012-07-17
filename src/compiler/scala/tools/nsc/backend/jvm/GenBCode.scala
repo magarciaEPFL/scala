@@ -32,11 +32,8 @@ abstract class GenBCode extends BCodeUtils {
 
   class BCodePhase(prev: Phase)
     extends StdPhase(prev)
-    with    BCInnerClassGen
-    with    BCClassGen
-    with    BCAnnotGen
+    with    BCInitGen
     with    BCJGenSigGen
-    with    BCPickles
     with    BCCommonPhase {
 
     override def name = phaseName
@@ -134,7 +131,7 @@ abstract class GenBCode extends BCodeUtils {
       val csym = cd.symbol
       thisName = javaName(csym)
       cnode = new asm.tree.ClassNode()
-      initJClass(cnode, csym, thisName, getGenericSignature(csym, csym.owner))
+      initJClass(cnode, csym, thisName, getGenericSignature(csym, csym.owner), cunit)
 
       // TODO from visitSource to emitAnnotations
 

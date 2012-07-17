@@ -127,7 +127,8 @@ abstract class GenASM extends BCodeUtils {
       thisName = javaName(c.symbol)
       jclass = new CClassWriter(extraProc)
       initJClass(jclass, c.symbol, thisName,
-                 getGenericSignature(c.symbol, c.symbol.owner), c.cunit)
+                 getGenericSignature(c.symbol, c.symbol.owner),
+                 c.cunit)
 
       // typestate: entering mode with valid call sequences:
       //   ( visitInnerClass | visitField | visitMethod )* visitEnd

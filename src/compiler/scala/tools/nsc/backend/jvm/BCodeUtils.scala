@@ -1551,7 +1551,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
                    csym:          Symbol,
                    thisName:      String,
                    thisSignature: String,
-                   cunit: CompilationUnit) {
+                   cunit:         CompilationUnit) {
       val ps = csym.info.parents
       val superClass: String = if(ps.isEmpty) JAVA_LANG_OBJECT.getInternalName else javaName(ps.head.typeSymbol);
       val ifaces = getSuperInterfaces(csym)
