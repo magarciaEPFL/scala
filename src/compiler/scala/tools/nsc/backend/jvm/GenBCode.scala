@@ -378,6 +378,101 @@ abstract class GenBCode extends BCodeUtils {
       else     { bc isInstance to }
     }
 
+    def getZeroOf(k: TypeKind): Constant = k match {
+      case UNIT            => Constant(())
+      case BOOL            => Constant(false)
+      case BYTE            => Constant(0: Byte)
+      case SHORT           => Constant(0: Short)
+      case CHAR            => Constant(0: Char)
+      case INT             => Constant(0: Int)
+      case LONG            => Constant(0: Long)
+      case FLOAT           => Constant(0.0f)
+      case DOUBLE          => Constant(0.0d)
+      case REFERENCE(cls)  => Constant(null: Any)
+      case ARRAY(elem)     => Constant(null: Any)
+      case BOXED(_)        => Constant(null: Any)
+      case ConcatClass     => abort("no zero of ConcatClass")
+    }
+
+
+    /** Is the given symbol a primitive operation? */
+    def isPrimitive(fun: Symbol): Boolean = scalaPrimitives.isPrimitive(fun)
+
+    /** Generate coercion denoted by "code" */
+    def genCoercion(tree: Tree, code: Int) {
+      ???
+    }
+
+    /** The Object => String overload.
+     */
+    private lazy val String_valueOf: Symbol = getMember(StringModule, nme.valueOf) filter (sym =>
+      sym.info.paramTypes match {
+        case List(pt) => pt.typeSymbol == ObjectClass
+        case _        => false
+      }
+    )
+
+    def genStringConcat(tree: Tree) {
+      ???
+    }
+
+    /** Generate the scala ## method. */
+    def genScalaHash(tree: Tree) {
+      ???
+    }
+
+    /**
+     * Returns a list of trees that each should be concatenated, from
+     * left to right. It turns a chained call like "a".+("b").+("c") into
+     * a list of arguments.
+     */
+    def liftStringConcat(tree: Tree): List[Tree] = tree match { // TODO de-duplicate with GenICode
+      case Apply(fun @ Select(larg, method), rarg) =>
+        if (isPrimitive(fun.symbol) &&
+            scalaPrimitives.getPrimitive(fun.symbol) == scalaPrimitives.CONCAT)
+          liftStringConcat(larg) ::: rarg
+        else
+          List(tree)
+      case _ =>
+        List(tree)
+    }
+
+    /** Some useful equality helpers. */
+    def isNull(t: Tree) = PartialFunction.cond(t) { case Literal(Constant(null)) => true } // TODO de-duplicate with GenICode
+
+    /* If l or r is constant null, returns the other ; otherwise null */
+    def ifOneIsNull(l: Tree, r: Tree) = if (isNull(l)) r else if (isNull(r)) l else null // TODO de-duplicate with GenICode
+
+    /**
+     * Generate the "==" code for object references. It is equivalent of
+     * if (l eq null) r eq null else l.equals(r);
+     *
+     * @param l       left-hand side of the '=='
+     * @param r       right-hand side of the '=='
+     * @param ctx     current context
+     * @param thenCtx target context if the comparison yields true  TODO
+     * @param elseCtx target context if the comparison yields false TODO
+     */
+    def genEqEqPrimitive(l: Tree, r: Tree) {
+      ???
+    }
+
+    /** Does this tree have a try-catch block? */
+    def mayCleanStack(tree: Tree): Boolean = tree exists { // TODO de-duplicate with GenICode
+      case Try(_, _, _) => true
+      case _            => false
+    }
+
+    def getMaxType(ts: List[Type]): TypeKind = // TODO de-duplicate with GenICode
+      ts map toTypeKind reduceLeft (_ maxType _)
+
+    abstract class Cleanup(val value: AnyRef) {
+      def contains(x: AnyRef) = value == x
+    }
+    case class MonitorRelease(v: Symbol) extends Cleanup(v) { }
+    case class Finalizer(f: Tree) extends Cleanup (f) { }
+
+
   } // end of class BCodePhase
 
 } // end of class GenBCode
