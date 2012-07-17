@@ -1447,21 +1447,6 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
     val tdesc_long        = asm.Type.LONG_TYPE.getDescriptor // ie. "J"
 
-    def initJClass(jclass: asm.ClassVisitor, csym: Symbol, thisName: String, thisSignature: String) {
-      val ps = csym.info.parents
-      val superClass: String = if(ps.isEmpty) JAVA_LANG_OBJECT.getInternalName else javaName(ps.head.typeSymbol);
-      val ifaces = getSuperInterfaces(csym)
-
-      val flags = mkFlags(
-        javaFlags(csym),
-        if(isDeprecated(csym)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
-      )
-
-      jclass.visit(classfileVersion, flags,
-                   thisName, thisSignature,
-                   superClass, ifaces)
-    }
-
     private def serialVUID(csym: Symbol): Option[Long] = csym getAnnotation SerialVersionUIDAttr collect {
       case AnnotationInfo(_, Literal(const) :: _, _) => const.longValue
     }
@@ -1555,6 +1540,53 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
     }
 
   } // end of trait BCClassGen
+
+  trait BCInitGen
+    extends BCClassGen
+    with    BCAnnotGen
+    with    BCInnerClassGen
+    with    BCPickles {
+
+    def initJClass(jclass:        asm.ClassVisitor,
+                   csym:          Symbol,
+                   thisName:      String,
+                   thisSignature: String,
+                   cunit: CompilationUnit) {
+      val ps = csym.info.parents
+      val superClass: String = if(ps.isEmpty) JAVA_LANG_OBJECT.getInternalName else javaName(ps.head.typeSymbol);
+      val ifaces = getSuperInterfaces(csym)
+
+      val flags = mkFlags(
+        javaFlags(csym),
+        if(isDeprecated(csym)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
+      )
+
+      jclass.visit(classfileVersion, flags,
+                   thisName, thisSignature,
+                   superClass, ifaces)
+      // typestate: entering mode with valid call sequences:
+      //   [ visitSource ] [ visitOuterClass ] ( visitAnnotation | visitAttribute )*
+
+      if(emitSource) {
+        jclass.visitSource(cunit.source.toString, null /* SourceDebugExtension */)
+      }
+
+      val enclM = getEnclosingMethodAttribute(csym)
+      if(enclM != null) {
+        val EnclMethodEntry(className, methodName, methodType) = enclM
+        jclass.visitOuterClass(className, methodName, methodType.getDescriptor)
+      }
+
+      // typestate: entering mode with valid call sequences:
+      //   ( visitAnnotation | visitAttribute )*
+
+      val ssa = getAnnotPickle(thisName, csym)
+      jclass.visitAttribute(if(ssa.isDefined) pickleMarkerLocal else pickleMarkerForeign)
+      emitAnnotations(jclass, csym.annotations ++ ssa)
+
+    }
+
+  }
 
   /** basic functionality for class file building of plain, mirror, and beaninfo classes. */
   abstract class JBuilder(bytecodeWriter: BytecodeWriter) extends BCInnerClassGen {

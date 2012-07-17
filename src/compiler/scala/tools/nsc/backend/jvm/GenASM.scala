@@ -104,7 +104,7 @@ abstract class GenASM extends BCodeUtils {
   /** builder of plain classes */
   class JPlainBuilder(bytecodeWriter: BytecodeWriter)
     extends JCommonBuilder(bytecodeWriter)
-    with    BCClassGen
+    with    BCInitGen
     with    JAndroidBuilder {
 
     def isParcelableClass = isAndroidParcelableClass(clasz.symbol)
@@ -126,28 +126,8 @@ abstract class GenASM extends BCodeUtils {
 
       thisName = javaName(c.symbol)
       jclass = new CClassWriter(extraProc)
-      initJClass(jclass, c.symbol, thisName, getGenericSignature(c.symbol, c.symbol.owner))
-
-      // typestate: entering mode with valid call sequences:
-      //   [ visitSource ] [ visitOuterClass ] ( visitAnnotation | visitAttribute )*
-
-      if(emitSource) {
-        jclass.visitSource(c.cunit.source.toString,
-                           null /* SourceDebugExtension */)
-      }
-
-      val enclM = getEnclosingMethodAttribute(clasz.symbol)
-      if(enclM != null) {
-        val EnclMethodEntry(className, methodName, methodType) = enclM
-        jclass.visitOuterClass(className, methodName, methodType.getDescriptor)
-      }
-
-      // typestate: entering mode with valid call sequences:
-      //   ( visitAnnotation | visitAttribute )*
-
-      val ssa = getAnnotPickle(thisName, c.symbol)
-      jclass.visitAttribute(if(ssa.isDefined) pickleMarkerLocal else pickleMarkerForeign)
-      emitAnnotations(jclass, c.symbol.annotations ++ ssa)
+      initJClass(jclass, c.symbol, thisName,
+                 getGenericSignature(c.symbol, c.symbol.owner), c.cunit)
 
       // typestate: entering mode with valid call sequences:
       //   ( visitInnerClass | visitField | visitMethod )* visitEnd
