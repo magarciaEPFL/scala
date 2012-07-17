@@ -98,7 +98,11 @@ abstract class GenBCode extends BCodeUtils {
           genPlainClass(cd)
           // bean info class, if needed
           if (cd.symbol hasAnnotation BeanInfoAttr) {
-            beanInfoCodeGen.genBeanInfoClass(cd.symbol, cunit, fieldSymbols(cd.symbol), methodSymbols(cd))
+            beanInfoCodeGen.genBeanInfoClass(
+              cd.symbol, cunit,
+              fieldSymbols(cd.symbol),
+              methodSymbols(cd) filterNot skipMethodSymbol
+            )
           }
 
         case ModuleDef(mods, name, impl) =>
@@ -133,19 +137,21 @@ abstract class GenBCode extends BCodeUtils {
       cnode = new asm.tree.ClassNode()
       initJClass(cnode, csym, thisName, getGenericSignature(csym, csym.owner), cunit)
 
-      // TODO from visitSource to emitAnnotations
+      /* TODO
+       *       val scOpt = c.lookupStaticCtor
+       *       if (isStaticModule(c.symbol) || isAndroidParcelableClass(c.symbol)) {
+       *         addStaticInit(scOpt)
+       *       } else if (scOpt.isDefined) {
+       *         addStaticInit(scOpt)
+       *       }
+       **/
 
-      // TODO addStaticInit, constructors
-
-      addClassFields(csym)
       addSerialVUID(csym, cnode)
-
+      addClassFields(csym)
       gen(cd.impl)
-
-      // TODO annotations, attributes
-
       addInnerClasses(csym, cnode)
-      // TODO this is the time for dce, locals optimization, collapsing of jump-chains, etc.
+
+      // TODO this is the time for dce, locals optimization, collapsing of jump-chains, etc. on the asm.tree.ClassNode.
       writeIfNotTooBig("" + csym.name, thisName, cnode, csym)
       cnode = null
 
@@ -153,10 +159,6 @@ abstract class GenBCode extends BCodeUtils {
 
     private def fieldSymbols(cls: Symbol): List[Symbol] = {
       for (f <- cls.info.decls.toList ; if !f.isMethod && f.isTerm && !f.isModule) yield f;
-    }
-
-    private def methodSymbols(cd: ClassDef): List[Symbol] = {
-      cd.impl.body collect { case dd: DefDef if !skipMethodSymbol(dd.symbol) => dd.symbol }
     }
 
     private def skipMethodSymbol(msym: Symbol): Boolean = {

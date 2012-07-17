@@ -113,11 +113,6 @@ abstract class GenASM extends BCodeUtils {
     var jclass:   asm.ClassWriter = _  // the classfile being emitted
     var thisName: String = _           // the internal name of jclass
 
-    def thisDescr: String = {
-      assert(thisName != null, "thisDescr invoked too soon.")
-      asm.Type.getObjectType(thisName).getDescriptor
-    }
-
     def getCurrentCUnit(): CompilationUnit = { clasz.cunit }
 
     def genClass(c: IClass) {
@@ -133,32 +128,11 @@ abstract class GenASM extends BCodeUtils {
       // typestate: entering mode with valid call sequences:
       //   ( visitInnerClass | visitField | visitMethod )* visitEnd
 
-      if (isStaticModule(c.symbol) || isParcelableClass) {
-
-        if (isStaticModule(c.symbol)) { addModuleInstanceField() }
-        addStaticInit(c.lookupStaticCtor)
-
-      } else {
-
-        for (constructor <- c.lookupStaticCtor) {
-          addStaticInit(Some(constructor))
-        }
-        val skipStaticForwarders = (c.symbol.isInterface || settings.noForwarders.value)
-        if (!skipStaticForwarders) {
-          val lmoc = c.symbol.companionModule
-          // add static forwarders if there are no name conflicts; see bugs #363 and #1735
-          if (lmoc != NoSymbol) {
-            // it must be a top level class (name contains no $s)
-            val isCandidateForForwarders = {
-              afterPickler { !(lmoc.name.toString contains '$') && lmoc.hasModuleFlag && !lmoc.isImplClass && !lmoc.isNestedClass }
-            }
-            if (isCandidateForForwarders) {
-              log("Adding static forwarders from '%s' to implementations in '%s'".format(c.symbol, lmoc))
-              addForwarders(isRemote(clasz.symbol), jclass, thisName, lmoc.moduleClass)
-            }
-          }
-        }
-
+      val scOpt = c.lookupStaticCtor
+      if (isStaticModule(c.symbol) || isAndroidParcelableClass(c.symbol)) {
+        addStaticInit(scOpt)
+      } else if (scOpt.isDefined) {
+        addStaticInit(scOpt)
       }
 
       addSerialVUID(clasz.symbol, jclass)
@@ -298,22 +272,6 @@ abstract class GenASM extends BCodeUtils {
       jmethod.visitEnd()
 
     }
-
-    def addModuleInstanceField() {
-      val fv =
-        jclass.visitField(PublicStaticFinal, // TODO confirm whether we really don't want ACC_SYNTHETIC nor ACC_DEPRECATED
-                          strMODULE_INSTANCE_FIELD,
-                          thisDescr,
-                          null, // no java-generic-signature
-                          null  // no initial value
-        )
-
-      // typestate: entering mode with valid call sequences:
-      //   ( visitAnnotation | visitAttribute )* visitEnd.
-
-      fv.visitEnd()
-    }
-
 
     /* Typestate: should be called before being done with emitting fields (because it invokes addCreatorCode() which adds an IField to the current IClass). */
     def addStaticInit(mopt: Option[IMethod]) {
@@ -644,7 +602,7 @@ abstract class GenASM extends BCodeUtils {
       def genLocalVariableTable() {
         // adding `this` and method params.
         if (!isStatic) {
-          jmethod.visitLocalVariable("this", thisDescr, null, labels(m.startBlock), onePastLast, 0)
+          jmethod.visitLocalVariable("this", thisDescr(thisName), null, labels(m.startBlock), onePastLast, 0)
         }
         for(lv <- m.params) {
           jmethod.visitLocalVariable(javaName(lv.sym), descriptor(lv.kind), null, labels(m.startBlock), onePastLast, indexOf(lv))
@@ -737,7 +695,7 @@ abstract class GenASM extends BCodeUtils {
               jname == INSTANCE_CONSTRUCTOR_NAME) {
             isModuleInitialized = true
             jmethod.visitVarInsn(asm.Opcodes.ALOAD, 0)
-            jmethod.visitFieldInsn(asm.Opcodes.PUTSTATIC, thisName, strMODULE_INSTANCE_FIELD, thisDescr)
+            jmethod.visitFieldInsn(asm.Opcodes.PUTSTATIC, thisName, strMODULE_INSTANCE_FIELD, thisDescr(thisName))
           }
         }
 

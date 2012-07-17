@@ -1545,13 +1545,20 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
     extends BCClassGen
     with    BCAnnotGen
     with    BCInnerClassGen
+    with    JAndroidBuilder
+    with    BCForwardersGen
     with    BCPickles {
+
+    def methodSymbols(cd: ClassDef): List[Symbol] = {
+      cd.impl.body collect { case dd: DefDef => dd.symbol }
+    }
 
     def initJClass(jclass:        asm.ClassVisitor,
                    csym:          Symbol,
                    thisName:      String,
                    thisSignature: String,
                    cunit:         CompilationUnit) {
+
       val ps = csym.info.parents
       val superClass: String = if(ps.isEmpty) JAVA_LANG_OBJECT.getInternalName else javaName(ps.head.typeSymbol);
       val ifaces = getSuperInterfaces(csym)
@@ -1584,6 +1591,55 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       jclass.visitAttribute(if(ssa.isDefined) pickleMarkerLocal else pickleMarkerForeign)
       emitAnnotations(jclass, csym.annotations ++ ssa)
 
+      // typestate: entering mode with valid call sequences:
+      //   ( visitInnerClass | visitField | visitMethod )* visitEnd
+
+      // the invoker has to `addStaticInit(c.lookupStaticCtor)`
+
+      if (isStaticModule(csym) || isAndroidParcelableClass(csym)) {
+
+        if (isStaticModule(csym)) { addModuleInstanceField(jclass, thisName) }
+
+      } else {
+
+        val skipStaticForwarders = (csym.isInterface || settings.noForwarders.value)
+        if (!skipStaticForwarders) {
+          val lmoc = csym.companionModule
+          // add static forwarders if there are no name conflicts; see bugs #363 and #1735
+          if (lmoc != NoSymbol) {
+            // it must be a top level class (name contains no $s)
+            val isCandidateForForwarders = {
+              afterPickler { !(lmoc.name.toString contains '$') && lmoc.hasModuleFlag && !lmoc.isImplClass && !lmoc.isNestedClass }
+            }
+            if (isCandidateForForwarders) {
+              log("Adding static forwarders from '%s' to implementations in '%s'".format(csym, lmoc))
+              addForwarders(isRemote(csym), jclass, thisName, lmoc.moduleClass)
+            }
+          }
+        }
+
+      }
+
+    }
+
+    def addModuleInstanceField(jclass: asm.ClassVisitor, thisName: String) {
+      val fv =
+        jclass.visitField(PublicStaticFinal, // TODO confirm whether we really don't want ACC_SYNTHETIC nor ACC_DEPRECATED
+                          strMODULE_INSTANCE_FIELD,
+                          thisDescr(thisName),
+                          null, // no java-generic-signature
+                          null  // no initial value
+        )
+
+      // typestate: entering mode with valid call sequences:
+      //   ( visitAnnotation | visitAttribute )* visitEnd.
+
+      fv.visitEnd()
+    }
+
+    def thisDescr(thisName: String): String = {
+      assert(thisName != null, "thisDescr invoked too soon.")
+      asm.Type.getObjectType(thisName).getDescriptor
     }
 
   }
