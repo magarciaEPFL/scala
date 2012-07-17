@@ -101,10 +101,7 @@ abstract class GenBCode extends BCodeUtils {
           genPlainClass(cd)
           // bean info class, if needed
           if (cd.symbol hasAnnotation BeanInfoAttr) {
-            val methodSymbols: List[Symbol] = (
-              cd.impl.body collect { case dd: DefDef => dd } map { dd => cd.symbol }
-            )
-            beanInfoCodeGen.genBeanInfoClass(cd.symbol, cunit, fieldSymbols(cd.symbol), methodSymbols)
+            beanInfoCodeGen.genBeanInfoClass(cd.symbol, cunit, fieldSymbols(cd.symbol), methodSymbols(cd))
           }
 
         case ModuleDef(mods, name, impl) =>
@@ -113,44 +110,8 @@ abstract class GenBCode extends BCodeUtils {
         case ValDef(mods, name, tpt, rhs) =>
           () // fields are added in the case handler for ClassDef
 
-        case dd: DefDef if (dd.symbol.isStaticConstructor || definitions.isGetClass(dd.symbol)) =>
-          ()
-
-        case dd @ DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
-          val msym = tree.symbol
-          // clear method-specific stuff
-              // TODO local-ranges table
-              // TODO exh-handlers table
-          // add params
-          assert(vparamss.isEmpty || vparamss.tail.isEmpty, "Malformed parameter list: " + vparamss)
-          val paramIdx = if (msym.isStaticMember) 0 else 1;
-          for (p <- vparamss.head) {
-            // TODO val lv = new Local(p.symbol, toTypeKind(p.symbol.info), true)
-          }
-
-          val returnType =
-            if (msym.isConstructor) UNIT
-            else toTypeKind(msym.info.resultType)
-
-          // addMethodParams(vparamss)
-          val isNative = msym.hasAnnotation(definitions.NativeAttr)
-          val isAbstractMethod = msym.isDeferred || msym.owner.isInterface
-
-          if (!isAbstractMethod && !isNative) {
-            genLoad(rhs, returnType)
-            // TODO see JPlainBuilder.addAndroidCreatorCode()
-            rhs match {
-              case Block(_, Return(_)) => ()
-              case Return(_) => ()
-              case EmptyTree =>
-                globalError("Concrete method has no definition: " + tree + (
-                  if (settings.debug.value) "(found: " + msym.owner.info.decls.toList.mkString(", ") + ")"
-                  else "")
-                )
-              case _ =>
-                // TODO ctx1.bb.closeWith(RETURN(m.returnType), rhs.pos)
-            }
-          }
+        case dd : DefDef =>
+          if(!skipMethodSymbol(dd.symbol)) { genDefDef(dd) }
 
         case Template(_, _, body) =>
           body foreach gen
@@ -167,7 +128,7 @@ abstract class GenBCode extends BCodeUtils {
     /* ---------------- helper utils invoked from gen() methods ---------------- */
 
     def genPlainClass(cd: ClassDef) {
-      assert(cnode == null, "GenBCode detected flatten didn't run.")
+      assert(cnode == null, "GenBCode detected nested methods.")
       innerClassBuffer.clear()
 
       val csym = cd.symbol
@@ -187,6 +148,7 @@ abstract class GenBCode extends BCodeUtils {
       // TODO annotations, attributes
 
       addInnerClasses(csym, cnode)
+      // TODO this is the time for dce, locals optimization, collapsing of jump-chains, etc.
       writeIfNotTooBig("" + csym.name, thisName, cnode, csym)
       cnode = null
 
@@ -195,6 +157,15 @@ abstract class GenBCode extends BCodeUtils {
     private def fieldSymbols(cls: Symbol): List[Symbol] = {
       for (f <- cls.info.decls.toList ; if !f.isMethod && f.isTerm && !f.isModule) yield f;
     }
+
+    private def methodSymbols(cd: ClassDef): List[Symbol] = {
+      cd.impl.body collect { case dd: DefDef if !skipMethodSymbol(dd.symbol) => dd.symbol }
+    }
+
+    private def skipMethodSymbol(msym: Symbol): Boolean = {
+      msym.isStaticConstructor || definitions.isGetClass(msym)
+    }
+
 
     def addClassFields(cls: Symbol) {
       /** Non-method term members are fields, except for module members. Module
@@ -224,7 +195,46 @@ abstract class GenBCode extends BCodeUtils {
 
     } // end of method addClassFields()
 
-    /* if you look closely, you'll find almost no code duplication with JBuilder's `writeIfNotTooBig()` */
+    private def genDefDef(dd: DefDef) {
+      assert(mnode == null, "GenBCode detected flatten didn't run.")
+      val msym = dd.symbol
+      // clear method-specific stuff
+          // TODO local-ranges table
+          // TODO exh-handlers table
+      val DefDef(mods, name, tparams, vparamss, tpt, rhs) = dd
+      // add params
+      assert(vparamss.isEmpty || vparamss.tail.isEmpty, "Malformed parameter list: " + vparamss)
+      val paramIdx = if (msym.isStaticMember) 0 else 1;
+      for (p <- vparamss.head) {
+        // TODO val lv = new Local(p.symbol, toTypeKind(p.symbol.info), true)
+      }
+
+      val returnType =
+        if (msym.isConstructor) UNIT
+        else toTypeKind(msym.info.resultType)
+
+      val isNative = msym.hasAnnotation(definitions.NativeAttr)
+      val isAbstractMethod = msym.isDeferred || msym.owner.isInterface
+
+      if (!isAbstractMethod && !isNative) {
+        genLoad(rhs, returnType)
+        // TODO see JPlainBuilder.addAndroidCreatorCode()
+        rhs match {
+          case Block(_, Return(_)) => ()
+          case Return(_) => ()
+          case EmptyTree =>
+            globalError("Concrete method has no definition: " + dd + (
+              if (settings.debug.value) "(found: " + msym.owner.info.decls.toList.mkString(", ") + ")"
+              else "")
+            )
+          case _ =>
+            // TODO ctx1.bb.closeWith(RETURN(m.returnType), rhs.pos)
+        }
+      }
+      mnode = null
+    } // end of method genDefDef()
+
+    /* if you look closely, you'll notice almost no code duplication with JBuilder's `writeIfNotTooBig()` */
     def writeIfNotTooBig(label: String, jclassName: String, cnode: asm.tree.ClassNode, sym: Symbol) {
       try {
         val cw = new CClassWriter(extraProc)
