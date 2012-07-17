@@ -220,6 +220,8 @@ abstract class GenBCode extends BCodeUtils {
 
     /* ---------------- helper utils for generating methods and code ---------------- */
 
+    @inline final def emit(opc: Int) { mnode.visitInsn(opc) }
+
     def genDefDef(dd: DefDef) {
       assert(mnode == null, "GenBCode detected nested method.")
       val msym = dd.symbol
@@ -280,7 +282,7 @@ abstract class GenBCode extends BCodeUtils {
      * otherwise an `adapt()` to UNIT is performed if needed.
      *
      */
-    private def genStat(tree: Tree) {
+    def genStat(tree: Tree) {
       tree match {
         case Assign(lhs @ Select(_, _), rhs) =>
           val isStatic = lhs.symbol.isStaticMember
@@ -298,14 +300,84 @@ abstract class GenBCode extends BCodeUtils {
       }
     }
 
-    def genLoad(tree: Tree, expectedType: TypeKind) {
-      // TODO
+    def genThrow(expr: Tree): TypeKind = {
+      require(expr.tpe <:< ThrowableClass.tpe, expr.tpe)
+
+      val thrownKind = toTypeKind(expr.tpe)
+      genLoad(expr, thrownKind)
+      emit(asm.Opcodes.ATHROW)
+      // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
+
+      NothingReference // TODO always returns the same, the invoker should know :)
     }
 
-    /** Load the qualifier of `tree` on top of the stack. */
-    def genLoadQualifier(tree: Tree) {
-      // TODO
+    /** Generate code for primitive arithmetic operations. */
+    def genArithmeticOp(tree: Tree, code: Int): TypeKind = {
+      ???
     }
+
+    /** Generate primitive array operations. */
+    def genArrayOp(tree: Tree, code: Int, expectedType: TypeKind): TypeKind = {
+      ???
+    }
+
+    def genSynchronized(tree: Apply, expectedType: TypeKind): TypeKind = {
+      ???
+    }
+
+    def genLoadIf(tree: If, expectedType: TypeKind): TypeKind = {
+      ??? // TODO
+    }
+
+    def genLoadTry(tree: Try) {
+      ??? // TODO
+    }
+
+    def genPrimitiveOp(tree: Apply, expectedType: TypeKind): TypeKind = {
+      ???
+    }
+
+    /** Generate code for trees that produce values on the stack */
+    def genLoad(tree: Tree, expectedType: TypeKind) {
+      ???
+    }
+
+    def adapt(from: TypeKind, to: TypeKind, pos: Position): Unit = {
+      ??? // TODO
+    }
+
+    /** Emit code to Load the qualifier of `tree` on top of the stack. */
+    def genLoadQualifier(tree: Tree) {
+      tree match {
+        case Select(qualifier, _) =>
+          genLoad(qualifier, toTypeKind(qualifier.tpe))
+        case _ =>
+          abort("Unknown qualifier " + tree)
+      }
+    }
+
+    /** Generate code that loads args into label parameters. */
+    def genLoadLabelArguments(args: List[Tree], labelSym: Symbol) {
+      ???
+    }
+
+    def genLoadArguments(args: List[Tree], tpes: List[Type]) {
+      ???
+    }
+
+    def genLoadModule(tree: Tree) {
+      ???
+    }
+
+    def genConversion(from: TypeKind, to: TypeKind, cast: Boolean) = {
+      ???
+    }
+
+    def genCast(from: TypeKind, to: TypeKind, cast: Boolean) {
+      if(cast) { bc checkCast  to }
+      else     { bc isInstance to }
+    }
+
   } // end of class BCodePhase
 
 } // end of class GenBCode

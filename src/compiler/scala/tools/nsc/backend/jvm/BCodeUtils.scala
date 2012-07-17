@@ -1054,12 +1054,20 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
         jmethod.visitInsn(opc)
       }
 
+    } // end of class JCodeMethodV
+
+    abstract class JCodeMethodN extends JCodeMethodV {
+
+      override def jmethod: asm.tree.MethodNode
+
+      import asm.Opcodes
+
       // ---------------- field load and store ----------------
 
-      def fieldLoad( field: Symbol) {
+      def fieldLoad( field: Symbol) { // TODO GenASM could use this method
         fieldOp(field, isLoad = true)
       }
-      def fieldStore(field: Symbol, hostClass: Symbol = null) {
+      def fieldStore(field: Symbol, hostClass: Symbol = null) { // TODO GenASM could use this method
         fieldOp(field, isLoad = false, hostClass)
       }
 
@@ -1078,10 +1086,34 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       }
 
-    } // end of class JCodeMethodV
+      // ---------------- type checks and casts ----------------
 
-    abstract class JCodeMethodN extends JCodeMethodV {
-      override def jmethod: asm.tree.MethodNode
+      def isInstance(tk: TypeKind) { // TODO GenASM could use this method
+        val jtyp: asm.Type =
+          tk match {
+            case REFERENCE(cls) => asm.Type.getObjectType(javaName(cls))
+            case ARRAY(elem)    => javaArrayType(javaType(elem))
+            case _              => abort("Unknown reference type in IS_INSTANCE: " + tk)
+          }
+        jmethod.visitTypeInsn(Opcodes.INSTANCEOF, jtyp.getInternalName)
+      }
+
+      def checkCast(tk: TypeKind) { // TODO GenASM could use this method
+        tk match {
+
+          case REFERENCE(cls) =>
+            if (cls != ObjectClass) { // No need to checkcast for Objects
+              jmethod.visitTypeInsn(Opcodes.CHECKCAST, javaName(cls))
+            }
+
+          case ARRAY(elem)    =>
+            val iname = javaArrayType(javaType(elem)).getInternalName
+            jmethod.visitTypeInsn(Opcodes.CHECKCAST, iname)
+
+          case _              => abort("Unknown reference type in IS_INSTANCE: " + tk)
+        }
+      }
+
     }
 
   } // end of trait BCInnerClassGen
