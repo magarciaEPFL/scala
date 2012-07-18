@@ -324,7 +324,37 @@ abstract class GenBCode extends BCodeUtils {
 
     /** Generate primitive array operations. */
     def genArrayOp(tree: Tree, code: Int, expectedType: TypeKind): TypeKind = {
-      ???
+      import scalaPrimitives._
+      val Apply(Select(arrayObj, _), args) = tree
+      val k = toTypeKind(arrayObj.tpe)
+      val ARRAY(elem) = k
+      genLoad(arrayObj, k)
+      val elementType = typeOfArrayOp.getOrElse(code, abort("Unknown operation on arrays: " + tree + " code: " + code))
+
+      var generatedType = expectedType
+
+      if (scalaPrimitives.isArrayGet(code)) {
+        // load argument on stack
+        assert(args.length == 1, "Too many arguments for array get operation: " + tree);
+        genLoad(args.head, INT)
+        generatedType = elem
+        bc.aload(elementType)
+      }
+      else if (scalaPrimitives.isArraySet(code)) {
+        assert(args.length == 2, "Too many arguments for array set operation: " + tree);
+        genLoad(args.head, INT)
+        genLoad(args.tail.head, toTypeKind(args.tail.head.tpe))
+        // the following line should really be here, but because of bugs in erasure
+        // we pretend we generate whatever type is expected from us.
+        //generatedType = UNIT
+        bc.astore(elementType)
+      }
+      else {
+        generatedType = INT
+        emit(asm.Opcodes.ARRAYLENGTH)
+      }
+
+      generatedType
     }
 
     def genSynchronized(tree: Apply, expectedType: TypeKind): TypeKind = {

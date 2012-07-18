@@ -1062,6 +1062,8 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       import asm.Opcodes
 
+      def drop(tk: TypeKind) { jmethod.visitInsn(if(tk.isWideType) Opcodes.POP2 else Opcodes.POP) }
+
       // ---------------- field load and store ----------------
 
       def fieldLoad( field: Symbol) { // TODO GenASM could use this method
