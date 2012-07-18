@@ -534,7 +534,7 @@ abstract class ScalaPrimitives {
   }
 
   /** If code is a coercion primitive, the result type */
-  def generatedKind(code: Int): TypeKind = code match {
+  def generatedKind(code: Int): TypeKind = (code: @scala.annotation.switch) match {
     case B2B | C2B | S2B | I2B | L2B | F2B | D2B => BYTE
     case B2C | C2C | S2C | I2C | L2C | F2C | D2C => CHAR
     case B2S | C2S | S2S | I2S | L2S | F2S | D2S => SHORT

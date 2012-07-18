@@ -553,72 +553,35 @@ abstract class GenBCode extends BCodeUtils {
     /** Is the given symbol a primitive operation? */
     def isPrimitive(fun: Symbol): Boolean = scalaPrimitives.isPrimitive(fun)
 
+    /* Given `code` reports the src TypeKind of the coercion indicated by `code`.
+     * To find the dst TypeKind, `ScalaPrimitives.generatedKind(code)` can be used. */
+    @inline private final
+    def coercionFrom(code: Int): TypeKind = {
+      import scalaPrimitives._
+      (code: @switch) match {
+        case B2B | B2C | B2S | B2I | B2L | B2F | B2D => BYTE
+        case S2B | S2S | S2C | S2I | S2L | S2F | S2D => SHORT
+        case C2B | C2S | C2C | C2I | C2L | C2F | C2D => CHAR
+        case I2B | I2S | I2C | I2I | I2L | I2F | I2D => INT
+        case L2B | L2S | L2C | L2I | L2L | L2F | L2D => LONG
+        case F2B | F2S | F2C | F2I | F2L | F2F | F2D => FLOAT
+        case D2B | D2S | D2C | D2I | D2L | D2F | D2D => DOUBLE
+      }
+    }
+
     /** Generate coercion denoted by "code" */
     def genCoercion(tree: Tree, code: Int) = {
       import scalaPrimitives._
       (code: @switch) match {
-        case B2B => ()
-        case B2C => bc.emitT2T(BYTE, CHAR)
-        case B2S => bc.emitT2T(BYTE, SHORT)
-        case B2I => bc.emitT2T(BYTE, INT)
-        case B2L => bc.emitT2T(BYTE, LONG)
-        case B2F => bc.emitT2T(BYTE, FLOAT)
-        case B2D => bc.emitT2T(BYTE, DOUBLE)
-
-        case S2B => bc.emitT2T(SHORT, BYTE)
-        case S2S => ()
-        case S2C => bc.emitT2T(SHORT, CHAR)
-        case S2I => bc.emitT2T(SHORT, INT)
-        case S2L => bc.emitT2T(SHORT, LONG)
-        case S2F => bc.emitT2T(SHORT, FLOAT)
-        case S2D => bc.emitT2T(SHORT, DOUBLE)
-
-        case C2B => bc.emitT2T(CHAR, BYTE)
-        case C2S => bc.emitT2T(CHAR, SHORT)
-        case C2C => ()
-        case C2I => bc.emitT2T(CHAR, INT)
-        case C2L => bc.emitT2T(CHAR, LONG)
-        case C2F => bc.emitT2T(CHAR, FLOAT)
-        case C2D => bc.emitT2T(CHAR, DOUBLE)
-
-        case I2B => bc.emitT2T(INT, BYTE)
-        case I2S => bc.emitT2T(INT, SHORT)
-        case I2C => bc.emitT2T(INT, CHAR)
-        case I2I => ()
-        case I2L => bc.emitT2T(INT, LONG)
-        case I2F => bc.emitT2T(INT, FLOAT)
-        case I2D => bc.emitT2T(INT, DOUBLE)
-
-        case L2B => bc.emitT2T(LONG, BYTE)
-        case L2S => bc.emitT2T(LONG, SHORT)
-        case L2C => bc.emitT2T(LONG, CHAR)
-        case L2I => bc.emitT2T(LONG, INT)
-        case L2L => ()
-        case L2F => bc.emitT2T(LONG, FLOAT)
-        case L2D => bc.emitT2T(LONG, DOUBLE)
-
-        case F2B => bc.emitT2T(FLOAT, BYTE)
-        case F2S => bc.emitT2T(FLOAT, SHORT)
-        case F2C => bc.emitT2T(FLOAT, CHAR)
-        case F2I => bc.emitT2T(FLOAT, INT)
-        case F2L => bc.emitT2T(FLOAT, LONG)
-        case F2F => ()
-        case F2D => bc.emitT2T(FLOAT, DOUBLE)
-
-        case D2B => bc.emitT2T(DOUBLE, BYTE)
-        case D2S => bc.emitT2T(DOUBLE, SHORT)
-        case D2C => bc.emitT2T(DOUBLE, CHAR)
-        case D2I => bc.emitT2T(DOUBLE, INT)
-        case D2L => bc.emitT2T(DOUBLE, LONG)
-        case D2F => bc.emitT2T(DOUBLE, FLOAT)
-        case D2D => ()
-
-        case _ => abort("Unknown coercion primitive: " + code)
+        case B2B | S2S | C2C | I2I | L2L | F2F | D2D => ()
+        case _ =>
+          val from = coercionFrom(code)
+          val to   = generatedKind(code)
+          bc.emitT2T(from, to)
       }
     }
 
-    /** The Object => String overload.
-     */
+    /** The Object => String overload. */
     private lazy val String_valueOf: Symbol = getMember(StringModule, nme.valueOf) filter (sym =>
       sym.info.paramTypes match {
         case List(pt) => pt.typeSymbol == ObjectClass
