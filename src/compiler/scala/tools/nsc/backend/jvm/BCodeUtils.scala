@@ -766,6 +766,81 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       import asm.Opcodes;
 
+      @inline final def emit(opc: Int) { jmethod.visitInsn(opc) }
+
+      /**
+       * Emits one or more conversion instructions based on the types given as arguments.
+       *
+       * @param from The type of the value to be converted into another type.
+       * @param to   The type the value will be converted into.
+       */
+      def emitT2T(from: TypeKind, to: TypeKind) {
+        assert(isNonUnitValueTK(from), from)
+        assert(isNonUnitValueTK(to),   to)
+
+            def pickOne(opcs: Array[Int]) {
+              val chosen = (to: @unchecked) match {
+                case BYTE   => opcs(0)
+                case SHORT  => opcs(1)
+                case CHAR   => opcs(2)
+                case INT    => opcs(3)
+                case LONG   => opcs(4)
+                case FLOAT  => opcs(5)
+                case DOUBLE => opcs(6)
+              }
+              if(chosen != -1) { emit(chosen) }
+            }
+
+        if(from == to) { return }
+        if((from == BOOL) || (to == BOOL)) {
+          // the only conversion involving BOOL that is allowed is (BOOL -> BOOL)
+          throw new Error("inconvertible types : " + from.toString() + " -> " + to.toString())
+        }
+
+        if(from.isIntSizedType) { // BYTE, CHAR, SHORT, and INT. (we're done with BOOL already)
+
+          val fromByte  = { import asm.Opcodes._; Array( -1,  -1, I2C,  -1, I2L, I2F, I2D) } // do nothing for (BYTE -> SHORT) and for (BYTE -> INT)
+          val fromChar  = { import asm.Opcodes._; Array(I2B, I2S,  -1,  -1, I2L, I2F, I2D) } // for (CHAR  -> INT) do nothing
+          val fromShort = { import asm.Opcodes._; Array(I2B,  -1, I2C,  -1, I2L, I2F, I2D) } // for (SHORT -> INT) do nothing
+          val fromInt   = { import asm.Opcodes._; Array(I2B, I2S, I2C,  -1, I2L, I2F, I2D) }
+
+          (from: @unchecked) match {
+            case BYTE  => pickOne(fromByte)
+            case SHORT => pickOne(fromShort)
+            case CHAR  => pickOne(fromChar)
+            case INT   => pickOne(fromInt)
+          }
+
+        } else { // FLOAT, LONG, DOUBLE
+
+          (from: @unchecked) match {
+            case FLOAT           =>
+              import asm.Opcodes.{ F2L, F2D, F2I }
+              (to: @unchecked) match {
+                case LONG    => emit(F2L)
+                case DOUBLE  => emit(F2D)
+                case _       => emit(F2I); emitT2T(INT, to)
+              }
+
+            case LONG            =>
+              import asm.Opcodes.{ L2F, L2D, L2I }
+              (to: @unchecked) match {
+                case FLOAT   => emit(L2F)
+                case DOUBLE  => emit(L2D)
+                case _       => emit(L2I); emitT2T(INT, to)
+              }
+
+            case DOUBLE          =>
+              import asm.Opcodes.{ D2L, D2F, D2I }
+              (to: @unchecked) match {
+                case FLOAT   => emit(D2F)
+                case LONG    => emit(D2L)
+                case _       => emit(D2I); emitT2T(INT, to)
+              }
+          }
+        }
+      } // end of emitT2T()
+
       def genConstant(const: Constant) {
         const.tag match {
 

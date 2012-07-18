@@ -311,8 +311,7 @@ abstract class GenBCode extends BCodeUtils {
 
       val thrownKind = toTypeKind(expr.tpe)
       genLoad(expr, thrownKind)
-      emit(asm.Opcodes.ATHROW)
-      // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
+      emit(asm.Opcodes.ATHROW) // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
 
       NothingReference // TODO always returns the same, the invoker should know :)
     }
@@ -393,7 +392,24 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     def adapt(from: TypeKind, to: TypeKind, pos: Position): Unit = {
-      ??? // TODO
+      if (!(from <:< to) && !(from == NullReference && to == NothingReference)) {
+        to match {
+          case UNIT => bc drop from
+          case _    => bc.emitT2T(from, to)
+        }
+      } else if (from == NothingReference) {
+        emit(asm.Opcodes.ATHROW) // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
+      } else if (from == NullReference) {
+        bc drop from
+        mnode.visitInsn(asm.Opcodes.ACONST_NULL)
+      }
+      else if (from == ThrowableReference && !(ThrowableClass.tpe <:< to.toType)) {
+        bc checkCast to
+      }
+      else (from, to) match  {
+        case (BYTE, LONG) | (SHORT, LONG) | (CHAR, LONG) | (INT, LONG) => bc.emitT2T(INT, LONG)
+        case _ => ()
+      }
     }
 
     /** Emit code to Load the qualifier of `tree` on top of the stack. */

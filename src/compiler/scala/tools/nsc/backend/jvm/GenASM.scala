@@ -977,79 +977,6 @@ abstract class GenASM extends BCodeUtils {
 
       } // end of genCode()'s genBlock()
 
-      /**
-       * Emits one or more conversion instructions based on the types given as arguments.
-       *
-       * @param from The type of the value to be converted into another type.
-       * @param to   The type the value will be converted into.
-       */
-      def emitT2T(from: TypeKind, to: TypeKind) {
-        assert(isNonUnitValueTK(from), from)
-        assert(isNonUnitValueTK(to),   to)
-
-            def pickOne(opcs: Array[Int]) {
-              val chosen = (to: @unchecked) match {
-                case BYTE   => opcs(0)
-                case SHORT  => opcs(1)
-                case CHAR   => opcs(2)
-                case INT    => opcs(3)
-                case LONG   => opcs(4)
-                case FLOAT  => opcs(5)
-                case DOUBLE => opcs(6)
-              }
-              if(chosen != -1) { emit(chosen) }
-            }
-
-        if(from == to) { return }
-        if((from == BOOL) || (to == BOOL)) {
-          // the only conversion involving BOOL that is allowed is (BOOL -> BOOL)
-          throw new Error("inconvertible types : " + from.toString() + " -> " + to.toString())
-        }
-
-        if(from.isIntSizedType) { // BYTE, CHAR, SHORT, and INT. (we're done with BOOL already)
-
-          val fromByte  = { import asm.Opcodes._; Array( -1,  -1, I2C,  -1, I2L, I2F, I2D) } // do nothing for (BYTE -> SHORT) and for (BYTE -> INT)
-          val fromChar  = { import asm.Opcodes._; Array(I2B, I2S,  -1,  -1, I2L, I2F, I2D) } // for (CHAR  -> INT) do nothing
-          val fromShort = { import asm.Opcodes._; Array(I2B,  -1, I2C,  -1, I2L, I2F, I2D) } // for (SHORT -> INT) do nothing
-          val fromInt   = { import asm.Opcodes._; Array(I2B, I2S, I2C,  -1, I2L, I2F, I2D) }
-
-          (from: @unchecked) match {
-            case BYTE  => pickOne(fromByte)
-            case SHORT => pickOne(fromShort)
-            case CHAR  => pickOne(fromChar)
-            case INT   => pickOne(fromInt)
-          }
-
-        } else { // FLOAT, LONG, DOUBLE
-
-          (from: @unchecked) match {
-            case FLOAT           =>
-              import asm.Opcodes.{ F2L, F2D, F2I }
-              (to: @unchecked) match {
-                case LONG    => emit(F2L)
-                case DOUBLE  => emit(F2D)
-                case _       => emit(F2I); emitT2T(INT, to)
-              }
-
-            case LONG            =>
-              import asm.Opcodes.{ L2F, L2D, L2I }
-              (to: @unchecked) match {
-                case FLOAT   => emit(L2F)
-                case DOUBLE  => emit(L2D)
-                case _       => emit(L2I); emitT2T(INT, to)
-              }
-
-            case DOUBLE          =>
-              import asm.Opcodes.{ D2L, D2F, D2I }
-              (to: @unchecked) match {
-                case FLOAT   => emit(D2F)
-                case LONG    => emit(D2L)
-                case _       => emit(D2I); emitT2T(INT, to)
-              }
-          }
-        }
-      } // end of genCode()'s emitT2T()
-
       def genPrimitive(primitive: Primitive, pos: Position) {
 
         import asm.Opcodes;
@@ -1090,19 +1017,19 @@ abstract class GenASM extends BCodeUtils {
             case (AND, INT)  => emit(Opcodes.IAND)
             case (AND, _)    =>
               emit(Opcodes.IAND)
-              if (kind != BOOL) { emitT2T(INT, kind) }
+              if (kind != BOOL) { jcode.emitT2T(INT, kind) }
 
             case (OR, LONG) => emit(Opcodes.LOR)
             case (OR, INT)  => emit(Opcodes.IOR)
             case (OR, _) =>
               emit(Opcodes.IOR)
-              if (kind != BOOL) { emitT2T(INT, kind) }
+              if (kind != BOOL) { jcode.emitT2T(INT, kind) }
 
             case (XOR, LONG) => emit(Opcodes.LXOR)
             case (XOR, INT)  => emit(Opcodes.IXOR)
             case (XOR, _) =>
               emit(Opcodes.IXOR)
-              if (kind != BOOL) { emitT2T(INT, kind) }
+              if (kind != BOOL) { jcode.emitT2T(INT, kind) }
           }
 
           case Shift(op, kind) => ((op, kind): @unchecked) match {
@@ -1110,19 +1037,19 @@ abstract class GenASM extends BCodeUtils {
             case (LSL, INT)  => emit(Opcodes.ISHL)
             case (LSL, _) =>
               emit(Opcodes.ISHL)
-              emitT2T(INT, kind)
+              jcode.emitT2T(INT, kind)
 
             case (ASR, LONG) => emit(Opcodes.LSHR)
             case (ASR, INT)  => emit(Opcodes.ISHR)
             case (ASR, _) =>
               emit(Opcodes.ISHR)
-              emitT2T(INT, kind)
+              jcode.emitT2T(INT, kind)
 
             case (LSR, LONG) => emit(Opcodes.LUSHR)
             case (LSR, INT)  => emit(Opcodes.IUSHR)
             case (LSR, _) =>
               emit(Opcodes.IUSHR)
-              emitT2T(INT, kind)
+              jcode.emitT2T(INT, kind)
           }
 
           case Comparison(op, kind) => ((op, kind): @unchecked) match {
@@ -1136,7 +1063,7 @@ abstract class GenASM extends BCodeUtils {
           case Conversion(src, dst) =>
             debuglog("Converting from: " + src + " to: " + dst)
             if (dst == BOOL) { println("Illegal conversion at: " + clasz + " at: " + pos.source + ":" + pos.line) }
-            else { emitT2T(src, dst) }
+            else { jcode.emitT2T(src, dst) }
 
           case ArrayLength(_) => emit(Opcodes.ARRAYLENGTH)
 
