@@ -383,7 +383,31 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     def genPrimitiveOp(tree: Apply, expectedType: TypeKind): TypeKind = {
-      ???
+      val sym = tree.symbol
+      val Apply(fun @ Select(receiver, _), args) = tree
+      val code = scalaPrimitives.getPrimitive(sym, receiver.tpe)
+
+      import scalaPrimitives.{isArithmeticOp, isArrayOp, isLogicalOp, isComparisonOp}
+
+      if (isArithmeticOp(code))                genArithmeticOp(tree, code)
+      else if (code == scalaPrimitives.CONCAT) genStringConcat(tree)
+      else if (code == scalaPrimitives.HASH)   genScalaHash(receiver)
+      else if (isArrayOp(code))                genArrayOp(tree, code, expectedType)
+      else if (isLogicalOp(code) || isComparisonOp(code)) {
+        genLoad(tree, BOOL)
+        BOOL
+      }
+      else if (code == scalaPrimitives.SYNCHRONIZED)
+        genSynchronized(tree, expectedType)
+      else if (scalaPrimitives.isCoercion(code)) {
+        genLoad(receiver, toTypeKind(receiver.tpe))
+        genCoercion(tree, code)
+        scalaPrimitives.generatedKind(code)
+      }
+      else abort(
+        "Primitive operation not handled yet: " + sym.fullName + "(" +
+        fun.symbol.simpleName + ") " + " at: " + (tree.pos)
+      )
     }
 
     /** Generate code for trees that produce values on the stack */
@@ -482,8 +506,67 @@ abstract class GenBCode extends BCodeUtils {
     def isPrimitive(fun: Symbol): Boolean = scalaPrimitives.isPrimitive(fun)
 
     /** Generate coercion denoted by "code" */
-    def genCoercion(tree: Tree, code: Int) {
-      ???
+    def genCoercion(tree: Tree, code: Int) = {
+      import scalaPrimitives._
+      (code: @switch) match {
+        case B2B => ()
+        case B2C => bc.emitT2T(BYTE, CHAR)
+        case B2S => bc.emitT2T(BYTE, SHORT)
+        case B2I => bc.emitT2T(BYTE, INT)
+        case B2L => bc.emitT2T(BYTE, LONG)
+        case B2F => bc.emitT2T(BYTE, FLOAT)
+        case B2D => bc.emitT2T(BYTE, DOUBLE)
+
+        case S2B => bc.emitT2T(SHORT, BYTE)
+        case S2S => ()
+        case S2C => bc.emitT2T(SHORT, CHAR)
+        case S2I => bc.emitT2T(SHORT, INT)
+        case S2L => bc.emitT2T(SHORT, LONG)
+        case S2F => bc.emitT2T(SHORT, FLOAT)
+        case S2D => bc.emitT2T(SHORT, DOUBLE)
+
+        case C2B => bc.emitT2T(CHAR, BYTE)
+        case C2S => bc.emitT2T(CHAR, SHORT)
+        case C2C => ()
+        case C2I => bc.emitT2T(CHAR, INT)
+        case C2L => bc.emitT2T(CHAR, LONG)
+        case C2F => bc.emitT2T(CHAR, FLOAT)
+        case C2D => bc.emitT2T(CHAR, DOUBLE)
+
+        case I2B => bc.emitT2T(INT, BYTE)
+        case I2S => bc.emitT2T(INT, SHORT)
+        case I2C => bc.emitT2T(INT, CHAR)
+        case I2I => ()
+        case I2L => bc.emitT2T(INT, LONG)
+        case I2F => bc.emitT2T(INT, FLOAT)
+        case I2D => bc.emitT2T(INT, DOUBLE)
+
+        case L2B => bc.emitT2T(LONG, BYTE)
+        case L2S => bc.emitT2T(LONG, SHORT)
+        case L2C => bc.emitT2T(LONG, CHAR)
+        case L2I => bc.emitT2T(LONG, INT)
+        case L2L => ()
+        case L2F => bc.emitT2T(LONG, FLOAT)
+        case L2D => bc.emitT2T(LONG, DOUBLE)
+
+        case F2B => bc.emitT2T(FLOAT, BYTE)
+        case F2S => bc.emitT2T(FLOAT, SHORT)
+        case F2C => bc.emitT2T(FLOAT, CHAR)
+        case F2I => bc.emitT2T(FLOAT, INT)
+        case F2L => bc.emitT2T(FLOAT, LONG)
+        case F2F => ()
+        case F2D => bc.emitT2T(FLOAT, DOUBLE)
+
+        case D2B => bc.emitT2T(DOUBLE, BYTE)
+        case D2S => bc.emitT2T(DOUBLE, SHORT)
+        case D2C => bc.emitT2T(DOUBLE, CHAR)
+        case D2I => bc.emitT2T(DOUBLE, INT)
+        case D2L => bc.emitT2T(DOUBLE, LONG)
+        case D2F => bc.emitT2T(DOUBLE, FLOAT)
+        case D2D => ()
+
+        case _ => abort("Unknown coercion primitive: " + code)
+      }
     }
 
     /** The Object => String overload.
@@ -495,13 +578,15 @@ abstract class GenBCode extends BCodeUtils {
       }
     )
 
-    def genStringConcat(tree: Tree) {
+    def genStringConcat(tree: Tree): TypeKind = {
       ???
+      StringReference
     }
 
     /** Generate the scala ## method. */
-    def genScalaHash(tree: Tree) {
+    def genScalaHash(tree: Tree): TypeKind = {
       ???
+      INT
     }
 
     /**
