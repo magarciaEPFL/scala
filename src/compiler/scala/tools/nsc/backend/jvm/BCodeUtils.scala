@@ -760,13 +760,133 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
      *  but the methods here allow choosing when to transition from ICode to ASM types
      *  (including not at all, e.g. for performance).
      */
-    abstract class JCodeMethodV {
+    abstract class JCodeMethodV(StringBuilderClassName: String) {
 
       def jmethod: asm.MethodVisitor
 
       import asm.Opcodes;
 
+      val StringBuilderType = asm.Type.getObjectType(StringBuilderClassName)
+      val mdesc_toString    = "()Ljava/lang/String;"
+
       @inline final def emit(opc: Int) { jmethod.visitInsn(opc) }
+
+      def genPrimitive(primitive: Primitive, pos: Position) {
+
+        import asm.Opcodes;
+
+        primitive match {
+
+          case Negation(kind) => neg(kind)
+
+          case Arithmetic(op, kind) =>
+            op match {
+
+              case ADD => add(kind)
+              case SUB => sub(kind)
+              case MUL => mul(kind)
+              case DIV => div(kind)
+              case REM => rem(kind)
+
+              case NOT =>
+                if(kind.isIntSizedType) {
+                  emit(Opcodes.ICONST_M1)
+                  emit(Opcodes.IXOR)
+                } else if(kind == LONG) {
+                  jmethod.visitLdcInsn(new java.lang.Long(-1))
+                  jmethod.visitInsn(Opcodes.LXOR)
+                } else {
+                  abort("Impossible to negate an " + kind)
+                }
+
+              case _ =>
+                abort("Unknown arithmetic primitive " + primitive)
+            }
+
+          // TODO Logical's 2nd elem should be declared ValueTypeKind, to better approximate its allowed values (isIntSized, its comments appears to convey)
+          // TODO GenICode uses `toTypeKind` to define that elem, `toValueTypeKind` would be needed instead.
+          // TODO How about adding some asserts to Logical and similar ones to capture the remaining constraint (UNIT not allowed).
+          case Logical(op, kind) => ((op, kind): @unchecked) match {
+            case (AND, LONG) => emit(Opcodes.LAND)
+            case (AND, INT)  => emit(Opcodes.IAND)
+            case (AND, _)    =>
+              emit(Opcodes.IAND)
+              if (kind != BOOL) { emitT2T(INT, kind) }
+
+            case (OR, LONG) => emit(Opcodes.LOR)
+            case (OR, INT)  => emit(Opcodes.IOR)
+            case (OR, _) =>
+              emit(Opcodes.IOR)
+              if (kind != BOOL) { emitT2T(INT, kind) }
+
+            case (XOR, LONG) => emit(Opcodes.LXOR)
+            case (XOR, INT)  => emit(Opcodes.IXOR)
+            case (XOR, _) =>
+              emit(Opcodes.IXOR)
+              if (kind != BOOL) { emitT2T(INT, kind) }
+          }
+
+          case Shift(op, kind) => ((op, kind): @unchecked) match {
+            case (LSL, LONG) => emit(Opcodes.LSHL)
+            case (LSL, INT)  => emit(Opcodes.ISHL)
+            case (LSL, _) =>
+              emit(Opcodes.ISHL)
+              emitT2T(INT, kind)
+
+            case (ASR, LONG) => emit(Opcodes.LSHR)
+            case (ASR, INT)  => emit(Opcodes.ISHR)
+            case (ASR, _) =>
+              emit(Opcodes.ISHR)
+              emitT2T(INT, kind)
+
+            case (LSR, LONG) => emit(Opcodes.LUSHR)
+            case (LSR, INT)  => emit(Opcodes.IUSHR)
+            case (LSR, _) =>
+              emit(Opcodes.IUSHR)
+              emitT2T(INT, kind)
+          }
+
+          case Comparison(op, kind) => ((op, kind): @unchecked) match {
+            case (CMP, LONG)    => emit(Opcodes.LCMP)
+            case (CMPL, FLOAT)  => emit(Opcodes.FCMPL)
+            case (CMPG, FLOAT)  => emit(Opcodes.FCMPG)
+            case (CMPL, DOUBLE) => emit(Opcodes.DCMPL)
+            case (CMPG, DOUBLE) => emit(Opcodes.DCMPL) // TODO bug? why not DCMPG? http://docs.oracle.com/javase/specs/jvms/se5.0/html/Instructions2.doc3.html
+          }
+
+          case Conversion(src, dst) =>
+            debuglog("Converting from: " + src + " to: " + dst)
+            if (dst == BOOL) { println("Illegal conversion at: " + pos.source + ":" + pos.line) }
+            else { emitT2T(src, dst) }
+
+          case ArrayLength(_) => emit(Opcodes.ARRAYLENGTH)
+
+          case StartConcat =>
+            jmethod.visitTypeInsn(Opcodes.NEW, StringBuilderClassName)
+            jmethod.visitInsn(Opcodes.DUP)
+            invokespecial(
+              StringBuilderClassName,
+              INSTANCE_CONSTRUCTOR_NAME,
+              mdesc_arglessvoid
+            )
+
+          case StringConcat(el) =>
+            val jtype = el match {
+              case REFERENCE(_) | ARRAY(_) => JAVA_LANG_OBJECT
+              case _ => javaType(el)
+            }
+            invokevirtual(
+              StringBuilderClassName,
+              "append",
+              asm.Type.getMethodDescriptor(StringBuilderType, Array(jtype): _*)
+            )
+
+          case EndConcat =>
+            invokevirtual(StringBuilderClassName, "toString", mdesc_toString)
+
+          case _ => abort("Unimplemented primitive " + primitive)
+        }
+      } // end of genPrimitive()
 
       /**
        * Emits one or more conversion instructions based on the types given as arguments.
@@ -861,7 +981,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
             assert(const.value != null, const) // TODO this invariant isn't documented in `case class Constant`
             jmethod.visitLdcInsn(const.stringValue) // `stringValue` special-cases null, but not for a const with StringTag
 
-          case NullTag    => jmethod.visitInsn(asm.Opcodes.ACONST_NULL)
+          case NullTag    => emit(asm.Opcodes.ACONST_NULL)
 
           case ClazzTag   =>
             val kind = toTypeKind(const.typeValue)
@@ -884,7 +1004,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       }
 
       def aconst(cst: AnyRef) {
-        if (cst == null) { jmethod.visitInsn(Opcodes.ACONST_NULL) }
+        if (cst == null) { emit(Opcodes.ACONST_NULL) }
         else             { jmethod.visitLdcInsn(cst) }
       }
 
@@ -892,7 +1012,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       def iconst(cst: Int) {
         if (cst >= -1 && cst <= 5) {
-          jmethod.visitInsn(Opcodes.ICONST_0 + cst)
+          emit(Opcodes.ICONST_0 + cst)
         } else if (cst >= java.lang.Byte.MIN_VALUE && cst <= java.lang.Byte.MAX_VALUE) {
           jmethod.visitIntInsn(Opcodes.BIPUSH, cst)
         } else if (cst >= java.lang.Short.MIN_VALUE && cst <= java.lang.Short.MAX_VALUE) {
@@ -904,7 +1024,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       def lconst(cst: Long) {
         if (cst == 0L || cst == 1L) {
-          jmethod.visitInsn(Opcodes.LCONST_0 + cst.asInstanceOf[Int])
+          emit(Opcodes.LCONST_0 + cst.asInstanceOf[Int])
         } else {
           jmethod.visitLdcInsn(new java.lang.Long(cst))
         }
@@ -913,7 +1033,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       def fconst(cst: Float) {
         val bits: Int = java.lang.Float.floatToIntBits(cst)
         if (bits == 0L || bits == 0x3f800000 || bits == 0x40000000) { // 0..2
-          jmethod.visitInsn(Opcodes.FCONST_0 + cst.asInstanceOf[Int])
+          emit(Opcodes.FCONST_0 + cst.asInstanceOf[Int])
         } else {
           jmethod.visitLdcInsn(new java.lang.Float(cst))
         }
@@ -922,7 +1042,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       def dconst(cst: Double) {
         val bits: Long = java.lang.Double.doubleToLongBits(cst)
         if (bits == 0L || bits == 0x3ff0000000000000L) { // +0.0d and 1.0d
-          jmethod.visitInsn(Opcodes.DCONST_0 + cst.asInstanceOf[Int])
+          emit(Opcodes.DCONST_0 + cst.asInstanceOf[Int])
         } else {
           jmethod.visitLdcInsn(new java.lang.Double(cst))
         }
@@ -992,7 +1112,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
       @inline def emitIFNULL   (label: asm.Label) { jmethod.visitJumpInsn(Opcodes.IFNULL,    label) }
 
       @inline def emitRETURN(tk: TypeKind) {
-        if(tk == UNIT) { jmethod.visitInsn(Opcodes.RETURN) }
+        if(tk == UNIT) { emit(Opcodes.RETURN) }
         else           { emitTypeBased(returnOpcodes, tk)      }
       }
 
@@ -1103,7 +1223,7 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
             }
           }
         }
-        jmethod.visitInsn(opc)
+        emit(opc)
       }
 
       // ---------------- primitive operations ----------------
@@ -1126,18 +1246,18 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
             }
           }
         }
-        jmethod.visitInsn(opc)
+        emit(opc)
       }
 
     } // end of class JCodeMethodV
 
-    abstract class JCodeMethodN extends JCodeMethodV {
+    abstract class JCodeMethodN(StringBuilderClassName: String) extends JCodeMethodV(StringBuilderClassName) {
 
       override def jmethod: asm.tree.MethodNode
 
       import asm.Opcodes
 
-      def drop(tk: TypeKind) { jmethod.visitInsn(if(tk.isWideType) Opcodes.POP2 else Opcodes.POP) }
+      def drop(tk: TypeKind) { emit(if(tk.isWideType) Opcodes.POP2 else Opcodes.POP) }
 
       // ---------------- field load and store ----------------
 
@@ -1574,8 +1694,6 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
     val StringBuilderClassName = javaName(definitions.StringBuilderClass)
     val BoxesRunTime = "scala/runtime/BoxesRunTime"
 
-    val StringBuilderType = asm.Type.getObjectType(StringBuilderClassName)
-    val mdesc_toString    = "()Ljava/lang/String;"
     val mdesc_arrayClone  = "()Ljava/lang/Object;"
 
     val tdesc_long        = asm.Type.LONG_TYPE.getDescriptor // ie. "J"

@@ -88,7 +88,7 @@ abstract class GenBCode extends BCodeUtils {
       this.cunit = NoCompilationUnit
     }
 
-    object bc extends JCodeMethodN {
+    object bc extends JCodeMethodN(BCodePhase.this.StringBuilderClassName) {
       override def jmethod = BCodePhase.this.mnode
     }
 
@@ -318,7 +318,55 @@ abstract class GenBCode extends BCodeUtils {
 
     /** Generate code for primitive arithmetic operations. */
     def genArithmeticOp(tree: Tree, code: Int): TypeKind = {
-      ???
+      val Apply(fun @ Select(larg, _), args) = tree
+      var resKind = toTypeKind(larg.tpe)
+
+      assert(args.length <= 1, "Too many arguments for primitive function: " + fun.symbol)
+      assert(resKind.isNumericType | resKind == BOOL,
+               resKind.toString() + " is not a numeric or boolean type " + "[operation: " + fun.symbol + "]")
+
+      args match {
+        // unary operation
+        case Nil =>
+          genLoad(larg, resKind)
+          code match {
+            case scalaPrimitives.POS => () // nothing
+            case scalaPrimitives.NEG => bc.genPrimitive(Negation(resKind), larg.pos)
+            case scalaPrimitives.NOT => bc.genPrimitive(Arithmetic(NOT, resKind), larg.pos)
+            case _ => abort("Unknown unary operation: " + fun.symbol.fullName + " code: " + code)
+          }
+
+        // binary operation
+        case rarg :: Nil =>
+          resKind = getMaxType(larg.tpe :: rarg.tpe :: Nil);
+          if (scalaPrimitives.isShiftOp(code) || scalaPrimitives.isBitwiseOp(code))
+            assert(resKind.isIntegralType | resKind == BOOL,
+                   resKind.toString() + " incompatible with arithmetic modulo operation.");
+
+          genLoad(larg, resKind)
+          genLoad(rarg, // check .NET size of shift arguments!
+                  if (scalaPrimitives.isShiftOp(code)) INT else resKind)
+
+          val primitiveOp = code match {
+            case scalaPrimitives.ADD    => Arithmetic(ADD, resKind)
+            case scalaPrimitives.SUB    => Arithmetic(SUB, resKind)
+            case scalaPrimitives.MUL    => Arithmetic(MUL, resKind)
+            case scalaPrimitives.DIV    => Arithmetic(DIV, resKind)
+            case scalaPrimitives.MOD    => Arithmetic(REM, resKind)
+            case scalaPrimitives.OR     => Logical(OR, resKind)
+            case scalaPrimitives.XOR    => Logical(XOR, resKind)
+            case scalaPrimitives.AND    => Logical(AND, resKind)
+            case scalaPrimitives.LSL    => Shift(LSL, resKind)
+            case scalaPrimitives.LSR    => Shift(LSR, resKind)
+            case scalaPrimitives.ASR    => Shift(ASR, resKind)
+            case _                      => abort("Unknown primitive: " + fun.symbol + "[" + code + "]")
+          }
+          bc.genPrimitive(primitiveOp, tree.pos)
+
+        case _ =>
+          abort("Too many arguments for primitive function: " + tree)
+      }
+      resKind
     }
 
     /** Generate primitive array operations. */

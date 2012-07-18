@@ -323,7 +323,7 @@ abstract class GenASM extends BCodeUtils {
     // Emitting bytecode instructions.
     // -----------------------------------------------------------------------------------------
 
-    object jcode extends JCodeMethodV {
+    object jcode extends JCodeMethodV(JPlainBuilder.this.StringBuilderClassName) {
       override def jmethod = JPlainBuilder.this.jmethod
     }
 
@@ -766,7 +766,7 @@ abstract class GenASM extends BCodeUtils {
 
             case icodes.constCat => jcode.genConstant(instr.asInstanceOf[CONSTANT].constant)
 
-            case icodes.arilogCat => genPrimitive(instr.asInstanceOf[CALL_PRIMITIVE].primitive, instr.pos)
+            case icodes.arilogCat => jcode.genPrimitive(instr.asInstanceOf[CALL_PRIMITIVE].primitive, instr.pos)
 
             case icodes.castsCat => (instr: @unchecked) match {
 
@@ -976,123 +976,6 @@ abstract class GenASM extends BCodeUtils {
         }
 
       } // end of genCode()'s genBlock()
-
-      def genPrimitive(primitive: Primitive, pos: Position) {
-
-        import asm.Opcodes;
-
-        primitive match {
-
-          case Negation(kind) => jcode.neg(kind)
-
-          case Arithmetic(op, kind) =>
-            op match {
-
-              case ADD => jcode.add(kind)
-              case SUB => jcode.sub(kind)
-              case MUL => jcode.mul(kind)
-              case DIV => jcode.div(kind)
-              case REM => jcode.rem(kind)
-
-              case NOT =>
-                if(kind.isIntSizedType) {
-                  emit(Opcodes.ICONST_M1)
-                  emit(Opcodes.IXOR)
-                } else if(kind == LONG) {
-                  jmethod.visitLdcInsn(new java.lang.Long(-1))
-                  jmethod.visitInsn(Opcodes.LXOR)
-                } else {
-                  abort("Impossible to negate an " + kind)
-                }
-
-              case _ =>
-                abort("Unknown arithmetic primitive " + primitive)
-            }
-
-          // TODO Logical's 2nd elem should be declared ValueTypeKind, to better approximate its allowed values (isIntSized, its comments appears to convey)
-          // TODO GenICode uses `toTypeKind` to define that elem, `toValueTypeKind` would be needed instead.
-          // TODO How about adding some asserts to Logical and similar ones to capture the remaining constraint (UNIT not allowed).
-          case Logical(op, kind) => ((op, kind): @unchecked) match {
-            case (AND, LONG) => emit(Opcodes.LAND)
-            case (AND, INT)  => emit(Opcodes.IAND)
-            case (AND, _)    =>
-              emit(Opcodes.IAND)
-              if (kind != BOOL) { jcode.emitT2T(INT, kind) }
-
-            case (OR, LONG) => emit(Opcodes.LOR)
-            case (OR, INT)  => emit(Opcodes.IOR)
-            case (OR, _) =>
-              emit(Opcodes.IOR)
-              if (kind != BOOL) { jcode.emitT2T(INT, kind) }
-
-            case (XOR, LONG) => emit(Opcodes.LXOR)
-            case (XOR, INT)  => emit(Opcodes.IXOR)
-            case (XOR, _) =>
-              emit(Opcodes.IXOR)
-              if (kind != BOOL) { jcode.emitT2T(INT, kind) }
-          }
-
-          case Shift(op, kind) => ((op, kind): @unchecked) match {
-            case (LSL, LONG) => emit(Opcodes.LSHL)
-            case (LSL, INT)  => emit(Opcodes.ISHL)
-            case (LSL, _) =>
-              emit(Opcodes.ISHL)
-              jcode.emitT2T(INT, kind)
-
-            case (ASR, LONG) => emit(Opcodes.LSHR)
-            case (ASR, INT)  => emit(Opcodes.ISHR)
-            case (ASR, _) =>
-              emit(Opcodes.ISHR)
-              jcode.emitT2T(INT, kind)
-
-            case (LSR, LONG) => emit(Opcodes.LUSHR)
-            case (LSR, INT)  => emit(Opcodes.IUSHR)
-            case (LSR, _) =>
-              emit(Opcodes.IUSHR)
-              jcode.emitT2T(INT, kind)
-          }
-
-          case Comparison(op, kind) => ((op, kind): @unchecked) match {
-            case (CMP, LONG)    => emit(Opcodes.LCMP)
-            case (CMPL, FLOAT)  => emit(Opcodes.FCMPL)
-            case (CMPG, FLOAT)  => emit(Opcodes.FCMPG)
-            case (CMPL, DOUBLE) => emit(Opcodes.DCMPL)
-            case (CMPG, DOUBLE) => emit(Opcodes.DCMPL) // TODO bug? why not DCMPG? http://docs.oracle.com/javase/specs/jvms/se5.0/html/Instructions2.doc3.html
-          }
-
-          case Conversion(src, dst) =>
-            debuglog("Converting from: " + src + " to: " + dst)
-            if (dst == BOOL) { println("Illegal conversion at: " + clasz + " at: " + pos.source + ":" + pos.line) }
-            else { jcode.emitT2T(src, dst) }
-
-          case ArrayLength(_) => emit(Opcodes.ARRAYLENGTH)
-
-          case StartConcat =>
-            jmethod.visitTypeInsn(Opcodes.NEW, StringBuilderClassName)
-            jmethod.visitInsn(Opcodes.DUP)
-            jcode.invokespecial(
-              StringBuilderClassName,
-              INSTANCE_CONSTRUCTOR_NAME,
-              mdesc_arglessvoid
-            )
-
-          case StringConcat(el) =>
-            val jtype = el match {
-              case REFERENCE(_) | ARRAY(_) => JAVA_LANG_OBJECT
-              case _ => javaType(el)
-            }
-            jcode.invokevirtual(
-              StringBuilderClassName,
-              "append",
-              asm.Type.getMethodDescriptor(StringBuilderType, Array(jtype): _*)
-            )
-
-          case EndConcat =>
-            jcode.invokevirtual(StringBuilderClassName, "toString", mdesc_toString)
-
-          case _ => abort("Unimplemented primitive " + primitive)
-        }
-      } // end of genCode()'s genPrimitive()
 
       // ------------------------------------------------------------------------------------------------------------
       // Part 6 of genCode(): the executable part of genCode() starts here.
