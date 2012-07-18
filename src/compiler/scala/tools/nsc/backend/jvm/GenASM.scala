@@ -638,51 +638,11 @@ abstract class GenASM extends BCodeUtils {
         val CALL_METHOD(method, style) = call
         val siteSymbol  = clasz.symbol
         val hostSymbol  = call.hostClass
-        val methodOwner = method.owner
-        // info calls so that types are up to date; erasure may add lateINTERFACE to traits
-        hostSymbol.info ; methodOwner.info
-
-        def isInterfaceCall(sym: Symbol) = (
-             sym.isInterface && methodOwner != ObjectClass
-          || sym.isJavaDefined && sym.isNonBottomSubClass(ClassfileAnnotationClass)
-        )
-        // whether to reference the type of the receiver or
-        // the type of the method owner (if not an interface!)
-        val useMethodOwner = (
-             style != Dynamic
-          || !isInterfaceCall(hostSymbol) && isAccessibleFrom(methodOwner, siteSymbol)
-          || hostSymbol.isBottomClass
-        )
-        val receiver = if (useMethodOwner) methodOwner else hostSymbol
-        val jowner   = javaName(receiver)
-        val jname    = javaName(method)
-        val jtype    = javaType(method).getDescriptor()
-
-        def dbg(invoke: String) {
-          debuglog("%s %s %s.%s:%s".format(invoke, receiver.accessString, jowner, jname, jtype))
-        }
-
-        def initModule() {
-          // we initialize the MODULE$ field immediately after the super ctor
-          if (isStaticModule(siteSymbol) && !isModuleInitialized &&
-              jMethodName == INSTANCE_CONSTRUCTOR_NAME &&
-              jname == INSTANCE_CONSTRUCTOR_NAME) {
-            isModuleInitialized = true
-            jmethod.visitVarInsn(asm.Opcodes.ALOAD, 0)
-            jmethod.visitFieldInsn(asm.Opcodes.PUTSTATIC, thisName, strMODULE_INSTANCE_FIELD, thisDescr(thisName))
-          }
-        }
-
-        style match {
-          case Static(true)                         => dbg("invokespecial");  jcode.invokespecial  (jowner, jname, jtype)
-          case Static(false)                        => dbg("invokestatic");   jcode.invokestatic   (jowner, jname, jtype)
-          case Dynamic if isInterfaceCall(receiver) => dbg("invokinterface"); jcode.invokeinterface(jowner, jname, jtype)
-          case Dynamic                              => dbg("invokevirtual");  jcode.invokevirtual  (jowner, jname, jtype)
-          case SuperCall(_)                         =>
-            dbg("invokespecial")
-            jcode.invokespecial(jowner, jname, jtype)
-            initModule()
-        }
+        isModuleInitialized =
+          jcode.genCallMethod(
+            method,     style,      jMethodName,
+            siteSymbol, hostSymbol, thisName, isModuleInitialized
+          )
       } // end of genCode()'s genCallMethod()
 
       def genBlock(b: BasicBlock) {

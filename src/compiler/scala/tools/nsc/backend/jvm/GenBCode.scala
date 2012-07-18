@@ -56,6 +56,7 @@ abstract class GenBCode extends BCodeUtils {
     // current method
     private var mnode: asm.tree.MethodNode = null
     private var jMethodName: String        = null
+    private var isModuleInitialized        = false // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
 
     // bookkeeping for method-local vars and params
     private val locIdx = mutable.Map.empty[Symbol, Int] // (local-or-param-sym -> index-of-local-in-method)
@@ -167,6 +168,7 @@ abstract class GenBCode extends BCodeUtils {
 
       /* TODO
        *       val scOpt = c.lookupStaticCtor
+       *       isModuleInitialized = false
        *       if (isStaticModule(c.symbol) || isAndroidParcelableClass(c.symbol)) {
        *         addStaticInit(scOpt)
        *       } else if (scOpt.isDefined) {
@@ -252,6 +254,7 @@ abstract class GenBCode extends BCodeUtils {
       )
       mnode       = jmethod0.asInstanceOf[asm.tree.MethodNode]
       jMethodName = javaName(msym)
+      isModuleInitialized = false
 
       // add params
       nxtIdx = if (msym.isStaticMember) 0 else 1;
@@ -525,7 +528,11 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     def genConversion(from: TypeKind, to: TypeKind, cast: Boolean) = {
-      ???
+      if (cast) { bc.emitT2T(from, to) }
+      else {
+        bc drop from
+        bc genConstant Constant(from == to)
+      }
     }
 
     def genCast(from: TypeKind, to: TypeKind, cast: Boolean) {
@@ -590,9 +597,39 @@ abstract class GenBCode extends BCodeUtils {
     )
 
     def genStringConcat(tree: Tree): TypeKind = {
-      ???
+
+      liftStringConcat(tree) match {
+
+        // Optimization for expressions of the form "" + x.  We can avoid the StringBuilder.
+        case List(Literal(Constant("")), arg) =>
+          genLoad(arg, ObjectReference)
+          genCallMethod(String_valueOf, Static(false))
+
+        case concatenations =>
+          bc.genPrimitive(StartConcat, tree.pos)
+          for (elem <- concatenations) {
+            val kind = toTypeKind(elem.tpe)
+            genLoad(elem, kind)
+            bc.genPrimitive(StringConcat(kind), elem.pos)
+          }
+          bc.genPrimitive(EndConcat, tree.pos)
+
+      }
+
       StringReference
     }
+
+    def genCallMethod(method: Symbol, style: InvokeStyle, hostClass: Symbol = null) {
+
+      val hostSymbol = if(hostClass == null) method.owner else hostClass;
+
+      isModuleInitialized =
+        bc.genCallMethod(
+          method,      style,      jMethodName,
+          claszSymbol, hostSymbol, thisName,    isModuleInitialized
+        )
+
+    } // end of genCode()'s genCallMethod()
 
     /** Generate the scala ## method. */
     def genScalaHash(tree: Tree): TypeKind = {
