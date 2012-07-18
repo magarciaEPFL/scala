@@ -1330,8 +1330,8 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       // ---------------- field load and store ----------------
 
-      def fieldLoad( field: Symbol) { // TODO GenASM could use this method
-        fieldOp(field, isLoad = true)
+      def fieldLoad( field: Symbol, hostClass: Symbol = null) { // TODO GenASM could use this method
+        fieldOp(field, isLoad = true,  hostClass)
       }
       def fieldStore(field: Symbol, hostClass: Symbol = null) { // TODO GenASM could use this method
         fieldOp(field, isLoad = false, hostClass)

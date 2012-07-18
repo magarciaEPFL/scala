@@ -438,7 +438,7 @@ abstract class GenBCode extends BCodeUtils {
       resKind
     }
 
-    def genLoadTry(tree: Try) {
+    def genLoadTry(tree: Try): TypeKind = {
       ??? // TODO
     }
 
@@ -472,6 +472,185 @@ abstract class GenBCode extends BCodeUtils {
 
     /** Generate code for trees that produce values on the stack */
     def genLoad(tree: Tree, expectedType: TypeKind) {
+      var generatedType = expectedType
+
+      tree match {
+        case lblDf : LabelDef => genLabelDef(lblDf)
+
+        case ValDef(_, nme.THIS, _, _) =>
+          debuglog("skipping trivial assign to _$this: " + tree)
+
+        case ValDef(_, _, _, rhs) =>
+          val sym = tree.symbol
+          val tk  = toTypeKind(sym.info)
+          if (rhs == EmptyTree) { bc.genConstant(getZeroOf(tk)) }
+          else { genLoad(rhs, tk) }
+          assert(!locIdx.contains(sym), "supposedly the first time sym was seen, but no, couldn't be that way.")
+          bc.store(index(sym), tk)
+          // TODO ctx1.scope.add(local)
+          generatedType = UNIT
+
+        case t : If =>
+          generatedType = genLoadIf(t, expectedType)
+
+        case r : Return => genReturn(r)
+
+        case t : Try =>
+          generatedType = genLoadTry(t)
+
+        case Throw(expr) =>
+          generatedType = genThrow(expr)
+
+        case New(tpt) =>
+          abort("Unexpected New(" + tpt.summaryString + "/" + tpt + ") received in icode.\n" +
+                "  Call was genLoad" + ((tree, expectedType)))
+
+        case app : Apply =>
+          generatedType = genApply(app, expectedType)
+
+        case ApplyDynamic(qual, args) => sys.error("No invokedynamic support yet.")
+
+        case This(qual) =>
+          assert(tree.symbol == claszSymbol || tree.symbol.isModuleClass,
+                 "Trying to access the this of another class: " +
+                 "tree.symbol = " + tree.symbol + ", ctx.clazz.symbol = " + claszSymbol + " compilation unit:"+ cunit)
+          if (tree.symbol.isModuleClass && tree.symbol != claszSymbol) {
+            genLoadModule(tree)
+            generatedType = REFERENCE(tree.symbol)
+          }
+          else {
+            mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
+            generatedType = REFERENCE(
+              if (tree.symbol == ArrayClass) ObjectClass else claszSymbol
+            )
+          }
+
+        case Select(Ident(nme.EMPTY_PACKAGE_NAME), module) =>
+          assert(tree.symbol.isModule, "Selection of non-module from empty package: " + tree + " sym: " + tree.symbol + " at: " + (tree.pos))
+          genLoadModule(tree)
+
+        case Select(qualifier, selector) =>
+          val sym = tree.symbol
+          generatedType = toTypeKind(sym.info)
+          val hostClass = qualifier.tpe.typeSymbol.orElse(sym.owner)
+
+          if (sym.isModule)            { genLoadModule(tree) }
+          else if (sym.isStaticMember) { bc.fieldLoad(sym, hostClass) }
+          else {
+            genLoadQualifier(tree)
+            bc.fieldLoad(sym, hostClass)
+          }
+
+        case Ident(name) =>
+          val sym = tree.symbol
+          if (!sym.isPackage) {
+            if (sym.isModule) {
+              genLoadModule(tree)
+              generatedType = toTypeKind(sym.info)
+            }
+            else {
+              val tk = toTypeKind(sym.info) // TODO cache and make index() return LocalInfo(Int, TypeKind)
+              bc.load(index(sym), tk)
+              generatedType = tk
+            }
+          }
+
+        case Literal(value) =>
+          if (value.tag != UnitTag) (value.tag, expectedType) match {
+            case (IntTag,   LONG  ) => bc.lconst(value.longValue);       generatedType = LONG
+            case (FloatTag, DOUBLE) => bc.dconst(value.doubleValue);     generatedType = DOUBLE
+            case (NullTag,  _     ) => bc.emit(asm.Opcodes.ACONST_NULL); generatedType = NullReference
+            case _                  => bc.genConstant(value);            generatedType = toTypeKind(tree.tpe)
+          }
+
+        case blck : Block => genBlock(blck)
+
+        case Typed(Super(_, _), _) => genLoad(This(claszSymbol), expectedType)
+
+        case Typed(expr, _) => genLoad(expr, expectedType)
+
+        case Assign(_, _) =>
+          generatedType = UNIT
+          genStat(tree)
+
+        case av : ArrayValue => genArrayValue(av)
+
+        case mtch : Match => genMatch(mtch)
+
+        case EmptyTree => if (expectedType != UNIT) { bc genConstant getZeroOf(expectedType) }
+
+        case _ => abort("Unexpected tree in genLoad: " + tree + "/" + tree.getClass + " at: " + tree.pos)
+      }
+
+      // emit conversion
+      if (generatedType != expectedType) {
+        adapt(generatedType, expectedType, tree.pos)
+      }
+
+    } // end of GenBCode.genLoad()
+
+    private def genLabelDef(lblDf: LabelDef) {
+      ???
+    }
+
+    private def genReturn(r: Return) {
+      ???
+    }
+
+    private def genApply(tree: Apply, expectedType: TypeKind): TypeKind = {
+      var generatedType = expectedType
+      tree match {
+
+        case Apply(TypeApply(fun, targs), _) =>
+          ???
+
+        // 'super' call: Note: since constructors are supposed to
+        // return an instance of what they construct, we have to take
+        // special care. On JVM they are 'void', and Scala forbids (syntactically)
+        // to call super constructors explicitly and/or use their 'returned' value.
+        // therefore, we can ignore this fact, and generate code that leaves nothing
+        // on the stack (contrary to what the type in the AST says).
+        case Apply(fun @ Select(Super(_, mix), _), args) =>
+          ???
+
+        // 'new' constructor call: Note: since constructors are
+        // thought to return an instance of what they construct,
+        // we have to 'simulate' it by DUPlicating the freshly created
+        // instance (on JVM, <init> methods return VOID).
+        case Apply(fun @ Select(New(tpt), nme.CONSTRUCTOR), args) =>
+          ???
+
+        case Apply(fun @ _, List(expr)) if (definitions.isBox(fun.symbol)) =>
+          genLoad(expr, toTypeKind(expr.tpe))
+          val nativeKind = toTypeKind(expr.tpe)
+          val MethodNameAndType(mname, mdesc) = jBoxTo(nativeKind)
+          bc.invokestatic(BoxesRunTime, mname, mdesc)
+          generatedType = toTypeKind(fun.symbol.tpe.resultType)
+
+        case Apply(fun @ _, List(expr)) if (definitions.isUnbox(fun.symbol)) =>
+          genLoad(expr, toTypeKind(expr.tpe))
+          val boxType = toTypeKind(fun.symbol.owner.linkedClassOfClass.tpe)
+          generatedType = boxType
+          val MethodNameAndType(mname, mdesc) = jUnboxTo(boxType)
+          bc.invokestatic(BoxesRunTime, mname, mdesc)
+
+        case app @ Apply(fun, args) =>
+          ???
+
+      }
+
+      generatedType
+    }
+
+    private def genArrayValue(av: ArrayValue) {
+      ???
+    }
+
+    private def genMatch(mtch: Match) {
+      ???
+    }
+
+    private def genBlock(blck: Block) {
       ???
     }
 
