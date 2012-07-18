@@ -13,7 +13,7 @@ import scala.collection.mutable.{ ListBuffer, Buffer }
 import scala.tools.nsc.symtab._
 import scala.annotation.switch
 import scala.tools.asm
-import asm.tree.ClassNode
+import asm.tree.{JumpInsnNode, LabelNode, ClassNode}
 
 /** Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
  *
@@ -46,19 +46,25 @@ abstract class GenBCode extends BCodeUtils {
 
     /* ---------------- what is currently being visited ---------------- */
 
+    // current compilation unit and package
     private var cunit: CompilationUnit     = null
     private val pkg = new mutable.Stack[String]
+    // current class
     private var cnode: asm.tree.ClassNode  = null
     private var thisName: String           = null // the internal name of the class being emitted
+    private var claszSymbol: Symbol        = null
+    // current method
     private var mnode: asm.tree.MethodNode = null
+    private var jMethodName: String        = null
 
     // bookkeeping for method-local vars and params
     private val locIdx = mutable.Map.empty[Symbol, Int] // (local-or-param-sym -> index-of-local-in-method)
-    private var nxtIdx = 0 // next available index for local-var
+    private var nxtIdx = -1 // next available index for local-var
     private def sizeOf(k: TypeKind): Int = if(k.isWideType) 2 else 1
     private def index(sym: Symbol): Int = {
       locIdx.getOrElseUpdate(sym, {
         val idx = nxtIdx;
+        assert(idx != -1, "GenBCode.index() run before GenBCode.genDedDef()")
         nxtIdx += sizeOf(toTypeKind(sym.info))
         idx
       })
@@ -236,15 +242,16 @@ abstract class GenBCode extends BCodeUtils {
       val isAbstractMethod = msym.isDeferred || msym.owner.isInterface
 
       val params      = vparamss.head
-      val csym        = msym.owner
+      claszSymbol     = msym.owner
       val Pair(flags, jmethod0) = initJMethod(
         cnode,
-        msym,  isNative,
-        csym,  csym.isInterface,
+        msym, isNative,
+        claszSymbol,  claszSymbol.isInterface,
         params.map(p => javaType(p.symbol.info)),
         params.map(p => p.symbol.annotations)
       )
-      mnode = jmethod0.asInstanceOf[asm.tree.MethodNode]
+      mnode       = jmethod0.asInstanceOf[asm.tree.MethodNode]
+      jMethodName = javaName(msym)
 
       // add params
       nxtIdx = if (msym.isStaticMember) 0 else 1;
@@ -280,7 +287,6 @@ abstract class GenBCode extends BCodeUtils {
      * Emits code that adds nothing to the operand stack.
      * Two main cases: `tree` is an assignment,
      * otherwise an `adapt()` to UNIT is performed if needed.
-     *
      */
     def genStat(tree: Tree) {
       tree match {
@@ -326,7 +332,21 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     def genLoadIf(tree: If, expectedType: TypeKind): TypeKind = {
-      ??? // TODO
+      val If(condp, thenp, elsep) = tree
+      genLoad(condp, BOOL)
+      val iffalse  = new asm.tree.LabelNode()
+      val jmp      = new asm.tree.JumpInsnNode(asm.Opcodes.IFEQ, iffalse)
+      val thenKind = toTypeKind(thenp.tpe)
+      val elseKind = if (elsep == EmptyTree) UNIT else toTypeKind(elsep.tpe)
+      def hasUnitBranch = (thenKind == UNIT || elseKind == UNIT)
+      val resKind  = if (hasUnitBranch) UNIT else toTypeKind(tree.tpe)
+      genLoad(thenp, resKind)
+      mnode.instructions.add(iffalse)
+      if (elsep != EmptyTree) {
+        genLoad(elsep, resKind)
+      }
+
+      resKind
     }
 
     def genLoadTry(tree: Try) {
@@ -349,10 +369,8 @@ abstract class GenBCode extends BCodeUtils {
     /** Emit code to Load the qualifier of `tree` on top of the stack. */
     def genLoadQualifier(tree: Tree) {
       tree match {
-        case Select(qualifier, _) =>
-          genLoad(qualifier, toTypeKind(qualifier.tpe))
-        case _ =>
-          abort("Unknown qualifier " + tree)
+        case Select(qualifier, _) => genLoad(qualifier, toTypeKind(qualifier.tpe))
+        case _                    => abort("Unknown qualifier " + tree)
       }
     }
 
@@ -366,7 +384,26 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     def genLoadModule(tree: Tree) {
-      ???
+      // Working around SI-5604.  Rather than failing the compile when we see
+      // a package here, check if there's a package object.
+      val module = ( // TODO code duplicate from GenICode
+        if (!tree.symbol.isPackageClass) tree.symbol
+        else tree.symbol.info.member(nme.PACKAGE) match {
+          case NoSymbol => assert(false, "Cannot use package as value: " + tree) ; NoSymbol
+          case s        => debugwarn("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
+        }
+      )
+
+      if (claszSymbol == module.moduleClass && jMethodName != nme.readResolve.toString) { // TODO code duplicate from GenASM
+        mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
+      } else {
+        mnode.visitFieldInsn(
+          asm.Opcodes.GETSTATIC,
+          javaName(module) /* + "$" */ ,
+          strMODULE_INSTANCE_FIELD,
+          descriptor(module)
+        )
+      }
     }
 
     def genConversion(from: TypeKind, to: TypeKind, cast: Boolean) = {
@@ -422,9 +459,8 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     /**
-     * Returns a list of trees that each should be concatenated, from
-     * left to right. It turns a chained call like "a".+("b").+("c") into
-     * a list of arguments.
+     * Returns a list of trees that each should be concatenated, from left to right.
+     * It turns a chained call like "a".+("b").+("c") into a list of arguments.
      */
     def liftStringConcat(tree: Tree): List[Tree] = tree match { // TODO de-duplicate with GenICode
       case Apply(fun @ Select(larg, method), rarg) =>
