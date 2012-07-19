@@ -834,12 +834,11 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     def genLoadArguments(args: List[Tree], tpes: List[Type]) {
-      ???
+      (args zip tpes) foreach { case (arg, tpe) => genLoad(arg, toTypeKind(tpe)) }
     }
 
     def genLoadModule(tree: Tree) {
-      // Working around SI-5604.  Rather than failing the compile when we see
-      // a package here, check if there's a package object.
+      // Working around SI-5604.  Rather than failing the compile when we see a package here, check if there's a package object.
       val module = (
         if (!tree.symbol.isPackageClass) tree.symbol
         else tree.symbol.info.member(nme.PACKAGE) match {
@@ -867,7 +866,7 @@ abstract class GenBCode extends BCodeUtils {
       if (cast) { bc.emitT2T(from, to) }
       else {
         bc drop from
-        bc genConstant Constant(from == to)
+        bc boolconst (from == to)
       }
     }
 
