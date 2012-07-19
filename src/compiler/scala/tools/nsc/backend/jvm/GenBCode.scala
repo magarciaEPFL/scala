@@ -316,7 +316,7 @@ abstract class GenBCode extends BCodeUtils {
       genLoad(expr, thrownKind)
       emit(asm.Opcodes.ATHROW) // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
 
-      NothingReference // TODO always returns the same, the invoker should know :)
+      NothingReference // always returns the same, the invoker should know :)
     }
 
     /** Generate code for primitive arithmetic operations. */
@@ -493,7 +493,7 @@ abstract class GenBCode extends BCodeUtils {
         case t : If =>
           generatedType = genLoadIf(t, expectedType)
 
-        case r : Return => genReturn(r)
+        case r : Return => genReturn(r) // TODO generatedType ?
 
         case t : Try =>
           generatedType = genLoadTry(t)
@@ -573,9 +573,11 @@ abstract class GenBCode extends BCodeUtils {
           generatedType = UNIT
           genStat(tree)
 
-        case av : ArrayValue => genArrayValue(av)
+        case av : ArrayValue =>
+          generatedType = genArrayValue(av)
 
-        case mtch : Match => genMatch(mtch)
+        case mtch : Match =>
+          generatedType = genMatch(mtch)
 
         case EmptyTree => if (expectedType != UNIT) { bc genConstant getZeroOf(expectedType) }
 
@@ -642,11 +644,29 @@ abstract class GenBCode extends BCodeUtils {
       generatedType
     }
 
-    private def genArrayValue(av: ArrayValue) {
-      ???
+    private def genArrayValue(av: ArrayValue): TypeKind = {
+      val ArrayValue(tpt @ TypeTree(), elems0) = av
+
+      val elmKind       = toTypeKind(tpt.tpe)
+      var generatedType = ARRAY(elmKind)
+      val elems         = elems0.toIndexedSeq
+
+      bc iconst   elems.length
+      bc newarray elmKind
+
+      var i = 0
+      while (i < elems.length) {
+        bc dup     generatedType
+        bc iconst  i
+        genLoad(elems(i), elmKind)
+        bc astore  elmKind
+        i = i + 1
+      }
+
+      generatedType
     }
 
-    private def genMatch(mtch: Match) {
+    private def genMatch(mtch: Match): TypeKind = {
       ???
     }
 

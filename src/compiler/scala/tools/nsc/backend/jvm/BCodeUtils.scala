@@ -1328,6 +1328,8 @@ abstract class BCodeUtils extends SubComponent with BytecodeWriters {
 
       def drop(tk: TypeKind) { emit(if(tk.isWideType) Opcodes.POP2 else Opcodes.POP) }
 
+      def dup(tk: TypeKind)  { emit(if(tk.isWideType) Opcodes.DUP2 else Opcodes.DUP) }
+
       // ---------------- field load and store ----------------
 
       def fieldLoad( field: Symbol, hostClass: Symbol = null) { // TODO GenASM could use this method
