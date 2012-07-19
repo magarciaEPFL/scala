@@ -603,7 +603,40 @@ abstract class GenBCode extends BCodeUtils {
       tree match {
 
         case Apply(TypeApply(fun, targs), _) =>
-          ???
+          val sym = fun.symbol
+          val cast = sym match {
+            case Object_isInstanceOf  => false
+            case Object_asInstanceOf  => true
+            case _                    => abort("Unexpected type application " + fun + "[sym: " + sym.fullName + "]" + " in: " + tree)
+          }
+
+          val Select(obj, _) = fun
+          val l = toTypeKind(obj.tpe)
+          val r = toTypeKind(targs.head.tpe)
+          genLoadQualifier(fun)
+
+          if (l.isValueType && r.isValueType)
+            genConversion(l, r, cast)
+          else if (l.isValueType) {
+            bc drop l
+            if (cast) {
+              mnode.visitTypeInsn(asm.Opcodes.NEW, javaName(definitions.ClassCastExceptionClass))
+              bc dup ObjectReference
+              emit(asm.Opcodes.ATHROW)
+            } else {
+              bc boolconst false
+            }
+          }
+          else if (r.isValueType && cast) {
+            assert(false, tree) /* Erasure should have added an unboxing operation to prevent that. */
+          }
+          else if (r.isValueType) {
+            bc isInstance REFERENCE(definitions.boxedClass(r.toType.typeSymbol))
+          }
+          else {
+            genCast(l, r, cast)
+          }
+          generatedType = if (cast) r else BOOL;
 
         // 'super' call: Note: since constructors are supposed to
         // return an instance of what they construct, we have to take
@@ -612,14 +645,54 @@ abstract class GenBCode extends BCodeUtils {
         // therefore, we can ignore this fact, and generate code that leaves nothing
         // on the stack (contrary to what the type in the AST says).
         case Apply(fun @ Select(Super(_, mix), _), args) =>
-          ???
+          val invokeStyle = SuperCall(mix)
+          // if (fun.symbol.isConstructor) Static(true) else SuperCall(mix);
+          mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
+          genLoadArguments(args, fun.symbol.info.paramTypes)
+          genCallMethod(fun.symbol, invokeStyle)
+          generatedType =
+            if (fun.symbol.isConstructor) UNIT
+            else toTypeKind(fun.symbol.info.resultType)
 
         // 'new' constructor call: Note: since constructors are
         // thought to return an instance of what they construct,
         // we have to 'simulate' it by DUPlicating the freshly created
         // instance (on JVM, <init> methods return VOID).
         case Apply(fun @ Select(New(tpt), nme.CONSTRUCTOR), args) =>
-          ???
+          val ctor = fun.symbol
+          assert(ctor.isClassConstructor, "'new' call to non-constructor: " + ctor.name)
+
+          generatedType = toTypeKind(tpt.tpe)
+          assert(generatedType.isReferenceType || generatedType.isArrayType,
+                 "Non reference type cannot be instantiated: " + generatedType)
+
+          generatedType match {
+            case arr @ ARRAY(elem) =>
+              genLoadArguments(args, ctor.info.paramTypes)
+              val dims = arr.dimensions
+              var elemKind = arr.elementKind
+              if (args.length > dims) {
+                cunit.error(tree.pos, "too many arguments for array constructor: found " + args.length +
+                                      " but array has only " + dims + " dimension(s)")
+              }
+              if (args.length != dims) {
+                for (i <- args.length until dims) elemKind = ARRAY(elemKind)
+              }
+              args.length match {
+                case 1           => bc newarray elemKind
+                case dimsensions => mnode.visitMultiANewArrayInsn(descriptor(ArrayN(elemKind, dimsensions)), dimsensions)
+              }
+
+            case rt @ REFERENCE(cls) =>
+              assert(ctor.owner == cls, "Symbol " + ctor.owner.fullName + " is different than " + tpt)
+              mnode.visitTypeInsn(asm.Opcodes.NEW, javaName(cls))
+              bc dup generatedType
+              genLoadArguments(args, ctor.info.paramTypes)
+              genCallMethod(ctor, Static(true))
+
+            case _ =>
+              abort("Cannot instantiate " + tpt + " of kind: " + generatedType)
+          }
 
         case Apply(fun @ _, List(expr)) if (definitions.isBox(fun.symbol)) =>
           genLoad(expr, toTypeKind(expr.tpe))
@@ -641,7 +714,7 @@ abstract class GenBCode extends BCodeUtils {
       }
 
       generatedType
-    }
+    } // end of GenBCode's genApply()
 
     private def genArrayValue(av: ArrayValue): TypeKind = {
       val ArrayValue(tpt @ TypeTree(), elems0) = av
