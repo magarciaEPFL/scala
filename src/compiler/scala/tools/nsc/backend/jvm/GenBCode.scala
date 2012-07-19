@@ -709,7 +709,52 @@ abstract class GenBCode extends BCodeUtils {
           bc.invokestatic(BoxesRunTime, mname, mdesc)
 
         case app @ Apply(fun, args) =>
-          ???
+          val sym = fun.symbol
+
+          if (sym.isLabel) {  // jump to a label
+            ???
+          } else if (isPrimitive(sym)) { // primitive method call
+            generatedType = genPrimitiveOp(app, expectedType)
+          } else {  // normal method call
+            val invokeStyle =
+              if (sym.isStaticMember) Static(false)
+              else if (sym.isPrivate || sym.isClassConstructor) Static(true)
+              else Dynamic;
+
+            if (invokeStyle.hasInstance) {
+              genLoadQualifier(fun)
+            }
+
+            genLoadArguments(args, sym.info.paramTypes)
+
+            // In "a couple cases", squirrel away a extra information (hostClass, targetTypeKind). TODO Document what "in a couple cases" refers to.
+            var hostClass: Symbol        = null
+            var targetTypeKind: TypeKind = null
+            fun match {
+              case Select(qual, _) =>
+                val qualSym = qual.tpe.typeSymbol
+                if (qualSym == ArrayClass) { targetTypeKind = toTypeKind(qual.tpe) }
+                else { hostClass = qualSym }
+
+                debuglog(
+                  if (qualSym == ArrayClass) "Stored target type kind " + toTypeKind(qual.tpe) + " for " + sym.fullName
+                  else "Set more precise host class for " + sym.fullName + " host: " + qualSym
+                )
+              case _ =>
+            }
+            if((targetTypeKind != null) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
+              val target: String = javaType(targetTypeKind).getInternalName
+              bc.invokevirtual(target, "clone", mdesc_arrayClone)
+            }
+            else {
+              genCallMethod(sym, invokeStyle, hostClass)
+            }
+
+            // TODO if (sym == ctx1.method.symbol) { ctx1.method.recursive = true }
+            generatedType =
+              if (sym.isClassConstructor) UNIT
+              else toTypeKind(sym.info.resultType);
+          }
 
       }
 
