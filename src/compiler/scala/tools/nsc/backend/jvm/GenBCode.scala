@@ -666,8 +666,61 @@ abstract class GenBCode extends BCodeUtils {
       generatedType
     }
 
-    private def genMatch(mtch: Match): TypeKind = {
-      ???
+    /**
+     *  A Match node contains one or more case clauses,
+     * each case clause lists one or more Int values to use as keys, and a code block.
+     * Except the "default" case clause which (if it exists) doesn't list any Int key.
+     *
+     * On a first pass over the case clauses, we flatten the keys and their targets (the latter represented with asm.Labels).
+     * That representation allows JCodeMethodV to emit a lookupswitch or a tableswitch.
+     *
+     * On a second pass, we emit the switch blocks, one for each different target. */
+    private def genMatch(tree: Match): TypeKind = {
+      genLoad(tree.selector, INT)
+      val generatedType = toTypeKind(tree.tpe)
+
+      var flatKeys: List[Int]       = Nil
+      var targets:  List[asm.Label] = Nil
+      var default:  asm.Label       = null
+      var switchBlocks: List[Pair[asm.Label, Tree]] = Nil
+
+      // collect switch blocks and their keys, but don't emit yet any switch-block.
+      for (caze @ CaseDef(pat, guard, body) <- tree.cases) {
+        assert(guard == EmptyTree, guard)
+        val switchBlockPoint = new asm.Label
+        switchBlocks ::= Pair(switchBlockPoint, body)
+        pat match {
+          case Literal(value) =>
+            flatKeys ::= value.intValue
+            targets  ::= switchBlockPoint
+          case Ident(nme.WILDCARD) =>
+            assert(default == null, "multiple default targets in a Match node, at " + tree.pos)
+            default = switchBlockPoint
+          case Alternative(alts) =>
+            alts foreach {
+              case Literal(value) =>
+                flatKeys ::= value.intValue
+                targets  ::= switchBlockPoint
+              case _ =>
+                abort("Invalid alternative in alternative pattern in Match node: " + tree + " at: " + tree.pos)
+            }
+          case _ =>
+            abort("Invalid pattern in Match node: " + tree + " at: " + tree.pos)
+        }
+      }
+      bc.emitSWITCH(flatKeys.reverse.toArray, targets.reverse.toArray, default, MIN_SWITCH_DENSITY)
+
+      // emit switch-blocks.
+      val postMatch = new asm.Label
+      for (sb <- switchBlocks.reverse) {
+        val Pair(caseLabel, caseBody) = sb
+        mnode.visitLabel(caseLabel)
+        genLoad(caseBody, generatedType)
+        bc goTo postMatch
+      }
+
+      mnode.visitLabel(postMatch)
+      generatedType
     }
 
     private def genBlock(blck: Block) {
