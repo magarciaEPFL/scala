@@ -424,15 +424,14 @@ abstract class GenBCode extends BCodeUtils {
       val resKind  = if (hasUnitBranch) UNIT else toTypeKind(tree.tpe)
 
       genLoad(thenp, resKind)
-      val postIf = new asm.tree.LabelNode()
+      val postIf = new asm.Label
       if (!elsep.isEmpty) {
-        val jmpOverElse = new asm.tree.JumpInsnNode(asm.Opcodes.GOTO, postIf)
-        mnode.instructions.add(jmpOverElse)
+        bc goTo postIf
       }
       mnode.instructions.add(postThenPoint)
       if (!elsep.isEmpty) {
         genLoad(elsep, resKind)
-        mnode.instructions.add(postIf)
+        mnode visitLabel postIf
       }
 
       resKind
