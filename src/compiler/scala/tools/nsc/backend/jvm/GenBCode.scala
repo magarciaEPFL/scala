@@ -767,15 +767,18 @@ abstract class GenBCode extends BCodeUtils {
     def genLoadModule(tree: Tree) {
       // Working around SI-5604.  Rather than failing the compile when we see
       // a package here, check if there's a package object.
-      val module = ( // TODO code duplicate from GenICode
+      val module = (
         if (!tree.symbol.isPackageClass) tree.symbol
         else tree.symbol.info.member(nme.PACKAGE) match {
           case NoSymbol => assert(false, "Cannot use package as value: " + tree) ; NoSymbol
           case s        => debugwarn("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
         }
       )
+      genLoadModule(module)
+    }
 
-      if (claszSymbol == module.moduleClass && jMethodName != nme.readResolve.toString) { // TODO code duplicate from GenASM
+    def genLoadModule(module: Symbol) {
+      if (claszSymbol == module.moduleClass && jMethodName != nme.readResolve.toString) {
         mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
       } else {
         mnode.visitFieldInsn(
@@ -893,7 +896,11 @@ abstract class GenBCode extends BCodeUtils {
 
     /** Generate the scala ## method. */
     def genScalaHash(tree: Tree): TypeKind = {
-      ???
+      genLoadModule(ScalaRunTimeModule) // TODO why load ScalaRunTimeModule if ## has InvokeStyle of Static(false) ?
+      genLoad(tree, ObjectReference)
+      val hashMethod = getMember(ScalaRunTimeModule, nme.hash_)
+      genCallMethod(hashMethod, Static(false))
+
       INT
     }
 
