@@ -879,14 +879,14 @@ abstract class GenBCode extends BCodeUtils {
       StringReference
     }
 
-    def genCallMethod(method: Symbol, style: InvokeStyle, hostClass: Symbol = null) {
+    def genCallMethod(method: Symbol, style: InvokeStyle, hostClass0: Symbol = null) {
 
-      val hostSymbol = if(hostClass == null) method.owner else hostClass;
+      val hostClass = if(hostClass0 == null) method.owner else hostClass0;
 
       isModuleInitialized =
         bc.genCallMethod(
-          method,      style,      jMethodName,
-          claszSymbol, hostSymbol, thisName,    isModuleInitialized
+          method,      style,     jMethodName,
+          claszSymbol, hostClass, thisName,    isModuleInitialized
         )
 
     } // end of genCode()'s genCallMethod()
