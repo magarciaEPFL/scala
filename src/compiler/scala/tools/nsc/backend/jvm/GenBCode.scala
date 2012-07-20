@@ -446,7 +446,7 @@ abstract class GenBCode extends BCodeUtils {
       val Apply(fun @ Select(lhs, _), args) = tree
       val code = scalaPrimitives.getPrimitive(sym, lhs.tpe)
 
-      import scalaPrimitives.{isArithmeticOp, isArrayOp, isLogicalOp, isComparisonOp, isUniversalEqualityOp}
+      import scalaPrimitives.{isArithmeticOp, isArrayOp, isLogicalOp, isComparisonOp}
 
       if      (isArithmeticOp(code))           genArithmeticOp(tree, code)
       else if (code == scalaPrimitives.CONCAT) genStringConcat(tree)
@@ -454,14 +454,6 @@ abstract class GenBCode extends BCodeUtils {
       else if (isArrayOp(code))                genArrayOp(tree, code, expectedType)
       else if (isLogicalOp(code))              genLogicalOp(   lhs, args /* ZNOT is unary */, code)
       else if (isComparisonOp(code))           genComparisonOp(lhs, args.head /* ie rhs */  , code)
-      else if (isUniversalEqualityOp(code) && toTypeKind(lhs.tpe).isReferenceType) {
-        assert((code == scalaPrimitives.EQ) || (code == scalaPrimitives.NE),
-               "attempt to emit code via genEqEqPrimitive() for oper other than EQ, NE.")
-        genEqEqPrimitive(lhs, args.head)
-        if (code != scalaPrimitives.EQ) { genBoolNeg() }
-
-        BOOL
-      }
       else if (code == scalaPrimitives.SYNCHRONIZED) genSynchronized(tree, expectedType)
       else if (scalaPrimitives.isCoercion(code)) {
         genLoad(lhs, toTypeKind(lhs.tpe))
@@ -494,7 +486,12 @@ abstract class GenBCode extends BCodeUtils {
     private def genComparisonOp(lhs: Tree, rhs: Tree, code: Int): TypeKind = {
 
       lazy val nonNullSide = ifOneIsNull(lhs, rhs)
-      if (scalaPrimitives.isReferenceEqualityOp(code) && nonNullSide != null) {
+
+      if (scalaPrimitives.isUniversalEqualityOp(code) && toTypeKind(lhs.tpe).isReferenceType) {
+        genEqEqPrimitive(lhs, rhs)
+        if (code != scalaPrimitives.EQ) { genBoolNeg() }
+      }
+      else if (scalaPrimitives.isReferenceEqualityOp(code) && nonNullSide != null) {
         // special-case reference (in)equality test for null (null eq x, x eq null)
         genLoad(nonNullSide, ObjectReference)
         genIsNull()
@@ -1117,9 +1114,6 @@ abstract class GenBCode extends BCodeUtils {
      *
      * @param l       left-hand side of the '=='
      * @param r       right-hand side of the '=='
-     * @param ctx     current context
-     * @param thenCtx target context if the comparison yields true  TODO
-     * @param elseCtx target context if the comparison yields false TODO
      */
     def genEqEqPrimitive(l: Tree, r: Tree): TypeKind = {
       ???
