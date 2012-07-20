@@ -443,30 +443,99 @@ abstract class GenBCode extends BCodeUtils {
 
     def genPrimitiveOp(tree: Apply, expectedType: TypeKind): TypeKind = {
       val sym = tree.symbol
-      val Apply(fun @ Select(receiver, _), args) = tree
-      val code = scalaPrimitives.getPrimitive(sym, receiver.tpe)
+      val Apply(fun @ Select(lhs, _), args) = tree
+      val code = scalaPrimitives.getPrimitive(sym, lhs.tpe)
 
-      import scalaPrimitives.{isArithmeticOp, isArrayOp, isLogicalOp, isComparisonOp}
+      import scalaPrimitives.{isArithmeticOp, isArrayOp, isLogicalOp, isComparisonOp, isUniversalEqualityOp}
 
-      if (isArithmeticOp(code))                genArithmeticOp(tree, code)
+      if      (isArithmeticOp(code))           genArithmeticOp(tree, code)
       else if (code == scalaPrimitives.CONCAT) genStringConcat(tree)
-      else if (code == scalaPrimitives.HASH)   genScalaHash(receiver)
+      else if (code == scalaPrimitives.HASH)   genScalaHash(lhs)
       else if (isArrayOp(code))                genArrayOp(tree, code, expectedType)
-      else if (isLogicalOp(code) || isComparisonOp(code)) {
-        genLoad(tree, BOOL)
+      else if (isLogicalOp(code))              genLogicalOp(   lhs, args /* ZNOT is unary */, code)
+      else if (isComparisonOp(code))           genComparisonOp(lhs, args.head /* ie rhs */  , code)
+      else if (isUniversalEqualityOp(code) && toTypeKind(lhs.tpe).isReferenceType) {
+        assert((code == scalaPrimitives.EQ) || (code == scalaPrimitives.NE),
+               "attempt to emit code via genEqEqPrimitive() for oper other than EQ, NE.")
+        genEqEqPrimitive(lhs, args.head)
+        if (code != scalaPrimitives.EQ) { genBoolNeg() }
+
         BOOL
       }
-      else if (code == scalaPrimitives.SYNCHRONIZED)
-        genSynchronized(tree, expectedType)
+      else if (code == scalaPrimitives.SYNCHRONIZED) genSynchronized(tree, expectedType)
       else if (scalaPrimitives.isCoercion(code)) {
-        genLoad(receiver, toTypeKind(receiver.tpe))
-        genCoercion(tree, code)
+        genLoad(lhs, toTypeKind(lhs.tpe))
+        genCoercion(code)
         scalaPrimitives.generatedKind(code)
       }
       else abort(
         "Primitive operation not handled yet: " + sym.fullName + "(" +
         fun.symbol.simpleName + ") " + " at: " + (tree.pos)
       )
+    }
+
+    private def genLogicalOp(lhs: Tree, args: List[Tree], code: Int): TypeKind = {
+      import scalaPrimitives.{ZNOT, ZAND, ZOR}
+
+      genLoad(lhs,  BOOL)
+
+      (code: @switch) match {
+        case ZNOT   =>
+          genBoolNeg()
+        case ZAND | ZOR  =>
+          genLoad(args.head, BOOL);
+          if(code == ZAND) mnode.visitInsn(asm.Opcodes.IAND)
+          else             mnode.visitInsn(asm.Opcodes.IOR)
+      }
+
+      BOOL
+    }
+
+    private def genComparisonOp(lhs: Tree, rhs: Tree, code: Int): TypeKind = {
+
+      lazy val nonNullSide = ifOneIsNull(lhs, rhs)
+      if (scalaPrimitives.isReferenceEqualityOp(code) && nonNullSide != null) {
+        // special-case reference (in)equality test for null (null eq x, x eq null)
+        genLoad(nonNullSide, ObjectReference)
+        genIsNull()
+        (code: @switch) match {
+          case scalaPrimitives.ID => ()
+          case scalaPrimitives.NI => genBoolNeg()
+        }
+      }
+      else {
+        val tk = getMaxType(lhs.tpe :: rhs.tpe :: Nil)
+        genLoad(lhs,  tk)
+        genLoad(rhs,  tk)
+        genTestOp(code, tk)
+      }
+
+      BOOL
+    }
+
+    /* not stack-top */
+    def genBoolNeg(): TypeKind = { mnode.visitInsn(asm.Opcodes.INEG); BOOL }
+
+    /** stack-top eq null */
+    def genIsNull() {
+      ???
+    }
+
+    /* CJUMP(thenCtx.bb, elseCtx.bb, op, kind) */
+    private def genTestOp(code: Int, tk: TypeKind) {
+
+      val op: TestOp = code match {
+        case scalaPrimitives.LT => LT
+        case scalaPrimitives.LE => LE
+        case scalaPrimitives.GT => GT
+        case scalaPrimitives.GE => GE
+        case scalaPrimitives.ID | scalaPrimitives.EQ => EQ
+        case scalaPrimitives.NI | scalaPrimitives.NE => NE
+
+        case _ => abort("Unknown comparison primitive: " + code)
+      }
+
+      ???
     }
 
     /** Generate code for trees that produce values on the stack */
@@ -477,14 +546,14 @@ abstract class GenBCode extends BCodeUtils {
         case lblDf : LabelDef => genLabelDef(lblDf)
 
         case ValDef(_, nme.THIS, _, _) =>
-          debuglog("skipping trivial assign to _$this: " + tree)
+          debuglog("skipping trivial assignment to _$this: " + tree)
 
         case ValDef(_, _, _, rhs) =>
           val sym = tree.symbol
           val tk  = toTypeKind(sym.info)
           if (rhs == EmptyTree) { bc.genConstant(getZeroOf(tk)) }
           else { genLoad(rhs, tk) }
-          assert(!locIdx.contains(sym), "supposedly the first time sym was seen, but no, couldn't be that way.")
+          assert(!locIdx.contains(sym), "it was supposed to be the first time sym was seen, but no, couldn't be that way.")
           bc.store(index(sym), tk)
           // TODO ctx1.scope.add(local)
           generatedType = UNIT
@@ -957,7 +1026,7 @@ abstract class GenBCode extends BCodeUtils {
     }
 
     /** Generate coercion denoted by "code" */
-    def genCoercion(tree: Tree, code: Int) = {
+    def genCoercion(code: Int) = {
       import scalaPrimitives._
       (code: @switch) match {
         case B2B | S2S | C2C | I2I | L2L | F2F | D2D => ()
@@ -1052,8 +1121,10 @@ abstract class GenBCode extends BCodeUtils {
      * @param thenCtx target context if the comparison yields true  TODO
      * @param elseCtx target context if the comparison yields false TODO
      */
-    def genEqEqPrimitive(l: Tree, r: Tree) {
+    def genEqEqPrimitive(l: Tree, r: Tree): TypeKind = {
       ???
+
+      BOOL
     }
 
     /** Does this tree have a try-catch block? */
