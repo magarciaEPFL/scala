@@ -104,9 +104,11 @@ abstract class ICodeReader extends ClassfileParser {
           if (sym == NoSymbol) {
             log("Could not find symbol for " + name + ": " + tpe)
             log(owner.info.member(name).tpe + " : " + tpe)
-            sym = if (field) owner.newValue(name, owner.pos, toScalaFieldFlags(jflags)) else dummySym
-            sym setInfoAndEnter tpe
-            log("added " + sym + ": " + sym.tpe)
+            if (field) {
+              sym = owner.newValue(name, owner.pos, toScalaFieldFlags(jflags))
+              sym setInfoAndEnter tpe
+              log("added " + sym + ": " + sym.tpe)
+            }
           }
           (jflags, sym)
         }

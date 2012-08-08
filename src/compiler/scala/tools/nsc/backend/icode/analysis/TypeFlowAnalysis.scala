@@ -439,10 +439,16 @@ abstract class TypeFlowAnalysis {
           val cm = i.asInstanceOf[opcodes.CALL_METHOD]
           val msym = cm.method
           val paramsLength = msym.info.paramTypes.size
-          val receiver = result.stack.types.drop(paramsLength).head match {
-            case REFERENCE(s) => s
-            case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
-          }
+          val isClassStatic = (cm.style.isStatic && !cm.style.hasInstance)
+          val receiver =
+            if(isClassStatic) {
+              msym.owner
+            } else {
+              result.stack.types.drop(paramsLength).head match {
+                case REFERENCE(s) => s
+                case _            => NoSymbol // e.g. the scrutinee is BOX(s) or ARRAY
+              }
+            }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val isCandidate = {
             !inliner.isIface(receiver)    &&
@@ -503,7 +509,7 @@ abstract class TypeFlowAnalysis {
       !blackballed(msym)  &&
       !msym.isConstructor &&
       (!msym.isAccessor || inliner.isClosureClass(msym.owner)) &&
-      (style.isDynamic  || (style.hasInstance && style.isStatic))
+      (style.isDynamic  || style.isStatic) // ie super-calls are ruled out
     }
 
     override def init(m: icodes.IMethod) {
