@@ -598,16 +598,15 @@ abstract class ICodeReader extends ClassfileParser {
     while (pc < codeLength) parseInstruction
 
     val exceptionEntries = in.nextChar.toInt
+    code.containsEHs = (exceptionEntries != 0)
     var i = 0
     while (i < exceptionEntries) {
       // skip start end PC
       in.skip(4)
       // read the handler PC
       code.jmpTargets += in.nextChar
-      // skip the exception type (0 denotes finally EH)
-      if(in.nextChar.toInt != 0) {
-        code.containsEHs = true
-      }
+      // skip the exception type
+      in.skip(2)
       i += 1
     }
     skipAttributes()
@@ -653,7 +652,7 @@ abstract class ICodeReader extends ClassfileParser {
 
     var containsDUPX = false
     var containsNEW  = false
-    var containsEHs  = false // non-finally EHs, actually
+    var containsEHs  = false
 
     def emit(i: Instruction) {
       instrs += ((pc, i))
