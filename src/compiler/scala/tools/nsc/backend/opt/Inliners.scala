@@ -792,7 +792,8 @@ abstract class Inliners extends SubComponent {
         tfa.warnIfInlineFails.remove(instr)
 
         val targetPos = instr.pos
-        log("Inlining " + inc.m + " in " + caller.m + " at pos: " + posToStr(targetPos))
+        log("Inlining " + inc.m + " called from " + caller.m + " , callsite at pos: " + posToStr(targetPos))
+        val isStatic = (instr.style.isStatic && !instr.style.hasInstance)
 
         def blockEmit(i: Instruction) = block.emit(i, targetPos)
         def newLocal(baseName: String, kind: TypeKind) =
@@ -819,7 +820,7 @@ abstract class Inliners extends SubComponent {
         assert(!instrAfter.isEmpty, "CALL_METHOD cannot be the last instruction in block!")
 
         // store the '$this' into the special local
-        val inlinedThis = newLocal("$inlThis", REFERENCE(ObjectClass))
+        val inlinedThis = if(isStatic) null else newLocal("$inlThis", REFERENCE(ObjectClass))
 
         /** buffer for the returned value */
         val retVal = inc.m.returnType match {
@@ -834,7 +835,9 @@ abstract class Inliners extends SubComponent {
           val b = caller.m.code.newBlock
           activeHandlers foreach (_ addCoveredBlock b)
           if (retVal ne null) b.varsInScope += retVal
-          b.varsInScope += inlinedThis
+          if(!isStatic) {
+            b.varsInScope += inlinedThis
+          }
           b.varsInScope ++= varsInScope
           b
         }
@@ -869,8 +872,12 @@ abstract class Inliners extends SubComponent {
           def isInlined(l: Local) = inlinedLocals isDefinedAt l
 
           val newInstr = i match {
-            case THIS(clasz)                    => LOAD_LOCAL(inlinedThis)
-            case STORE_THIS(_)                  => STORE_LOCAL(inlinedThis)
+            case THIS(clasz)                    =>
+              assert(!isStatic, "meaningless ICode THIS() instruction in class-static method at " + posToStr(i.pos))
+              LOAD_LOCAL(inlinedThis)
+            case STORE_THIS(_)                  =>
+              assert(!isStatic, "meaningless ICode STORE_THIS() instruction in class-static method at " + posToStr(i.pos))
+              STORE_LOCAL(inlinedThis)
             case JUMP(whereto)                  => JUMP(inlinedBlock(whereto))
             case CJUMP(succ, fail, cond, kind)  => CJUMP(inlinedBlock(succ), inlinedBlock(fail), cond, kind)
             case CZJUMP(succ, fail, cond, kind) => CZJUMP(inlinedBlock(succ), inlinedBlock(fail), cond, kind)
@@ -899,7 +906,9 @@ abstract class Inliners extends SubComponent {
         }
 
         caller addLocals (inc.locals map dupLocal)
-        caller addLocal inlinedThis
+        if(!isStatic) {
+          caller addLocal inlinedThis
+        }
 
         if (retVal ne null)
           caller addLocal retVal
@@ -916,7 +925,9 @@ abstract class Inliners extends SubComponent {
 
         // store the arguments into special locals
         inc.m.params.reverse foreach (p => blockEmit(STORE_LOCAL(inlinedLocals(p))))
-        blockEmit(STORE_LOCAL(inlinedThis))
+        if(!isStatic) {
+          blockEmit(STORE_LOCAL(inlinedThis))
+        }
 
         // jump to the start block of the callee
         blockEmit(JUMP(inlinedBlock(inc.m.startBlock)))
