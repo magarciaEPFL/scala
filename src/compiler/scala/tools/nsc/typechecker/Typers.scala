@@ -3052,7 +3052,19 @@ trait Typers extends Modes with Adaptations with Tags {
               // target of a call.  Since this information is no longer available from
               // typedArg, it is recorded here.
               checkDead.updateExpr(fun)
-              val args1 = typedArgs(args, forArgMode(fun, mode), paramTypes, formals)
+
+              val args1 =
+                // no expected type when jumping to a match label -- anything goes (this is ok since we're typing the translation of well-typed code)
+                // ... except during erasure: we must take the expected type into account as it drives the insertion of casts!
+                // I've exhausted all other semi-clean approaches I could think of in balancing GADT magic, SI-6145, CPS type-driven transforms and other existential trickiness
+                // (the right thing to do -- packing existential types -- runs into limitations in subtyping existential types,
+                //  casting breaks SI-6145,
+                //  not casting breaks GADT typing as it requires sneaking ill-typed trees past typer)
+                if (!phase.erasedTypes && fun.symbol.isLabel && treeInfo.isSynthCaseSymbol(fun.symbol))
+                  typedArgs(args, forArgMode(fun, mode))
+                else
+                  typedArgs(args, forArgMode(fun, mode), paramTypes, formals)
+
               // instantiate dependent method types, must preserve singleton types where possible (stableTypeFor) -- example use case:
               // val foo = "foo"; def precise(x: String)(y: x.type): x.type = {...}; val bar : foo.type = precise(foo)(foo)
               // precise(foo) : foo.type => foo.type
@@ -5040,10 +5052,11 @@ trait Typers extends Modes with Adaptations with Tags {
 
           if (isPatternMode) {
             val uncheckedTypeExtractor = extractorForUncheckedType(tpt.pos, tptTyped.tpe)
-            val ownType = inferTypedPattern(tptTyped, tptTyped.tpe, pt, canRemedy = uncheckedTypeExtractor.nonEmpty)
-            // println(s"Typed($expr, ${tpt.tpe}) : $pt --> $ownType  (${isFullyDefined(ownType)}, ${makeFullyDefined(ownType)})")
+
             // make fully defined to avoid bounded wildcard types that may be in pt from calling dropExistential (SI-2038)
-            treeTyped setType (if (isFullyDefined(ownType)) ownType else makeFullyDefined(ownType)) //ownType
+            val ptDefined = if (isFullyDefined(pt)) pt else makeFullyDefined(pt)
+            val ownType   = inferTypedPattern(tptTyped, tptTyped.tpe, ptDefined, canRemedy = uncheckedTypeExtractor.nonEmpty)
+            treeTyped setType ownType
 
             uncheckedTypeExtractor match {
               case None => treeTyped
