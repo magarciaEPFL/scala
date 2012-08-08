@@ -143,7 +143,7 @@ abstract class Inliners extends SubComponent {
   }
 
   def isBottomType(sym: Symbol) = sym == NullClass || sym == NothingClass
-  def posToStr(pos: scala.reflect.internal.util.Position) = if (pos.isDefined) pos.point.toString else "<nopos>"
+  def posToStr(pos: scala.reflect.internal.util.Position) = if (pos.isDefined) pos.toString else "<nopos>"
 
   /** Is the given class a closure? */
   def isClosureClass(cls: Symbol): Boolean =
@@ -591,7 +591,7 @@ abstract class Inliners extends SubComponent {
       while (retry && count < MAX_INLINE_RETRY)
 
       for(inlFail <- tfa.warnIfInlineFails) {
-        warn(inlFail.pos, "At the end of the day, could not inline @inline-marked method " + inlFail.method.originalName.decode)
+        warn(inlFail.pos, "At the end of the day, could not inline @inline-marked " + inlFail.method.fullLocationString)
       }
 
       m.normalize
