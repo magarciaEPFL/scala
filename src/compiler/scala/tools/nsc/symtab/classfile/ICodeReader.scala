@@ -95,17 +95,21 @@ abstract class ICodeReader extends ClassfileParser {
         (jflags, NoSymbol)
       else {
         val owner = getOwner(jflags)
-        var sym = owner.info.findMember(name, 0, 0, false).suchThat(old => sameType(old.tpe, tpe))
-        if (sym == NoSymbol)
-          sym = owner.info.findMember(newTermName(name + nme.LOCAL_SUFFIX_STRING), 0, 0, false).suchThat(_.tpe =:= tpe)
-        if (sym == NoSymbol) {
-          log("Could not find symbol for " + name + ": " + tpe)
-          log(owner.info.member(name).tpe + " : " + tpe)
-          sym = if (field) owner.newValue(name, owner.pos, toScalaFieldFlags(jflags)) else dummySym
-          sym setInfoAndEnter tpe
-          log("added " + sym + ": " + sym.tpe)
+        if(owner == NoSymbol) {
+          (jflags, NoSymbol)
+        } else {
+          var sym = owner.info.findMember(name, 0, 0, false).suchThat(old => sameType(old.tpe, tpe))
+          if (sym == NoSymbol)
+            sym = owner.info.findMember(newTermName(name + nme.LOCAL_SUFFIX_STRING), 0, 0, false).suchThat(_.tpe =:= tpe)
+          if (sym == NoSymbol) {
+            log("Could not find symbol for " + name + ": " + tpe)
+            log(owner.info.member(name).tpe + " : " + tpe)
+            sym = if (field) owner.newValue(name, owner.pos, toScalaFieldFlags(jflags)) else dummySym
+            sym setInfoAndEnter tpe
+            log("added " + sym + ": " + sym.tpe)
+          }
+          (jflags, sym)
         }
-        (jflags, sym)
       }
     } catch {
       case e: MissingRequirementError =>
@@ -733,7 +737,7 @@ abstract class ICodeReader extends ClassfileParser {
           val stack = out.stack
           import stack.push
           i match {
-            case DUP_X1 =>
+            case DUP_X1 => // for example, scala.tools.asm.ClassWriter sports a DUP_X1 , showing it can happen for "scala" classes too.
               val (one, two) = stack.pop2
               push(one); push(two); push(one);
 
@@ -931,12 +935,12 @@ abstract class ICodeReader extends ClassfileParser {
       def checkValidIndex() {
         locals.get(idx - 1) match {
           case Some(others) if others exists (_._2.isWideType) =>
-            global.globalError("Illegal index: " + idx + " points in the middle of another local")
+            MissingRequirementError.signal("Illegal index: " + idx + " points in the middle of another local")
           case _ => ()
         }
         kind match {
           case LONG | DOUBLE if (locals.isDefinedAt(idx + 1)) =>
-            global.globalError("Illegal index: " + idx + " overlaps " + locals(idx + 1) + "\nlocals: " + locals)
+            MissingRequirementError.signal("Illegal index: " + idx + " overlaps " + locals(idx + 1) + "\nlocals: " + locals)
           case _ => ()
         }
       }

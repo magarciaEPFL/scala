@@ -178,6 +178,20 @@ abstract class Inliners extends SubComponent {
 
   def hasNoInline(sym: Symbol)  = sym hasAnnotation ScalaNoInlineClass
 
+  /* for a more complete version see https://github.com/scala/scala/pull/849 */
+  object JdkClassIdentifier extends (String => Boolean) {
+    private val knownJdkPackages = "java javax com.sun sun scala.actors.threadpool scala.tools.asm" split ' ' map (_ + ".") toVector
+
+    def apply[T](implicit ctag: reflect.ClassTag[T]): Boolean = apply(ctag.runtimeClass.getName)
+    def apply(name: String): Boolean = {
+      knownJdkPackages.exists(name startsWith _)
+    }
+  }
+
+  def isJDKClass(csym: Symbol)  = csym.isJavaDefined && JdkClassIdentifier(csym.fullName)
+  def isIface(csym: Symbol)     = csym.isTrait && !csym.isImplClass
+  def isNative(msym: Symbol)    = msym.hasAnnotation(definitions.NativeAttr)
+
   /**
    * Simple inliner.
    */
@@ -364,7 +378,23 @@ abstract class Inliners extends SubComponent {
               }
             }
 
-        var isAvailable = icodes available concreteMethod.enclClass
+        if(isIface(receiver)) {
+          warnNoInline("type-flow analysis approximated the actual receiver class as an interface: " + receiver)
+          return false
+        }
+
+        if(isJDKClass(receiver)) {
+          warnNoInline("we don't inline methods from JDK classes: " + receiver.fullName)
+          return false
+        }
+
+        if(concreteMethod.isModule) {
+          warnNoInline("doesn't seem profitable module-inlining: " + concreteMethod)
+          return false
+        }
+
+
+        var isAvailable = icodes available receiver
 
         if (!isAvailable && shouldLoadImplFor(concreteMethod, receiver)) {
           // Until r22824 this line was:
@@ -375,7 +405,7 @@ abstract class Inliners extends SubComponent {
           // was the proximate cause for SI-3882:
           //   error: Illegal index: 0 overlaps List((variable par1,LONG))
           //   error: Illegal index: 0 overlaps List((variable par1,LONG))
-          isAvailable = icodes.load(concreteMethod.enclClass)
+          isAvailable = icodes.load(receiver)
         }
 
             def isCandidate = (
@@ -583,7 +613,7 @@ abstract class Inliners extends SubComponent {
       def alwaysLoad    = (receiver.enclosingPackage == RuntimePackage) || (receiver == PredefModule.moduleClass)
       def loadCondition = sym.isEffectivelyFinal && isMonadicMethod(sym) && isHigherOrderMethod(sym)
 
-      val res = hasInline(sym) || alwaysLoad || loadCondition
+      val res = receiver.isEffectivelyFinal || hasInline(sym) || alwaysLoad || loadCondition
       debuglog("shouldLoadImplFor: " + receiver + "." + sym + ": " + res)
       res
     }
@@ -947,6 +977,7 @@ abstract class Inliners extends SubComponent {
             if(inc.isRecursive)    { rs ::= "is recursive"           }
             if(isInlineForbidden)  { rs ::= "is annotated @noinline" }
             if(inc.isSynchronized) { rs ::= "is synchronized method" }
+            if(isNative(inc.sym))  { rs ::= "is native method"       }
             if(inc.m.bytecodeHasEHs) { rs ::= "bytecode contains exception handlers / finally clause" } // SI-6188
             if(rs.isEmpty) null else rs.mkString("", ", and ", "")
           }
@@ -1047,10 +1078,63 @@ abstract class Inliners extends SubComponent {
       }
     }
 
-    def lookupIMethod(meth: Symbol, receiver: Symbol): Option[IMethod] = {
-      def tryParent(sym: Symbol) = icodes icode sym flatMap (_ lookupMethod meth)
+    // look up methSym for a receiver instance of classSym:
+    def lookupIMethod(methSym: Symbol, classSym: Symbol): Option[IMethod] = {
+      var actualClass = classSym
+      while (actualClass != NoSymbol) {
 
-      (receiver.info.baseClasses.iterator map tryParent find (_.isDefined)).flatten
+        if(!isIface(actualClass) && !isJDKClass(actualClass)) {
+
+          val (found, foundBy) =
+            if(methSym.owner == actualClass) (methSym, "found by methSym.owner == actualClass")
+            else {
+              if(!icodes.available(actualClass)) {
+                icodes.load(actualClass)
+              }
+              val icOpt = icodes icode actualClass
+              icOpt match {
+                case Some(ic) =>
+                  (ic lookupMethod methSym) match {
+                    case Some(im) =>
+                      if(isIface(ic.symbol) && im.hasCode) {
+                        Console.println("just found a method body in an interface.")
+                      }
+                      (methSym, "found IMethod with == symbol in IClass.")
+                    case None =>
+                      val ov = methSym.overridingSymbol(actualClass)
+                      (ic lookupMethod ov) match {
+                        case Some(im2) =>
+                          (ov, "found IMethod with overridden symbol in IClass.")
+                        case None =>
+                          (NoSymbol, "nothing worked")
+                      }
+                  }
+                case None =>
+                  (NoSymbol, "couldn't find IClass")
+              }
+            }
+
+          if (found != NoSymbol) {
+            if(isNative(found)) { return None }
+            /* It may happen that `(found.owner != actualClass)`
+             * For example, say we want the IMethod for stripPrefix from class StringOps. That IMethod has a symbol whose owner is StringLike.
+             * The body of that IMethod just forwards to StringLike$class.stripPrefix
+             */
+            val icOpt = {
+              if(!icodes.available(actualClass)) { icodes.load(actualClass) }
+              icodes icode actualClass
+            }
+            val res = icOpt flatMap { ic => ic.lookupMethod(found) }
+            // Counterintuitive as it comes, we may have `res.get.isAbstractMethod && res.get.hasCode`. That can't be an assertion.
+            return res
+          }
+
+        }
+
+        actualClass = actualClass.superClass
+      }
+      None // shouldn't get here too often (but possible e.g when walking all the way up to j.l.Object).
     }
+
   } /* class Inliner */
 } /* class Inliners */

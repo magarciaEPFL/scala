@@ -19,6 +19,7 @@ trait Repository {
   import icodes._
 
   val loaded: mutable.Map[Symbol, IClass] = perRunCaches.newMap()
+  val triedAndFailed: mutable.Set[Symbol] = perRunCaches.newSet()
 
   /** Is the given class available as icode? */
   def available(sym: Symbol) = classes.contains(sym) || loaded.contains(sym)
@@ -26,8 +27,7 @@ trait Repository {
   /** The icode of the given class, if available */
   def icode(sym: Symbol): Option[IClass] = (classes get sym) orElse (loaded get sym)
 
-  /** The icode of the given class. If not available, it loads
-   *  its bytecode.
+  /** The icode of the given class. If not available, it loads its bytecode.
    */
   def icode(sym: Symbol, force: Boolean): IClass =
     icode(sym) getOrElse {
@@ -39,6 +39,7 @@ trait Repository {
 
   /** Load bytecode for given symbol. */
   def load(sym: Symbol): Boolean = {
+    if(triedAndFailed(sym)) { return false; }
     try {
       val (c1, c2) = icodeReader.readClass(sym)
 
@@ -49,6 +50,7 @@ trait Repository {
       true
     } catch {
       case e: Throwable => // possible exceptions are MissingRequirementError, IOException and TypeError -> no better common supertype
+        triedAndFailed += sym;
         log("Failed to load %s. [%s]".format(sym.fullName, e.getMessage))
         if (settings.debug.value) { e.printStackTrace }
 
