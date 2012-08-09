@@ -677,27 +677,11 @@ abstract class Inliners extends SubComponent {
 
         def canMakePublic(f: Symbol): Boolean =
           (m.sourceFile ne NoSourceFile) &&
+          (m.sourceFile ne null) &&
           (f.isSynthetic || f.isParamAccessor) &&
           { toBecomePublic = f :: toBecomePublic; true }
 
-        /* A safety check to consider as private, for the purposes of inlining, a public field that:
-         *   (1) is defined in an external library, and
-         *   (2) can be presumed synthetic (due to a dollar sign in its name).
-         * Such field was made public by `doMakePublic()` and we don't want to rely on that,
-         * because under other compilation conditions (ie no -optimize) that won't be the case anymore.
-         *
-         * This allows aggressive intra-library inlining (making public if needed)
-         * that does not break inter-library scenarios (see comment for `Inliners`).
-         *
-         * TODO handle more robustly the case of a trait var changed at the source-level from public to private[this]
-         *      (eg by having ICodeReader use unpickler, see SI-5442).
-         * */
-        def potentiallyPublicized(f: Symbol): Boolean = {
-          (m.sourceFile eq NoSourceFile) && f.name.containsChar('$')
-        }
-
-        def checkField(f: Symbol)   = check(f, potentiallyPublicized(f) ||
-                                               (f.isPrivate && !canMakePublic(f)))
+        def checkField(f: Symbol)   = check(f, (f.isPrivate && !canMakePublic(f)))
         def checkSuper(n: Symbol)   = check(n, n.isPrivate || !n.isClassConstructor)
         def checkMethod(n: Symbol)  = check(n, n.isPrivate)
 
@@ -1101,6 +1085,7 @@ abstract class Inliners extends SubComponent {
         val implClazz = classSym.implClass
         if(implClazz == NoSymbol) return None;
         val implMethod = implClazz.info.member(methSym.name) // TODO take overloading into account
+        assert(!implMethod.isOverloaded, "overloaded implementation method found.")
         retrieveIMethod(implMethod, implClazz)
       } else {
         lookupIMethod0(methSym, classSym)
@@ -1111,7 +1096,7 @@ abstract class Inliners extends SubComponent {
       var actualClass = classSym
       while (actualClass != NoSymbol) {
 
-        if(    !(isIface(actualClass) && !methSym.isEffectivelyFinal)
+        if(    !isIface(actualClass)
             && !isJDKClass(actualClass)) {
 
           val (found, foundBy) =
