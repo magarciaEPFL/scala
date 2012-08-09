@@ -451,7 +451,7 @@ abstract class TypeFlowAnalysis {
             }
           val concreteMethod = inliner.lookupImplFor(msym, receiver)
           val isCandidate = {
-            !inliner.isIface(receiver)    &&
+            // incorrectly rules out a final-method in a trait receiver: !inliner.isIface(receiver)    &&
             !inliner.isJDKClass(receiver) &&
             ( inliner.isClosureClass(receiver) || concreteMethod.isEffectivelyFinal || receiver.isEffectivelyFinal ) &&
             !blackballed(concreteMethod)

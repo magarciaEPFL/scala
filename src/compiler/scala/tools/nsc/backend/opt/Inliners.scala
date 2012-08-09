@@ -378,7 +378,7 @@ abstract class Inliners extends SubComponent {
               }
             }
 
-        if(isIface(receiver)) {
+        if(isIface(receiver) && !concreteMethod.isEffectivelyFinal) {
           warnNoInline("type-flow analysis approximated the actual receiver class as an interface: " + receiver)
           return false
         }
@@ -793,7 +793,7 @@ abstract class Inliners extends SubComponent {
 
         val targetPos = instr.pos
         log("Inlining " + inc.m + " called from " + caller.m + " , callsite at pos: " + posToStr(targetPos))
-        val isClassStatic = (instr.style.isStatic && !instr.style.hasInstance)
+        val isClassStatic = inc.m.isStatic
 
         def blockEmit(i: Instruction) = block.emit(i, targetPos)
         def newLocal(baseName: String, kind: TypeKind) =
@@ -1091,10 +1091,28 @@ abstract class Inliners extends SubComponent {
 
     // look up methSym for a receiver instance of classSym:
     def lookupIMethod(methSym: Symbol, classSym: Symbol): Option[IMethod] = {
+
+      // special case for final-method in trait
+      if(    classSym.isTrait
+          && !classSym.isImplClass
+          && methSym.isEffectivelyFinal
+          && hasInline(methSym) /* TODO && methSym is forwarder to implementation-method */ )
+      {
+        val implClazz = classSym.implClass
+        if(implClazz == NoSymbol) return None;
+        val implMethod = implClazz.info.member(methSym.name) // TODO take overloading into account
+        retrieveIMethod(implMethod, implClazz)
+      } else {
+        lookupIMethod0(methSym, classSym)
+      }
+    }
+
+    def lookupIMethod0(methSym: Symbol, classSym: Symbol): Option[IMethod] = {
       var actualClass = classSym
       while (actualClass != NoSymbol) {
 
-        if(!isIface(actualClass) && !isJDKClass(actualClass)) {
+        if(    !(isIface(actualClass) && !methSym.isEffectivelyFinal)
+            && !isJDKClass(actualClass)) {
 
           val (found, foundBy) =
             if(methSym.owner == actualClass) (methSym, "found by methSym.owner == actualClass")
@@ -1126,18 +1144,7 @@ abstract class Inliners extends SubComponent {
             }
 
           if (found != NoSymbol) {
-            if(isNative(found)) { return None }
-            /* It may happen that `(found.owner != actualClass)`
-             * For example, say we want the IMethod for stripPrefix from class StringOps. That IMethod has a symbol whose owner is StringLike.
-             * The body of that IMethod just forwards to StringLike$class.stripPrefix
-             */
-            val icOpt = {
-              if(!icodes.available(actualClass)) { icodes.load(actualClass) }
-              icodes icode actualClass
-            }
-            val res = icOpt flatMap { ic => ic.lookupMethod(found) }
-            // Counterintuitive as it comes, we may have `res.get.isAbstractMethod && res.get.hasCode`. That can't be an assertion.
-            return res
+            return retrieveIMethod(found, actualClass)
           }
 
         }
@@ -1145,6 +1152,21 @@ abstract class Inliners extends SubComponent {
         actualClass = actualClass.superClass
       }
       None // shouldn't get here too often (but possible e.g when walking all the way up to j.l.Object).
+    }
+
+    def retrieveIMethod(found: Symbol, actualClass: Symbol): Option[IMethod] = {
+      if(isNative(found)) { return None }
+      /* It may happen that `(found.owner != actualClass)`
+       * For example, say we want the IMethod for stripPrefix from class StringOps. That IMethod has a symbol whose owner is StringLike.
+       * The body of that IMethod just forwards to StringLike$class.stripPrefix
+       */
+      val icOpt = {
+        if(!icodes.available(actualClass)) { icodes.load(actualClass) }
+        icodes icode actualClass
+      }
+      val res = icOpt flatMap { ic => ic.lookupMethod(found) }
+      // Counterintuitive as it comes, we may have `res.get.isAbstractMethod && res.get.hasCode`. That can't be an assertion.
+      res
     }
 
   } /* class Inliner */
