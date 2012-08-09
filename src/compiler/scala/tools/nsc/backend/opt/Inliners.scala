@@ -1084,7 +1084,23 @@ abstract class Inliners extends SubComponent {
       {
         val implClazz = classSym.implClass
         if(implClazz == NoSymbol) return None;
-        val implMethod = implClazz.info.member(methSym.name) // TODO take overloading into account
+        val implType = MethodType(classSym :: methSym.info.params, methSym.info.resultType)
+        val implMethod =
+          implClazz.info.member(methSym.name) match {
+            case NoSymbol => NoSymbol
+            case sym =>
+              if(!sym.isOverloaded) {
+                sym
+              } else {
+                sym.info match {
+                  case OverloadedType(owner, alternatives) =>
+                    alternatives.find(_.info matches implType).getOrElse(NoSymbol) // TODO is this a foolproof enough comparison of method signatures?
+                  case _ =>
+                    NoSymbol
+                }
+              }
+          }
+        if(implMethod == NoSymbol) return None;
         assert(!implMethod.isOverloaded, "overloaded implementation method found.")
         retrieveIMethod(implMethod, implClazz)
       } else {
