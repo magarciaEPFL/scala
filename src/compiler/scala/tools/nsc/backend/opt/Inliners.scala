@@ -384,15 +384,6 @@ abstract class Inliners extends SubComponent {
               || receiver.isEffectivelyFinal
             )
 
-            def isApply     = concreteMethod.name == nme.apply
-
-            def isCountable = !(
-                 isClosureClass(receiver)
-              || isApply
-              || isMonadicMethod(concreteMethod)
-              || receiver.enclosingPackage == definitions.RuntimePackage
-            )   // only count non-closures
-
         debuglog("Treating " + i
               + "\n\treceiver: " + receiver
               + "\n\ticodes.available: " + isAvailable
@@ -432,6 +423,22 @@ abstract class Inliners extends SubComponent {
 
                    retry = true
                    inlined = true
+
+                   /* count only callees other than:
+                    *  (a) methods owned by anon-closure-classes;
+                    *  (b) @inline-marked methods;
+                    *  (c) `foreach`, `filter`, `withFilter`, `map`, `flatMap`;
+                    *  (d) those in RuntimePackage;
+                    *  (e) apply methods
+                    */
+                   val isCountable = !(
+                        isClosureClass(receiver)
+                     || hasInline(concreteMethod)
+                     || hasInline(inc.sym)
+                     || isMonadicMethod(concreteMethod)
+                     || (receiver.enclosingPackage == definitions.RuntimePackage)
+                     || (concreteMethod.name == nme.apply)
+                   )
                    if (isCountable) { count += 1 };
 
                    pair.doInline(bb, i)
