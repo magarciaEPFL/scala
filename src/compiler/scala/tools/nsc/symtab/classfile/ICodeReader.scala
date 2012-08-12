@@ -655,7 +655,9 @@ abstract class ICodeReader extends ClassfileParser {
    *   the exception handler must be active while the program
    *   counter is within the interval [start_pc, end_pc).
    **/
-  case class EHEntry(startPC: Int, endPC: Int, handlerPC: Int, cls: ClassSymbol)
+  case class EHEntry(startPC: Int, endPC: Int, handlerPC: Int, cls: ClassSymbol) {
+    def isFinalizer = (cls == null || cls == NoSymbol)
+  }
 
   class LinearCode {
     var instrs: ListBuffer[(Int, Instruction)] = new ListBuffer
@@ -685,19 +687,23 @@ abstract class ICodeReader extends ClassfileParser {
 
       assert(code.startBlock ne NoBasicBlock, "someone forgot to initialize code.startBlock")
       assert(!jmpTargets(0), "about to duplicate the method's entry block.")
-      val blocks = (jmpTargets.toSeq map (_ -> code.newBlock)).toMap
+      val blocks = (jmpTargets.toSeq map (_ -> code.newBlock)).toMap + (0 -> code.startBlock)
+      jmpTargets += 0 // do this only after `blocks` have been instantiated (without `jmpTargets` containing 0).
 
           def createICodeEH(ehRow: EHEntry): ExceptionHandler = {
             val lbl  = newTermNameCached("" + ehRow.handlerPC)
             val res =
-              if(ehRow.cls == null || ehRow.cls == NoSymbol) { new Finalizer(method, lbl, NoPosition) }
+              if(ehRow.isFinalizer) { new Finalizer(method, lbl, NoPosition) }
               else { new ExceptionHandler(method, lbl, ehRow.cls, NoPosition) }
             method.addHandler(res)
             // handler block
             val sb = blocks(ehRow.handlerPC)
             res setStartBlock sb
             sb.exceptionHandlerStart = true
-            sb.emit(LOAD_EXCEPTION(ehRow.cls))
+            res addBlock sb
+            if(!ehRow.isFinalizer) {
+              sb.emit(LOAD_EXCEPTION(ehRow.cls))
+            }
             // covered blocks are added by the caller
             res
           }
