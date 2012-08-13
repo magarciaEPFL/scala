@@ -263,7 +263,16 @@ abstract class ICodeReader extends ClassfileParser {
         case JVM.dconst_1    => const(Constant(1.0) )
 
         case JVM.bipush      => const(Constant(in.nextByte)); size += 1
-        case JVM.sipush      => const(Constant(in.nextChar)); size += 2
+        case JVM.sipush      =>
+          /* Quoting from the JVMS, sipush instruction:
+           *   The immediate unsigned byte1 and byte2 values are assembled into an
+           *   intermediate short where the value of the short is (byte1 << 8) | byte2.
+           *   The intermediate value is then sign-extended to an int value. That value
+           *   is pushed onto the operand stack.
+           *
+           * Why this works? See http://stackoverflow.com/questions/736815/2-bytes-to-short-java
+           **/
+          const(Constant(in.nextChar)); size += 2
         case JVM.ldc         => const (pool.getConstant(toUnsignedByte(in.nextByte))); size += 1
         case JVM.ldc_w       => const (pool.getConstant(in.nextChar)); size += 2
         case JVM.ldc2_w      => const (pool.getConstant(in.nextChar)); size += 2
@@ -327,7 +336,11 @@ abstract class ICodeReader extends ClassfileParser {
         case JVM.sastore     => storeArrayItem(SHORT)
 
         case JVM.pop         => code.emit(DROP(INT))   // any 1-word type would do
+
+        /* TODO the only way to emit the correct TypeKind (LONG or DOUBLE, below)
+         * involves fixing things up similar to what resolveDups() does. */
         case JVM.pop2        => code.emit(DROP(LONG))  // any 2-word type would do
+
         case JVM.dup         => code.emit(DUP(ObjectReference)) // TODO: Is the kind inside DUP ever needed?
         case JVM.dup_x1      => code.emit(DUP_X1)      // sys.error("Unsupported JVM bytecode: dup_x1")
         case JVM.dup_x2      => code.emit(DUP_X2)      // sys.error("Unsupported JVM bytecode: dup_x2")
@@ -473,8 +486,11 @@ abstract class ICodeReader extends ClassfileParser {
           val field = pool.getMemberSymbol(in.nextChar, true); size += 2
           if (field.hasModuleFlag)
             code emit LOAD_MODULE(field)
-          else
+          else {
+            assert(field.name != nme.MODULE_INSTANCE_FIELD,
+                   "Loading modules has to be represented as LOAD_MODULE otherwise we'll get VerifiyError afterwards.")
             code emit LOAD_FIELD(field, true)
+          }
         case JVM.putstatic   =>
           val field = pool.getMemberSymbol(in.nextChar, true); size += 2
           code.emit(STORE_FIELD(field, true))
