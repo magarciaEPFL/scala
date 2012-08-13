@@ -225,113 +225,106 @@ abstract class ICodeReader extends ClassfileParser {
         target
       }
 
+      def const(c: Constant) { code emit CONSTANT(c) }
+
+      def loadArrayItem (tk: TypeKind) { code emit LOAD_ARRAY_ITEM(tk)  }
+      def storeArrayItem(tk: TypeKind) { code emit STORE_ARRAY_ITEM(tk) }
+
+      def loadLocal(idx: Int, tk: TypeKind) {
+        val local = code.getLocal(idx, tk);
+        code emit LOAD_LOCAL(local)
+      }
+      def storeLocal(idx: Int, tk: TypeKind) {
+        val local = code.getLocal(idx, tk);
+        code emit STORE_LOCAL(local)
+      }
+      def arith  (op: ArithmeticOp, tk:  TypeKind) { code.emit(CALL_PRIMITIVE(Arithmetic(op,  tk)))  }
+      def shift  (op: ShiftOp,      tk:  TypeKind) { code.emit(CALL_PRIMITIVE(Shift     (op,  tk)))  }
+      def logical(op: LogicalOp,    tk:  TypeKind) { code.emit(CALL_PRIMITIVE(Logical   (op,  tk)))  }
+      def conv   (src: TypeKind,    dst: TypeKind) { code.emit(CALL_PRIMITIVE(Conversion(src, dst))) }
+      def comp   (op: ComparisonOp, tk: TypeKind)  { code.emit(CALL_PRIMITIVE(Comparison(op,  tk)))  }
+      def ngt(tk: TypeKind) { code.emit(CALL_PRIMITIVE(Negation(tk))) }
+
       val instr = toUnsignedByte(in.nextByte)
-      instr match {
+      (instr: @scala.annotation.switch) match {
         case JVM.nop => parseInstruction
-        case JVM.aconst_null => code emit CONSTANT(Constant(null))
-        case JVM.iconst_m1   => code emit CONSTANT(Constant(-1))
-        case JVM.iconst_0    => code emit CONSTANT(Constant(0))
-        case JVM.iconst_1    => code emit CONSTANT(Constant(1))
-        case JVM.iconst_2    => code emit CONSTANT(Constant(2))
-        case JVM.iconst_3    => code emit CONSTANT(Constant(3))
-        case JVM.iconst_4    => code emit CONSTANT(Constant(4))
-        case JVM.iconst_5    => code emit CONSTANT(Constant(5))
+        case JVM.aconst_null => const(Constant(null))
+        case JVM.iconst_m1   => const(Constant(-1)  )
+        case JVM.iconst_0 | JVM.iconst_1 | JVM.iconst_2 | JVM.iconst_3 | JVM.iconst_4 | JVM.iconst_5 =>
+          val i: Int = (instr.toInt - JVM.iconst_0) // just to make expiclit we want Constant(Int)
+          const(Constant(i))
 
-        case JVM.lconst_0    => code emit CONSTANT(Constant(0l))
-        case JVM.lconst_1    => code emit CONSTANT(Constant(1l))
-        case JVM.fconst_0    => code emit CONSTANT(Constant(0.0f))
-        case JVM.fconst_1    => code emit CONSTANT(Constant(1.0f))
-        case JVM.fconst_2    => code emit CONSTANT(Constant(2.0f))
-        case JVM.dconst_0    => code emit CONSTANT(Constant(0.0))
-        case JVM.dconst_1    => code emit CONSTANT(Constant(1.0))
+        case JVM.lconst_0    => const(Constant(0l)  )
+        case JVM.lconst_1    => const(Constant(1l)  )
+        case JVM.fconst_0    => const(Constant(0.0f))
+        case JVM.fconst_1    => const(Constant(1.0f))
+        case JVM.fconst_2    => const(Constant(2.0f))
+        case JVM.dconst_0    => const(Constant(0.0) )
+        case JVM.dconst_1    => const(Constant(1.0) )
 
-        case JVM.bipush      => code.emit(CONSTANT(Constant(in.nextByte))); size += 1
-        case JVM.sipush      => code.emit(CONSTANT(Constant(in.nextChar))); size += 2
-        case JVM.ldc         => code.emit(CONSTANT(pool.getConstant(toUnsignedByte(in.nextByte)))); size += 1
-        case JVM.ldc_w       => code.emit(CONSTANT(pool.getConstant(in.nextChar))); size += 2
-        case JVM.ldc2_w      => code.emit(CONSTANT(pool.getConstant(in.nextChar))); size += 2
-        case JVM.iload       => code.emit(LOAD_LOCAL(code.getLocal(in.nextByte, INT)));    size += 1
-        case JVM.lload       => code.emit(LOAD_LOCAL(code.getLocal(in.nextByte, LONG)));   size += 1
-        case JVM.fload       => code.emit(LOAD_LOCAL(code.getLocal(in.nextByte, FLOAT)));  size += 1
-        case JVM.dload       => code.emit(LOAD_LOCAL(code.getLocal(in.nextByte, DOUBLE))); size += 1
+        case JVM.bipush      => const(Constant(in.nextByte)); size += 1
+        case JVM.sipush      => const(Constant(in.nextChar)); size += 2
+        case JVM.ldc         => const (pool.getConstant(toUnsignedByte(in.nextByte))); size += 1
+        case JVM.ldc_w       => const (pool.getConstant(in.nextChar)); size += 2
+        case JVM.ldc2_w      => const (pool.getConstant(in.nextChar)); size += 2
+        case JVM.iload       => loadLocal (in.nextByte, INT   ); size += 1
+        case JVM.lload       => loadLocal (in.nextByte, LONG  ); size += 1
+        case JVM.fload       => loadLocal (in.nextByte, FLOAT ); size += 1
+        case JVM.dload       => loadLocal (in.nextByte, DOUBLE); size += 1
         case JVM.aload       =>
           val local = in.nextByte.toInt; size += 1
           if (local == 0 && !method.isStatic)
             code.emit(THIS(method.symbol.owner));
           else
-            code.emit(LOAD_LOCAL(code.getLocal(local, ObjectReference)));
+            loadLocal (local, ObjectReference);
 
-        case JVM.iload_0     => code.emit(LOAD_LOCAL(code.getLocal(0, INT)))
-        case JVM.iload_1     => code.emit(LOAD_LOCAL(code.getLocal(1, INT)))
-        case JVM.iload_2     => code.emit(LOAD_LOCAL(code.getLocal(2, INT)))
-        case JVM.iload_3     => code.emit(LOAD_LOCAL(code.getLocal(3, INT)))
-        case JVM.lload_0     => code.emit(LOAD_LOCAL(code.getLocal(0, LONG)))
-        case JVM.lload_1     => code.emit(LOAD_LOCAL(code.getLocal(1, LONG)))
-        case JVM.lload_2     => code.emit(LOAD_LOCAL(code.getLocal(2, LONG)))
-        case JVM.lload_3     => code.emit(LOAD_LOCAL(code.getLocal(3, LONG)))
-        case JVM.fload_0     => code.emit(LOAD_LOCAL(code.getLocal(0, FLOAT)))
-        case JVM.fload_1     => code.emit(LOAD_LOCAL(code.getLocal(1, FLOAT)))
-        case JVM.fload_2     => code.emit(LOAD_LOCAL(code.getLocal(2, FLOAT)))
-        case JVM.fload_3     => code.emit(LOAD_LOCAL(code.getLocal(3, FLOAT)))
-        case JVM.dload_0     => code.emit(LOAD_LOCAL(code.getLocal(0, DOUBLE)))
-        case JVM.dload_1     => code.emit(LOAD_LOCAL(code.getLocal(1, DOUBLE)))
-        case JVM.dload_2     => code.emit(LOAD_LOCAL(code.getLocal(2, DOUBLE)))
-        case JVM.dload_3     => code.emit(LOAD_LOCAL(code.getLocal(3, DOUBLE)))
+        case JVM.iload_0 | JVM.iload_1 | JVM.iload_2 | JVM.iload_3 => loadLocal ((instr.toInt - JVM.iload_0), INT   )
+        case JVM.lload_0 | JVM.lload_1 | JVM.lload_2 | JVM.lload_3 => loadLocal ((instr.toInt - JVM.lload_0), LONG  )
+        case JVM.fload_0 | JVM.fload_1 | JVM.fload_2 | JVM.fload_3 => loadLocal ((instr.toInt - JVM.fload_0), FLOAT )
+        case JVM.dload_0 | JVM.dload_1 | JVM.dload_2 | JVM.dload_3 => loadLocal ((instr.toInt - JVM.dload_0), DOUBLE)
+
         case JVM.aload_0     =>
-          if (!method.isStatic)
-            code.emit(THIS(method.symbol.owner));
-          else
-            code.emit(LOAD_LOCAL(code.getLocal(0, ObjectReference)));
-        case JVM.aload_1     => code.emit(LOAD_LOCAL(code.getLocal(1, ObjectReference)))
-        case JVM.aload_2     => code.emit(LOAD_LOCAL(code.getLocal(2, ObjectReference)))
-        case JVM.aload_3     => code.emit(LOAD_LOCAL(code.getLocal(3, ObjectReference)))
+          if (!method.isStatic) code.emit(THIS(method.symbol.owner))
+          else                  loadLocal (0, ObjectReference);
+        case JVM.aload_1     => loadLocal (1, ObjectReference)
+        case JVM.aload_2     => loadLocal (2, ObjectReference)
+        case JVM.aload_3     => loadLocal (3, ObjectReference)
 
-        case JVM.iaload      => code.emit(LOAD_ARRAY_ITEM(INT))
-        case JVM.laload      => code.emit(LOAD_ARRAY_ITEM(LONG))
-        case JVM.faload      => code.emit(LOAD_ARRAY_ITEM(FLOAT))
-        case JVM.daload      => code.emit(LOAD_ARRAY_ITEM(DOUBLE))
-        case JVM.aaload      => code.emit(LOAD_ARRAY_ITEM(ObjectReference))
-        case JVM.baload      => code.emit(LOAD_ARRAY_ITEM(BYTE))
-        case JVM.caload      => code.emit(LOAD_ARRAY_ITEM(CHAR))
-        case JVM.saload      => code.emit(LOAD_ARRAY_ITEM(SHORT))
+        case JVM.iaload      => loadArrayItem(INT)
+        case JVM.laload      => loadArrayItem(LONG)
+        case JVM.faload      => loadArrayItem(FLOAT)
+        case JVM.daload      => loadArrayItem(DOUBLE)
+        case JVM.aaload      => loadArrayItem(ObjectReference)
+        case JVM.baload      => loadArrayItem(BYTE)
+        case JVM.caload      => loadArrayItem(CHAR)
+        case JVM.saload      => loadArrayItem(SHORT)
 
-        case JVM.istore      => code.emit(STORE_LOCAL(code.getLocal(in.nextByte, INT)));    size += 1
-        case JVM.lstore      => code.emit(STORE_LOCAL(code.getLocal(in.nextByte, LONG)));   size += 1
-        case JVM.fstore      => code.emit(STORE_LOCAL(code.getLocal(in.nextByte, FLOAT)));  size += 1
-        case JVM.dstore      => code.emit(STORE_LOCAL(code.getLocal(in.nextByte, DOUBLE))); size += 1
-        case JVM.astore      => code.emit(STORE_LOCAL(code.getLocal(in.nextByte, ObjectReference))); size += 1
-        case JVM.istore_0    => code.emit(STORE_LOCAL(code.getLocal(0, INT)))
-        case JVM.istore_1    => code.emit(STORE_LOCAL(code.getLocal(1, INT)))
-        case JVM.istore_2    => code.emit(STORE_LOCAL(code.getLocal(2, INT)))
-        case JVM.istore_3    => code.emit(STORE_LOCAL(code.getLocal(3, INT)))
-        case JVM.lstore_0    => code.emit(STORE_LOCAL(code.getLocal(0, LONG)))
-        case JVM.lstore_1    => code.emit(STORE_LOCAL(code.getLocal(1, LONG)))
-        case JVM.lstore_2    => code.emit(STORE_LOCAL(code.getLocal(2, LONG)))
-        case JVM.lstore_3    => code.emit(STORE_LOCAL(code.getLocal(3, LONG)))
-        case JVM.fstore_0    => code.emit(STORE_LOCAL(code.getLocal(0, FLOAT)))
-        case JVM.fstore_1    => code.emit(STORE_LOCAL(code.getLocal(1, FLOAT)))
-        case JVM.fstore_2    => code.emit(STORE_LOCAL(code.getLocal(2, FLOAT)))
-        case JVM.fstore_3    => code.emit(STORE_LOCAL(code.getLocal(3, FLOAT)))
-        case JVM.dstore_0    => code.emit(STORE_LOCAL(code.getLocal(0, DOUBLE)))
-        case JVM.dstore_1    => code.emit(STORE_LOCAL(code.getLocal(1, DOUBLE)))
-        case JVM.dstore_2    => code.emit(STORE_LOCAL(code.getLocal(2, DOUBLE)))
-        case JVM.dstore_3    => code.emit(STORE_LOCAL(code.getLocal(3, DOUBLE)))
+        case JVM.istore      => storeLocal (in.nextByte, INT   ); size += 1
+        case JVM.lstore      => storeLocal (in.nextByte, LONG  ); size += 1
+        case JVM.fstore      => storeLocal (in.nextByte, FLOAT ); size += 1
+        case JVM.dstore      => storeLocal (in.nextByte, DOUBLE); size += 1
+        case JVM.astore      => storeLocal (in.nextByte, ObjectReference); size += 1
+
+        case JVM.istore_0 | JVM.istore_1 | JVM.istore_2 | JVM.istore_3 => storeLocal ((instr.toInt - JVM.istore_0), INT   )
+        case JVM.lstore_0 | JVM.lstore_1 | JVM.lstore_2 | JVM.lstore_3 => storeLocal ((instr.toInt - JVM.lstore_0), LONG  )
+        case JVM.fstore_0 | JVM.fstore_1 | JVM.fstore_2 | JVM.fstore_3 => storeLocal ((instr.toInt - JVM.fstore_0), FLOAT )
+        case JVM.dstore_0 | JVM.dstore_1 | JVM.dstore_2 | JVM.dstore_3 => storeLocal ((instr.toInt - JVM.dstore_0), DOUBLE)
+
         case JVM.astore_0    =>
-          if (method.isStatic)
-            code.emit(STORE_LOCAL(code.getLocal(0, ObjectReference)))
-          else
-            code.emit(STORE_THIS(ObjectReference))
-        case JVM.astore_1    => code.emit(STORE_LOCAL(code.getLocal(1, ObjectReference)))
-        case JVM.astore_2    => code.emit(STORE_LOCAL(code.getLocal(2, ObjectReference)))
-        case JVM.astore_3    => code.emit(STORE_LOCAL(code.getLocal(3, ObjectReference)))
-        case JVM.iastore     => code.emit(STORE_ARRAY_ITEM(INT))
-        case JVM.lastore     => code.emit(STORE_ARRAY_ITEM(LONG))
-        case JVM.fastore     => code.emit(STORE_ARRAY_ITEM(FLOAT))
-        case JVM.dastore     => code.emit(STORE_ARRAY_ITEM(DOUBLE))
-        case JVM.aastore     => code.emit(STORE_ARRAY_ITEM(ObjectReference))
-        case JVM.bastore     => code.emit(STORE_ARRAY_ITEM(BYTE))
-        case JVM.castore     => code.emit(STORE_ARRAY_ITEM(CHAR))
-        case JVM.sastore     => code.emit(STORE_ARRAY_ITEM(SHORT))
+          if (!method.isStatic) code.emit(STORE_THIS(ObjectReference))
+          else                  storeLocal (0, ObjectReference)
+        case JVM.astore_1    => storeLocal (1, ObjectReference)
+        case JVM.astore_2    => storeLocal (2, ObjectReference)
+        case JVM.astore_3    => storeLocal (3, ObjectReference)
+
+        case JVM.iastore     => storeArrayItem(INT)
+        case JVM.lastore     => storeArrayItem(LONG)
+        case JVM.fastore     => storeArrayItem(FLOAT)
+        case JVM.dastore     => storeArrayItem(DOUBLE)
+        case JVM.aastore     => storeArrayItem(ObjectReference)
+        case JVM.bastore     => storeArrayItem(BYTE)
+        case JVM.castore     => storeArrayItem(CHAR)
+        case JVM.sastore     => storeArrayItem(SHORT)
 
         case JVM.pop         => code.emit(DROP(INT))   // any 1-word type would do
         case JVM.pop2        => code.emit(DROP(LONG))  // any 2-word type would do
@@ -343,44 +336,45 @@ abstract class ICodeReader extends ClassfileParser {
         case JVM.dup2_x2     => code.emit(DUP2_X2)     // sys.error("Unsupported JVM bytecode: dup2_x2")
         case JVM.swap        => sys.error("Unsupported JVM bytecode: swap")
 
-        case JVM.iadd        => code.emit(CALL_PRIMITIVE(Arithmetic(ADD, INT)))
-        case JVM.ladd        => code.emit(CALL_PRIMITIVE(Arithmetic(ADD, LONG)))
-        case JVM.fadd        => code.emit(CALL_PRIMITIVE(Arithmetic(ADD, FLOAT)))
-        case JVM.dadd        => code.emit(CALL_PRIMITIVE(Arithmetic(ADD, DOUBLE)))
-        case JVM.isub        => code.emit(CALL_PRIMITIVE(Arithmetic(SUB, INT)))
-        case JVM.lsub        => code.emit(CALL_PRIMITIVE(Arithmetic(SUB, LONG)))
-        case JVM.fsub        => code.emit(CALL_PRIMITIVE(Arithmetic(SUB, FLOAT)))
-        case JVM.dsub        => code.emit(CALL_PRIMITIVE(Arithmetic(SUB, DOUBLE)))
-        case JVM.imul        => code.emit(CALL_PRIMITIVE(Arithmetic(MUL, INT)))
-        case JVM.lmul        => code.emit(CALL_PRIMITIVE(Arithmetic(MUL, LONG)))
-        case JVM.fmul        => code.emit(CALL_PRIMITIVE(Arithmetic(MUL, FLOAT)))
-        case JVM.dmul        => code.emit(CALL_PRIMITIVE(Arithmetic(MUL, DOUBLE)))
-        case JVM.idiv        => code.emit(CALL_PRIMITIVE(Arithmetic(DIV, INT)))
-        case JVM.ldiv        => code.emit(CALL_PRIMITIVE(Arithmetic(DIV, LONG)))
-        case JVM.fdiv        => code.emit(CALL_PRIMITIVE(Arithmetic(DIV, FLOAT)))
-        case JVM.ddiv        => code.emit(CALL_PRIMITIVE(Arithmetic(DIV, DOUBLE)))
-        case JVM.irem        => code.emit(CALL_PRIMITIVE(Arithmetic(REM, INT)))
-        case JVM.lrem        => code.emit(CALL_PRIMITIVE(Arithmetic(REM, LONG)))
-        case JVM.frem        => code.emit(CALL_PRIMITIVE(Arithmetic(REM, FLOAT)))
-        case JVM.drem        => code.emit(CALL_PRIMITIVE(Arithmetic(REM, DOUBLE)))
+        case JVM.iadd        => arith(ADD, INT   )
+        case JVM.ladd        => arith(ADD, LONG  )
+        case JVM.fadd        => arith(ADD, FLOAT )
+        case JVM.dadd        => arith(ADD, DOUBLE)
+        case JVM.isub        => arith(SUB, INT   )
+        case JVM.lsub        => arith(SUB, LONG  )
+        case JVM.fsub        => arith(SUB, FLOAT )
+        case JVM.dsub        => arith(SUB, DOUBLE)
+        case JVM.imul        => arith(MUL, INT   )
+        case JVM.lmul        => arith(MUL, LONG  )
+        case JVM.fmul        => arith(MUL, FLOAT )
+        case JVM.dmul        => arith(MUL, DOUBLE)
+        case JVM.idiv        => arith(DIV, INT   )
+        case JVM.ldiv        => arith(DIV, LONG  )
+        case JVM.fdiv        => arith(DIV, FLOAT )
+        case JVM.ddiv        => arith(DIV, DOUBLE)
+        case JVM.irem        => arith(REM, INT   )
+        case JVM.lrem        => arith(REM, LONG  )
+        case JVM.frem        => arith(REM, FLOAT )
+        case JVM.drem        => arith(REM, DOUBLE)
 
-        case JVM.ineg        => code.emit(CALL_PRIMITIVE(Negation(INT)))
-        case JVM.lneg        => code.emit(CALL_PRIMITIVE(Negation(LONG)))
-        case JVM.fneg        => code.emit(CALL_PRIMITIVE(Negation(FLOAT)))
-        case JVM.dneg        => code.emit(CALL_PRIMITIVE(Negation(DOUBLE)))
+        case JVM.ineg        => ngt(INT   )
+        case JVM.lneg        => ngt(LONG  )
+        case JVM.fneg        => ngt(FLOAT )
+        case JVM.dneg        => ngt(DOUBLE)
 
-        case JVM.ishl        => code.emit(CALL_PRIMITIVE(Shift(LSL, INT)))
-        case JVM.lshl        => code.emit(CALL_PRIMITIVE(Shift(LSL, LONG)))
-        case JVM.ishr        => code.emit(CALL_PRIMITIVE(Shift(LSR, INT)))
-        case JVM.lshr        => code.emit(CALL_PRIMITIVE(Shift(LSR, LONG)))
-        case JVM.iushr       => code.emit(CALL_PRIMITIVE(Shift(ASR, INT)))
-        case JVM.lushr       => code.emit(CALL_PRIMITIVE(Shift(ASR, LONG)))
-        case JVM.iand        => code.emit(CALL_PRIMITIVE(Logical(AND, INT)))
-        case JVM.land        => code.emit(CALL_PRIMITIVE(Logical(AND, LONG)))
-        case JVM.ior         => code.emit(CALL_PRIMITIVE(Logical(OR, INT)))
-        case JVM.lor         => code.emit(CALL_PRIMITIVE(Logical(OR, LONG)))
-        case JVM.ixor        => code.emit(CALL_PRIMITIVE(Logical(XOR, INT)))
-        case JVM.lxor        => code.emit(CALL_PRIMITIVE(Logical(XOR, LONG)))
+        case JVM.ishl        => shift   (LSL, INT )
+        case JVM.lshl        => shift   (LSL, LONG)
+        case JVM.ishr        => shift   (LSR, INT )
+        case JVM.lshr        => shift   (LSR, LONG)
+        case JVM.iushr       => shift   (ASR, INT )
+        case JVM.lushr       => shift   (ASR, LONG)
+
+        case JVM.iand        => logical (AND, INT)
+        case JVM.land        => logical (AND, LONG)
+        case JVM.ior         => logical (OR,  INT )
+        case JVM.lor         => logical (OR,  LONG)
+        case JVM.ixor        => logical (XOR, INT )
+        case JVM.lxor        => logical (XOR, LONG)
         case JVM.iinc        =>
           size += 2
           val local = code.getLocal(in.nextByte, INT)
@@ -389,27 +383,27 @@ abstract class ICodeReader extends ClassfileParser {
           code.emit(CALL_PRIMITIVE(Arithmetic(ADD, INT)))
           code.emit(STORE_LOCAL(local))
 
-        case JVM.i2l         => code.emit(CALL_PRIMITIVE(Conversion(INT, LONG)))
-        case JVM.i2f         => code.emit(CALL_PRIMITIVE(Conversion(INT, FLOAT)))
-        case JVM.i2d         => code.emit(CALL_PRIMITIVE(Conversion(INT, DOUBLE)))
-        case JVM.l2i         => code.emit(CALL_PRIMITIVE(Conversion(LONG, INT)))
-        case JVM.l2f         => code.emit(CALL_PRIMITIVE(Conversion(LONG, FLOAT)))
-        case JVM.l2d         => code.emit(CALL_PRIMITIVE(Conversion(LONG, DOUBLE)))
-        case JVM.f2i         => code.emit(CALL_PRIMITIVE(Conversion(FLOAT, INT)))
-        case JVM.f2l         => code.emit(CALL_PRIMITIVE(Conversion(FLOAT, LONG)))
-        case JVM.f2d         => code.emit(CALL_PRIMITIVE(Conversion(FLOAT, DOUBLE)))
-        case JVM.d2i         => code.emit(CALL_PRIMITIVE(Conversion(DOUBLE, INT)))
-        case JVM.d2l         => code.emit(CALL_PRIMITIVE(Conversion(DOUBLE, LONG)))
-        case JVM.d2f         => code.emit(CALL_PRIMITIVE(Conversion(DOUBLE, FLOAT)))
-        case JVM.i2b         => code.emit(CALL_PRIMITIVE(Conversion(INT, BYTE)))
-        case JVM.i2c         => code.emit(CALL_PRIMITIVE(Conversion(INT, CHAR)))
-        case JVM.i2s         => code.emit(CALL_PRIMITIVE(Conversion(INT, SHORT)))
+        case JVM.i2l         => conv (INT,    LONG  )
+        case JVM.i2f         => conv (INT,    FLOAT )
+        case JVM.i2d         => conv (INT,    DOUBLE)
+        case JVM.l2i         => conv (LONG,   INT   )
+        case JVM.l2f         => conv (LONG,   FLOAT )
+        case JVM.l2d         => conv (LONG,   DOUBLE)
+        case JVM.f2i         => conv (FLOAT,  INT   )
+        case JVM.f2l         => conv (FLOAT,  LONG  )
+        case JVM.f2d         => conv (FLOAT,  DOUBLE)
+        case JVM.d2i         => conv (DOUBLE, INT   )
+        case JVM.d2l         => conv (DOUBLE, LONG  )
+        case JVM.d2f         => conv (DOUBLE, FLOAT )
+        case JVM.i2b         => conv (INT,    BYTE  )
+        case JVM.i2c         => conv (INT,    CHAR  )
+        case JVM.i2s         => conv (INT,    SHORT )
 
-        case JVM.lcmp        => code.emit(CALL_PRIMITIVE(Comparison(CMP, LONG)))
-        case JVM.fcmpl       => code.emit(CALL_PRIMITIVE(Comparison(CMPL, FLOAT)))
-        case JVM.fcmpg       => code.emit(CALL_PRIMITIVE(Comparison(CMPG, FLOAT)))
-        case JVM.dcmpl       => code.emit(CALL_PRIMITIVE(Comparison(CMPL, DOUBLE)))
-        case JVM.dcmpg       => code.emit(CALL_PRIMITIVE(Comparison(CMPG, DOUBLE)))
+        case JVM.lcmp        => comp (CMP,    LONG  )
+        case JVM.fcmpl       => comp (CMPL,   FLOAT )
+        case JVM.fcmpg       => comp (CMPG,   FLOAT )
+        case JVM.dcmpl       => comp (CMPL,   DOUBLE)
+        case JVM.dcmpg       => comp (CMPG,   DOUBLE)
 
         case JVM.ifeq        => code.emit(LCZJUMP(parseJumpTarget, pc + size, EQ, INT))
         case JVM.ifne        => code.emit(LCZJUMP(parseJumpTarget, pc + size, NE, INT))
@@ -544,16 +538,16 @@ abstract class ICodeReader extends ClassfileParser {
         case JVM.wide          =>
           size += 1
           toUnsignedByte(in.nextByte) match {
-            case JVM.iload  => code.emit(LOAD_LOCAL(code.getLocal(in.nextChar, INT)));    size += 2
-            case JVM.lload  => code.emit(LOAD_LOCAL(code.getLocal(in.nextChar, LONG)));   size += 2
-            case JVM.fload  => code.emit(LOAD_LOCAL(code.getLocal(in.nextChar, FLOAT)));  size += 2
-            case JVM.dload  => code.emit(LOAD_LOCAL(code.getLocal(in.nextChar, DOUBLE))); size += 2
-            case JVM.aload  => code.emit(LOAD_LOCAL(code.getLocal(in.nextChar, ObjectReference))); size += 2
-            case JVM.istore => code.emit(STORE_LOCAL(code.getLocal(in.nextChar, INT)));    size += 2
-            case JVM.lstore => code.emit(STORE_LOCAL(code.getLocal(in.nextChar, LONG)));   size += 2
-            case JVM.fstore => code.emit(STORE_LOCAL(code.getLocal(in.nextChar, FLOAT)));  size += 2
-            case JVM.dstore => code.emit(STORE_LOCAL(code.getLocal(in.nextChar, DOUBLE))); size += 2
-            case JVM.astore => code.emit(STORE_LOCAL(code.getLocal(in.nextChar, ObjectReference))); size += 2
+            case JVM.iload  => loadLocal (in.nextChar, INT   ); size += 2
+            case JVM.lload  => loadLocal (in.nextChar, LONG  ); size += 2
+            case JVM.fload  => loadLocal (in.nextChar, FLOAT ); size += 2
+            case JVM.dload  => loadLocal (in.nextChar, DOUBLE); size += 2
+            case JVM.aload  => loadLocal (in.nextChar, ObjectReference); size += 2
+            case JVM.istore => storeLocal(in.nextChar, INT   ); size += 2
+            case JVM.lstore => storeLocal(in.nextChar, LONG  ); size += 2
+            case JVM.fstore => storeLocal(in.nextChar, FLOAT ); size += 2
+            case JVM.dstore => storeLocal(in.nextChar, DOUBLE); size += 2
+            case JVM.astore => storeLocal(in.nextChar, ObjectReference); size += 2
             case JVM.ret => sys.error("Cannot handle jsr/ret")
             case JVM.iinc =>
               size += 4
