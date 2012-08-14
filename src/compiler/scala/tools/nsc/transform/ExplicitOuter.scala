@@ -259,7 +259,9 @@ abstract class ExplicitOuter extends InfoTransform
     /* All accesses in @inline-marked methods result in ExplicitOuter publicizing
      * the accessed fields/methods/class-instantiations given by `Select(qual, name)` contained in the method in question,
      * irrespective of whether -optimize is in effect for this compiler run or not.
-     * As you can imagine, only those members compiled in this run are publicized.
+     * As you can imagine, only those members compiled in this run can actually be publicized in this run.
+     * For those separately compiled, we just hope their bytecode also went through this publicizing step.
+     * For that reason, the JVM option -Xverify:all can be of help.
      * See `canRegardAsPublic()` in Inliner, which relies on the publicizing performed here.
      **/
     class Publicizer extends Traverser {
@@ -267,10 +269,8 @@ abstract class ExplicitOuter extends InfoTransform
         tree match {
           case Select(qual, name) =>
             val sym = tree.symbol
-            if (currentRun.compiles(sym)) {
-              sym.makeNotPrivate(sym.owner)
-              if(sym.isProtected) { sym.setFlag(notPROTECTED)  }
-            }
+            sym.makeNotPrivate(sym.owner)
+            if(sym.isProtected) { sym.setFlag(notPROTECTED)  }
           case _ => ()
         }
         super.traverse(tree)
