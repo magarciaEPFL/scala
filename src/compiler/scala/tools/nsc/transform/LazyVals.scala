@@ -76,10 +76,9 @@ abstract class LazyVals extends Transform with TypingTransformers with ast.TreeD
       override def traverse(tree: Tree) {
         tree match {
           case Select(qual, name) =>
-            val sym = tree.symbol
-            val sfn = sym.fullName
-            sym.makeNotPrivate(sym.owner)
-            if(sym.isProtected) { sym.setFlag(notPROTECTED)  }
+            val s = tree.symbol
+            if(s.isPrivate)   { s.setFlag(notPRIVATE)    } // TODO find out why s.makeNotPrivate(s.owner) leads to crash in lambdalift
+            if(s.isProtected) { s.setFlag(notPROTECTED)  }
           case _ => ()
         }
         super.traverse(tree)
