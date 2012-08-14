@@ -658,12 +658,8 @@ abstract class Inliners extends SubComponent {
         def canRegardAsPublic(f: Symbol): Boolean = {
 
           val calleeSym = m.symbol
-          if(hasInline(calleeSym)) {
-            if(currentRun.compiles(f)) {
-              toBecomePublic ::= f;
-            }
-            return true
-          }
+          assert(if(hasInline(calleeSym) && currentRun.compiles(f)) { f.isPublic  } else { true },
+                 "All accesses in @inline-marked methods should have resulted in ExplicitOuter publicizing the accessed field (also in separate compilation).")
           val canForcePublic = {
             currentRun.compiles(f) && (
               f.isSynthetic     ||
