@@ -256,16 +256,42 @@ abstract class ExplicitOuter extends InfoTransform
       else outerPath(outerSelect(base), from.outerClass, to)
     }
 
+    /* All accesses in @inline-marked methods result in ExplicitOuter publicizing
+     * the accessed fields/methods/class-instantiations given by `Select(qual, name)` contained in the method in question,
+     * irrespective of whether -optimize is in effect for this compiler run or not.
+     * As you can imagine, only those members compiled in this run are publicized.
+     * See `canRegardAsPublic()` in Inliner, which relies on the publicizing performed here.
+     **/
+    class Publicizer extends Traverser {
+      override def traverse(tree: Tree) {
+        tree match {
+          case Select(qual, name) =>
+            val sym = tree.symbol
+            if (currentRun.compiles(sym)) {
+              sym.makeNotPrivate(sym.owner)
+              if(sym.isProtected) { sym.setFlag(notPROTECTED)  }
+            }
+          case _ => ()
+        }
+        super.traverse(tree)
+      }
+    }
+
+    val pblzr = new Publicizer
+
     override def transform(tree: Tree): Tree = {
       val savedOuterParam = outerParam
       try {
         tree match {
           case Template(_, _, _) =>
             outerParam = NoSymbol
-          case DefDef(_, _, _, vparamss, _, _) =>
+          case DefDef(_, _, _, vparamss, _, rhs) =>
             if (tree.symbol.isClassConstructor && isInner(tree.symbol.owner)) {
               outerParam = vparamss.head.head.symbol
               assert(outerParam.name startsWith nme.OUTER, outerParam.name)
+            }
+            if (tree.symbol hasAnnotation ScalaInlineClass) {
+              pblzr.traverse(rhs)
             }
           case _ =>
         }
@@ -497,10 +523,9 @@ abstract class ExplicitOuter extends InfoTransform
           else atPos(tree.pos)(outerPath(outerValue, currentClass.outerClass, sym)) // (5)
 
         case Select(qual, name) =>
-          // make not private symbol acessed from inner classes, as well as
-          // symbols accessed from @inline methods
-          if (currentClass != sym.owner ||
-              (sym.owner.enclMethod hasAnnotation ScalaInlineClass))
+          /* make not private symbol acessed from inner classes, so that accesses from an inner-class reaching out to outer members
+           * also work once the inner-class isn't an inner class anymore (after flattten). */
+          if (currentClass != sym.owner)
             sym.makeNotPrivate(sym.owner)
 
           val qsym = qual.tpe.widen.typeSymbol
