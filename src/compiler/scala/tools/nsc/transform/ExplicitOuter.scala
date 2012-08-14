@@ -110,6 +110,36 @@ abstract class ExplicitOuter extends InfoTransform
     sym setInfo clazz.outerClass.thisType
   }
 
+    /*
+     * (a) What is made public?
+     *     All accesses in @inline-marked methods result in ExplicitOuter publicizing
+     *     the accessed fields/methods/class-instantiations given by `Select(qual, name)` contained in the method in question,
+     *     irrespective of whether -optimize is in effect for this compiler run or not.
+     *
+     * (b) Why do we publicize?
+     *     See `canRegardAsPublic()` in Inliner, which relies on the publicizing performed here.
+     *     Also, why is this done here? It has to be done before lambdalift,
+     *     otherwise accesses in methods (not marked @inline) local to @inline-marked methods wouldn't be result in publicizing
+     *     (the local method, once lifted, does not carry itself an @inline annotation).
+     *
+     * (c) How does it work in separate-compilation scenarios?
+     *     As you can imagine, only those members compiled in this run can actually be publicized in this run.
+     *     For those separately compiled, we just hope their bytecode also went through this publicizing step.
+     *     To detect any deviation from these assumptions, the JVM option -Xverify:all can be of help.
+     **/
+    object pblzr extends Traverser {
+      override def traverse(tree: Tree) {
+        tree match {
+          case Select(qual, name) =>
+            val sym = tree.symbol
+            sym.makeNotPrivate(sym.owner)
+            if(sym.isProtected) { sym.setFlag(notPROTECTED)  }
+          case _ => ()
+        }
+        super.traverse(tree)
+      }
+    }
+
   /** <p>
    *    The type transformation method:
    *  </p>
@@ -256,42 +286,16 @@ abstract class ExplicitOuter extends InfoTransform
       else outerPath(outerSelect(base), from.outerClass, to)
     }
 
-    /* All accesses in @inline-marked methods result in ExplicitOuter publicizing
-     * the accessed fields/methods/class-instantiations given by `Select(qual, name)` contained in the method in question,
-     * irrespective of whether -optimize is in effect for this compiler run or not.
-     * As you can imagine, only those members compiled in this run can actually be publicized in this run.
-     * For those separately compiled, we just hope their bytecode also went through this publicizing step.
-     * For that reason, the JVM option -Xverify:all can be of help.
-     * See `canRegardAsPublic()` in Inliner, which relies on the publicizing performed here.
-     **/
-    class Publicizer extends Traverser {
-      override def traverse(tree: Tree) {
-        tree match {
-          case Select(qual, name) =>
-            val sym = tree.symbol
-            sym.makeNotPrivate(sym.owner)
-            if(sym.isProtected) { sym.setFlag(notPROTECTED)  }
-          case _ => ()
-        }
-        super.traverse(tree)
-      }
-    }
-
-    val pblzr = new Publicizer
-
     override def transform(tree: Tree): Tree = {
       val savedOuterParam = outerParam
       try {
         tree match {
           case Template(_, _, _) =>
             outerParam = NoSymbol
-          case DefDef(_, _, _, vparamss, _, rhs) =>
+          case DefDef(_, _, _, vparamss, _, _) =>
             if (tree.symbol.isClassConstructor && isInner(tree.symbol.owner)) {
               outerParam = vparamss.head.head.symbol
               assert(outerParam.name startsWith nme.OUTER, outerParam.name)
-            }
-            if (tree.symbol hasAnnotation ScalaInlineClass) {
-              pblzr.traverse(rhs)
             }
           case _ =>
         }
@@ -501,6 +505,9 @@ abstract class ExplicitOuter extends InfoTransform
             )
           )
         case DefDef(_, _, _, vparamss, _, rhs) =>
+          if (tree.symbol hasAnnotation ScalaInlineClass) {
+            pblzr.traverse(rhs)
+          }
           if (sym.isClassConstructor) {
             rhs match {
               case Literal(_) =>
