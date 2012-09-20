@@ -138,6 +138,30 @@ trait Names extends api.Names with LowPriorityNames {
   def nameChars: Array[Char] = chrs
   @deprecated("", "2.9.0") def view(s: String): TermName = newTermName(s)
 
+  /**
+   *  Used only by the GenBCode backend (in particular, by CClassWriter).
+   *
+   *  @can-multi-thread
+   */
+  def lookupTypeName(cs: Array[Char]): TypeName = {
+
+    val hterm = hashValue(cs, 0, cs.size) & HASH_MASK
+    var nterm = termHashtable(hterm)
+    while ((nterm ne null) && (nterm.length != cs.size || !equals(nterm.start, cs, 0, cs.size))) {
+      nterm = nterm.next
+    }
+    assert(nterm ne null, "TermName not yet created")
+
+    val htype = hashValue(chrs, nterm.start, nterm.length) & HASH_MASK
+    var ntype = typeHashtable(htype)
+    while ((ntype ne null) && ntype.start != nterm.start) {
+      ntype = ntype.next
+    }
+    assert(ntype ne null, "TypeName not yet created")
+
+    ntype
+  }
+
 // Classes ----------------------------------------------------------------------
 
   /** The name class.

@@ -225,4 +225,11 @@ trait ScalaSettings extends AbsScalaSettings
 
   /** Test whether this is scaladoc we're looking at */
   def isScaladoc = false
+
+  /** Test whether GenBCode will run instead of GenASM */
+  def isBCodeActive = !mustUseGenJVM && !mustUseGenASM && canUseBCode
+
+  def canUseBCode   = !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
+  def mustUseGenJVM = (target.value == "jvm-1.5-fjbg")
+  def mustUseGenASM = (target.value == "jvm-1.5-asm") || (target.value == "jvm-1.6-asm")
 }

@@ -164,9 +164,10 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
       debuglog("Created new bytecode generator for " + classes.size + " classes.")
       val bytecodeWriter  = initBytecodeWriter(sortedClasses filter isJavaEntryPoint)
-      val plainCodeGen    = new JPlainBuilder(bytecodeWriter)
-      val mirrorCodeGen   = new JMirrorBuilder(bytecodeWriter)
-      val beanInfoCodeGen = new JBeanInfoBuilder(bytecodeWriter)
+      val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
+      val plainCodeGen    = new JPlainBuilder(bytecodeWriter, needsOutfileForSymbol)
+      val mirrorCodeGen   = new JMirrorBuilder(bytecodeWriter, needsOutfileForSymbol)
+      val beanInfoCodeGen = new JBeanInfoBuilder(bytecodeWriter, needsOutfileForSymbol)
 
       while(!sortedClasses.isEmpty) {
         val c = sortedClasses.head
@@ -436,6 +437,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
     case "jvm-1.5"     => asm.Opcodes.V1_5
     case "jvm-1.5-asm" => asm.Opcodes.V1_5
     case "jvm-1.6"     => asm.Opcodes.V1_6
+    case "jvm-1.6-asm" => asm.Opcodes.V1_6
     case "jvm-1.7"     => asm.Opcodes.V1_7
   }
 
@@ -462,7 +464,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
   }
 
   /** basic functionality for class file building */
-  abstract class JBuilder(bytecodeWriter: BytecodeWriter) {
+  abstract class JBuilder(bytecodeWriter: BytecodeWriter, needsOutfileForSymbol: Boolean) {
 
     val EMPTY_JTYPE_ARRAY  = Array.empty[asm.Type]
     val EMPTY_STRING_ARRAY = Array.empty[String]
@@ -521,7 +523,10 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
     def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
       try {
         val arr = jclass.toByteArray()
-        bytecodeWriter.writeClass(label, jclassName, arr, sym)
+        val outF: scala.tools.nsc.io.AbstractFile = {
+          if(needsOutfileForSymbol) getFile(sym, jclassName, ".class") else null
+        }
+        bytecodeWriter.writeClass(label, jclassName, arr, outF)
       } catch {
         case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
           // TODO check where ASM throws the equivalent of CodeSizeTooBigException
@@ -746,7 +751,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
 
   /** functionality for building plain and mirror classes */
-  abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter) extends JBuilder(bytecodeWriter) {
+  abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter, needsOutfileForSymbol: Boolean) extends JBuilder(bytecodeWriter, needsOutfileForSymbol) {
 
     def debugLevel = settings.debuginfo.indexOfChoice
 
@@ -1318,8 +1323,8 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
   case class BlockInteval(start: BasicBlock, end: BasicBlock)
 
   /** builder of plain classes */
-  class JPlainBuilder(bytecodeWriter: BytecodeWriter)
-    extends JCommonBuilder(bytecodeWriter)
+  class JPlainBuilder(bytecodeWriter: BytecodeWriter, needsOutfileForSymbol: Boolean)
+    extends JCommonBuilder(bytecodeWriter, needsOutfileForSymbol)
     with    JAndroidBuilder {
 
     val MIN_SWITCH_DENSITY = 0.7
@@ -1695,6 +1700,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
        	  jmethod = clinitMethod
           jMethodName = CLASS_CONSTRUCTOR_NAME
           jmethod.visitCode()
+          computeLocalVarsIndex(m)
        	  genCode(m, false, true)
           jmethod.visitMaxs(0, 0) // just to follow protocol, dummy arguments
           jmethod.visitEnd()
@@ -2409,7 +2415,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
         import asm.Opcodes
         (instr.category: @scala.annotation.switch) match {
 
-          case icodes.localsCat => 
+          case icodes.localsCat =>
           def genLocalInstr = (instr: @unchecked) match {
             case THIS(_) => jmethod.visitVarInsn(Opcodes.ALOAD, 0)
             case LOAD_LOCAL(local) => jcode.load(indexOf(local), local.kind)
@@ -2442,7 +2448,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genLocalInstr
 
-          case icodes.stackCat => 
+          case icodes.stackCat =>
           def genStackInstr = (instr: @unchecked) match {
 
             case LOAD_MODULE(module) =>
@@ -2470,7 +2476,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
           case icodes.arilogCat => genPrimitive(instr.asInstanceOf[CALL_PRIMITIVE].primitive, instr.pos)
 
-          case icodes.castsCat => 
+          case icodes.castsCat =>
           def genCastInstr = (instr: @unchecked) match {
 
             case IS_INSTANCE(tpe) =>
@@ -2500,7 +2506,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genCastInstr
 
-          case icodes.objsCat => 
+          case icodes.objsCat =>
           def genObjsInstr = (instr: @unchecked) match {
 
             case BOX(kind) =>
@@ -2520,7 +2526,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genObjsInstr
 
-          case icodes.fldsCat => 
+          case icodes.fldsCat =>
           def genFldsInstr = (instr: @unchecked) match {
 
             case lf @ LOAD_FIELD(field, isStatic) =>
@@ -2541,7 +2547,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genFldsInstr
 
-          case icodes.mthdsCat => 
+          case icodes.mthdsCat =>
           def genMethodsInstr = (instr: @unchecked) match {
 
             /** Special handling to access native Array.clone() */
@@ -2554,7 +2560,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genMethodsInstr
 
-          case icodes.arraysCat => 
+          case icodes.arraysCat =>
           def genArraysInstr = (instr: @unchecked) match {
             case LOAD_ARRAY_ITEM(kind) => jcode.aload(kind)
             case STORE_ARRAY_ITEM(kind) => jcode.astore(kind)
@@ -2563,7 +2569,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genArraysInstr
 
-          case icodes.jumpsCat => 
+          case icodes.jumpsCat =>
           def genJumpInstr = (instr: @unchecked) match {
 
             case sw @ SWITCH(tagss, branches) =>
@@ -2693,7 +2699,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           }
           genJumpInstr
 
-          case icodes.retCat => 
+          case icodes.retCat =>
           def genRetInstr = (instr: @unchecked) match {
             case RETURN(kind) => jcode emitRETURN kind
             case THROW(_) => emit(Opcodes.ATHROW)
@@ -2813,9 +2819,9 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
           // TODO Logical's 2nd elem should be declared ValueTypeKind, to better approximate its allowed values (isIntSized, its comments appears to convey)
           // TODO GenICode uses `toTypeKind` to define that elem, `toValueTypeKind` would be needed instead.
           // TODO How about adding some asserts to Logical and similar ones to capture the remaining constraint (UNIT not allowed).
-          case Logical(op, kind) => 
+          case Logical(op, kind) =>
             def genLogical = op match {
-              case AND => 
+              case AND =>
                 kind match {
                   case LONG => emit(Opcodes.LAND)
                   case INT  => emit(Opcodes.IAND)
@@ -2842,7 +2848,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
             }
             genLogical
           
-          case Shift(op, kind) => 
+          case Shift(op, kind) =>
             def genShift = op match {
               case LSL =>
                 kind match {
@@ -2871,7 +2877,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
             }
             genShift
 
-          case Comparison(op, kind) => 
+          case Comparison(op, kind) =>
             def genCompare = op match {
               case CMP =>
                 (kind: @unchecked) match {
@@ -2981,7 +2987,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
 
   /** builder of mirror classes */
-  class JMirrorBuilder(bytecodeWriter: BytecodeWriter) extends JCommonBuilder(bytecodeWriter) {
+  class JMirrorBuilder(bytecodeWriter: BytecodeWriter, needsOutfileForSymbol: Boolean) extends JCommonBuilder(bytecodeWriter, needsOutfileForSymbol) {
 
     private var cunit: CompilationUnit = _
     def getCurrentCUnit(): CompilationUnit = cunit;
@@ -3035,7 +3041,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters {
 
 
   /** builder of bean info classes */
-  class JBeanInfoBuilder(bytecodeWriter: BytecodeWriter) extends JBuilder(bytecodeWriter) {
+  class JBeanInfoBuilder(bytecodeWriter: BytecodeWriter, needsOutfileForSymbol: Boolean) extends JBuilder(bytecodeWriter, needsOutfileForSymbol) {
 
     /**
      * Generate a bean info class that describes the given class.
