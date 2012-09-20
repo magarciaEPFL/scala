@@ -286,11 +286,11 @@ abstract class GenBCode extends BCodeTypes {
       // -----------------------
       // Pipeline from q1 to q2.
       // -----------------------
-      new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol)).start()
+      new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
       // -----------------------
       // Pipeline from q2 to q3.
       // -----------------------
-      val workers = for(i <- 1 to MAX_THREADS) yield { val w = new Worker2; val t = new _root_.java.lang.Thread(w); t.start(); t }
+      val workers = for(i <- 1 to MAX_THREADS) yield { val w = new Worker2; val t = new _root_.java.lang.Thread(w, "bcode-optimiz"); t.start(); t }
       // -------------------------------------------------------------------
       // Feed pipeline-1: place all ClassDefs on q1, recording their arrival position.
       // -------------------------------------------------------------------

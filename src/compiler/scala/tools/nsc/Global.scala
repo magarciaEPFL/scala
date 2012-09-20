@@ -1602,7 +1602,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       reportCompileErrors()
       symSource.keys foreach (x => resetPackageClass(x.owner))
       informTime("total", startTime)
-      inform(phaseTimings.formatted)
 
       // record dependency data
       if (!dependencyAnalysis.off)
