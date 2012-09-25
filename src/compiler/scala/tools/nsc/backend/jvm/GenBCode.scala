@@ -305,7 +305,7 @@ abstract class GenBCode extends BCodeTypes {
        *    - remove unreachable code
        *    - remove those LabelNodes and LineNumbers that aren't in use
        *
-       *  Some of the above are applied repeated until no further reductions occur.
+       *  Some of the above are applied repeatedly until no further reductions occur.
        *
        *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
        *
@@ -339,6 +339,12 @@ abstract class GenBCode extends BCodeTypes {
         } while (danglingExcHandlers.changed)
       }
 
+      /**
+       *  Well-formedness checks, useful after each fine-grained transformation step on a MethodNode.
+       *
+       *  Makes sure that exception-handler and local-variable entries are non-obviously wrong
+       *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
+       */
       def repOK(mnode: asm.tree.MethodNode): Boolean = {
 
             def isInsn(insn: asm.tree.AbstractInsnNode) {
@@ -371,6 +377,7 @@ abstract class GenBCode extends BCodeTypes {
             isInsn(tcb.start)
             isInsn(tcb.end)
             isInsn(tcb.handler)
+            inSequence(tcb.start, tcb.end)
           }
         }
 
@@ -995,7 +1002,7 @@ abstract class GenBCode extends BCodeTypes {
         val clinit: asm.MethodVisitor = cnode.visitMethod(
           PublicStatic, // TODO confirm whether we really don't want ACC_SYNTHETIC nor ACC_DEPRECATED
           CLASS_CONSTRUCTOR_NAME,
-          mdesc_arglessvoid,
+          "()V",
           null, // no java-generic-signature
           null  // no throwable exceptions
         )
@@ -1005,7 +1012,7 @@ abstract class GenBCode extends BCodeTypes {
         if (isCZStaticModule) {
           clinit.visitTypeInsn(asm.Opcodes.NEW, thisName)
           clinit.visitMethodInsn(asm.Opcodes.INVOKESPECIAL,
-                                 thisName, INSTANCE_CONSTRUCTOR_NAME, mdesc_arglessvoid)
+                                 thisName, INSTANCE_CONSTRUCTOR_NAME, "()V")
         }
         if (isCZParcelable) { legacyAddCreatorCode(clinit, cnode, thisName) }
         clinit.visitInsn(asm.Opcodes.RETURN)

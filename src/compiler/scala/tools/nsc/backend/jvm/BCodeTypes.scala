@@ -343,8 +343,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns the (ultimate) element type of this array type. This method should
-     * only be used for an array type.
+     * Returns the (ultimate) element type of this array type.
+     * This method should only be used for an array type.
      *
      * @return Returns the type of the elements of this array type.
      *
@@ -370,8 +370,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns the argument types of methods of this type. This method should
-     * only be used for method types.
+     * Returns the argument types of methods of this type.
+     * This method should only be used for method types.
      *
      * @return the argument types of methods of this type.
      *
@@ -382,8 +382,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns the return type of methods of this type. This method should only
-     * be used for method types.
+     * Returns the return type of methods of this type.
+     * This method should only be used for method types.
      *
      * @return the return type of methods of this type.
      *
@@ -500,8 +500,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     // ------------------------------------------------------------------------
 
     /**
-     * Returns the descriptor corresponding to this Java type.
-     *
      * @return the descriptor corresponding to this Java type.
      *
      * @can-multi-thread
@@ -513,8 +511,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Appends the descriptor corresponding to this Java type to the given
-     * string buffer.
+     * Appends the descriptor corresponding to this Java type to the given string buffer.
      *
      * @param buf the string buffer to which the descriptor must be appended.
      *
@@ -622,8 +619,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns a hash code value for this type.
-     *
      * @return a hash code value for this type.
      *
      * @can-multi-thread
@@ -642,8 +637,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns a string representation of this type.
-     *
      * @return the descriptor of this type.
      *
      * @can-multi-thread
@@ -854,8 +847,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       DOUBLE -> MethodNameAndType("unboxToDouble",  "(Ljava/lang/Object;)D")
     )
   }
-
-  val mdesc_arglessvoid = "()V"
 
   val CLASS_CONSTRUCTOR_NAME    = "<clinit>"
   val INSTANCE_CONSTRUCTOR_NAME = "<init>"
@@ -1124,7 +1115,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     a
   }
 
-  /* the type of 1-dimensional arrays of `elem` type.
+  /*
+   * The type of 1-dimensional arrays of `elem` type.
+   * The invoker is responsible for tracking (if needed) the inner class given by the elem BType.
    *
    * @must-single-thread
    **/
@@ -1424,7 +1417,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       invokespecial(
         StringBuilderClassName,
         INSTANCE_CONSTRUCTOR_NAME,
-        mdesc_arglessvoid
+        "()V"
       )
     }
 
@@ -1608,8 +1601,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     final def div(tk: BType) { emitPrimitive(JCodeMethodN.divOpcodes, tk) } // @can-multi-thread
     final def rem(tk: BType) { emitPrimitive(JCodeMethodN.remOpcodes, tk) } // @can-multi-thread
 
-     // @can-multi-thread
-     final def invokespecial(owner: String, name: String, desc: String) {
+    // @can-multi-thread
+    final def invokespecial(owner: String, name: String, desc: String) {
       jmethod.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, name, desc)
     }
     // @can-multi-thread
@@ -1921,8 +1914,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   private def innerClassSymbolFor(s: Symbol): Symbol =
     if (s.isClass) s else if (s.isModule) s.moduleClass else NoSymbol
 
-  private val EMPTY_INNERCLASSENTRY_ARRAY = Array.empty[InnerClassEntry]
-
   /**
    *  Computes the chain of inner-class (over the is-member-of relation) for the given argument.
    *  The resulting chain will be cached in `exemplars`.
@@ -2177,13 +2168,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       lcaName // ASM caches the answer during the lifetime of a ClassWriter. We outlive that. Not sure whether caching on our side would improve things.
     }
 
-  // -----------------------------------------------------------------------------------------
-  // finding the least upper bound in agreement with the bytecode verifier (given two internal names handed by ASM)
-  // Background:
-  //  http://gallium.inria.fr/~xleroy/publi/bytecode-verification-JAR.pdf
-  //  http://comments.gmane.org/gmane.comp.java.vm.languages/2293
-  //  https://issues.scala-lang.org/browse/SI-3872
-  // -----------------------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------------------
+    // finding the least upper bound in agreement with the bytecode verifier (given two internal names handed by ASM)
+    // Background:
+    //  http://gallium.inria.fr/~xleroy/publi/bytecode-verification-JAR.pdf
+    //  http://comments.gmane.org/gmane.comp.java.vm.languages/2293
+    //  https://issues.scala-lang.org/browse/SI-3872
+    // -----------------------------------------------------------------------------------------
 
     /**
      * @can-multi-thread
@@ -3337,7 +3328,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       val constructor = beanInfoClass.visitMethod(
         asm.Opcodes.ACC_PUBLIC,
         INSTANCE_CONSTRUCTOR_NAME,
-        mdesc_arglessvoid,
+        "()V",
         null, // no java-generic-signature
         EMPTY_STRING_ARRAY // no throwable exceptions
       )
