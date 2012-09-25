@@ -11,7 +11,9 @@ package jvm
 import scala.collection.{ mutable, immutable }
 import scala.tools.nsc.symtab._
 import scala.annotation.switch
+
 import scala.tools.asm
+import asm.tree.MethodNode
 
 /**
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -124,7 +126,7 @@ abstract class GenBCode extends BCodeTypes {
 
     // Once pipeline-2 starts doing optimizations more threads will be needed.
     val MAX_THREADS = scala.math.min(
-      2,
+      4,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 
@@ -223,7 +225,10 @@ abstract class GenBCode extends BCodeTypes {
     }
 
     /**
-     *  Pipeline that takes items from queue-2, lowers them into byte array classfiles, placing them on queue-3
+     *  Pipeline that takes ClassNodes from queue-2 and:
+     *    - performs intra-method optimizations on them,
+     *    - lowers them into byte array classfiles,
+     *    - placing them on the queue where they wait to be written to disk.
      *
      *  @can-multi-thread
      */
@@ -256,6 +261,7 @@ abstract class GenBCode extends BCodeTypes {
           } else null;
 
         // -------------- "plain" class --------------
+        optimize(plain.cnode)
         val cw = new CClassWriter(extraProc)
         plain.cnode.accept(cw)
         val plainC =
@@ -268,6 +274,151 @@ abstract class GenBCode extends BCodeTypes {
           } else null;
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
+      }
+
+      def optimize(cnode: asm.tree.ClassNode) {
+        // find out maxLocals and maxStack (maxLocals is given by nxtIdx in PlainClassBuilder, but maxStack hasn't been computed yet).
+        val cw = new asm.ClassWriter(asm.ClassWriter.COMPUTE_MAXS)
+        cnode.accept(cw)
+
+        val mwIter = cw.getMethodWriters().iterator
+        val mnIter = cnode.methods.iterator()
+
+        while(mnIter.hasNext) {
+          val mnode = mnIter.next()
+          val mw    = mwIter.next()
+          mnode.visitMaxs(mw.getMaxStack, mw.getMaxLocals)
+          val isConcrete = ((mnode.access & (asm.Opcodes.ACC_ABSTRACT | asm.Opcodes.ACC_NATIVE)) == 0)
+          if(isConcrete) {
+            optimize(cnode.name, mnode)
+          }
+        }
+      }
+
+      val jumpsCollapser = new asm.optimiz.JumpChainsCollapser(null)
+      val labelsCleanup  = new asm.optimiz.LabelsCleanup(null)
+      val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
+
+      /**
+       *  This method performs a few intra-method optimizations:
+       *    - collapse a multi-jump chain to target its final destination via a single jump
+       *    - remove unreachable code
+       *    - remove those LabelNodes and LineNumbers that aren't in use
+       *
+       *  Some of the above are applied repeated until no further reductions occur.
+       *
+       *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
+       *
+       *  TODO PENDING (assuming their activation conditions will trigger):
+       *    - peephole rewriting
+       *
+       */
+      def optimize(cName: String, mnode: asm.tree.MethodNode) {
+        jumpsCollapser.transform(mnode)           // collapse a multi-jump chain to target its final destination via a single jump
+        repOK(mnode)
+        removeUnreachableCode(cName, mnode)       // remove unreachable code
+        repOK(mnode)
+
+        do {
+          jumpsCollapser.transform(mnode)
+          repOK(mnode)
+
+          removeUnreachableCode(cName, mnode)
+          repOK(mnode)
+
+          labelsCleanup.transform(mnode)          // remove those LabelNodes and LineNumbers that aren't in use
+          repOK(mnode)
+
+          danglingExcHandlers.transform(mnode)
+          repOK(mnode)
+
+          if(danglingExcHandlers.changed) {
+            removeUnreachableCode(cName, mnode)
+            labelsCleanup.transform(mnode)
+          }
+        } while (danglingExcHandlers.changed)
+      }
+
+      def repOK(mnode: asm.tree.MethodNode): Boolean = {
+
+            def isInsn(insn: asm.tree.AbstractInsnNode) {
+              assert(mnode.instructions.contains(insn))
+            }
+
+            def inSequence(fst: asm.tree.AbstractInsnNode, snd: asm.tree.AbstractInsnNode): Boolean = {
+              var current = fst
+              while(true) {
+                current = current.getNext()
+                if(current == null) { return false }
+                if(current == snd)  { return true  }
+              }
+              false
+            }
+
+        val insnIter = mnode.instructions.iterator()
+        while(insnIter.hasNext) {
+          assert(insnIter.next() != null, "instruction stream shouldn't contain nulls.")
+        }
+
+        // exception-handler entries
+        if(mnode.tryCatchBlocks != null) {
+          val tryIter = mnode.tryCatchBlocks.iterator()
+          while(tryIter.hasNext) {
+            val tcb = tryIter.next
+            assert(tcb.start   != null)
+            assert(tcb.end     != null)
+            assert(tcb.handler != null)
+            isInsn(tcb.start)
+            isInsn(tcb.end)
+            isInsn(tcb.handler)
+          }
+        }
+
+        // local-vars entries
+        if(mnode.localVariables != null) {
+          val lvIter = mnode.localVariables.iterator()
+          while(lvIter.hasNext) {
+            val lv = lvIter.next
+            isInsn(lv.start)
+            isInsn(lv.end)
+            inSequence(lv.start, lv.end)
+          }
+        }
+
+        true
+      }
+
+      /**
+       * Detects and removes unreachable code.
+       *
+       * Should be used last in a transformation chain, before stack map frames are computed.
+       * The Java 6 verifier demands frames be available even for dead code.
+       * Those frames are tricky to compute, http://asm.ow2.org/doc/developer-guide.html#deadcode
+       * The problem is avoided altogether by not emitting unreachable code in the first place.
+       *
+       */
+      def removeUnreachableCode(owner: String, mnode: MethodNode) {
+
+        import asm.tree.analysis.{ Analyzer, AnalyzerException, BasicInterpreter, BasicValue, Frame }
+        import asm.tree.{ AbstractInsnNode, LabelNode }
+
+        val a = new Analyzer[BasicValue](new BasicInterpreter)
+        try {
+          a.analyze(owner, mnode)
+          val frames: Array[Frame[BasicValue]] = a.getFrames()
+          val insns:  Array[AbstractInsnNode]  = mnode.instructions.toArray()
+          var i = 0
+          while(i < frames.length) {
+            if (frames(i) == null &&
+                insns(i)  != null &&
+                !(insns(i).isInstanceOf[LabelNode])) {
+              mnode.instructions.remove(insns(i));
+            }
+            i += 1
+          }
+        } catch {
+          case ignored : AnalyzerException  => ()
+        }
       }
 
     }
@@ -290,12 +441,33 @@ abstract class GenBCode extends BCodeTypes {
       // -----------------------
       // Pipeline from q2 to q3.
       // -----------------------
-      val workers = for(i <- 1 to MAX_THREADS) yield { val w = new Worker2; val t = new _root_.java.lang.Thread(w, "bcode-optimiz"); t.start(); t }
+      val workers = for(i <- 1 to MAX_THREADS) yield {
+        val w = new Worker2
+        val t = new _root_.java.lang.Thread(w, "bcode-worker-" + i)
+        t.start()
+        t
+      }
       // -------------------------------------------------------------------
       // Feed pipeline-1: place all ClassDefs on q1, recording their arrival position.
       // -------------------------------------------------------------------
       super.run()
       q1 put poison1
+
+      /* TODO Whole-program analysis just before writing classfiles to disk:
+       *
+       *  Bytecode verification, consisting of:
+       *
+       * (1) asm.util.CheckAdapter.verify()
+       *       public static void verify(ClassReader cr, ClassLoader loader, boolean dump, PrintWriter pw)
+       *     passing a custom ClassLoader to verify inter-dependent classes.
+       *     Alternatively,
+       *       - an offline-bytecode verifier could be used (e.g. Maxine brings one as separate tool).
+       *       - -Xverify:all
+       *
+       * (2) if requested, check-java-signatures, over and beyond the syntactic checks in `getGenericSignature()`
+       *
+       */
+
       // -------------------------------------------------------
       // Pipeline that writes classfile representations to disk.
       // -------------------------------------------------------
