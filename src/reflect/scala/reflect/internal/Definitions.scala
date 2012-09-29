@@ -520,7 +520,7 @@ trait Definitions extends api.StandardDefinitions {
          def ApiUniverseReify      = if (ApiUniverseClass != NoSymbol) getMemberMethod(ApiUniverseClass, nme.reify) else NoSymbol
     lazy val JavaUniverseClass     = getClassIfDefined("scala.reflect.api.JavaUniverse") // defined in scala-reflect.jar, so we need to be careful
 
-    lazy val MirrorOfClass         = getClassIfDefined("scala.reflect.api.MirrorOf") // defined in scala-reflect.jar, so we need to be careful
+    lazy val MirrorClass           = getClassIfDefined("scala.reflect.api.Mirror") // defined in scala-reflect.jar, so we need to be careful
 
     lazy val TypeCreatorClass      = getClassIfDefined("scala.reflect.api.TypeCreator") // defined in scala-reflect.jar, so we need to be careful
     lazy val TreeCreatorClass      = getClassIfDefined("scala.reflect.api.TreeCreator") // defined in scala-reflect.jar, so we need to be careful
@@ -715,6 +715,13 @@ trait Definitions extends api.StandardDefinitions {
     def ClassType(arg: Type) =
       if (phase.erasedTypes || forMSIL) ClassClass.tpe
       else appliedType(ClassClass, arg)
+
+    def EnumType(sym: Symbol) =
+      // given (in java): "class A { enum E { VAL1 } }"
+      //  - sym: the symbol of the actual enumeration value (VAL1)
+      //  - .owner: the ModuleClassSymbol of the enumeration (object E)
+      //  - .linkedClassOfClass: the ClassSymbol of the enumeration (class E)
+      sym.owner.linkedClassOfClass.tpe
 
     def vmClassType(arg: Type): Type = ClassType(arg)
     def vmSignature(sym: Symbol, info: Type): String = signature(info)    // !!!

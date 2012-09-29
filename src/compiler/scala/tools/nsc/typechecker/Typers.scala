@@ -253,12 +253,6 @@ trait Typers extends Modes with Adaptations with Tags {
         result
       }
     }
-    def isNonRefinementClassType(tpe: Type) = tpe match {
-      case SingleType(_, sym) => sym.isModuleClass
-      case TypeRef(_, sym, _) => sym.isClass && !sym.isRefinementClass
-      case ErrorType          => true
-      case _                  => false
-    }
     private def errorNotClass(tpt: Tree, found: Type)  = { ClassTypeRequiredError(tpt, found); false }
     private def errorNotStable(tpt: Tree, found: Type) = { TypeNotAStablePrefixError(tpt, found); false }
 
@@ -605,23 +599,31 @@ trait Typers extends Modes with Adaptations with Tags {
       }
 
     /** Is `sym` defined in package object of package `pkg`?
+     *  Since sym may be defined in some parent of the package object,
+     *  we cannot inspect its owner only; we have to go through the
+     *  info of the package object.  However to avoid cycles we'll check
+     *  what other ways we can before pushing that way.
      */
     private def isInPackageObject(sym: Symbol, pkg: Symbol) = {
-      def isInPkgObj(sym: Symbol) =
-        !sym.owner.isPackage && {
-          sym.owner.isPackageObjectClass &&
-            sym.owner.owner == pkg ||
-            pkg.isInitialized && {
-              // need to be careful here to not get a cyclic reference during bootstrap
-              val pkgobj = pkg.info.member(nme.PACKAGEkw)
-              pkgobj.isInitialized &&
-                (pkgobj.info.member(sym.name).alternatives contains sym)
-            }
+      val pkgClass = if (pkg.isTerm) pkg.moduleClass else pkg
+      def matchesInfo = (
+        pkg.isInitialized && {
+          // need to be careful here to not get a cyclic reference during bootstrap
+          val module = pkg.info member nme.PACKAGEkw
+          module.isInitialized && (module.info.member(sym.name).alternatives contains sym)
         }
-      pkg.isPackageClass && {
+      )
+      def isInPkgObj(sym: Symbol) = (
+           !sym.isPackage
+        && !sym.owner.isPackageClass
+        && (sym.owner ne NoSymbol)
+        && (sym.owner.owner == pkgClass || matchesInfo)
+      )
+
+      pkgClass.isPackageClass && (
         if (sym.isOverloaded) sym.alternatives forall isInPkgObj
         else isInPkgObj(sym)
-      }
+      )
     }
 
     /** Post-process an identifier or selection node, performing the following:
@@ -3764,9 +3766,13 @@ trait Typers extends Modes with Adaptations with Tags {
           if (fun.symbol == Predef_classOf)
             typedClassOf(tree, args.head, true)
           else {
-            if (!isPastTyper && fun.symbol == Any_isInstanceOf && !targs.isEmpty)
-              checkCheckable(tree, targs.head, AnyClass.tpe, inPattern = false)
-
+            if (!isPastTyper && fun.symbol == Any_isInstanceOf && targs.nonEmpty) {
+              val scrutineeType = fun match {
+                case Select(qual, _) => qual.tpe
+                case _               => AnyClass.tpe
+              }
+              checkCheckable(tree, targs.head, scrutineeType, inPattern = false)
+            }
             val resultpe = restpe.instantiateTypeParams(tparams, targs)
             //@M substitution in instantiateParams needs to be careful!
             //@M example: class Foo[a] { def foo[m[x]]: m[a] = error("") } (new Foo[Int]).foo[List] : List[Int]
@@ -3776,7 +3782,8 @@ trait Typers extends Modes with Adaptations with Tags {
             //println("instantiating type params "+restpe+" "+tparams+" "+targs+" = "+resultpe)
             treeCopy.TypeApply(tree, fun, args) setType resultpe
           }
-        } else {
+        }
+        else {
           TypedApplyWrongNumberOfTpeParametersError(tree, fun)
         }
       case ErrorType =>
@@ -4173,7 +4180,7 @@ trait Typers extends Modes with Adaptations with Tags {
             ReturnWithoutTypeError(tree, enclMethod.owner)
           } else {
             context.enclMethod.returnsSeen = true
-            val expr1: Tree = typed(expr, EXPRmode | BYVALmode, restpt.tpe)
+            val expr1: Tree = typed(expr, EXPRmode | BYVALmode | RETmode, restpt.tpe)
             // Warn about returning a value if no value can be returned.
             if (restpt.tpe.typeSymbol == UnitClass) {
               // The typing in expr1 says expr is Unit (it has already been coerced if
@@ -4182,7 +4189,8 @@ trait Typers extends Modes with Adaptations with Tags {
               if (typed(expr).tpe.typeSymbol != UnitClass)
                 unit.warning(tree.pos, "enclosing method " + name + " has result type Unit: return value discarded")
             }
-            treeCopy.Return(tree, checkDead(expr1)) setSymbol enclMethod.owner setType NothingClass.tpe
+            treeCopy.Return(tree, checkDead(expr1)).setSymbol(enclMethod.owner)
+                                                   .setType(adaptTypeOfReturn(expr1, restpt.tpe, NothingClass.tpe))
           }
         }
       }
@@ -4768,6 +4776,22 @@ trait Typers extends Modes with Adaptations with Tags {
           defSym = rootMirror.EmptyPackageClass.tpe.nonPrivateMember(name)
           defSym != NoSymbol
         }
+        def correctForPackageObject(sym: Symbol): Symbol = {
+          if (sym.isTerm && isInPackageObject(sym, pre.typeSymbol)) {
+            val sym1 = pre member sym.name
+            if ((sym1 eq NoSymbol) || (sym eq sym1)) sym else {
+              qual = gen.mkAttributedQualifier(pre)
+              log(s"""
+                |  !!! Overloaded package object member resolved incorrectly.
+                |        prefix: $pre
+                |     Discarded: ${sym.defString}
+                |         Using: ${sym1.defString}
+                """.stripMargin)
+              sym1
+            }
+          }
+          else sym
+        }
         def startingIdentContext = (
           // ignore current variable scope in patterns to enforce linearity
           if ((mode & (PATTERNmode | TYPEPATmode)) == 0) context
@@ -4779,11 +4803,11 @@ trait Typers extends Modes with Adaptations with Tags {
         // which are methods (note: if we don't do that
         // case x :: xs in class List would return the :: method)
         // unless they are stable or are accessors (the latter exception is for better error messages).
-        def qualifies(sym: Symbol): Boolean = {
-          sym.hasRawInfo &&       // this condition avoids crashing on self-referential pattern variables
-          reallyExists(sym) &&
-          ((mode & PATTERNmode | FUNmode) != (PATTERNmode | FUNmode) || !sym.isSourceMethod || sym.hasFlag(ACCESSOR))
-        }
+        def qualifies(sym: Symbol): Boolean = (
+             sym.hasRawInfo  // this condition avoids crashing on self-referential pattern variables
+          && reallyExists(sym)
+          && ((mode & PATTERNmode | FUNmode) != (PATTERNmode | FUNmode) || !sym.isSourceMethod || sym.hasFlag(ACCESSOR))
+        )
 
         if (defSym == NoSymbol) {
           var defEntry: ScopeEntry = null // the scope entry of defSym, if defined in a local scope
@@ -4791,32 +4815,17 @@ trait Typers extends Modes with Adaptations with Tags {
           var cx = startingIdentContext
           while (defSym == NoSymbol && cx != NoContext && (cx.scope ne null)) { // cx.scope eq null arises during FixInvalidSyms in Duplicators
             pre = cx.enclClass.prefix
+            // !!! FIXME.  This call to lookupEntry is at the root of all the
+            // bad behavior with overloading in package objects.  lookupEntry
+            // just takes the first symbol it finds in scope, ignoring the rest.
+            // When a selection on a package object arrives here, the first
+            // overload is always chosen.  "correctForPackageObject" exists to
+            // undo that decision.  Obviously it would be better not to do it in
+            // the first place; however other things seem to be tied to obtaining
+            // that ScopeEntry, specifically calculating the nesting depth.
             defEntry = cx.scope.lookupEntry(name)
-            if ((defEntry ne null) && qualifies(defEntry.sym)) {
-              // Right here is where SI-1987, overloading in package objects, can be
-              // seen to go wrong. There is an overloaded symbol, but when referring
-              // to the unqualified identifier from elsewhere in the package, only
-              // the last definition is visible. So overloading mis-resolves and is
-              // definition-order dependent, bad things. See run/t1987.scala.
-              //
-              // I assume the actual problem involves how/where these symbols are entered
-              // into the scope. But since I didn't figure out how to fix it that way, I
-              // catch it here by looking up package-object-defined symbols in the prefix.
-              if (isInPackageObject(defEntry.sym, pre.typeSymbol)) {
-                defSym = pre.member(defEntry.sym.name)
-                if (defSym ne defEntry.sym) {
-                  qual = gen.mkAttributedQualifier(pre)
-                  log(s"""
-                    |  !!! Overloaded package object member resolved incorrectly.
-                    |        prefix: $pre
-                    |     Discarded: ${defEntry.sym.defString}
-                    |         Using: ${defSym.defString}
-                    """.stripMargin)
-                }
-              }
-              else
-                defSym = defEntry.sym
-            }
+            if ((defEntry ne null) && qualifies(defEntry.sym))
+              defSym = correctForPackageObject(defEntry.sym)
             else {
               cx = cx.enclClass
               val foundSym = pre.member(name) filter qualifies

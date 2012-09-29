@@ -86,10 +86,10 @@ trait Symbols { self: Universe =>
      *  that directly contains the current symbol's definition.
      *  The `NoSymbol` symbol does not have an owner, and calling this method
      *  on one causes an internal error.
-     *  The owner of the Scala root class [[scala.reflect.api.MirrorOf.RootClass]]
-     *  and the Scala root object [[scala.reflect.api.MirrorOf.RootPackage]] is `NoSymbol`.
+     *  The owner of the Scala root class [[scala.reflect.api.Mirror.RootClass]]
+     *  and the Scala root object [[scala.reflect.api.Mirror.RootPackage]] is `NoSymbol`.
      *  Every other symbol has a chain of owners that ends in
-     *  [[scala.reflect.api.MirrorOf.RootClass]].
+     *  [[scala.reflect.api.Mirror.RootClass]].
      */
     def owner: Symbol
 
@@ -209,27 +209,16 @@ trait Symbols { self: Universe =>
 
     /** Source file if this symbol is created during this compilation run,
      *  or a class file if this symbol is loaded from a *.class or *.jar.
+     *
+     *  The return type is [[scala.reflect.io.AbstractFile]], which belongs to an experimental part of Scala reflection.
+     *  It should not be used unless you know what you are doing. In subsequent releases, this API will be refined
+     *  and exposed as a part of scala.reflect.api.
      */
     def associatedFile: scala.reflect.io.AbstractFile
 
     /** A list of annotations attached to this Symbol.
      */
-    // we cannot expose the `annotations` method because it doesn't auto-initialize a symbol (see SI-5423)
-    // there was an idea to use the `isCompilerUniverse` flag and auto-initialize symbols in `annotations` whenever this flag is false
-    // but it doesn't work, because the unpickler (that is shared between reflective universes and global universes) is very picky about initialization
-    // scala.reflect.internal.Types$TypeError: bad reference while unpickling scala.collection.immutable.Nil: type Nothing not found in scala.type not found.
-    //        at scala.reflect.internal.pickling.UnPickler$Scan.toTypeError(UnPickler.scala:836)
-    //        at scala.reflect.internal.pickling.UnPickler$Scan$LazyTypeRef.complete(UnPickler.scala:849)          // auto-initialize goes boom
-    //        at scala.reflect.internal.Symbols$Symbol.info(Symbols.scala:1140)
-    //        at scala.reflect.internal.Symbols$Symbol.initialize(Symbols.scala:1272)                              // this triggers auto-initialize
-    //        at scala.reflect.internal.Symbols$Symbol.annotations(Symbols.scala:1438)                             // unpickler first tries to get pre-existing annotations
-    //        at scala.reflect.internal.Symbols$Symbol.addAnnotation(Symbols.scala:1458)                           // unpickler tries to add the annotation being read
-    //        at scala.reflect.internal.pickling.UnPickler$Scan.readSymbolAnnotation(UnPickler.scala:489)          // unpickler detects an annotation
-    //        at scala.reflect.internal.pickling.UnPickler$Scan.run(UnPickler.scala:88)
-    //        at scala.reflect.internal.pickling.UnPickler.unpickle(UnPickler.scala:37)
-    //        at scala.reflect.runtime.JavaMirrors$JavaMirror.unpickleClass(JavaMirrors.scala:253)                 // unpickle from within a reflexive mirror
-    //    def annotations: List[Annotation]
-    def getAnnotations: List[Annotation]
+    def annotations: List[Annotation]
 
     /** For a class: the module or case class factory with the same name in the same package.
      *  For a module: the class with the same name in the same package.
