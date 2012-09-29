@@ -21,51 +21,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   import global._
 
-  // when compiling the Scala library, some assertions don't hold (e.g., scala.Boolean has null superClass although it's not an interface)
-  val isCompilingStdLib = !(settings.sourcepath.isDefault)
-
-  // an item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains two of these (for mirror and bean classes).
-  case class SubItem2NonPlain(
-    label:      String,
-    jclassName: String,
-    jclass:     asm.ClassWriter,
-    outF:       _root_.scala.tools.nsc.io.AbstractFile
-  )
-  // an item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains one of these.
-  case class SubItem2Plain(
-    label:      String,
-    jclassName: String,
-    cnode:      asm.tree.ClassNode,
-    outF:       _root_.scala.tools.nsc.io.AbstractFile
-  )
-
-  // an item of queue-3 (the last queue before serializing to disk) contains three of these (one for each of mirror, plain, and bean classes).
-  case class SubItem3(label: String, jclassName: String, jclassBytes: Array[Byte], outF: _root_.scala.tools.nsc.io.AbstractFile)
-
-  /**
-   * @must-single-thread
-   **/
-  private def outputDirectory(sym: Symbol): AbstractFile =
-    settings.outputDirs outputDirFor enteringFlatten(sym.sourceFile)
-
-  /**
-   * @must-single-thread
-   **/
-  private def getFile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
-    var dir = base
-    val pathParts = clsName.split("[./]").toList
-    for (part <- pathParts.init) {
-      dir = dir.subdirectoryNamed(part)
-    }
-    dir.fileNamed(pathParts.last + suffix)
-  }
-
-  /**
-   * @must-single-thread
-   **/
-  def getFile(sym: Symbol, clsName: String, suffix: String): AbstractFile =
-    getFile(outputDirectory(sym), clsName, suffix)
-
   object BType {
 
     import global.chrs
@@ -105,7 +60,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * @can-multi-thread
      **/
-    private def getType(off: Int): BType = {
+    def getType(off: Int): BType = {
       var len = 0
       chrs(off) match {
         case 'V' => VOID_TYPE
@@ -285,6 +240,68 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
   } // end of object BType
+
+  // when compiling the Scala library, some assertions don't hold (e.g., scala.Boolean has null superClass although it's not an interface)
+  val isCompilingStdLib = !(settings.sourcepath.isDefault)
+
+  // an item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains two of these (for mirror and bean classes).
+  case class SubItem2NonPlain(
+    label:      String,
+    jclassName: String,
+    jclass:     asm.ClassWriter,
+    outF:       _root_.scala.tools.nsc.io.AbstractFile
+  )
+  // an item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains one of these.
+  case class SubItem2Plain(
+    label:      String,
+    jclassName: String,
+    cnode:      asm.tree.ClassNode,
+    outF:       _root_.scala.tools.nsc.io.AbstractFile
+  )
+
+  // an item of queue-3 (the last queue before serializing to disk) contains three of these (one for each of mirror, plain, and bean classes).
+  case class SubItem3(label: String, jclassName: String, jclassBytes: Array[Byte], outF: _root_.scala.tools.nsc.io.AbstractFile)
+
+  /**
+   * @must-single-thread
+   **/
+  private def outputDirectory(sym: Symbol): AbstractFile = {
+    settings.outputDirs outputDirFor enteringFlatten(sym.sourceFile)
+  }
+
+  /**
+   * @must-single-thread
+   **/
+  private def getFile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
+    var dir = base
+    val pathParts = clsName.split("[./]").toList
+    for (part <- pathParts.init) {
+      dir = dir.subdirectoryNamed(part)
+    }
+    dir.fileNamed(pathParts.last + suffix)
+  }
+
+  /**
+   * @must-single-thread
+   **/
+  def getFile(sym: Symbol, clsName: String, suffix: String): AbstractFile = {
+    getFile(outputDirectory(sym), clsName, suffix)
+  }
+
+  /**
+   * @must-single-thread
+   **/
+  def getOutFile(needsOutfileForSymbol: Boolean, csym: Symbol, cName: String, cunit: CompilationUnit): _root_.scala.tools.nsc.io.AbstractFile = {
+    if(needsOutfileForSymbol) {
+      try {
+        getFile(csym, cName, ".class")
+      } catch {
+        case ex: Throwable =>
+          cunit.error(cunit.body.pos, "Couldn't create file for class " + cName + "\n" + ex.getMessage)
+          null
+      }
+    } else null
+  }
 
   /**
    * Based on ASM's Type class. Namer's chrs is used in this class for the same purposes as the `buf` char array in asm.Type.
@@ -535,8 +552,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     // ------------------------------------------------------------------------
 
     /**
-     * Returns the size of values of this type. This method must not be used for
-     * method types.
+     * Returns the size of values of this type.
+     * This method must not be used for method types.
      *
      * @return the size of values of this type, i.e., 2 for <tt>long</tt> and
      *         <tt>double</tt>, 0 for <tt>void</tt> and 1 otherwise.
@@ -686,13 +703,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val ObjectReference = brefType("java/lang/Object")
   val AnyRefReference = ObjectReference // In tandem, javaNameASM(definitions.AnyRefClass) == ObjectReference. Otherwise every `t1 == t2` requires special-casing.
   // special names
-  val StringReference          = brefType("java/lang/String")
-  val ThrowableReference       = brefType("java/lang/Throwable")
-  val jlCloneableReference     = brefType("java/lang/Cloneable")
-  val jioSerializableReference = brefType("java/io/Serializable")
-  val classCastExceptionType   = brefType("java/lang/ClassCastException")
+  var StringReference          : BType = null
+  var ThrowableReference       : BType = null
+  var jlCloneableReference     : BType = null // java/lang/Cloneable
+  var jioSerializableReference : BType = null // java/io/Serializable
+  var classCastExceptionReference : BType = null // java/lang/ClassCastException
   val StringBuilderClassName   = "scala/collection/mutable/StringBuilder"
-  val StringBuilderType        = brefType(StringBuilderClassName)
 
   /** A map from scala primitive type-symbols to BTypes */
   var primitiveTypeMap: Map[Symbol, BType] = null
@@ -715,6 +731,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   /** The Object => String overload. */
   var String_valueOf: Symbol = null
+
+  var ArrayInterfaces: Array[Tracked] = null
+
+  var StringBuilderReference: BType = null
 
   /**
    * @must-single-thread
@@ -780,6 +800,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       )
     }
 
+    ArrayInterfaces = Array(JavaCloneableClass, JavaSerializableClass) map exemplar
+
+    StringReference             = exemplar(StringClass).c
+    StringBuilderReference      = exemplar(StringBuilderClass).c
+    ThrowableReference          = exemplar(ThrowableClass).c
+    jlCloneableReference        = exemplar(JavaCloneableClass).c
+    jioSerializableReference    = exemplar(JavaSerializableClass).c
+    classCastExceptionReference = exemplar(ClassCastExceptionClass).c
+
+    initBCodeOpt()
   }
 
   /**
@@ -926,8 +956,40 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       }
 
       false
-
     }
+
+    /**
+     *  The `ifaces` field lists only those interfaces declared by `c`
+     *  From the set of all supported interfaces, this method discards those which are supertypes of others in the set.
+     */
+    val allLeafIfaces: Array[Tracked] = {
+      if(sc == null) { ifaces }
+      else {
+        val mnmzd = minimizeInterfaces(ifaces.toList ::: sc.allLeafIfaces.toList)
+        mkArray(mnmzd)
+      }
+    }
+
+    /**
+     *  This type may not support in its entirety the interface given by the argument, however it may support some of its super-interfaces.
+     *  We visualize each such supported subset of the argument's functionality as a "branch". This method returns all such branches.
+     *
+     *  In other words, let Ri be a branch supported by `ib`,
+     *  this method returns all Ri such that this <:< Ri, where each Ri is maximal.
+     */
+    def supportedBranches(ib: Tracked): List[Tracked] = {
+      assert(ib.isInterface, "Non-interface argument: " + ib)
+
+      val result: List[Tracked] =
+        if(this.isSubtypeOf(ib.c)) { List(ib) }
+        else { ib.ifaces.toList.flatMap( bi => supportedBranches(bi) ) }
+
+      checkAllInterfaces(result)
+
+      result
+    }
+
+    override def toString = { c.toString }
 
   }
 
@@ -948,7 +1010,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         case _ => None
       }
 
-      /** Drop redundant interfaces (ones which are implemented by some other parent) from the immediate parents.
+      /** Drop redundant interfaces (which are implemented by some other parent) from the immediate parents.
        *  This is important on Android because there is otherwise an interface explosion.
        */
       def minimizeInterfaces(lstIfaces: List[Symbol]): List[Symbol] = {
@@ -1019,6 +1081,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val EMPTY_STRING_ARRAY   = Array.empty[String]
   val EMPTY_INT_ARRAY      = Array.empty[Int]
   val EMPTY_LABEL_ARRAY    = Array.empty[asm.Label]
+  val EMPTY_BTYPE_ARRAY    = Array.empty[BType]
 
   /**
    * @must-single-thread
@@ -1057,12 +1120,76 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     Tracked(key, flags, tsc, ifacesArr, innersChain)
   }
 
+  // ---------------- utilities around interfaces represented by Tracked instances. ----------------
+
+  /** Drop redundant interfaces (those which are implemented by some other).
+   *  This is important on Android because there is otherwise an interface explosion.
+   */
+  def minimizeInterfaces(lstIfaces: List[Tracked]): List[Tracked] = {
+    checkAllInterfaces(lstIfaces)
+    var rest   = lstIfaces
+    var leaves = List.empty[Tracked]
+    while(!rest.isEmpty) {
+      val candidate = rest.head
+      val nonLeaf = leaves exists { leaf => leaf.isSubtypeOf(candidate.c) }
+      if(!nonLeaf) {
+        leaves = candidate :: (leaves filterNot { leaf => candidate.isSubtypeOf(leaf.c) })
+      }
+      rest = rest.tail
+    }
+
+    leaves
+  }
+
+  def allInterfaces(is: List[Tracked]): Boolean = { is forall { i => i.isInterface } }
+  def nonInterfaces(is: List[Tracked]): List[Tracked] = { is filterNot { i => i.isInterface } }
+
+  def checkAllInterfaces(ifaces: List[Tracked]) {
+    assert(allInterfaces(ifaces), "Non-interfaces: " + nonInterfaces(ifaces).mkString)
+  }
+
+  /**
+   *  Returns the intersection of two sets of interfaces. Used in type-flow analysis.
+   */
+  def intersection(ifacesA: List[Tracked], ifacesB: List[Tracked]): List[Tracked] = {
+    var acc: List[Tracked] = Nil
+    for(ia <- ifacesA; ib <- ifacesB) {
+      val ab = ia.supportedBranches(ib)
+      val ba = ib.supportedBranches(ia)
+      acc = minimizeInterfaces(acc ::: ab ::: ba)
+    }
+    checkAllInterfaces(acc)
+
+    acc
+  }
+
   // ---------------- inspector methods on BType  ----------------
 
-  final def mkArray(xs: List[BType]):     Array[BType]     = { val a = new Array[BType](xs.size);     xs.copyToArray(a); a } // @can-multi-thread
-  final def mkArray(xs: List[String]):    Array[String]    = { val a = new Array[String](xs.size);    xs.copyToArray(a); a } // @can-multi-thread
-  final def mkArray(xs: List[asm.Label]): Array[asm.Label] = { val a = new Array[asm.Label](xs.size); xs.copyToArray(a); a } // @can-multi-thread
-  final def mkArray(xs: List[Int]):       Array[Int]       = { val a = new Array[Int](xs.size);       xs.copyToArray(a); a } // @can-multi-thread
+  /** @can-multi-thread */
+  final def mkArray(xs: List[BType]): Array[BType] = {
+    if(xs.isEmpty) { return EMPTY_BTYPE_ARRAY }
+    val a = new Array[BType](xs.size); xs.copyToArray(a); a
+  }
+  /** @can-multi-thread */
+  final def mkArray(xs: List[String]): Array[String] = {
+    if(xs.isEmpty) { return EMPTY_STRING_ARRAY }
+    val a = new Array[String](xs.size); xs.copyToArray(a); a
+  }
+  /** @can-multi-thread */
+  final def mkArray(xs: List[asm.Label]): Array[asm.Label] = {
+    if(xs.isEmpty) { return EMPTY_LABEL_ARRAY }
+    val a = new Array[asm.Label](xs.size); xs.copyToArray(a); a
+  }
+  /** @can-multi-thread */
+  final def mkArray(xs: List[Int]): Array[Int] = {
+    if(xs.isEmpty) { return EMPTY_INT_ARRAY }
+    val a = new Array[Int](xs.size); xs.copyToArray(a); a
+  }
+  /** @can-multi-thread */
+  final def mkArray(xs: List[Tracked]): Array[Tracked] = {
+    if(xs.isEmpty) { return EMPTY_TRACKED_ARRAY }
+    val a = new Array[Tracked](xs.size); xs.copyToArray(a); a
+  }
 
   /**
    * @can-multi-thread
@@ -1197,7 +1324,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    * @can-multi-thread
    **/
-  private def maxValueType(a: BType, other: BType): BType = {
+  def maxValueType(a: BType, other: BType): BType = {
     assert(a.isValueType, "maxValueType() is defined only for 1st arg valuetypes (2nd arg doesn't matter).")
 
         def uncomparable: Nothing = {
@@ -1432,7 +1559,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       invokevirtual(
         StringBuilderClassName,
         "append",
-        BType.getMethodDescriptor(StringBuilderType, Array(jtype))
+        BType.getMethodDescriptor(StringBuilderReference, Array(jtype))
       )
     }
 
@@ -2176,34 +2303,34 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     //  https://issues.scala-lang.org/browse/SI-3872
     // -----------------------------------------------------------------------------------------
 
-    /**
-     * @can-multi-thread
-     **/
-    def jvmWiseLUB(a: BType, b: BType): BType = {
+  }
 
-      assert(a.isNonSpecial, "jvmWiseLUB() received a non-plain-class " + a)
-      assert(b.isNonSpecial, "jvmWiseLUB() received a non-plain-class " + b)
+  /**
+   * @can-multi-thread
+   **/
+  def jvmWiseLUB(a: BType, b: BType): BType = {
 
-      val ta = exemplars.get(a)
-      val tb = exemplars.get(b)
+    assert(a.isNonSpecial, "jvmWiseLUB() received a non-plain-class " + a)
+    assert(b.isNonSpecial, "jvmWiseLUB() received a non-plain-class " + b)
 
-      val res = Pair(ta.isInterface, tb.isInterface) match {
-        case (true, true) =>
-          // exercised by test/files/run/t4761.scala
-          if      (tb.isSubtypeOf(ta.c)) ta.c
-          else if (ta.isSubtypeOf(tb.c)) tb.c
-          else ObjectReference
-        case (true, false) =>
-          if(tb.isSubtypeOf(a)) a else ObjectReference
-        case (false, true) =>
-          if(ta.isSubtypeOf(b)) b else ObjectReference
-        case _ =>
-          firstCommonSuffix(ta :: ta.superClasses, tb :: tb.superClasses)
-      }
-      assert(res.isNonSpecial, "jvmWiseLUB() returned a non-plain-class.")
-      res
+    val ta = exemplars.get(a)
+    val tb = exemplars.get(b)
+
+    val res = Pair(ta.isInterface, tb.isInterface) match {
+      case (true, true) =>
+        // exercised by test/files/run/t4761.scala
+        if      (tb.isSubtypeOf(ta.c)) ta.c
+        else if (ta.isSubtypeOf(tb.c)) tb.c
+        else ObjectReference
+      case (true, false) =>
+        if(tb.isSubtypeOf(a)) a else ObjectReference
+      case (false, true) =>
+        if(ta.isSubtypeOf(b)) b else ObjectReference
+      case _ =>
+        firstCommonSuffix(ta :: ta.superClasses, tb :: tb.superClasses)
     }
-
+    assert(res.isNonSpecial, "jvmWiseLUB() returned a non-plain-class.")
+    res
   }
 
   // -----------------------------------------------------------------------------------------
@@ -3262,9 +3389,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       mirrorClass.visitEnd()
       // leaving for later on purpose invoking `toByteArray()` on mirrorClass (pipeline-2 will do that).
-      val outF: _root_.scala.tools.nsc.io.AbstractFile = {
-        if(needsOutfileForSymbol) getFile(modsym, mirrorName, ".class") else null
-      }
+      val outF = getOutFile(needsOutfileForSymbol, modsym, mirrorName, cunit)
       SubItem2NonPlain("" + modsym.name, mirrorName, mirrorClass, outF)
     }
 
@@ -3382,9 +3507,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       beanInfoClass.visitEnd()
       // leaving for later on purpose (to be done by pipeline-2): invoking `visitEnd()` and `toByteArray()` on beanInfoClass.
 
-      val outF: _root_.scala.tools.nsc.io.AbstractFile = {
-        if(needsOutfileForSymbol) getFile(cls, beanInfoName, ".class") else null
-      }
+      val outF = getOutFile(needsOutfileForSymbol, cls, beanInfoName, cunit)
       SubItem2NonPlain("BeanInfo ", beanInfoName, beanInfoClass, outF)
     }
 
@@ -3483,6 +3606,439 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         acc = acc ::: saved
       }
     }
+  }
+
+  var TF_NULL   : TFValue = null
+  var TF_STRING : TFValue = null
+
+  def initBCodeOpt() {
+    TF_NULL =
+      TFValue(
+        RT_NULL,
+        EMPTY_TRACKED_ARRAY,
+        0
+      )
+    val trString = exemplar(global.definitions.StringClass)
+    TF_STRING =
+      TFValue(
+        StringReference,
+        trString.allLeafIfaces,
+        TypeFlowConstants.EXACT_MASK
+      )
+  }
+
+  /**
+   *  Represents a lattice element in the type-flow lattice.
+   *  For reference-values two information items are tracked additionally:
+   *     - their non-nullness status
+   *     - whether the runtime value has `btype` as exact type
+   *       (useful in determining method implementations targeted by callsites)
+   */
+  case class TFValue(lca: BType, ifaces: Array[Tracked], bits: Int) extends asm.tree.analysis.Value {
+
+    val tr: Tracked =
+      if(lca.isPhantomType || lca.isValueType) { null }
+      else if(lca.isArray)  {
+        val et = lca.getElementType
+        if(et.hasObjectSort) exemplars.get(et) else null
+      }
+      else {
+        assert(lca.isNonSpecial, "Some case was overlooked for: " + lca)
+        exemplars.get(lca)
+      }
+
+    def repOK {
+
+      // check agreement with interfaces, non-reference type case.
+      assert(if(lca.isValueType)   { ifaces == null } else true, "Unexpected non-empty interfaces for " + lca)
+      assert(if(lca.isNullType)    { ifaces.isEmpty } else true, "Unexpected interfaces for " + lca)
+      // assert(if(lca.isNothingType) { ifaces.length == 1 && ifaces(0).c == ThrowableReference } else true, "Unexpected interfaces for " + lca)
+      assert(if(lca.isNothingType) { ifaces.isEmpty } else true, "Unexpected interfaces for " + lca)
+
+      // check agreement with interfaces, object type case.
+      assert(
+        if(lca.isNonSpecial) {
+          tr.ifaces forall { staticIface =>
+            ifaces exists { dynIface =>
+              dynIface.isSubtypeOf(staticIface.c)
+            }
+          }
+        } else true,
+        "Type-flow tracks fewer interfaces than statically known to be supported by: " + lca
+      )
+      // check agreement with interfaces, array type case.
+      assert(if(lca.isArray) { ifaces.sameElements(ArrayInterfaces) } else true, "Unexpected interfaces for " + lca)
+
+      assert(
+        if(ifaces != null) { ifaces forall { i => i.isInterface } } else true,
+        "Claiming to be interfaces but aren't: " + nonInterfaces(ifaces.toList).mkString
+      )
+
+      // check (when possible) cross-consistency with isExact and isNonNull
+      assert(if(lca.isNullType) !isNonNull else true, "Contradiction: NullType reported as isNonNull." + lca)
+      assert(if(tr != null && tr.isFinal)      isExact    else true, "Contradiction: isFinal  reported as !isExact."  + lca)
+      assert(if(tr != null && tr.isInterface)  !isExact   else true, "Contradiction: interface reported as isExact."  + lca)
+
+    }
+
+    override def getSize: Int = {
+      assert(lca.sort != BType.METHOD, "Method types don't have size: " + lca)
+      lca.getSize
+    }
+
+    def isRefOrArray: Boolean = { lca.isRefOrArrayType }
+
+    def isNonNull:  Boolean = { assert(isRefOrArray); (bits & TypeFlowConstants.NON_NULL_MASK) != 0 }
+    def isExact:    Boolean = { assert(isRefOrArray); (bits & TypeFlowConstants.EXACT_MASK   ) != 0 }
+
+    def conformsTo(b: TFValue): Boolean = { conforms(this.lca, b.lca) } // TODO also use supportsIfaces ?
+
+    /**
+     *  Returns whether each and every interface in the arguments is supported by this type-flow value.
+     *  This method can't live in `Tracked` (besides, there's already `isSubtypeOf()` there)
+     *  because its purpose is different: A `TFValue.lca` need not support all the `TFValue.ifaces` because such values
+     *  track separately what is known about runtime classes (in `lca`) and what is known about supported interfaces (in `ifaces`).
+     */
+    def supportsIfaces(those: Array[TFValue]): Boolean = {
+      assert(areAllInterfaces(those), "Received non-interface.")
+
+      if(lca.isArray) {
+        for(that <- those; supported <- ArrayInterfaces) {
+          if(!supported.isSubtypeOf(that.lca)) {
+            return false
+          }
+        }
+        true
+      } else {
+        assert(lca.hasObjectSort, "Not an object: " + lca)
+        those forall { that =>
+          tr.isSubtypeOf(that.lca) ||
+          (ifaces exists { iface => iface.isSubtypeOf(that.lca) })
+        }
+      }
+    }
+
+    def areAllInterfaces(those: Array[TFValue]): Boolean = {
+      those forall { that => that.tr.isInterface }
+    }
+
+    def getIfaceSet: Set[BType] = {
+      (ifaces map { i => i.c }).toSet
+    }
+
+  }
+
+  val TF_INT     = TFValue(BType.INT_TYPE,    null, 0)
+  val TF_FLOAT   = TFValue(BType.FLOAT_TYPE,  null, 0)
+  val TF_LONG    = TFValue(BType.LONG_TYPE,   null, 0)
+  val TF_DOUBLE  = TFValue(BType.DOUBLE_TYPE, null, 0)
+  val TF_VOID    = TFValue(BType.VOID_TYPE,   null, 0)
+
+  object TypeFlowConstants {
+    val NON_NULL_MASK = 1
+    val EXACT_MASK    = 2
+  }
+
+  /**
+   *  All methods in this class @can-multi-thread
+   **/
+  class TypeFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TFValue] {
+
+    def descrToBType(typeDescriptor: String): BType = {
+      val c: Char = typeDescriptor(0)
+      c match {
+        case 'V' => BType.VOID_TYPE
+        case 'Z' => BType.BOOLEAN_TYPE
+        case 'C' => BType.CHAR_TYPE
+        case 'B' => BType.BYTE_TYPE
+        case 'S' => BType.SHORT_TYPE
+        case 'I' => BType.INT_TYPE
+        case 'F' => BType.FLOAT_TYPE
+        case 'J' => BType.LONG_TYPE
+        case 'D' => BType.DOUBLE_TYPE
+        case 'L' =>
+          val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
+          val n = global.lookupTypeName(iname.toCharArray)
+          new BType(asm.Type.OBJECT, n.start, n.length)
+        case _   =>
+          val n = global.lookupTypeName(typeDescriptor.toCharArray)
+          BType.getType(n.start)
+      }
+    }
+
+    def lookupRefBType(iname: String): BType = {
+      import global.chrs
+      val n    = global.lookupTypeName(iname.toCharArray)
+      val sort = if(chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+      new BType(sort, n.start, n.length)
+    }
+
+    def toBType(t: asm.Type): BType = {
+      (t.getSort: @switch) match {
+        case asm.Type.VOID    => BType.VOID_TYPE
+        case asm.Type.BOOLEAN => BType.BOOLEAN_TYPE
+        case asm.Type.CHAR    => BType.CHAR_TYPE
+        case asm.Type.BYTE    => BType.BYTE_TYPE
+        case asm.Type.SHORT   => BType.SHORT_TYPE
+        case asm.Type.INT     => BType.INT_TYPE
+        case asm.Type.FLOAT   => BType.FLOAT_TYPE
+        case asm.Type.LONG    => BType.LONG_TYPE
+        case asm.Type.DOUBLE  => BType.DOUBLE_TYPE
+        case asm.Type.ARRAY   |
+             asm.Type.OBJECT  |
+             asm.Type.METHOD  =>
+          // TODO confirm whether this also takes care of the phantom types.
+          val key =
+            if(t.getSort == asm.Type.METHOD) t.getDescriptor
+            else t.getInternalName
+
+          val n = global.lookupTypeName(key.toCharArray)
+          new BType(t.getSort, n.start, n.length)
+      }
+    }
+
+    override def newValue(t: asm.Type): TFValue = {
+      if (t == null || t == asm.Type.VOID_TYPE) {
+        return null
+      }
+      newValue(toBType(t))
+    }
+
+    def newValue(t: BType, fromNEW: Boolean = false): TFValue = {
+      if (t == null || t.isUnitType) {
+        return null
+      }
+      (t.sort: @switch) match {
+        case asm.Type.VOID    => return TF_VOID
+        case asm.Type.BOOLEAN |
+             asm.Type.CHAR    |
+             asm.Type.BYTE    |
+             asm.Type.SHORT   |
+             asm.Type.INT     => return TF_INT
+        case asm.Type.FLOAT   => return TF_FLOAT
+        case asm.Type.LONG    => return TF_LONG
+        case asm.Type.DOUBLE  => return TF_DOUBLE
+        case _ => ()
+      }
+
+      val lca   = t
+      var ifaces: Array[Tracked] = if(lca.isPhantomType) EMPTY_TRACKED_ARRAY else null
+      var isFinal = false
+
+      if(!lca.isPhantomType && !lca.isValueType) {
+
+        if(lca.hasObjectSort) {
+
+          val tr  = exemplars.get(lca)
+          ifaces  = tr.allLeafIfaces
+          isFinal = tr.isFinal
+
+        } else if(lca.isArray) {
+
+          ifaces = ArrayInterfaces
+          val et = lca.getElementType
+          if(!et.isPhantomType && et.hasObjectSort) {
+            val etr = exemplars.get(et)
+            isFinal = etr.isFinal
+          }
+
+        } else { assert(false, "Unexpected.") }
+
+      }
+
+      var bits = 0
+      bits |= (if(isFinal || fromNEW) TypeFlowConstants.EXACT_MASK     else 0)
+      bits |= (if(fromNEW)            TypeFlowConstants.NON_NULL_MASK  else 0)
+
+      TFValue(lca, ifaces, bits)
+    }
+
+    /**
+     *  The ICode counterpart is `typeLattice.lub2()`
+     *
+     *  Superficially similar to `BCodeTypes.maxType()` except that type-flow analysis is more precise
+     *  when both arguments are reference (object or array) types.
+     */
+    override def merge(v: TFValue, w: TFValue): TFValue = {
+
+      if(v == null) return w;
+      if(w == null) return v;
+
+      var ifaces: Array[Tracked] = null
+
+      val lub: BType = {
+        val a: BType = v.lca
+        val b: BType = w.lca
+
+        if     (a.isValueType)   { ifaces = null    ; maxValueType(a, b)   }
+        else if(a.isNothingType) { ifaces = w.ifaces; b                    }
+        else if(b.isNothingType) { ifaces = v.ifaces; a                    }
+        else {
+
+          assert(a.isRefOrArrayType, "This is not a valuetype and it's not something else, what is it? " + a)
+          assert(b.isRefOrArrayType, "This is not a valuetype and it's not something else, what is it? " + b)
+
+          if (a.isNullType)     { ifaces = w.ifaces; b }
+          else if(b.isNullType) { ifaces = v.ifaces; a }
+          else if(a == b) {
+            ifaces = v.ifaces
+            /* At first sight it might appear the following should hold:
+             *     assert(v.getIfaceSet == w.getIfaceSet, "Two TFValues with same lca, but different ifaces.")
+             * but actually the lca's may have been lub-bed by the time the check above is performed.
+             * For example, two TFValues may have the same lca (say, lca == j.l.Object)
+             * yet one of them may track one or more ifaces the other doesn't.
+             */
+            a
+          }
+          else {
+            ifaces = mkArray(intersection(v.ifaces.toList, w.ifaces.toList))
+            assert(ifaces != null, "Merging two reference types (array or object) can't give null.")
+            if (a.isArray || b.isArray) { arrayLUB(a, b) }
+            else {
+              assert(a.hasObjectSort, "Expecting non-array referene, received: " + a)
+              assert(b.hasObjectSort, "Expecting non-array referene, received: " + b)
+              firstCommonSuffix(v.tr :: v.tr.superClasses, w.tr :: w.tr.superClasses)
+            }
+          }
+
+        }
+      }
+
+      val bothRefOrArray = (v.isRefOrArray && w.isRefOrArray)
+
+      val isExact   =
+        if(bothRefOrArray) {
+          if(v.lca.isNullType)      { w.isExact }
+          else if(w.lca.isNullType) { v.isExact }
+          else {
+            v.isExact && w.isExact && (lub == v.lca) && (lub == w.lca)
+          }
+        } else false;
+
+      val isNonNull = (bothRefOrArray && v.isNonNull && w.isNonNull)
+
+      var bits = 0
+      bits |= (if(isExact)   TypeFlowConstants.EXACT_MASK    else 0)
+      bits |= (if(isNonNull) TypeFlowConstants.NON_NULL_MASK else 0)
+
+      TFValue(lub, ifaces, bits)
+    }
+
+    def arrayLUB(x: BType, y: BType): BType = {
+      val xArr = x.isArray
+      val yArr = y.isArray
+      assert(xArr || yArr, "Precondition not fulfilled.")
+      if (xArr && yArr) {
+        val xCT = x.getComponentType
+        val yCT = y.getComponentType
+        if (xCT == yCT) { x }
+        else {
+          // the Oracle JVM implementation represents both [B and [Z as byte-array. But anyway we consider them unrelated.
+          if      (xCT.isValueType || yCT.isValueType) { ObjectReference }
+          else if (xCT.isArray     || yCT.isArray    ) {
+            // TODO we could try `arrayOf(arrayLUB(xCT, yCT))` but lookupTypeName needs to lock chrs for that. Yes, buying into Java-wise array subtyping.
+            ObjectReference
+          }
+          else {
+            assert(xCT.hasObjectSort, "Expecting non-array referene, received: " + xCT)
+            assert(yCT.hasObjectSort, "Expecting non-array referene, received: " + yCT)
+            // TODO we could try `arrayOf(refLUB(xCT, yCT))` but lookupTypeName needs to lock chrs for that. Yes, buying into Java-wise array subtyping.
+            ObjectReference
+          }
+        }
+      }
+      else { ObjectReference }
+    }
+
+    override def copyOperation(insn: asm.tree.AbstractInsnNode,
+                               value: TFValue): TFValue = {
+      value
+    }
+
+    override def naryOperation(insn: asm.tree.AbstractInsnNode,
+                               values: java.util.List[_ <: TFValue]): TFValue = {
+      insn match {
+        case mna: asm.tree.MultiANewArrayInsnNode => newValue(asm.Type.getType(mna.desc))
+        case ivd: asm.tree.InvokeDynamicInsnNode  => newValue(asm.Type.getReturnType(ivd.desc))
+        case mni: asm.tree.MethodInsnNode =>
+          // INVOKEVIRTUAL, INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE
+          val rt = asm.Type.getReturnType(mni.desc)
+          if(rt == asm.Type.VOID_TYPE) null // will be discarded anyway by asm.tree.analysis.Frame.execute
+          else newValue(rt)
+      }
+    }
+
+    override def returnOperation(insn:     asm.tree.AbstractInsnNode,
+                                 value:    TFValue,
+                                 expected: TFValue) {
+      ()
+    }
+
+    override def ternaryOperation(insn:   asm.tree.AbstractInsnNode,
+                                  value1: TFValue,
+                                  value2: TFValue,
+                                  value3: TFValue): TFValue = {
+      null
+    }
+
+    override def nullValue()   = TF_NULL
+    // TODO also needed: B, C, S, Z
+    override def intValue()    = TF_INT
+    override def longValue()   = TF_LONG
+    override def floatValue()  = TF_FLOAT
+    override def doubleValue() = TF_DOUBLE
+    override def stringValue() = TF_STRING
+
+    override def opAALOAD(insn: asm.tree.InsnNode, arrayref: TFValue, index: TFValue): TFValue = {
+      newValue(arrayref.lca.getComponentType)
+    }
+
+    override def opNEW(insn: asm.tree.TypeInsnNode): TFValue = {
+      newValue(lookupRefBType(insn.desc), fromNEW = true)
+    }
+    override def arrayOf(t: asm.Type): asm.Type = {
+      val arrType = "[" + t.getDescriptor
+      asm.Type.getObjectType(arrType)
+    }
+    override def opANEWARRAY(insn: asm.tree.TypeInsnNode): TFValue = {
+      val c: Char = insn.desc(0)
+      assert(c != '(', "Unexpected method type: " + insn.desc)
+      val arrType =
+        if(c == '[') { "["  + insn.desc }
+        else         { "[L" + insn.desc + ";" }
+      newValue(lookupRefBType(arrType))
+    }
+
+    override def opCHECKCAST(insn: asm.tree.TypeInsnNode): TFValue = {
+      val argument = lookupRefBType(insn.desc)
+      // TODO one could compare with stack-top to determine more precise type (for downcast, argument; for upcast, stack-top).
+      newValue(argument)
+    }
+
+    override def opGETFIELD(insn: asm.tree.FieldInsnNode): TFValue = {
+      newValue(descrToBType(insn.desc))
+    }
+    override def opPUTFIELD(insn: asm.tree.FieldInsnNode): TFValue = {
+      newValue(descrToBType(insn.desc))
+    }
+
+    override def opGETSTATIC(insn: asm.tree.FieldInsnNode): TFValue = {
+      newValue(descrToBType(insn.desc))
+    }
+    override def opPUTSTATIC(insn: asm.tree.FieldInsnNode): TFValue = {
+      newValue(descrToBType(insn.desc))
+    }
+
+    override def opLDCHandleValue(insn: asm.tree.AbstractInsnNode,     cst: asm.Handle): TFValue = {
+      ???
+    }
+    override def opLDCMethodTypeValue(insn: asm.tree.AbstractInsnNode, cst: asm.Type):   TFValue = {
+      ???
+    }
+    override def opLDCRefTypeValue(insn: asm.tree.AbstractInsnNode,    cst: asm.Type):   TFValue = {
+      newValue(toBType(cst))
+    }
+
   }
 
 }

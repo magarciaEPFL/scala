@@ -661,7 +661,13 @@ public class Frame<V extends Value> {
         boolean changes = false;
         for (int i = 0; i < locals + top; ++i) {
             V v = interpreter.merge(values[i], frame.values[i]);
-            if (v != values[i]) {
+            boolean isXNull = (null == v);
+            boolean isYNull = (null == values[i]);
+            boolean areDifferent = (
+                      (isXNull != isYNull) ||
+                      (!isXNull && !isYNull && !v.equals(values[i]))
+            );
+            if (areDifferent) {
                 values[i] = v;
                 changes = true;
             }

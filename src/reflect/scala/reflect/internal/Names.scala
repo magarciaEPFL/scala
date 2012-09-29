@@ -150,14 +150,14 @@ trait Names extends api.Names with LowPriorityNames {
     while ((nterm ne null) && (nterm.length != cs.size || !equals(nterm.start, cs, 0, cs.size))) {
       nterm = nterm.next
     }
-    assert(nterm ne null, "TermName not yet created")
+    assert(nterm ne null, "TermName not yet created: " + new String(cs))
 
     val htype = hashValue(chrs, nterm.start, nterm.length) & HASH_MASK
     var ntype = typeHashtable(htype)
     while ((ntype ne null) && ntype.start != nterm.start) {
       ntype = ntype.next
     }
-    assert(ntype ne null, "TypeName not yet created")
+    assert(ntype ne null, "TypeName not yet created: " + new String(cs))
 
     ntype
   }

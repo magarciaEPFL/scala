@@ -126,7 +126,7 @@ abstract class GenBCode extends BCodeTypes {
 
     // Once pipeline-2 starts doing optimizations more threads will be needed.
     val MAX_THREADS = scala.math.min(
-      4,
+      8,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 
@@ -179,7 +179,14 @@ abstract class GenBCode extends BCodeTypes {
             for(i <- 1 to MAX_THREADS) { q2 put poison2 } // explanation in Worker2.run() as to why MAX_THREADS poison pills are needed on queue-2.
             return
           }
-          else { visit(item) }
+          else {
+            try   { visit(item) }
+            catch {
+              case ex: Throwable =>
+                ex.printStackTrace()
+                error("Error while emitting " + item.cunit.source +  "\n"  + ex.getMessage)
+            }
+          }
         }
       }
 
@@ -202,9 +209,7 @@ abstract class GenBCode extends BCodeTypes {
         pcb.genPlainClass(cd)
         val plainC: SubItem2Plain = {
           val label = "" + cd.symbol.name
-          val outF: _root_.scala.tools.nsc.io.AbstractFile = {
-            if(needsOutfileForSymbol) getFile(cd.symbol, pcb.thisName, ".class") else null
-          }
+          val outF = getOutFile(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
           SubItem2Plain(label, pcb.thisName, pcb.cnode, outF)
         }
 
@@ -246,7 +251,12 @@ abstract class GenBCode extends BCodeTypes {
             return // in order to terminate all workers, queue-1 must contain as many poison pills as worker threads in pipeline-2
           }
           else {
-            visit(item)
+            try   { visit(item) }
+            catch {
+              case ex: Throwable =>
+                ex.printStackTrace()
+                error("Error while emitting " + item.plain.jclassName +  "\n"  + ex.getMessage)
+            }
           }
         }
       }
@@ -311,6 +321,7 @@ abstract class GenBCode extends BCodeTypes {
        *
        *  TODO PENDING (assuming their activation conditions will trigger):
        *    - peephole rewriting
+       *    - Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
        *
        */
       def optimize(cName: String, mnode: asm.tree.MethodNode) {
@@ -337,6 +348,26 @@ abstract class GenBCode extends BCodeTypes {
             labelsCleanup.transform(mnode)
           }
         } while (danglingExcHandlers.changed)
+
+        runTypeFlowAnalysis(cName, mnode)
+      }
+
+      def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
+
+        import asm.tree.analysis.{ Analyzer, Frame }
+        import asm.tree.AbstractInsnNode
+
+        val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+        tfa.analyze(owner, mnode)
+        val frames: Array[Frame[TFValue]]   = tfa.getFrames()
+        val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
+        var i = 0
+        while(i < frames.length) {
+          if (frames(i) == null && insns(i) != null) {
+            // TODO assert(false, "There should be no unreachable code left by now.")
+          }
+          i += 1
+        }
       }
 
       /**
@@ -2004,7 +2035,7 @@ abstract class GenBCode extends BCodeTypes {
                   else if (l.isValueType) {
                     bc drop l
                     if (cast) {
-                      mnode.visitTypeInsn(asm.Opcodes.NEW, classCastExceptionType.getInternalName)
+                      mnode.visitTypeInsn(asm.Opcodes.NEW, classCastExceptionReference.getInternalName)
                       bc dup ObjectReference
                       emit(asm.Opcodes.ATHROW)
                     } else {
@@ -2062,11 +2093,13 @@ abstract class GenBCode extends BCodeTypes {
                                         " but array has only " + dims + " dimension(s)")
                 }
                 if (argsSize < dims) {
-                  /* The BType instantiation below denotes the same type as
-                   *    for (i <- args.length until dims) elemKind = arrayOf(elemKind)
-                   * with the advantage of not requiring `arrayOf()`, a must-single-thread operation.
+                  /* In one step:
+                   *   elemKind = new BType(BType.ARRAY, arr.off + argsSize, arr.len - argsSize)
+                   * however the above does not enter a TypeName for each nested arrays in chrs.
                    */
-                  elemKind = new BType(BType.ARRAY, arr.off + argsSize, arr.len - argsSize)
+                  val elemKind2 = new BType(BType.ARRAY, arr.off + argsSize, arr.len - argsSize)
+                  for (i <- args.length until dims) elemKind = arrayOf(elemKind)
+                  assert(elemKind == elemKind2 , "elemKind != elemKind2")
                 }
                 (argsSize : @switch) match {
                   case 1 => bc newarray elemKind
