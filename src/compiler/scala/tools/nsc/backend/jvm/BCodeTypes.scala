@@ -700,8 +700,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val CT_NOTHING = brefType("scala/Nothing") // TODO needed?
   val CT_NULL    = brefType("scala/Null")    // TODO needed?
 
-  val ObjectReference = brefType("java/lang/Object")
-  val AnyRefReference = ObjectReference // In tandem, javaNameASM(definitions.AnyRefClass) == ObjectReference. Otherwise every `t1 == t2` requires special-casing.
+  val ObjectReference   = brefType("java/lang/Object")
+  val AnyRefReference   = ObjectReference
+  val objArrayReference = arrayOf(ObjectReference)
   // special names
   var StringReference          : BType = null
   var ThrowableReference       : BType = null
@@ -732,7 +733,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   /** The Object => String overload. */
   var String_valueOf: Symbol = null
 
-  var ArrayInterfaces: Array[Tracked] = null
+  var ArrayInterfaces: Set[Tracked] = null
 
   var StringBuilderReference: BType = null
 
@@ -800,7 +801,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       )
     }
 
-    ArrayInterfaces = Array(JavaCloneableClass, JavaSerializableClass) map exemplar
+    ArrayInterfaces = Set(JavaCloneableClass, JavaSerializableClass) map exemplar
 
     StringReference             = exemplar(StringClass).c
     StringBuilderReference      = exemplar(StringBuilderClass).c
@@ -962,12 +963,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  The `ifaces` field lists only those interfaces declared by `c`
      *  From the set of all supported interfaces, this method discards those which are supertypes of others in the set.
      */
-    val allLeafIfaces: Array[Tracked] = {
-      if(sc == null) { ifaces }
-      else {
-        val mnmzd = minimizeInterfaces(ifaces.toList ::: sc.allLeafIfaces.toList)
-        mkArray(mnmzd)
-      }
+    val allLeafIfaces: Set[Tracked] = {
+      if(sc == null) { ifaces.toSet }
+      else { minimizeInterfaces(ifaces.toSet ++ sc.allLeafIfaces) }
     }
 
     /**
@@ -977,12 +975,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  In other words, let Ri be a branch supported by `ib`,
      *  this method returns all Ri such that this <:< Ri, where each Ri is maximal.
      */
-    def supportedBranches(ib: Tracked): List[Tracked] = {
+    def supportedBranches(ib: Tracked): Set[Tracked] = {
       assert(ib.isInterface, "Non-interface argument: " + ib)
 
-      val result: List[Tracked] =
-        if(this.isSubtypeOf(ib.c)) { List(ib) }
-        else { ib.ifaces.toList.flatMap( bi => supportedBranches(bi) ) }
+      val result: Set[Tracked] =
+        if(this.isSubtypeOf(ib.c)) { Set(ib) }
+        else { ib.ifaces.toSet[Tracked].flatMap( bi => supportedBranches(bi) ) }
 
       checkAllInterfaces(result)
 
@@ -1077,6 +1075,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     tr
   }
 
+  val EMPTY_TRACKED_SET  = Set.empty[Tracked]
+
   val EMPTY_TRACKED_ARRAY  = Array.empty[Tracked]
   val EMPTY_STRING_ARRAY   = Array.empty[String]
   val EMPTY_INT_ARRAY      = Array.empty[Int]
@@ -1125,9 +1125,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   /** Drop redundant interfaces (those which are implemented by some other).
    *  This is important on Android because there is otherwise an interface explosion.
    */
-  def minimizeInterfaces(lstIfaces: List[Tracked]): List[Tracked] = {
+  def minimizeInterfaces(lstIfaces: Set[Tracked]): Set[Tracked] = {
     checkAllInterfaces(lstIfaces)
-    var rest   = lstIfaces
+    var rest   = lstIfaces.toList
     var leaves = List.empty[Tracked]
     while(!rest.isEmpty) {
       val candidate = rest.head
@@ -1138,25 +1138,25 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       rest = rest.tail
     }
 
-    leaves
+    leaves.toSet
   }
 
-  def allInterfaces(is: List[Tracked]): Boolean = { is forall { i => i.isInterface } }
-  def nonInterfaces(is: List[Tracked]): List[Tracked] = { is filterNot { i => i.isInterface } }
+  def allInterfaces(is: Iterable[Tracked]): Boolean = { is forall { i => i.isInterface } }
+  def nonInterfaces(is: Iterable[Tracked]): Iterable[Tracked] = { is filterNot { i => i.isInterface } }
 
-  def checkAllInterfaces(ifaces: List[Tracked]) {
+  def checkAllInterfaces(ifaces: Iterable[Tracked]) {
     assert(allInterfaces(ifaces), "Non-interfaces: " + nonInterfaces(ifaces).mkString)
   }
 
   /**
    *  Returns the intersection of two sets of interfaces. Used in type-flow analysis.
    */
-  def intersection(ifacesA: List[Tracked], ifacesB: List[Tracked]): List[Tracked] = {
-    var acc: List[Tracked] = Nil
+  def intersection(ifacesA: Set[Tracked], ifacesB: Set[Tracked]): Set[Tracked] = {
+    var acc: Set[Tracked] = Set()
     for(ia <- ifacesA; ib <- ifacesB) {
       val ab = ia.supportedBranches(ib)
       val ba = ib.supportedBranches(ia)
-      acc = minimizeInterfaces(acc ::: ab ::: ba)
+      acc = minimizeInterfaces(acc ++ ab ++ ba)
     }
     checkAllInterfaces(acc)
 
@@ -3615,7 +3615,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     TF_NULL =
       TFValue(
         RT_NULL,
-        EMPTY_TRACKED_ARRAY,
+        EMPTY_TRACKED_SET,
         0
       )
     val trString = exemplar(global.definitions.StringClass)
@@ -3634,7 +3634,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *     - whether the runtime value has `btype` as exact type
    *       (useful in determining method implementations targeted by callsites)
    */
-  case class TFValue(lca: BType, ifaces: Array[Tracked], bits: Int) extends asm.tree.analysis.Value {
+  case class TFValue(lca: BType, ifaces: Set[Tracked], bits: Int) extends asm.tree.analysis.Value {
 
     val tr: Tracked =
       if(lca.isPhantomType || lca.isValueType) { null }
@@ -3647,7 +3647,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         exemplars.get(lca)
       }
 
-    def repOK {
+    // repOK()
+
+    def repOK() {
 
       // check agreement with interfaces, non-reference type case.
       assert(if(lca.isValueType)   { ifaces == null } else true, "Unexpected non-empty interfaces for " + lca)
@@ -3667,11 +3669,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         "Type-flow tracks fewer interfaces than statically known to be supported by: " + lca
       )
       // check agreement with interfaces, array type case.
-      assert(if(lca.isArray) { ifaces.sameElements(ArrayInterfaces) } else true, "Unexpected interfaces for " + lca)
+      assert(if(lca.isArray) { ifaces == ArrayInterfaces } else true, "Unexpected interfaces for " + lca)
 
       assert(
-        if(ifaces != null) { ifaces forall { i => i.isInterface } } else true,
-        "Claiming to be interfaces but aren't: " + nonInterfaces(ifaces.toList).mkString
+        if(ifaces != null) { allInterfaces(ifaces) } else true,
+        "Claiming to be interfaces but aren't: " + nonInterfaces(ifaces).mkString
       )
 
       // check (when possible) cross-consistency with isExact and isNonNull
@@ -3722,9 +3724,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       those forall { that => that.tr.isInterface }
     }
 
-    def getIfaceSet: Set[BType] = {
-      (ifaces map { i => i.c }).toSet
-    }
+    def getIfaceSet: Set[BType] = { ifaces map { i => i.c } }
 
   }
 
@@ -3822,7 +3822,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       }
 
       val lca   = t
-      var ifaces: Array[Tracked] = if(lca.isPhantomType) EMPTY_TRACKED_ARRAY else null
+      var ifaces: Set[Tracked] = if(lca.isPhantomType) EMPTY_TRACKED_SET else null
       var isFinal = false
 
       if(!lca.isPhantomType && !lca.isValueType) {
@@ -3864,7 +3864,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       if(v == null) return w;
       if(w == null) return v;
 
-      var ifaces: Array[Tracked] = null
+      var ifaces: Set[Tracked] = null
 
       val lub: BType = {
         val a: BType = v.lca
@@ -3891,7 +3891,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
             a
           }
           else {
-            ifaces = mkArray(intersection(v.ifaces.toList, w.ifaces.toList))
+            ifaces = intersection(v.ifaces, w.ifaces)
             assert(ifaces != null, "Merging two reference types (array or object) can't give null.")
             if (a.isArray || b.isArray) { arrayLUB(a, b) }
             else {
@@ -3943,7 +3943,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
             assert(xCT.hasObjectSort, "Expecting non-array referene, received: " + xCT)
             assert(yCT.hasObjectSort, "Expecting non-array referene, received: " + yCT)
             // TODO we could try `arrayOf(refLUB(xCT, yCT))` but lookupTypeName needs to lock chrs for that. Yes, buying into Java-wise array subtyping.
-            ObjectReference
+            objArrayReference
           }
         }
       }
