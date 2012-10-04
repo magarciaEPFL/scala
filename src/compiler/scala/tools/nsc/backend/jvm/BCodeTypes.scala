@@ -3247,11 +3247,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * @must-single-thread
      */
     def getExceptions(excs: List[AnnotationInfo]): List[String] = {
-      for (AnnotationInfo(tp, List(exc), _) <- excs.distinct if tp.typeSymbol == definitions.ThrowsClass)
-      yield {
-        val Literal(const) = exc
-        internalName(const.typeValue.typeSymbol)
-      }
+      for (ThrownException(exc) <- excs.distinct)
+      yield internalName(exc)
     }
 
   } // end of trait BCForwardersGen
