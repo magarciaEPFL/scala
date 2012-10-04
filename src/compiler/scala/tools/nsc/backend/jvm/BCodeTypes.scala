@@ -1149,7 +1149,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
-   *  Returns the intersection of two sets of interfaces. Used in type-flow analysis.
+   *  Returns the intersection of two sets of interfaces.
    */
   def intersection(ifacesA: Set[Tracked], ifacesB: Set[Tracked]): Set[Tracked] = {
     var acc: Set[Tracked] = Set()
@@ -3612,14 +3612,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     TF_NULL =
       TFValue(
         RT_NULL,
-        EMPTY_TRACKED_SET,
         0
       )
     val trString = exemplar(global.definitions.StringClass)
     TF_STRING =
       TFValue(
         StringReference,
-        trString.allLeafIfaces,
         TypeFlowConstants.EXACT_MASK
       )
   }
@@ -3631,9 +3629,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *     - whether the runtime value has `btype` as exact type
    *       (useful in determining method implementations targeted by callsites)
    */
-  case class TFValue(lca: BType, ifaces: Set[Tracked], bits: Int) extends asm.tree.analysis.Value {
+  case class TFValue(lca: BType, bits: Int) extends asm.tree.analysis.Value {
 
-    val tr: Tracked =
+    val tr: Tracked = {
       if(lca.isPhantomType || lca.isValueType) { null }
       else if(lca.isArray)  {
         val et = lca.getElementType
@@ -3643,44 +3641,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         assert(lca.isNonSpecial, "Some case was overlooked for: " + lca)
         exemplars.get(lca)
       }
-
-    ifDebug {
-      repOK()
     }
 
-    def repOK() {
-
-      // check agreement with interfaces, non-reference type case.
-      assert(if(lca.isValueType)   { ifaces == null } else true, "Unexpected non-empty interfaces for " + lca)
-      assert(if(lca.isNullType)    { ifaces.isEmpty } else true, "Unexpected interfaces for " + lca)
-      // assert(if(lca.isNothingType) { ifaces.length == 1 && ifaces(0).c == ThrowableReference } else true, "Unexpected interfaces for " + lca)
-      assert(if(lca.isNothingType) { ifaces.isEmpty } else true, "Unexpected interfaces for " + lca)
-
-      // check agreement with interfaces, object type case.
-      assert(
-        if(lca.isNonSpecial) {
-          tr.ifaces forall { staticIface =>
-            ifaces exists { dynIface =>
-              dynIface.isSubtypeOf(staticIface.c)
-            }
-          }
-        } else true,
-        "Type-flow tracks fewer interfaces than statically known to be supported by: " + lca
-      )
-      // check agreement with interfaces, array type case.
-      assert(if(lca.isArray) { ifaces == ArrayInterfaces } else true, "Unexpected interfaces for " + lca)
-
-      assert(
-        if(ifaces != null) { allInterfaces(ifaces) } else true,
-        "Claiming to be interfaces but aren't: " + nonInterfaces(ifaces).mkString
-      )
-
-      // check (when possible) cross-consistency with isExact and isNonNull
-      assert(if(lca.isNullType) !isNonNull else true, "Contradiction: NullType reported as isNonNull." + lca)
-      assert(if(tr != null && tr.isFinal)      isExact    else true, "Contradiction: isFinal  reported as !isExact."  + lca)
-      assert(if(tr != null && tr.isInterface)  !isExact   else true, "Contradiction: interface reported as isExact."  + lca)
-
-    }
+    // check (when possible) cross-consistency with isExact and isNonNull
+    assert(if(lca.isNullType) !isNonNull else true, "Contradiction: NullType reported as isNonNull." + lca)
+    assert(if(tr != null && tr.isFinal)      isExact    else true, "Contradiction: isFinal  reported as !isExact."  + lca)
+    assert(if(tr != null && tr.isInterface)  !isExact   else true, "Contradiction: interface reported as isExact."  + lca)
 
     override def getSize: Int = {
       assert(lca.sort != BType.METHOD, "Method types don't have size: " + lca)
@@ -3692,46 +3658,15 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isNonNull:  Boolean = { assert(isRefOrArray); (bits & TypeFlowConstants.NON_NULL_MASK) != 0 }
     def isExact:    Boolean = { assert(isRefOrArray); (bits & TypeFlowConstants.EXACT_MASK   ) != 0 }
 
-    def conformsTo(b: TFValue): Boolean = { conforms(this.lca, b.lca) } // TODO also use supportsIfaces ?
-
-    /**
-     *  Returns whether each and every interface in the arguments is supported by this type-flow value.
-     *  This method can't live in `Tracked` (besides, there's already `isSubtypeOf()` there)
-     *  because its purpose is different: A `TFValue.lca` need not support all the `TFValue.ifaces` because such values
-     *  track separately what is known about runtime classes (in `lca`) and what is known about supported interfaces (in `ifaces`).
-     */
-    def supportsIfaces(those: Array[TFValue]): Boolean = {
-      assert(areAllInterfaces(those), "Received non-interface.")
-
-      if(lca.isArray) {
-        for(that <- those; supported <- ArrayInterfaces) {
-          if(!supported.isSubtypeOf(that.lca)) {
-            return false
-          }
-        }
-        true
-      } else {
-        assert(lca.hasObjectSort, "Not an object: " + lca)
-        those forall { that =>
-          tr.isSubtypeOf(that.lca) ||
-          (ifaces exists { iface => iface.isSubtypeOf(that.lca) })
-        }
-      }
-    }
-
-    def areAllInterfaces(those: Array[TFValue]): Boolean = {
-      those forall { that => that.tr.isInterface }
-    }
-
-    def getIfaceSet: Set[BType] = { ifaces map { i => i.c } }
+    def conformsTo(b: TFValue): Boolean = { conforms(this.lca, b.lca) }
 
   }
 
-  val TF_INT     = TFValue(BType.INT_TYPE,    null, 0)
-  val TF_FLOAT   = TFValue(BType.FLOAT_TYPE,  null, 0)
-  val TF_LONG    = TFValue(BType.LONG_TYPE,   null, 0)
-  val TF_DOUBLE  = TFValue(BType.DOUBLE_TYPE, null, 0)
-  val TF_VOID    = TFValue(BType.VOID_TYPE,   null, 0)
+  val TF_INT     = TFValue(BType.INT_TYPE,    0)
+  val TF_FLOAT   = TFValue(BType.FLOAT_TYPE,  0)
+  val TF_LONG    = TFValue(BType.LONG_TYPE,   0)
+  val TF_DOUBLE  = TFValue(BType.DOUBLE_TYPE, 0)
+  val TF_VOID    = TFValue(BType.VOID_TYPE,   0)
 
   object TypeFlowConstants {
     val NON_NULL_MASK = 1
@@ -3797,10 +3732,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     override def newValue(t: asm.Type): TFValue = {
-      if (t == null || t == asm.Type.VOID_TYPE) {
-        return null
-      }
-      newValue(toBType(t))
+      if (t == null || t == asm.Type.VOID_TYPE) { null }
+      else { newValue(toBType(t)) }
     }
 
     def newValue(t: BType, fromNEW: Boolean = false): TFValue = {
@@ -3821,34 +3754,24 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       }
 
       val lca   = t
-      var ifaces: Set[Tracked] = if(lca.isPhantomType) EMPTY_TRACKED_SET else null
       var isFinal = false
 
       if(!lca.isPhantomType && !lca.isValueType) {
-
         if(lca.hasObjectSort) {
-
-          val tr  = exemplars.get(lca)
-          ifaces  = tr.allLeafIfaces
-          isFinal = tr.isFinal
-
+          isFinal = exemplars.get(lca).isFinal
         } else if(lca.isArray) {
-
-          ifaces = ArrayInterfaces
           val et = lca.getElementType
           if(!et.isPhantomType && et.hasObjectSort) {
             isFinal = exemplars.get(et).isFinal
           }
-
         } else { assert(false, "Unexpected.") }
-
       }
 
       var bits = 0
       bits |= (if(isFinal || fromNEW) TypeFlowConstants.EXACT_MASK     else 0)
       bits |= (if(fromNEW)            TypeFlowConstants.NON_NULL_MASK  else 0)
 
-      TFValue(lca, ifaces, bits)
+      TFValue(lca, bits)
     }
 
     /**
@@ -3862,35 +3785,22 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       if(v == null) return w;
       if(w == null) return v;
 
-      var ifaces: Set[Tracked] = null
-
       val lub: BType = {
         val a: BType = v.lca
         val b: BType = w.lca
 
-        if     (a.isValueType)   { ifaces = null    ; maxValueType(a, b)   }
-        else if(a.isNothingType) { ifaces = w.ifaces; b                    }
-        else if(b.isNothingType) { ifaces = v.ifaces; a                    }
+        if     (a.isValueType)   { maxValueType(a, b)   }
+        else if(a.isNothingType) { b }
+        else if(b.isNothingType) { a }
         else {
 
           assert(a.isRefOrArrayType, "This is not a valuetype and it's not something else, what is it? " + a)
           assert(b.isRefOrArrayType, "This is not a valuetype and it's not something else, what is it? " + b)
 
-          if (a.isNullType)     { ifaces = w.ifaces; b }
-          else if(b.isNullType) { ifaces = v.ifaces; a }
-          else if(a == b) {
-            ifaces = v.ifaces
-            /* At first sight it might appear the following should hold:
-             *     assert(v.getIfaceSet == w.getIfaceSet, "Two TFValues with same lca, but different ifaces.")
-             * but actually the lca's may have been lub-bed by the time the check above is performed.
-             * For example, two TFValues may have the same lca (say, lca == j.l.Object)
-             * yet one of them may track one or more ifaces the other doesn't.
-             */
-            a
-          }
+          if (a.isNullType)     { b }
+          else if(b.isNullType) { a }
+          else if(a == b)       { a }
           else {
-            ifaces = intersection(v.ifaces, w.ifaces)
-            assert(ifaces != null, "Merging two reference types (array or object) can't give null.")
             if (a.isArray || b.isArray) { arrayLUB(a, b) }
             else {
               assert(a.hasObjectSort, "Expecting non-array referene, received: " + a)
@@ -3919,7 +3829,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       bits |= (if(isExact)   TypeFlowConstants.EXACT_MASK    else 0)
       bits |= (if(isNonNull) TypeFlowConstants.NON_NULL_MASK else 0)
 
-      TFValue(lub, ifaces, bits)
+      TFValue(lub, bits)
     }
 
     def arrayLUB(x: BType, y: BType): BType = {
@@ -4026,9 +3936,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     override def opLDCHandleValue(insn: asm.tree.AbstractInsnNode,     cst: asm.Handle): TFValue = { ??? }
     override def opLDCMethodTypeValue(insn: asm.tree.AbstractInsnNode, cst: asm.Type):   TFValue = { ??? }
 
-    override def opLDCRefTypeValue(insn: asm.tree.AbstractInsnNode,    cst: asm.Type):   TFValue = {
-      newValue(toBType(cst))
-    }
+    override def opLDCRefTypeValue(insn: asm.tree.AbstractInsnNode,    cst: asm.Type):   TFValue = { newValue(toBType(cst)) }
 
   }
 
