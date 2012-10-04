@@ -819,9 +819,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
-    cacheMethodType.clear()
-    cacheParamTKs.clear()
-    cacheSymInfoTK.clear()
   }
 
   val BOXED_UNIT    = brefType("java/lang/Void")
@@ -895,11 +892,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val exemplars    = new java.util.concurrent.ConcurrentHashMap[BType,  Tracked]
   val symExemplars = new java.util.concurrent.ConcurrentHashMap[Symbol, Tracked]
 
-  val cacheMethodType = mutable.Map.empty[Symbol, BType]
-  val cacheParamTKs   = mutable.Map.empty[ /* Apply's fun */ Symbol, List[BType]]
-  val cacheSymInfoTK  = mutable.Map.empty[Symbol, BType]
-
   /**
+   *  Typically, a question about a BType can be answered only by using the BType as lookup key in one or more maps.
+   *  A `Tracked` object saves time by holding together information required to answer those questions:
+   *    - `sc`     denotes the bytecode-level superclass if any, null otherwise
+   *    - `ifaces` denotes the interfaces explicitly declared.
+   *               Not included are those transitively supported, but a utility method, `allLeafIfaces`, can be used for that.
+   *    - `innersChain` denotes the containing classes for a non-package-level class `c`, null otherwise.
+   *
    *  All methods of this class @can-multi-thread
    **/
   case class Tracked(c: BType, flags: Int, sc: Tracked, ifaces: Array[Tracked], innersChain: Array[InnerClassEntry]) {
@@ -963,7 +963,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  The `ifaces` field lists only those interfaces declared by `c`
      *  From the set of all supported interfaces, this method discards those which are supertypes of others in the set.
      */
-    val allLeafIfaces: Set[Tracked] = {
+    def allLeafIfaces: Set[Tracked] = {
       if(sc == null) { ifaces.toSet }
       else { minimizeInterfaces(ifaces.toSet ++ sc.allLeafIfaces) }
     }
@@ -973,7 +973,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  We visualize each such supported subset of the argument's functionality as a "branch". This method returns all such branches.
      *
      *  In other words, let Ri be a branch supported by `ib`,
-     *  this method returns all Ri such that this <:< Ri, where each Ri is maximal.
+     *  this method returns all Ri such that this <:< Ri, where each Ri is maximally deep.
      */
     def supportedBranches(ib: Tracked): Set[Tracked] = {
       assert(ib.isInterface, "Non-interface argument: " + ib)
@@ -1009,7 +1009,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       }
 
       /** Drop redundant interfaces (which are implemented by some other parent) from the immediate parents.
-       *  This is important on Android because there is otherwise an interface explosion.
+       *  In other words, no two interfaces in the result are related by subtyping.
+       *  This method works on Symbols, a similar one (not duplicate) works on Tracked instances.
        */
       def minimizeInterfaces(lstIfaces: List[Symbol]): List[Symbol] = {
         var rest   = lstIfaces
@@ -1122,9 +1123,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   // ---------------- utilities around interfaces represented by Tracked instances. ----------------
 
-  /** Drop redundant interfaces (those which are implemented by some other).
-   *  This is important on Android because there is otherwise an interface explosion.
-   */
+  /**  Drop redundant interfaces (those which are implemented by some other).
+    *  In other words, no two interfaces in the result are related by subtyping.
+    *  This method works on Tracked elements, a similar one (not duplicate) works on Symbols.
+    */
   def minimizeInterfaces(lstIfaces: Set[Tracked]): Set[Tracked] = {
     checkAllInterfaces(lstIfaces)
     var rest   = lstIfaces.toList
@@ -2237,8 +2239,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   /**
    * @must-single-thread
    **/
-  def isTopLevelModule(sym: Symbol): Boolean =
+  def isTopLevelModule(sym: Symbol): Boolean = {
     exitingPickler { sym.isModuleClass && !sym.isImplClass && !sym.isNestedClass }
+  }
 
   /**
    * @must-single-thread
@@ -2295,18 +2298,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       lcaName // ASM caches the answer during the lifetime of a ClassWriter. We outlive that. Not sure whether caching on our side would improve things.
     }
 
-    // -----------------------------------------------------------------------------------------
-    // finding the least upper bound in agreement with the bytecode verifier (given two internal names handed by ASM)
-    // Background:
-    //  http://gallium.inria.fr/~xleroy/publi/bytecode-verification-JAR.pdf
-    //  http://comments.gmane.org/gmane.comp.java.vm.languages/2293
-    //  https://issues.scala-lang.org/browse/SI-3872
-    // -----------------------------------------------------------------------------------------
-
   }
 
   /**
-   * @can-multi-thread
+   *  Finding the least upper bound in agreement with the bytecode verifier (given two internal names handed out by ASM)
+   *  Background:
+   *    http://gallium.inria.fr/~xleroy/publi/bytecode-verification-JAR.pdf
+   *    http://comments.gmane.org/gmane.comp.java.vm.languages/2293
+   *    https://issues.scala-lang.org/browse/SI-3872
+   *
+   *  @can-multi-thread
    **/
   def jvmWiseLUB(a: BType, b: BType): BType = {
 
@@ -3243,7 +3244,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * The contents of that attribute are determined by the `String[] exceptions` argument to ASM's ClassVisitor.visitMethod()
      * This method returns such list of internal names.
      *
-     *
      * @must-single-thread
      */
     def getExceptions(excs: List[AnnotationInfo]): List[String] = {
@@ -3624,7 +3624,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   /**
    *  Represents a lattice element in the type-flow lattice.
-   *  For reference-values two information items are tracked additionally:
+   *  For reference-values two additional information items are also tracked:
    *     - their non-nullness status
    *     - whether the runtime value has `btype` as exact type
    *       (useful in determining method implementations targeted by callsites)
@@ -3674,10 +3674,18 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
+   *  Can be used to compute a type-flow analysis for an asm.tree.MethodNode, as in: `tfa.analyze(owner, mnode)`
+   *  The abstract state, right before each instruction, comprises abstract values
+   *  for each local variable and for each position in the operand stack.
+   *
    *  All methods in this class @can-multi-thread
    **/
   class TypeFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TFValue] {
 
+    /**
+     * ASM trees represent types as strings (internal names, descriptors).
+     * Given that we operate instead on TFValues and BTypes, a few conversion methods are needed.
+     */
     def descrToBType(typeDescriptor: String): BType = {
       val c: Char = typeDescriptor(0)
       c match {
@@ -3776,9 +3784,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     /**
      *  The ICode counterpart is `typeLattice.lub2()`
-     *
-     *  Superficially similar to `BCodeTypes.maxType()` except that type-flow analysis is more precise
-     *  when both arguments are reference (object or array) types.
      */
     override def merge(v: TFValue, w: TFValue): TFValue = {
 
@@ -3922,7 +3927,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       /* Rather than always sticking to `argument` as done below,
        * TODO compare argument against stack-top to pick the more precise type:
        *   - when downcasting, the argument;
-       *   - when upcasting, the stack-top.
+       *   - when upcasting, stack-top.
        */
       newValue(argument)
     }

@@ -139,7 +139,10 @@ trait Names extends api.Names with LowPriorityNames {
   @deprecated("", "2.9.0") def view(s: String): TermName = newTermName(s)
 
   /**
-   *  Used only by the GenBCode backend (in particular, by CClassWriter).
+   *  Used only by the GenBCode backend, to represent bytecode-level types in a way that makes equals() and hashCode() efficient.
+   *  For bytecode-level types of OBJECT sort, its internal name (not its descriptor) is stored.
+   *  For those of ARRAY sort,  its descriptor is stored ie has a leading '['
+   *  For those of METHOD sort, its descriptor is stored ie starts with leading '('
    *
    *  @can-multi-thread
    */
