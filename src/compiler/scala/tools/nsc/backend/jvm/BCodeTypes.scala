@@ -3644,7 +3644,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         exemplars.get(lca)
       }
 
-    // repOK()
+    ifDebug {
+      repOK()
+    }
 
     def repOK() {
 
@@ -3835,8 +3837,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
           ifaces = ArrayInterfaces
           val et = lca.getElementType
           if(!et.isPhantomType && et.hasObjectSort) {
-            val etr = exemplars.get(et)
-            isFinal = etr.isFinal
+            isFinal = exemplars.get(et).isFinal
           }
 
         } else { assert(false, "Unexpected.") }
@@ -4008,30 +4009,23 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     override def opCHECKCAST(insn: asm.tree.TypeInsnNode): TFValue = {
       val argument = lookupRefBType(insn.desc)
-      // TODO one could compare with stack-top to determine more precise type (for downcast, argument; for upcast, stack-top).
+      /* Rather than always sticking to `argument` as done below,
+       * TODO compare argument against stack-top to pick the more precise type:
+       *   - when downcasting, the argument;
+       *   - when upcasting, the stack-top.
+       */
       newValue(argument)
     }
 
-    override def opGETFIELD(insn: asm.tree.FieldInsnNode): TFValue = {
-      newValue(descrToBType(insn.desc))
-    }
-    override def opPUTFIELD(insn: asm.tree.FieldInsnNode): TFValue = {
-      newValue(descrToBType(insn.desc))
-    }
+    override def opGETFIELD(insn: asm.tree.FieldInsnNode, objectref: TFValue):                 TFValue =  { newValue(descrToBType(insn.desc)) }
+    override def opPUTFIELD(insn: asm.tree.FieldInsnNode, objectref: TFValue, value: TFValue): TFValue =  { value }
 
-    override def opGETSTATIC(insn: asm.tree.FieldInsnNode): TFValue = {
-      newValue(descrToBType(insn.desc))
-    }
-    override def opPUTSTATIC(insn: asm.tree.FieldInsnNode): TFValue = {
-      newValue(descrToBType(insn.desc))
-    }
+    override def opGETSTATIC(insn: asm.tree.FieldInsnNode):                 TFValue = { newValue(descrToBType(insn.desc)) }
+    override def opPUTSTATIC(insn: asm.tree.FieldInsnNode, value: TFValue): TFValue = { value }
 
-    override def opLDCHandleValue(insn: asm.tree.AbstractInsnNode,     cst: asm.Handle): TFValue = {
-      ???
-    }
-    override def opLDCMethodTypeValue(insn: asm.tree.AbstractInsnNode, cst: asm.Type):   TFValue = {
-      ???
-    }
+    override def opLDCHandleValue(insn: asm.tree.AbstractInsnNode,     cst: asm.Handle): TFValue = { ??? }
+    override def opLDCMethodTypeValue(insn: asm.tree.AbstractInsnNode, cst: asm.Type):   TFValue = { ??? }
+
     override def opLDCRefTypeValue(insn: asm.tree.AbstractInsnNode,    cst: asm.Type):   TFValue = {
       newValue(toBType(cst))
     }

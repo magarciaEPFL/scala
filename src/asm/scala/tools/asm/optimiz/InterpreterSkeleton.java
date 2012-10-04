@@ -139,9 +139,9 @@ public abstract class InterpreterSkeleton<V extends Value> extends Interpreter<V
             case ARETURN:
                 return null;
             case PUTSTATIC:
-                return opPUTSTATIC((FieldInsnNode) insn);
+                return opPUTSTATIC((FieldInsnNode) insn, value);
             case GETFIELD:
-                return opGETFIELD((FieldInsnNode) insn);
+                return opGETFIELD((FieldInsnNode) insn, value);
             case NEWARRAY:
                 switch (((IntInsnNode) insn).operand) {
                     case T_BOOLEAN:
@@ -251,7 +251,7 @@ public abstract class InterpreterSkeleton<V extends Value> extends Interpreter<V
             case IF_ACMPNE:
                 return null;
             case PUTFIELD:
-                return opPUTFIELD((FieldInsnNode) insn);
+                return opPUTFIELD((FieldInsnNode) insn, value1, value2);
             default:
                 throw new Error("Internal error.");
         }
@@ -272,11 +272,11 @@ public abstract class InterpreterSkeleton<V extends Value> extends Interpreter<V
 
     public abstract V opCHECKCAST(TypeInsnNode insn);
 
-    public abstract V opGETFIELD(FieldInsnNode insn);
-    public abstract V opPUTFIELD(FieldInsnNode insn);
+    public abstract V opGETFIELD(FieldInsnNode insn, V objectref);
+    public abstract V opPUTFIELD(FieldInsnNode insn, V objectref, V value);
 
     public abstract V opGETSTATIC(FieldInsnNode insn);
-    public abstract V opPUTSTATIC(FieldInsnNode insn);
+    public abstract V opPUTSTATIC(FieldInsnNode insn, V value);
 
     public abstract V opLDCRefTypeValue(AbstractInsnNode insn,    Type cst);
     public abstract V opLDCMethodTypeValue(AbstractInsnNode insn, Type cst);
