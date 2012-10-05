@@ -8,12 +8,11 @@ package scala.tools.nsc
 package backend
 package jvm
 
-import scala.collection.{ mutable, immutable }
-import scala.tools.nsc.symtab._
-import scala.annotation.switch
-
 import scala.tools.asm
-import asm.tree.MethodNode
+
+import asm.optimiz.CopyInterpreter
+import asm.tree.analysis.SourceValue
+import asm.tree.{VarInsnNode, MethodNode}
 
 /**
  *  Optimize and tidy-up bytecode before it's emitted for good.
@@ -26,13 +25,14 @@ abstract class BCodeOpt extends BCodeTypes {
 
   class BCodeCleanser(cnode: asm.tree.ClassNode) {
 
-    val jumpsCollapser = new asm.optimiz.JumpChainsCollapser(null)
-    val labelsCleanup  = new asm.optimiz.LabelsCleanup(null)
+    val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
+    val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
+    val cpInterpreter       = new asm.optimiz.CopyInterpreter
 
-    run();
+    cleanseClass();
 
-    def run() {
+    def cleanseClass() {
       // find out maxLocals and maxStack (maxLocals is given by nxtIdx in PlainClassBuilder, but maxStack hasn't been computed yet).
       val cw = new asm.ClassWriter(asm.ClassWriter.COMPUTE_MAXS)
       cnode.accept(cw)
@@ -46,7 +46,10 @@ abstract class BCodeOpt extends BCodeTypes {
         mnode.visitMaxs(mw.getMaxStack, mw.getMaxLocals)
         val isConcrete = ((mnode.access & (asm.Opcodes.ACC_ABSTRACT | asm.Opcodes.ACC_NATIVE)) == 0)
         if(isConcrete) {
-          optimize(cnode.name, mnode)
+          val cName = cnode.name
+          cleanseMethod(cName, mnode)
+          copyPropagate(cName, mnode)
+          runTypeFlowAnalysis(cName, mnode)
         }
       }
     }
@@ -66,7 +69,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *    - Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
      *
      */
-    def optimize(cName: String, mnode: asm.tree.MethodNode) {
+    def cleanseMethod(cName: String, mnode: asm.tree.MethodNode) {
       jumpsCollapser.transform(mnode)           // collapse a multi-jump chain to target its final destination via a single jump
       repOK(mnode)
       removeUnreachableCode(cName, mnode)       // remove unreachable code
@@ -91,7 +94,6 @@ abstract class BCodeOpt extends BCodeTypes {
         }
       } while (danglingExcHandlers.changed)
 
-      runTypeFlowAnalysis(cName, mnode)
     }
 
     def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
@@ -107,6 +109,58 @@ abstract class BCodeOpt extends BCodeTypes {
       while(i < frames.length) {
         if (frames(i) == null && insns(i) != null) {
           // TODO assert(false, "There should be no unreachable code left by now.")
+        }
+        i += 1
+      }
+    }
+
+    /**
+     *  Replaces the last link in a chain of data accesses by a direct access to the chain-start.
+     *  A "chain of data accesses" refers to a assignments of the form shown below,
+     *  without any intervening rewriting of v, v1, v2, ..., v9:
+     *
+     *      v1 =  v
+     *       ...
+     *      v2 = v1
+     *       ...
+     *      v9 = v8
+     *
+     *  After this method has run, `LOAD v9` has been replaced with `LOAD v`
+     *
+     */
+    def copyPropagate(owner: String, mnode: MethodNode) {
+
+      import asm.tree.analysis.{ Analyzer, Frame }
+      import asm.tree.AbstractInsnNode
+
+      val propag = new Analyzer[SourceValue](new CopyInterpreter)
+      propag.analyze(owner, mnode)
+      val frames: Array[Frame[SourceValue]] = propag.getFrames()
+      val insns:  Array[AbstractInsnNode]   = mnode.instructions.toArray()
+      var i = 0
+      while(i < frames.length) {
+        val isVarInsn = {
+          insns(i) != null &&
+          insns(i).getType   == AbstractInsnNode.VAR_INSN &&
+          insns(i).getOpcode != asm.Opcodes.RET
+        }
+        if (isVarInsn) {
+          val vnode  = insns(i).asInstanceOf[VarInsnNode]
+          val frame  = frames(i)
+          val isLoad = (vnode.getOpcode >= asm.Opcodes.ILOAD && vnode.getOpcode <= asm.Opcodes.ALOAD)
+          val source =
+            if(isLoad) { frame.getLocal(vnode.`var`) }
+            else       { frame.getStack(frame.getStackSize - 1) }
+          val hasUniqueSource = (source.insns.size() == 1)
+          if(hasUniqueSource && isLoad) {
+            var j = 0
+            while(j < vnode.`var`) {
+              if(frame.getLocal(j) eq source) {
+                vnode.`var` = j
+              }
+              j += 1
+            }
+          }
         }
         i += 1
       }
