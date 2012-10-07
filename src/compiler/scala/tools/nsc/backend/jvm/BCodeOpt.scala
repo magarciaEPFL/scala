@@ -61,6 +61,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *    - collapse a multi-jump chain to target its final destination via a single jump
      *    - remove unreachable code
      *    - remove those LabelNodes and LineNumbers that aren't in use
+     *    - compact local vars to close gaps in numbering of locals, and remove dangling LocalVariableNodes.
      *
      *  Some of the above are applied repeatedly until no further reductions occur.
      *
@@ -96,7 +97,7 @@ abstract class BCodeOpt extends BCodeTypes {
         }
       } while (danglingExcHandlers.changed)
 
-      lvCompacter.transform(mnode)
+      lvCompacter.transform(mnode)              // compact local vars, remove dangling LocalVariableNodes.
 
     }
 
@@ -154,7 +155,7 @@ abstract class BCodeOpt extends BCodeTypes {
           val isLoad = (vnode.getOpcode >= asm.Opcodes.ILOAD && vnode.getOpcode <= asm.Opcodes.ALOAD)
           val source =
             if(isLoad) { frame.getLocal(vnode.`var`) }
-            else       { frame.getStack(frame.getStackSize - 1) }
+            else       { frame.getStackTop()         }
           val hasUniqueSource = (source.insns.size() == 1)
           if(hasUniqueSource && isLoad) {
             var j = 0

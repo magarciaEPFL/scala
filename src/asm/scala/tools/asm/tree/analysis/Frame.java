@@ -180,6 +180,17 @@ public class Frame<V extends Value> {
     }
 
     /**
+     * Returns the value at the top of the operand stack.
+     *
+     * @return the value at the top of the operand stack.
+     * @throws IndexOutOfBoundsException if the operand stack slot does not
+     *         exist.
+     */
+    public V getStackTop() throws IndexOutOfBoundsException {
+        return values[getStackSize() - 1];
+    }
+
+    /**
      * Clears the operand stack of this frame.
      */
     public void clearStack() {

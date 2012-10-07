@@ -79,7 +79,7 @@ public class LocalVarCompact extends MethodTransformer {
         ListIterator<AbstractInsnNode> iter = mn.instructions.iterator();
         while(iter.hasNext()) {
             AbstractInsnNode current = iter.next();
-            if(isLOAD(current) || isSTORE(current)) {
+            if(Util.isLOAD(current) || Util.isSTORE(current)) {
                 VarInsnNode vnode = (VarInsnNode) current;
                 renumber[vnode.var] = vnode.var;
                 if(isWide(vnode)) {
@@ -109,7 +109,7 @@ public class LocalVarCompact extends MethodTransformer {
         iter = mn.instructions.iterator();
         while(iter.hasNext()) {
             AbstractInsnNode current = iter.next();
-            if(isLOAD(current) || isSTORE(current)) {
+            if(Util.isLOAD(current) || Util.isSTORE(current)) {
                 VarInsnNode vnode = (VarInsnNode) current;
                 boolean isParam = (vnode.var < numPLocals);
                 if(!isParam) {
@@ -136,14 +136,6 @@ public class LocalVarCompact extends MethodTransformer {
         mn.maxLocals = updMax + 1;
 
         super.transform(mn);
-    }
-
-    private boolean isLOAD(AbstractInsnNode insn) {
-        return (insn.getOpcode() >= Opcodes.ILOAD  && insn.getOpcode() <= Opcodes.ALOAD);
-    }
-
-    private boolean isSTORE(AbstractInsnNode insn) {
-        return (insn.getOpcode() >= Opcodes.ISTORE && insn.getOpcode() <= Opcodes.ASTORE);
     }
 
     private boolean isWide(VarInsnNode vnode) {
