@@ -18,12 +18,18 @@ import scala.tools.asm.Opcodes;
  */
 public class Util {
 
-    public static boolean isLOAD(AbstractInsnNode insn) {
+    public static boolean isLOAD(final AbstractInsnNode insn) {
         return (insn.getOpcode() >= Opcodes.ILOAD  && insn.getOpcode() <= Opcodes.ALOAD);
     }
 
-    public static boolean isSTORE(AbstractInsnNode insn) {
+    public static boolean isSTORE(final AbstractInsnNode insn) {
         return (insn.getOpcode() >= Opcodes.ISTORE && insn.getOpcode() <= Opcodes.ASTORE);
+    }
+
+    public static boolean isExecutable(final AbstractInsnNode insn) {
+        int t = insn.getType();
+        boolean nonExec = (t == AbstractInsnNode.FRAME || t == AbstractInsnNode.LABEL || t == AbstractInsnNode.LINE);
+        return !nonExec;
     }
 
 }

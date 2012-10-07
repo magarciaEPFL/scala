@@ -43,11 +43,11 @@ import scala.tools.asm.tree.*;
  */
 public class LocalVarCompact extends MethodTransformer {
 
-    public LocalVarCompact(MethodTransformer mt) {
+    public LocalVarCompact(final MethodTransformer mt) {
         super(mt);
     }
 
-    public void transform(MethodNode mn) {
+    public void transform(final MethodNode mn) {
 
         // In a first pass over the instruction stream, this array records which local-vars are in use.
         // An unused local-var at index idx will be shown as `renumber[idx] == -1`
@@ -138,7 +138,7 @@ public class LocalVarCompact extends MethodTransformer {
         super.transform(mn);
     }
 
-    private boolean isWide(VarInsnNode vnode) {
+    private boolean isWide(final VarInsnNode vnode) {
         switch (vnode.getOpcode()) {
             case Opcodes.LLOAD:
             case Opcodes.DLOAD:
@@ -154,7 +154,7 @@ public class LocalVarCompact extends MethodTransformer {
      *  Remove dangling LocalVarNodes for non-params (ie those LocalVarNodes whose local-var lacks any LOAD or STORE).
      *  Re-number those LocalVarNodes whose variable has been re-numbered.
      * */
-    private void compactLocalVarEntries(MethodNode mn, int numPLocals, int[] renumber) {
+    private void compactLocalVarEntries(final MethodNode mn, final int numPLocals, final int[] renumber) {
 
         if(mn.localVariables != null) {
             Iterator<LocalVariableNode> lvIter = mn.localVariables.iterator();

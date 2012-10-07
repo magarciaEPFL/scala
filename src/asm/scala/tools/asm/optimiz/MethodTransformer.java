@@ -39,11 +39,11 @@ public abstract class MethodTransformer {
 
   protected MethodTransformer mt;
 
-  public MethodTransformer(MethodTransformer mt) {
+  public MethodTransformer(final MethodTransformer mt) {
     this.mt = mt;
   }
 
-  public void transform(MethodNode mn) {
+  public void transform(final MethodNode mn) {
     if (mt != null) {
       mt.transform(mn);
     }

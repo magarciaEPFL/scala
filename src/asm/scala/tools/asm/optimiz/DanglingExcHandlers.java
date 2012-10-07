@@ -24,13 +24,13 @@ import scala.tools.asm.tree.*;
  */
 public class DanglingExcHandlers extends MethodTransformer {
 
-    public DanglingExcHandlers(MethodTransformer mt) {
+    public DanglingExcHandlers(final MethodTransformer mt) {
         super(mt);
     }
 
     public boolean changed = false;
 
-    public void transform(MethodNode mn) {
+    public void transform(final MethodNode mn) {
 
         changed = false;
 
@@ -55,7 +55,7 @@ public class DanglingExcHandlers extends MethodTransformer {
     /**
      *  Any LineNumberNode or LabelNode or FrameNode will be skipped.
      */
-    public boolean containsJustNops(LabelNode start, LabelNode end) {
+    public boolean containsJustNops(final LabelNode start, final LabelNode end) {
         assert start != null;
         assert end   != null;
 

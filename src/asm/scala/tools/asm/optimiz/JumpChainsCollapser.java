@@ -43,11 +43,11 @@ import scala.tools.asm.tree.MethodNode;
  */
 public class JumpChainsCollapser extends MethodTransformer {
 
-    public JumpChainsCollapser(MethodTransformer mt) {
+    public JumpChainsCollapser(final MethodTransformer mt) {
         super(mt);
     }
 
-    public void transform(MethodNode mn) {
+    public void transform(final MethodNode mn) {
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
@@ -71,7 +71,7 @@ public class JumpChainsCollapser extends MethodTransformer {
     /**
      *  Returns the executable instruction (if any) denoted by the argument, null otherwise.
      */
-    private AbstractInsnNode insnLabelledBy(LabelNode label) {
+    private AbstractInsnNode insnLabelledBy(final LabelNode label) {
         assert label != null;
         AbstractInsnNode labelled = label;
         while (labelled != null && labelled.getOpcode() < 0) {
@@ -80,7 +80,7 @@ public class JumpChainsCollapser extends MethodTransformer {
         return labelled;
     }
 
-    private LabelNode finalDestLabel(JumpInsnNode source) {
+    private LabelNode finalDestLabel(final JumpInsnNode source) {
         assert source != null;
 
         HashSet<LabelNode> seenLabels = new HashSet<LabelNode>();

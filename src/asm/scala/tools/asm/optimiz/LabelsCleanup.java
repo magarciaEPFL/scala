@@ -41,7 +41,7 @@ public class LabelsCleanup extends MethodTransformer {
     public HashSet<LabelNode> isExBracket = new HashSet<LabelNode>();
     public HashSet<LabelNode> isDebugInfo = new HashSet<LabelNode>();
 
-    public void transform(MethodNode mn) {
+    public void transform(final MethodNode mn) {
 
         do {
             classifyLabelNodes(mn);
@@ -50,7 +50,7 @@ public class LabelsCleanup extends MethodTransformer {
         super.transform(mn);
     }
 
-    private boolean pointlessLocalVarEntries(MethodNode mn) {
+    private boolean pointlessLocalVarEntries(final MethodNode mn) {
         boolean changed = false;
         if(mn.localVariables != null) {
             Iterator<LocalVariableNode> lvIter = mn.localVariables.iterator();
@@ -66,7 +66,7 @@ public class LabelsCleanup extends MethodTransformer {
         return changed;
     }
 
-    private boolean lacksExecutableInsns(LabelNode start, LabelNode end) {
+    private boolean lacksExecutableInsns(final LabelNode start, final LabelNode end) {
         assert start != null;
         assert end   != null;
 
@@ -81,7 +81,7 @@ public class LabelsCleanup extends MethodTransformer {
         return true;
     }
 
-    private boolean pointlessLineNumbers(MethodNode mn) {
+    private boolean pointlessLineNumbers(final MethodNode mn) {
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> insnIter = insns.iterator();
 
@@ -100,7 +100,7 @@ public class LabelsCleanup extends MethodTransformer {
     }
 
     /** Remove those LabelNodes trivially not in use. */
-    private boolean pointlessLabels(MethodNode mn) {
+    private boolean pointlessLabels(final MethodNode mn) {
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> insnIter = insns.iterator();
 
@@ -123,7 +123,7 @@ public class LabelsCleanup extends MethodTransformer {
      *  Similarly in case an intervening LineNumberNode shows up before the first executable instruction
      *  (due to the way we emit code, a LineNumberNode always precedes the instruction it refers to, and follows a LabelNode).
      */
-    private boolean isPointless(LineNumberNode nn) {
+    private boolean isPointless(final LineNumberNode nn) {
         AbstractInsnNode nxt = nn.start;
         do {
             nxt = nxt.getNext();
@@ -137,7 +137,7 @@ public class LabelsCleanup extends MethodTransformer {
         } while (true);
     }
 
-    private void classifyLabelNodes(MethodNode mn) {
+    private void classifyLabelNodes(final MethodNode mn) {
         isTarget.clear();
         isExBracket.clear();
         isDebugInfo.clear();
@@ -195,7 +195,7 @@ public class LabelsCleanup extends MethodTransformer {
     /**
      *  If the argument is trivially not in use, it can be removed.
      */
-    public boolean canRemove(AbstractInsnNode insn) {
+    public boolean canRemove(final AbstractInsnNode insn) {
         return !isTarget.contains(insn) && !isExBracket.contains(insn) && !isDebugInfo.contains(insn);
     }
 
