@@ -10,7 +10,7 @@ package jvm
 
 import scala.tools.asm
 
-import asm.optimiz.CopyInterpreter
+import asm.optimiz.{LocalVarCompact, CopyInterpreter}
 import asm.tree.analysis.SourceValue
 import asm.tree.{VarInsnNode, MethodNode}
 
@@ -28,6 +28,8 @@ abstract class BCodeOpt extends BCodeTypes {
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
+    val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
+
     val cpInterpreter       = new asm.optimiz.CopyInterpreter
 
     cleanseClass();
@@ -93,6 +95,8 @@ abstract class BCodeOpt extends BCodeTypes {
           labelsCleanup.transform(mnode)
         }
       } while (danglingExcHandlers.changed)
+
+      lvCompacter.transform(mnode)
 
     }
 
