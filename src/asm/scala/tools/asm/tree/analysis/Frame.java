@@ -187,7 +187,7 @@ public class Frame<V extends Value> {
      *         exist.
      */
     public V getStackTop() throws IndexOutOfBoundsException {
-        return values[getStackSize() - 1];
+        return getStack(getStackSize() - 1);
     }
 
     /**

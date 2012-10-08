@@ -28,6 +28,7 @@ abstract class BCodeOpt extends BCodeTypes {
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
+    val deadStoreElim       = new asm.optimiz.DeadStoreElim
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
     val cpInterpreter       = new asm.optimiz.CopyInterpreter
@@ -73,16 +74,15 @@ abstract class BCodeOpt extends BCodeTypes {
      *
      */
     def cleanseMethod(cName: String, mnode: asm.tree.MethodNode) {
-      jumpsCollapser.transform(mnode)           // collapse a multi-jump chain to target its final destination via a single jump
-      repOK(mnode)
-      removeUnreachableCode(cName, mnode)       // remove unreachable code
-      repOK(mnode)
+      var changed = false
 
       do {
-        jumpsCollapser.transform(mnode)
+        changed = false
+
+        jumpsCollapser.transform(mnode)         // collapse a multi-jump chain to target its final destination via a single jump
         repOK(mnode)
 
-        removeUnreachableCode(cName, mnode)
+        removeUnreachableCode(cName, mnode)     // remove unreachable code
         repOK(mnode)
 
         labelsCleanup.transform(mnode)          // remove those LabelNodes and LineNumbers that aren't in use
@@ -94,8 +94,13 @@ abstract class BCodeOpt extends BCodeTypes {
         if(danglingExcHandlers.changed) {
           removeUnreachableCode(cName, mnode)
           labelsCleanup.transform(mnode)
+          changed = true;
         }
-      } while (danglingExcHandlers.changed)
+
+        deadStoreElim.transform(cName, mnode)
+        changed |= deadStoreElim.changed
+
+      } while (changed)
 
       lvCompacter.transform(mnode)              // compact local vars, remove dangling LocalVariableNodes.
 
