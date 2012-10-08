@@ -41,8 +41,7 @@ public class DeadStoreElim {
             AbstractInsnNode current = insns[i];
             if (current != null  && Util.isSTORE(current) && !cp.hasConsumers(current)) {
                 int size = cp.frameAt(current).getStackTop().getSize();
-                int opc  = (size == 1) ? Opcodes.POP : Opcodes.POP2;
-                mnode.instructions.set(current, new InsnNode(opc));
+                mnode.instructions.set(current, Util.getDrop(size));
                 changed = true;
             }
         }

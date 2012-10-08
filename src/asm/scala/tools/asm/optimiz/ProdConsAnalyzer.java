@@ -75,6 +75,10 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         return frames[idx];
     }
 
+        // ------------------------------------------------------------------------
+        // functionality used by DeadStoreElim
+        // ------------------------------------------------------------------------
+
     /**
      *  The value produced by insn (if any) is "dropped" in case no non-trivial instruction consumes it.
      *  Examples of dropping are:
@@ -94,6 +98,52 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
             }
         }
         return false;
+    }
+
+        // ------------------------------------------------------------------------
+        // functionality used by PushPopCollapser
+        // ------------------------------------------------------------------------
+
+    public boolean isSoleConsumerForItsProducers(AbstractInsnNode consumer) {
+        Set<AbstractInsnNode> ps = pt.producers(consumer);
+        if(ps.isEmpty()) {
+            // a POP as firs instruction of an exception handler should be left as-is
+            // (its distinctive feature being a lack of explicit producers, ie the exception on the stack is loaded implicitly).
+            return false;
+        }
+        Iterator<AbstractInsnNode> iter = ps.iterator();
+        while (iter.hasNext()) {
+            AbstractInsnNode prod = iter.next();
+            if(!hasAsSingleConsumer(prod, consumer)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean hasAsSingleConsumer(AbstractInsnNode producer, AbstractInsnNode consumer) {
+        Set<AbstractInsnNode> cs = pt.consumers(producer);
+        boolean result = (cs.size() == 1) && (cs.iterator().next().equals(consumer));
+        return result;
+    }
+
+    public void neutralizeStackPush(AbstractInsnNode consumer, int size) {
+        Set<AbstractInsnNode> ps = pt.producers(consumer);
+        assert !ps.isEmpty() : "There can't be a POP or POP2 without some other instruction pushing a value for it on the stack.";
+
+        Iterator<AbstractInsnNode> iter = ps.iterator();
+        while (iter.hasNext()) {
+            AbstractInsnNode prod = iter.next();
+            if(hasStackEffectOnly(prod)) {
+                mnode.instructions.remove(prod);
+            } else {
+                mnode.instructions.insert(prod, Util.getDrop(size));
+            }
+        }
+    }
+
+    public boolean hasStackEffectOnly(AbstractInsnNode producer) {
+        return Util.isLOAD(producer);
     }
 
     // ------------------------------------------------------------------------

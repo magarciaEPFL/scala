@@ -7,6 +7,7 @@
 package scala.tools.asm.optimiz;
 
 import scala.tools.asm.tree.AbstractInsnNode;
+import scala.tools.asm.tree.InsnNode;
 import scala.tools.asm.Opcodes;
 
 /**
@@ -26,10 +27,18 @@ public class Util {
         return (insn.getOpcode() >= Opcodes.ISTORE && insn.getOpcode() <= Opcodes.ASTORE);
     }
 
+    public static boolean isDROP(final AbstractInsnNode insn) {
+        return (insn.getOpcode() == Opcodes.POP || insn.getOpcode() == Opcodes.POP2);
+    }
+
     public static boolean isExecutable(final AbstractInsnNode insn) {
         int t = insn.getType();
         boolean nonExec = (t == AbstractInsnNode.FRAME || t == AbstractInsnNode.LABEL || t == AbstractInsnNode.LINE);
         return !nonExec;
     }
 
+    public static InsnNode getDrop(int size) {
+        int opc  = (size == 1) ? Opcodes.POP : Opcodes.POP2;
+        return new InsnNode(opc);
+    }
 }

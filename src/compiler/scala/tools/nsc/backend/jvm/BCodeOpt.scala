@@ -28,10 +28,11 @@ abstract class BCodeOpt extends BCodeTypes {
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
-    val deadStoreElim       = new asm.optimiz.DeadStoreElim
-    val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
     val cpInterpreter       = new asm.optimiz.CopyInterpreter
+    val deadStoreElim       = new asm.optimiz.DeadStoreElim
+    val ppCollapser         = new asm.optimiz.PushPopCollapser
+    val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
     cleanseClass();
 
@@ -51,8 +52,10 @@ abstract class BCodeOpt extends BCodeTypes {
         if(isConcrete) {
           val cName = cnode.name
           cleanseMethod(cName, mnode)
-          copyPropagate(cName, mnode)
-          runTypeFlowAnalysis(cName, mnode)
+          elimRedundantCode(cName, mnode)
+          cleanseMethod(cName, mnode)
+
+          // runTypeFlowAnalysis(cName, mnode) // debug
         }
       }
     }
@@ -62,7 +65,6 @@ abstract class BCodeOpt extends BCodeTypes {
      *    - collapse a multi-jump chain to target its final destination via a single jump
      *    - remove unreachable code
      *    - remove those LabelNodes and LineNumbers that aren't in use
-     *    - compact local vars to close gaps in numbering of locals, and remove dangling LocalVariableNodes.
      *
      *  Some of the above are applied repeatedly until no further reductions occur.
      *
@@ -97,13 +99,26 @@ abstract class BCodeOpt extends BCodeTypes {
           changed = true;
         }
 
-        deadStoreElim.transform(cName, mnode)
-        changed |= deadStoreElim.changed
-
       } while (changed)
 
-      lvCompacter.transform(mnode)              // compact local vars, remove dangling LocalVariableNodes.
+    }
 
+    /**
+     *  This method performs a few intra-method optimizations,
+     *  aimed at reverting the extra copying introduced by inlining:
+     *    - replace the last link in a chain of data accesses by a direct access to the chain-start.
+     *    - dead-store elimination
+     *    - remove those (producer, consumer) pairs where the consumer is a DROP and
+     *      the producer has its value consumed only by the DROP in question.
+     *    - compact local vars to close gaps in numbering of locals, and remove dangling LocalVariableNodes.
+     *
+     * */
+    def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode) {
+      copyPropagate(cName, mnode)
+      deadStoreElim.transform(cName, mnode)
+      ppCollapser.transform(cName, mnode)
+      // TODO other forms of dead-code elimination.
+      lvCompacter.transform(mnode)              // compact local vars, remove dangling LocalVariableNodes.
     }
 
     def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
@@ -135,7 +150,10 @@ abstract class BCodeOpt extends BCodeTypes {
      *       ...
      *      v9 = v8
      *
-     *  After this method has run, `LOAD v9` has been replaced with `LOAD v`
+     *  After this method has run, `LOAD v9` has been replaced with `LOAD v`.
+     *  Similarly for `LOAD v1` to `LOAD v8`.
+     *  Other than that, this method changes nothing else: in particular, say, `STORE v1` to `STORE v9` are left as-is.
+     *  To eliminate dead-stores, use `DeadStoreElim`.
      *
      */
     def copyPropagate(owner: String, mnode: MethodNode) {

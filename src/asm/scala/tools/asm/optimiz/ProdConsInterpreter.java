@@ -19,6 +19,7 @@ import scala.tools.asm.tree.MethodInsnNode;
 
 import scala.tools.asm.tree.analysis.SourceInterpreter;
 import scala.tools.asm.tree.analysis.SourceValue;
+import scala.tools.asm.tree.analysis.AnalyzerException;
 
 /**
  *  Given that a SourceInterpreter gets to see what instructions produce values for consumption by other instructions,
@@ -148,6 +149,15 @@ public class ProdConsInterpreter extends SourceInterpreter {
         update(value, insn);
         // `expected` does not denote a producer instruction.
         super.returnOperation(insn, value, expected);
+    }
+
+    @Override
+    public void drop(
+        AbstractInsnNode insn,
+        final SourceValue value) throws AnalyzerException
+    {
+        update(value, insn);
+        super.drop(insn, value);
     }
 
 }

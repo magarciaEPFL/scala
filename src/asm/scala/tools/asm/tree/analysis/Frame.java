@@ -306,13 +306,19 @@ public class Frame<V extends Value> {
                 interpreter.ternaryOperation(insn, value1, value2, value3);
                 break;
             case Opcodes.POP:
-                if (pop().getSize() == 2) {
+                value1 = pop();
+                interpreter.drop(insn, value1);
+                if (value1.getSize() == 2) {
                     throw new AnalyzerException(insn, "Illegal use of POP");
                 }
                 break;
             case Opcodes.POP2:
-                if (pop().getSize() == 1) {
-                    if (pop().getSize() != 1) {
+                value2 = pop();
+                interpreter.drop(insn, value2);
+                if (value2.getSize() == 1) {
+                    value1 = pop();
+                    interpreter.drop(insn, value1);
+                    if (value1.getSize() != 1) {
                         throw new AnalyzerException(insn, "Illegal use of POP2");
                     }
                 }
