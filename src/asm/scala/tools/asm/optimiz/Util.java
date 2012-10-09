@@ -71,11 +71,11 @@ public class Util {
     }
 
     public static boolean hasStackEffectOnly(AbstractInsnNode producer) {
-        boolean result = Util.isLOAD(producer);
-        result |= Util.isPrimitiveConstant(producer) || Util.isStringConstant(producer); // we leave out LDC <type> on purpose.
-        result |= producer.getOpcode() == Opcodes.NEWARRAY; // array creation with primitive element type.
+        if(Util.isLOAD(producer)) return true;
+        // we leave out LDC <type> on purpose.
+        if(Util.isPrimitiveConstant(producer) || Util.isStringConstant(producer)) return true;
         // TODO check whether a NEW has no side-effects (via constructors).
-        return result;
+        return false;
     }
 
 }
