@@ -44,6 +44,11 @@ public class DeadStoreElim {
                 mnode.instructions.set(current, Util.getDrop(size));
                 changed = true;
             }
+            if (current != null  && current.getOpcode() == Opcodes.IINC && !cp.hasConsumers(current)) {
+                // IINC doesn't show up in Scala-emitted code.
+                mnode.instructions.remove(current);
+                changed = true;
+            }
         }
     }
 

@@ -6,9 +6,11 @@
 
 package scala.tools.asm.optimiz;
 
+import scala.tools.asm.Opcodes;
+import scala.tools.asm.Type;
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.InsnNode;
-import scala.tools.asm.Opcodes;
+import scala.tools.asm.tree.LdcInsnNode;
 
 /**
  *  Utilities.
@@ -20,25 +22,51 @@ import scala.tools.asm.Opcodes;
 public class Util {
 
     public static boolean isLOAD(final AbstractInsnNode insn) {
-        return (insn.getOpcode() >= Opcodes.ILOAD  && insn.getOpcode() <= Opcodes.ALOAD);
+        final int opc = insn.getOpcode();
+        return (opc >= Opcodes.ILOAD  && opc <= Opcodes.ALOAD);
+    }
+
+    public static boolean isPrimitiveConstant(final AbstractInsnNode insn) {
+        final int opc = insn.getOpcode();
+        boolean result = (opc >= Opcodes.ACONST_NULL && opc <= Opcodes.SIPUSH);
+        result |= (opc == Opcodes.LDC && !isStringConstant(insn) && !isTypeConstant(insn));
+        return result;
+    }
+
+    public static boolean isStringConstant(final AbstractInsnNode insn) {
+        if(insn.getOpcode() != Opcodes.LDC) {
+             return false;
+        }
+        final LdcInsnNode ldc = (LdcInsnNode)insn;
+        return (ldc.cst instanceof String);
+    }
+
+    public static boolean isTypeConstant(final AbstractInsnNode insn) {
+        if(insn.getOpcode() != Opcodes.LDC) {
+             return false;
+        }
+        final LdcInsnNode ldc = (LdcInsnNode)insn;
+        return (ldc.cst instanceof Type);
     }
 
     public static boolean isSTORE(final AbstractInsnNode insn) {
-        return (insn.getOpcode() >= Opcodes.ISTORE && insn.getOpcode() <= Opcodes.ASTORE);
+        final int opc = insn.getOpcode();
+        return (opc >= Opcodes.ISTORE && opc <= Opcodes.ASTORE);
     }
 
     public static boolean isDROP(final AbstractInsnNode insn) {
-        return (insn.getOpcode() == Opcodes.POP || insn.getOpcode() == Opcodes.POP2);
+        final int opc = insn.getOpcode();
+        return (opc == Opcodes.POP || opc == Opcodes.POP2);
     }
 
     public static boolean isExecutable(final AbstractInsnNode insn) {
-        int t = insn.getType();
-        boolean nonExec = (t == AbstractInsnNode.FRAME || t == AbstractInsnNode.LABEL || t == AbstractInsnNode.LINE);
+        final int t = insn.getType();
+        final boolean nonExec = (t == AbstractInsnNode.FRAME || t == AbstractInsnNode.LABEL || t == AbstractInsnNode.LINE);
         return !nonExec;
     }
 
     public static InsnNode getDrop(int size) {
-        int opc  = (size == 1) ? Opcodes.POP : Opcodes.POP2;
+        final int opc  = (size == 1) ? Opcodes.POP : Opcodes.POP2;
         return new InsnNode(opc);
     }
 }

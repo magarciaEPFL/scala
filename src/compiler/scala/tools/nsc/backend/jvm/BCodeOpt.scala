@@ -55,7 +55,7 @@ abstract class BCodeOpt extends BCodeTypes {
           elimRedundantCode(cName, mnode)
           cleanseMethod(cName, mnode)
 
-          // runTypeFlowAnalysis(cName, mnode) // debug
+          runTypeFlowAnalysis(cName, mnode) // debug
         }
       }
     }
@@ -115,10 +115,9 @@ abstract class BCodeOpt extends BCodeTypes {
      * */
     def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode) {
       copyPropagate(cName, mnode)
-      deadStoreElim.transform(cName, mnode)
-      ppCollapser.transform(cName, mnode)
-      // TODO other forms of dead-code elimination.
-      lvCompacter.transform(mnode)              // compact local vars, remove dangling LocalVariableNodes.
+      deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+      ppCollapser.transform(cName, mnode)    // propagate a DROP to the instructions that produce the value in question, drop the DROP.
+      lvCompacter.transform(mnode)           // compact local vars, remove dangling LocalVariableNodes.
     }
 
     def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {

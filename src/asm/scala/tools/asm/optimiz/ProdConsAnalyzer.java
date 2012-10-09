@@ -143,7 +143,11 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
     }
 
     public boolean hasStackEffectOnly(AbstractInsnNode producer) {
-        return Util.isLOAD(producer);
+        boolean result = Util.isLOAD(producer);
+        result |= Util.isPrimitiveConstant(producer) || Util.isStringConstant(producer); // we leave out LDC <type> on purpose.
+        result |= producer.getOpcode() == Opcodes.NEWARRAY; // array creation with primitive element type.
+        // TODO check whether a NEW has no side-effects (via constructors).
+        return result;
     }
 
     // ------------------------------------------------------------------------
