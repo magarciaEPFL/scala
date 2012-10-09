@@ -16,7 +16,10 @@ import scala.tools.asm.tree.*;
  *  Any LineNumberNode or LabelNode in the range can be left in place,
  *  will be removed by follow-up `LabelsCleanup`
  *
- *  TODO see report Soot on exception handlers optimiz.
+ *  TODO Actually, can the EH for a finally-clause be removed when protecting an empty block? May be not.
+ *
+ *  TODO Improving the Precision and Correctness of Exception Analysis in Soot,
+ *  TODO http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0

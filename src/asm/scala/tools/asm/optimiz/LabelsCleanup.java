@@ -14,7 +14,7 @@ import scala.tools.asm.tree.*;
 /**
  *  Removes those LabelNodes and LineNumberNodes that are redundant.
  *
- *  A LabelNode is trivially not in use is it's not referred from any of:
+ *  A LabelNode is trivially not in use if it's not referred from any of:
  *    - control-flow transfer instruction,
  *    - LineNumberNode
  *    - exception-handler entry.

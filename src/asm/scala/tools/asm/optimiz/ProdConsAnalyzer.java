@@ -18,7 +18,7 @@ import scala.tools.asm.tree.analysis.Frame;
 
 /**
  *  A SourceInterpreter can be used in conjunction with an Analyzer
- *  to find out, for each instruction, a Frame containing for each location P
+ *  to compute, for each instruction, a Frame containing for each location P
  *  (local-var or stack-slot) the instructions that may produce the value in P.
  *
  *  Oftentimes, we want to invert that map
