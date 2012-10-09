@@ -116,7 +116,7 @@ abstract class BCodeOpt extends BCodeTypes {
     def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode) {
       copyPropagate(cName, mnode)
       deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
-      ppCollapser.transform(cName, mnode)    // propagate a DROP to the instructions that produce the value in question, drop the DROP.
+      ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
       lvCompacter.transform(mnode)           // compact local vars, remove dangling LocalVariableNodes.
     }
 

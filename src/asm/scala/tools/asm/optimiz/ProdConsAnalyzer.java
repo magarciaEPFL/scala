@@ -75,6 +75,20 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         return frames[idx];
     }
 
+    /**
+     *  returns the instructions that may produce the value(s) that the argument consumes.
+     * */
+    public Set<AbstractInsnNode> producers(final AbstractInsnNode insn) {
+        return pt.producers(insn);
+    }
+
+    /**
+     *  returns the instructions that may consume the value(s) that the argument produces.
+     * */
+    public Set<AbstractInsnNode> consumers(final AbstractInsnNode insn) {
+        return pt.consumers(insn);
+    }
+
         // ------------------------------------------------------------------------
         // functionality used by DeadStoreElim
         // ------------------------------------------------------------------------
@@ -104,7 +118,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         // functionality used by PushPopCollapser
         // ------------------------------------------------------------------------
 
-    public boolean isSoleConsumerForItsProducers(AbstractInsnNode consumer) {
+    public boolean isSoleConsumerForItsProducers(InsnNode consumer) {
         Set<AbstractInsnNode> ps = pt.producers(consumer);
         if(ps.isEmpty()) {
             // a POP as firs instruction of an exception handler should be left as-is
@@ -124,29 +138,6 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
     public boolean hasAsSingleConsumer(AbstractInsnNode producer, AbstractInsnNode consumer) {
         Set<AbstractInsnNode> cs = pt.consumers(producer);
         boolean result = (cs.size() == 1) && (cs.iterator().next().equals(consumer));
-        return result;
-    }
-
-    public void neutralizeStackPush(AbstractInsnNode consumer, int size) {
-        Set<AbstractInsnNode> ps = pt.producers(consumer);
-        assert !ps.isEmpty() : "There can't be a POP or POP2 without some other instruction pushing a value for it on the stack.";
-
-        Iterator<AbstractInsnNode> iter = ps.iterator();
-        while (iter.hasNext()) {
-            AbstractInsnNode prod = iter.next();
-            if(hasStackEffectOnly(prod)) {
-                mnode.instructions.remove(prod);
-            } else {
-                mnode.instructions.insert(prod, Util.getDrop(size));
-            }
-        }
-    }
-
-    public boolean hasStackEffectOnly(AbstractInsnNode producer) {
-        boolean result = Util.isLOAD(producer);
-        result |= Util.isPrimitiveConstant(producer) || Util.isStringConstant(producer); // we leave out LDC <type> on purpose.
-        result |= producer.getOpcode() == Opcodes.NEWARRAY; // array creation with primitive element type.
-        // TODO check whether a NEW has no side-effects (via constructors).
         return result;
     }
 

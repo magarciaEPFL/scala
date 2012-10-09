@@ -32,7 +32,7 @@ public class DeadStoreElim {
 
         changed = false;
 
-        // find the instructions consuming values produced by other instructions.
+        // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
         ProdConsAnalyzer cp = ProdConsAnalyzer.create();
         cp.analyze(owner, mnode);
         AbstractInsnNode[] insns  = mnode.instructions.toArray();
