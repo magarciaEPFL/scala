@@ -41,11 +41,20 @@ public class LabelsCleanup extends MethodTransformer {
     public HashSet<LabelNode> isExBracket = new HashSet<LabelNode>();
     public HashSet<LabelNode> isDebugInfo = new HashSet<LabelNode>();
 
+    /** after transform() has run, this field records whether
+     *  at least one pass of this transformer modified something. */
+    public boolean changed = false;
+
     public void transform(final MethodNode mn) {
+
+        changed = false;
+        boolean keepGoing = false;
 
         do {
             classifyLabelNodes(mn);
-        } while (pointlessLineNumbers(mn) || pointlessLabels(mn) || pointlessLocalVarEntries(mn));
+            keepGoing = pointlessLineNumbers(mn) || pointlessLabels(mn) || pointlessLocalVarEntries(mn);
+            changed = (changed || keepGoing);
+        } while (keepGoing);
 
         super.transform(mn);
     }

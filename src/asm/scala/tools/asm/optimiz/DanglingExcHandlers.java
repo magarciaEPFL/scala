@@ -31,6 +31,8 @@ public class DanglingExcHandlers extends MethodTransformer {
         super(mt);
     }
 
+    /** after transform() has run, this field records whether
+     *  at least one pass of this transformer modified something. */
     public boolean changed = false;
 
     public void transform(final MethodNode mn) {

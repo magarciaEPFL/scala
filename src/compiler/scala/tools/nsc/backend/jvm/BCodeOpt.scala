@@ -51,9 +51,14 @@ abstract class BCodeOpt extends BCodeTypes {
         if(isConcrete) {
           val cName = cnode.name
 
-          cleanseMethod(cName, mnode)
-          elimRedundantCode(cName, mnode)
-          cleanseMethod(cName, mnode)
+          var keepGoing = false
+          do {
+            keepGoing = false
+
+            keepGoing |= cleanseMethod(cName, mnode)
+            keepGoing |= elimRedundantCode(cName, mnode)
+
+          } while(keepGoing)
 
           lvCompacter.transform(mnode) // compact local vars, remove dangling LocalVariableNodes.
           runTypeFlowAnalysis(cName, mnode) // debug
@@ -76,31 +81,34 @@ abstract class BCodeOpt extends BCodeTypes {
      *    - Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
      *
      */
-    def cleanseMethod(cName: String, mnode: asm.tree.MethodNode) {
+    def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+
       var changed = false
+      var keepGoing = false
 
       do {
-        changed = false
+        keepGoing = false
 
         jumpsCollapser.transform(mnode)         // collapse a multi-jump chain to target its final destination via a single jump
+        keepGoing |= jumpsCollapser.changed
         repOK(mnode)
 
-        removeUnreachableCode(cName, mnode)     // remove unreachable code
+        keepGoing |= removeUnreachableCode(cName, mnode)  // remove unreachable code
         repOK(mnode)
 
         labelsCleanup.transform(mnode)          // remove those LabelNodes and LineNumbers that aren't in use
+        keepGoing |= labelsCleanup.changed
         repOK(mnode)
 
         danglingExcHandlers.transform(mnode)
+        keepGoing |= danglingExcHandlers.changed
         repOK(mnode)
 
-        if(danglingExcHandlers.changed) {
-          removeUnreachableCode(cName, mnode)
-          labelsCleanup.transform(mnode)
-          changed = true;
-        }
+        changed |= keepGoing
 
-      } while (changed)
+      } while (keepGoing)
+
+      changed
 
     }
 
@@ -113,12 +121,28 @@ abstract class BCodeOpt extends BCodeTypes {
      *      the producer has its value consumed only by the DROP in question.
      *
      * */
-    def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode) {
+    def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+      var changed  = false
+      var keepGoing = false
+
       do {
-        copyPropagator.transform(cName, mnode)
+
+        keepGoing = false
+
+        copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
+        keepGoing |= copyPropagator.changed
+
         deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+        keepGoing |= deadStoreElim.changed
+
         ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
-      } while (deadStoreElim.changed)
+        keepGoing |= ppCollapser.changed
+
+        changed = (changed || keepGoing)
+
+      } while (keepGoing)
+
+      changed
     }
 
     def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
@@ -204,28 +228,31 @@ abstract class BCodeOpt extends BCodeTypes {
      * The problem is avoided altogether by not emitting unreachable code in the first place.
      *
      */
-    def removeUnreachableCode(owner: String, mnode: MethodNode) {
+    def removeUnreachableCode(owner: String, mnode: MethodNode): Boolean = {
 
       import asm.tree.analysis.{ Analyzer, AnalyzerException, BasicInterpreter, BasicValue, Frame }
       import asm.tree.{ AbstractInsnNode, LabelNode }
 
+      var changed = false
+
       val a = new Analyzer[BasicValue](new BasicInterpreter)
-      try {
-        a.analyze(owner, mnode)
-        val frames: Array[Frame[BasicValue]] = a.getFrames()
-        val insns:  Array[AbstractInsnNode]  = mnode.instructions.toArray()
-        var i = 0
-        while(i < frames.length) {
-          if (frames(i) == null &&
-              insns(i)  != null &&
-              !(insns(i).isInstanceOf[LabelNode])) {
-            mnode.instructions.remove(insns(i));
-          }
-          i += 1
+      a.analyze(owner, mnode)
+
+      val frames: Array[Frame[BasicValue]] = a.getFrames()
+      val insns:  Array[AbstractInsnNode]  = mnode.instructions.toArray()
+
+      var i = 0
+      while(i < frames.length) {
+        if (frames(i) == null &&
+            insns(i)  != null &&
+            !(insns(i).isInstanceOf[LabelNode])) {
+          mnode.instructions.remove(insns(i));
+          changed = true
         }
-      } catch {
-        case ignored : AnalyzerException  => ()
+        i += 1
       }
+
+      changed;
     }
 
   }

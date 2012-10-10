@@ -37,6 +37,10 @@ import scala.tools.asm.tree.analysis.SourceValue;
  */
 public class CopyPropagator {
 
+    /** after transform() has run, this field records whether
+     *  at least one pass of this transformer modified something. */
+    public boolean changed = false;
+
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
         Analyzer<SourceValue> propag = new Analyzer<SourceValue>(new CopyInterpreter());
@@ -44,6 +48,8 @@ public class CopyPropagator {
 
         Frame<SourceValue>[] frames = propag.getFrames();
         AbstractInsnNode[]   insns  = mnode.instructions.toArray();
+
+        changed = false;
 
         int i = 0;
         while(i < frames.length) {
@@ -62,7 +68,10 @@ public class CopyPropagator {
                 int j = 0;
                 while(j < vnode.var) {
                   if(frame.getLocal(j) == source) {
-                    vnode.var = j;
+                    if(vnode.var != j) {
+                        vnode.var = j;
+                        changed = true;
+                    }
                   }
                   j += 1;
                 }

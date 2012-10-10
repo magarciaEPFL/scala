@@ -29,16 +29,22 @@ public class PushPopCollapser {
     private ProdConsAnalyzer cp = null;
     private MethodNode mnode = null;
 
+    /** after transform() has run, this field records whether
+     *  at least one pass of this transformer modified something. */
+    public boolean changed = false;
+
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
         this.mnode = mnode;
 
-        boolean changed = false;
+        changed = false;
+        boolean keepGoing = false;
+
         Set<AbstractInsnNode> skipExam = new HashSet<AbstractInsnNode>();
 
         do {
 
-            changed = false;
+            keepGoing = false;
 
             // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
             this.cp = ProdConsAnalyzer.create();
@@ -59,14 +65,16 @@ public class PushPopCollapser {
                         int size = (drop.getOpcode() == Opcodes.POP ? 1 : 2);
                         neutralizeStackPush(producers, size);
                         mnode.instructions.remove(drop);
-                        changed = true;
+                        keepGoing = true;
                     } else {
                         skipExam.add(drop);
                     }
                 }
             }
 
-        } while(changed);
+            changed = (changed || keepGoing);
+
+        } while(keepGoing);
 
     }
 

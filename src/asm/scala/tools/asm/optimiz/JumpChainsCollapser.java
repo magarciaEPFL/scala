@@ -47,7 +47,12 @@ public class JumpChainsCollapser extends MethodTransformer {
         super(mt);
     }
 
+    /** after transform() has run, this field records whether
+     *  at least one pass of this transformer modified something. */
+    public boolean changed = false;
+
     public void transform(final MethodNode mn) {
+        changed = false;
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
@@ -55,12 +60,16 @@ public class JumpChainsCollapser extends MethodTransformer {
             if (insn instanceof JumpInsnNode) {
                 JumpInsnNode source = (JumpInsnNode) insn;
                 LabelNode finalDest = finalDestLabel(source);
-                source.label = finalDest;
+                if(source.label != finalDest) {
+                    source.label = finalDest;
+                    changed = true;
+                }
                 if (source.getOpcode() == GOTO) {
                     AbstractInsnNode target = insnLabelledBy(finalDest);
                     int op = target.getOpcode();
                     if ((op >= IRETURN && op <= RETURN) || op == ATHROW) {
                         insns.set(source, target.clone(null));
+                        changed = true;
                     }
                 }
             }
