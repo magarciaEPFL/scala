@@ -24,6 +24,7 @@ abstract class BCodeOpt extends BCodeTypes {
   class BCodeCleanser(cnode: asm.tree.ClassNode) {
 
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
+    val unreachCodeRemover  = new asm.optimiz.UnreachableCode
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
 
@@ -89,14 +90,15 @@ abstract class BCodeOpt extends BCodeTypes {
       do {
         keepGoing = false
 
-        jumpsCollapser.transform(mnode)         // collapse a multi-jump chain to target its final destination via a single jump
+        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
         keepGoing |= jumpsCollapser.changed
         repOK(mnode)
 
-        keepGoing |= removeUnreachableCode(cName, mnode)  // remove unreachable code
+        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
+        keepGoing |= unreachCodeRemover.changed
         repOK(mnode)
 
-        labelsCleanup.transform(mnode)          // remove those LabelNodes and LineNumbers that aren't in use
+        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
         keepGoing |= labelsCleanup.changed
         repOK(mnode)
 
@@ -217,42 +219,6 @@ abstract class BCodeOpt extends BCodeTypes {
       }
 
       true
-    }
-
-    /**
-     * Detects and removes unreachable code.
-     *
-     * Should be used last in a transformation chain, before stack map frames are computed.
-     * The Java 6 verifier demands frames be available even for dead code.
-     * Those frames are tricky to compute, http://asm.ow2.org/doc/developer-guide.html#deadcode
-     * The problem is avoided altogether by not emitting unreachable code in the first place.
-     *
-     */
-    def removeUnreachableCode(owner: String, mnode: MethodNode): Boolean = {
-
-      import asm.tree.analysis.{ Analyzer, AnalyzerException, BasicInterpreter, BasicValue, Frame }
-      import asm.tree.{ AbstractInsnNode, LabelNode }
-
-      var changed = false
-
-      val a = new Analyzer[BasicValue](new BasicInterpreter)
-      a.analyze(owner, mnode)
-
-      val frames: Array[Frame[BasicValue]] = a.getFrames()
-      val insns:  Array[AbstractInsnNode]  = mnode.instructions.toArray()
-
-      var i = 0
-      while(i < frames.length) {
-        if (frames(i) == null &&
-            insns(i)  != null &&
-            !(insns(i).isInstanceOf[LabelNode])) {
-          mnode.instructions.remove(insns(i));
-          changed = true
-        }
-        i += 1
-      }
-
-      changed;
     }
 
   }
