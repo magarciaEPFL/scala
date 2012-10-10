@@ -14,8 +14,8 @@ import scala.tools.asm.tree.analysis.SourceValue;
  * Propagates the input value in `copyOperation()`,
  * otherwise propagates a new token standing for an unknown value.
  *
- * TODO propagate constants --- see `newOperation()`
- * TODO propagate field accesses
+ * TODO Another visitor to propagate constants, including specializing IFEQ etc --- see `newOperation()`
+ * TODO Another visitor to propagate field accesses
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0

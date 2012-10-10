@@ -73,7 +73,7 @@ public class PushPopCollapser {
     private boolean isAlreadyMinimized(final Set<AbstractInsnNode> producers, InsnNode drop) {
         if(producers.size() == 1) {
             AbstractInsnNode singleProd = producers.iterator().next();
-            if(singleProd.getNext() == drop) {
+            if(singleProd.getNext() == drop && !Util.hasStackEffectOnly(singleProd)) {
                 return true;
             }
         }

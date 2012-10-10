@@ -10,9 +10,7 @@ package jvm
 
 import scala.tools.asm
 
-import asm.optimiz.{LocalVarCompact, CopyInterpreter}
-import asm.tree.analysis.SourceValue
-import asm.tree.{VarInsnNode, MethodNode}
+import asm.tree.MethodNode
 
 /**
  *  Optimize and tidy-up bytecode before it's emitted for good.
@@ -30,6 +28,7 @@ abstract class BCodeOpt extends BCodeTypes {
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
 
     val cpInterpreter       = new asm.optimiz.CopyInterpreter
+    val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
     val ppCollapser         = new asm.optimiz.PushPopCollapser
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
@@ -51,10 +50,12 @@ abstract class BCodeOpt extends BCodeTypes {
         val isConcrete = ((mnode.access & (asm.Opcodes.ACC_ABSTRACT | asm.Opcodes.ACC_NATIVE)) == 0)
         if(isConcrete) {
           val cName = cnode.name
+
           cleanseMethod(cName, mnode)
           elimRedundantCode(cName, mnode)
           cleanseMethod(cName, mnode)
 
+          lvCompacter.transform(mnode) // compact local vars, remove dangling LocalVariableNodes.
           runTypeFlowAnalysis(cName, mnode) // debug
         }
       }
@@ -110,14 +111,14 @@ abstract class BCodeOpt extends BCodeTypes {
      *    - dead-store elimination
      *    - remove those (producer, consumer) pairs where the consumer is a DROP and
      *      the producer has its value consumed only by the DROP in question.
-     *    - compact local vars to close gaps in numbering of locals, and remove dangling LocalVariableNodes.
      *
      * */
     def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode) {
-      copyPropagate(cName, mnode)
-      deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
-      ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
-      lvCompacter.transform(mnode)           // compact local vars, remove dangling LocalVariableNodes.
+      do {
+        copyPropagator.transform(cName, mnode)
+        deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+        ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+      } while (deadStoreElim.changed)
     }
 
     def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
@@ -133,61 +134,6 @@ abstract class BCodeOpt extends BCodeTypes {
       while(i < frames.length) {
         if (frames(i) == null && insns(i) != null) {
           // TODO assert(false, "There should be no unreachable code left by now.")
-        }
-        i += 1
-      }
-    }
-
-    /**
-     *  Replaces the last link in a chain of data accesses by a direct access to the chain-start.
-     *  A "chain of data accesses" refers to a assignments of the form shown below,
-     *  without any intervening rewriting of v, v1, v2, ..., v9:
-     *
-     *      v1 =  v
-     *       ...
-     *      v2 = v1
-     *       ...
-     *      v9 = v8
-     *
-     *  After this method has run, `LOAD v9` has been replaced with `LOAD v`.
-     *  Similarly for `LOAD v1` to `LOAD v8`.
-     *  Other than that, this method changes nothing else: in particular, say, `STORE v1` to `STORE v9` are left as-is.
-     *  To eliminate dead-stores, use `DeadStoreElim`.
-     *
-     */
-    def copyPropagate(owner: String, mnode: MethodNode) {
-
-      import asm.tree.analysis.{ Analyzer, Frame }
-      import asm.tree.AbstractInsnNode
-
-      val propag = new Analyzer[SourceValue](new CopyInterpreter)
-      propag.analyze(owner, mnode)
-      val frames: Array[Frame[SourceValue]] = propag.getFrames()
-      val insns:  Array[AbstractInsnNode]   = mnode.instructions.toArray()
-      var i = 0
-      while(i < frames.length) {
-        val isVarInsn = {
-          insns(i) != null &&
-          insns(i).getType   == AbstractInsnNode.VAR_INSN &&
-          insns(i).getOpcode != asm.Opcodes.RET
-        }
-        if (isVarInsn) {
-          val vnode  = insns(i).asInstanceOf[VarInsnNode]
-          val frame  = frames(i)
-          val isLoad = (vnode.getOpcode >= asm.Opcodes.ILOAD && vnode.getOpcode <= asm.Opcodes.ALOAD)
-          val source =
-            if(isLoad) { frame.getLocal(vnode.`var`) }
-            else       { frame.getStackTop()         }
-          val hasUniqueSource = (source.insns.size() == 1)
-          if(hasUniqueSource && isLoad) {
-            var j = 0
-            while(j < vnode.`var`) {
-              if(frame.getLocal(j) eq source) {
-                vnode.`var` = j
-              }
-              j += 1
-            }
-          }
         }
         i += 1
       }
