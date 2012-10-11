@@ -172,7 +172,7 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
           debuglog("transforming valdef " + vd.symbol)
 
           if (getExternalAnswerTypeAnn(tpt.tpe).isEmpty) {
-            
+
             atOwner(vd.symbol) {
 
               val rhs1 = transExpr(rhs, None, None)
@@ -195,9 +195,12 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
 
         case _ =>
           if (hasAnswerTypeAnn(tree.tpe)) {
-            if (!cpsAllowed)
-              unit.error(tree.pos, "cps code not allowed here / " + tree.getClass + " / " + tree)
-
+            if (!cpsAllowed) {
+              if (tree.symbol.isLazy)
+                unit.error(tree.pos, "implementation restriction: cps annotations not allowed on lazy value definitions")
+              else
+                unit.error(tree.pos, "cps code not allowed here / " + tree.getClass + " / " + tree)
+            }
             log(tree)
           }
 
@@ -468,7 +471,7 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
           val sym: Symbol = (
             currentOwner.newValue(newTermName(unit.fresh.newName("tmp")), tree.pos, Flags.SYNTHETIC)
               setInfo valueTpe
-              setAnnotations List(AnnotationInfo(MarkerCPSSym.tpe, Nil, Nil))
+              setAnnotations List(AnnotationInfo(MarkerCPSSym.tpe_*, Nil, Nil))
           )
           expr.changeOwner(currentOwner -> sym)
 
@@ -500,9 +503,7 @@ abstract class SelectiveANFTransform extends PluginComponent with Transform with
           // TODO: better yet: do without annotations on symbols
 
           val spcVal = getAnswerTypeAnn(anfRhs.tpe)
-          if (spcVal.isDefined) {
-              tree.symbol.setAnnotations(List(AnnotationInfo(MarkerCPSSym.tpe, Nil, Nil)))
-          }
+          spcVal foreach (_ => tree.symbol setAnnotations List(AnnotationInfo(MarkerCPSSym.tpe_*, Nil, Nil)))
 
           (stms:::List(treeCopy.ValDef(tree, mods, name, tpt, anfRhs)), linearize(spc, spcVal)(unit, tree.pos))
 

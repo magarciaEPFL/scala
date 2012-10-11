@@ -96,7 +96,7 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
       if (!cpsEnabled) return bounds
 
       val anyAtCPS = newCpsParamsMarker(NothingClass.tpe, AnyClass.tpe)
-      if (isFunctionType(tparams.head.owner.tpe) || isPartialFunctionType(tparams.head.owner.tpe)) {
+      if (isFunctionType(tparams.head.owner.tpe_*) || isPartialFunctionType(tparams.head.owner.tpe_*)) {
         vprintln("function bound: " + tparams.head.owner.tpe + "/"+bounds+"/"+targs)
         if (hasCpsParamTypes(targs.last))
           bounds.reverse match {
@@ -356,7 +356,7 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
         global.globalError("not a single cps annotation: " + xs)
         xs(0)
     }
-    
+
     def emptyOrSingleList(xs: List[AnnotationInfo]) = if (xs.isEmpty) Nil else List(single(xs))
 
     def transChildrenInOrder(tree: Tree, tpe: Type, childTrees: List[Tree], byName: List[Tree]) = {
@@ -496,7 +496,11 @@ abstract class CPSAnnotationChecker extends CPSUtils with Modes {
         case ValDef(mods, name, tpt, rhs) =>
           vprintln("[checker] checking valdef " + name + "/"+tpe+"/"+tpt+"/"+tree.symbol.tpe)
           // ValDef symbols must *not* have annotations!
-          if (hasAnswerTypeAnn(tree.symbol.info)) { // is it okay to modify sym here?
+          // lazy vals are currently not supported
+          // but if we erase here all annotations, compiler will complain only
+          // when generating bytecode.
+          // This way lazy vals will be reported as unsupported feature later rather than weird type error.
+          if (hasAnswerTypeAnn(tree.symbol.info) && !mods.isLazy) { // is it okay to modify sym here?
             vprintln("removing annotation from sym " + tree.symbol + "/" + tree.symbol.tpe + "/" + tpt)
             tpt modifyType removeAllCPSAnnotations
             tree.symbol modifyInfo removeAllCPSAnnotations
