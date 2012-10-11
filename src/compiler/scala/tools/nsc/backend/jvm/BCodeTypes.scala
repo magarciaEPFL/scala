@@ -3673,6 +3673,30 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val EXACT_MASK    = 2
   }
 
+  def toBType(t: asm.Type): BType = {
+    (t.getSort: @switch) match {
+      case asm.Type.VOID    => BType.VOID_TYPE
+      case asm.Type.BOOLEAN => BType.BOOLEAN_TYPE
+      case asm.Type.CHAR    => BType.CHAR_TYPE
+      case asm.Type.BYTE    => BType.BYTE_TYPE
+      case asm.Type.SHORT   => BType.SHORT_TYPE
+      case asm.Type.INT     => BType.INT_TYPE
+      case asm.Type.FLOAT   => BType.FLOAT_TYPE
+      case asm.Type.LONG    => BType.LONG_TYPE
+      case asm.Type.DOUBLE  => BType.DOUBLE_TYPE
+      case asm.Type.ARRAY   |
+           asm.Type.OBJECT  |
+           asm.Type.METHOD  =>
+        // TODO confirm whether this also takes care of the phantom types.
+        val key =
+          if(t.getSort == asm.Type.METHOD) t.getDescriptor
+          else t.getInternalName
+
+        val n = global.lookupTypeName(key.toCharArray)
+        new BType(t.getSort, n.start, n.length)
+    }
+  }
+
   /**
    *  Can be used to compute a type-flow analysis for an asm.tree.MethodNode, as in: `tfa.analyze(owner, mnode)`
    *  The abstract state, right before each instruction, comprises abstract values
@@ -3713,30 +3737,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       val n    = global.lookupTypeName(iname.toCharArray)
       val sort = if(chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
       new BType(sort, n.start, n.length)
-    }
-
-    def toBType(t: asm.Type): BType = {
-      (t.getSort: @switch) match {
-        case asm.Type.VOID    => BType.VOID_TYPE
-        case asm.Type.BOOLEAN => BType.BOOLEAN_TYPE
-        case asm.Type.CHAR    => BType.CHAR_TYPE
-        case asm.Type.BYTE    => BType.BYTE_TYPE
-        case asm.Type.SHORT   => BType.SHORT_TYPE
-        case asm.Type.INT     => BType.INT_TYPE
-        case asm.Type.FLOAT   => BType.FLOAT_TYPE
-        case asm.Type.LONG    => BType.LONG_TYPE
-        case asm.Type.DOUBLE  => BType.DOUBLE_TYPE
-        case asm.Type.ARRAY   |
-             asm.Type.OBJECT  |
-             asm.Type.METHOD  =>
-          // TODO confirm whether this also takes care of the phantom types.
-          val key =
-            if(t.getSort == asm.Type.METHOD) t.getDescriptor
-            else t.getInternalName
-
-          val n = global.lookupTypeName(key.toCharArray)
-          new BType(t.getSort, n.start, n.length)
-      }
     }
 
     override def newValue(t: asm.Type): TFValue = {

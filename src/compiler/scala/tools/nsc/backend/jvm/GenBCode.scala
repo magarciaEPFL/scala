@@ -1949,7 +1949,7 @@ abstract class GenBCode extends BCodeOpt {
           case Apply(fun @ _, List(expr)) if (definitions.isBox(fun.symbol)) =>
             val nativeKind = tpeTK(expr)
             genLoad(expr, nativeKind)
-            if (settings.Xdce.value) { // TODO reminder for future work: MethodNode-based closelim and dce.
+            if (true) { // TODO if(settings.optimise.value) ... @see UnBoxElider
               // we store this boxed value to a local, even if not really needed.
               // boxing optimization might use it, and dead code elimination will
               // take care of unnecessary stores

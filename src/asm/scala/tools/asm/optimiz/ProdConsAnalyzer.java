@@ -6,7 +6,8 @@
 
 package scala.tools.asm.optimiz;
 
-import java.util.*;
+import java.util.Set;
+import java.util.Iterator;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.tree.*;
@@ -15,7 +16,6 @@ import scala.tools.asm.tree.analysis.Analyzer;
 import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.SourceValue;
 import scala.tools.asm.tree.analysis.Frame;
-
 /**
  *  A SourceInterpreter can be used in conjunction with an Analyzer
  *  to compute, for each instruction, a Frame containing for each location P
@@ -52,7 +52,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
 
     private final ProdConsInterpreter pt;
 
-    private ProdConsAnalyzer(ProdConsInterpreter pt) {
+    public ProdConsAnalyzer(ProdConsInterpreter pt) {
         super(pt);
         this.pt = pt;
     }

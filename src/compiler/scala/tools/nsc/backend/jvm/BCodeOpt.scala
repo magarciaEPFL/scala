@@ -9,8 +9,8 @@ package backend
 package jvm
 
 import scala.tools.asm
+import asm.tree.{MethodInsnNode, MethodNode}
 
-import asm.tree.MethodNode
 
 /**
  *  Optimize and tidy-up bytecode before it's emitted for good.
@@ -32,6 +32,8 @@ abstract class BCodeOpt extends BCodeTypes {
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
     val ppCollapser         = new asm.optimiz.PushPopCollapser
+    val unboxElider         = new UnBoxElider
+
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
     cleanseClass();
@@ -124,7 +126,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *
      * */
     def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
-      var changed  = false
+      var changed   = false
       var keepGoing = false
 
       do {
@@ -139,6 +141,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
         ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         keepGoing |= ppCollapser.changed
+
+        unboxElider.transform(cName, mnode)    // remove unbox ops
+        keepGoing |= unboxElider.changed
 
         changed = (changed || keepGoing)
 
@@ -219,6 +224,162 @@ abstract class BCodeOpt extends BCodeTypes {
       }
 
       true
+    }
+
+  }
+
+  /**
+   * Upon visiting an unbox instruction, copy-propagation may inform that some local-var holds
+   * at that program-point the unboxed counterpart for the boxed value on top of the stack.
+   * In this case, the unbox is replaced with two instructions (drop followed by load of the local).
+   *
+   * The code pattern above is common given that ... GenBCode emits it on purpose!
+   * TODO it's counterproductive for a previous transform (e.g. peephole) to remove the {STORE_LOCAL; LOAD_LOCAL} sequence.
+   *
+   * Another transformer (PushPopCollapser) can be used to further simplify the resulting code,
+   * which looks as follows after this transformation:
+   *
+   *     <load of unboxed value>
+   *     STORE_LOCAL local-var
+   *     LOAD_LOCAL  local-var
+   *     BOX
+   *     . . .
+   *     // there used to be an UNBOX that was elided
+   *     DROP
+   *     LOAD_LOCAL local-var
+   *
+   * How to detect the code pattern to perform the rewriting?
+   * Let's play out at the *microscopic* level how CopyPropagator interprets each instruction:
+   *
+   *     <load of unboxed value>    ---->    a SourceValue pointing to this instruction is pushed onto the stack
+   *     STORE_LOCAL local-var      ---->    the above SourceValue is copied as-is to the slot for the local-var in question
+   *     LOAD_LOCAL  local-var      ---->    the above SourceValue is pushed as-is onto the stack
+   *     BOX                        ---->    pop of previous value, a new SourceValue is pushed.
+   *                                         Its single producer is the same SourceValue (in the object identity sense)
+   *                                         as for the local-var slot (provided the local-var couldn't have been overwritten in the meantime).
+   *     UNBOX                      ---->    This is where the SourceValue described above is recognized.
+   *
+   *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
+   *  @version 1.0
+   *
+   */
+  class UnBoxElider {
+
+    val BoxesRunTime = "scala/runtime/BoxesRunTime"
+
+    import asm.tree.{AbstractInsnNode, MethodInsnNode}
+
+    /** after transform() has run, this field records whether
+     *  at least one pass of this transformer modified something. */
+    var changed = false
+
+    def transform(owner: String, mnode: MethodNode) {
+
+      import asm.optimiz.ProdConsAnalyzer
+
+      changed = false;
+
+      // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
+      val cp = new ProdConsAnalyzer(new CopyPCInterpreter)
+      cp.analyze(owner, mnode);
+
+      val frames = cp.getFrames()
+      val insns  = mnode.instructions.toArray()
+
+      var i = 0;
+      while(i < frames.length) {
+        if (frames(i) != null && insns(i) != null && isUnBox(insns(i))) {
+          val unboxSV = frames(i).getStackTop
+          // UNBOX must find something on the stack, yet it may happen that `unboxSV.insns.size() == 0`
+          // because of the way Analyzer populates params-slots on method entry: they lack "producer" instructions.
+          if(unboxSV.insns.size() == 1) {
+            val unboxProd = unboxSV.insns.iterator().next();
+            if(isBox(unboxProd)) {
+              val boxIdx    = mnode.instructions.indexOf(unboxProd)
+              val unboxedSV = frames(boxIdx).getStackTop
+              var localIdx  = 0
+              var keepGoing = (unboxedSV.insns.size() == 1)
+              while(keepGoing && localIdx < mnode.maxLocals) {
+                if(frames(i).getLocal(localIdx) eq unboxedSV) {
+                  val drop      = new asm.tree.InsnNode(asm.Opcodes.POP)
+                  val unboxedT  = asm.Type.getReturnType(insns(i).asInstanceOf[MethodInsnNode].desc)
+                  val loadOpc   = unboxedT.getOpcode(asm.Opcodes.ILOAD)
+                  val loadLocal = new asm.tree.VarInsnNode(loadOpc, localIdx)
+                  mnode.instructions.insert(insns(i), drop)
+                  mnode.instructions.insert(drop, loadLocal)
+                  mnode.instructions.remove(insns(i))
+                  changed   = true
+                  keepGoing = false
+                }
+                localIdx += 1
+              }
+            }
+            // TODO unpatch GenBCode (add unbox-var only when settings.optimise.value, currently always added)
+          }
+        }
+        i += 1;
+      }
+
+    }
+
+    private def isUnBox(insn: AbstractInsnNode): Boolean = {
+      if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
+         insn.getOpcode() != asm.Opcodes.INVOKESTATIC) {
+        return false;
+      }
+
+      isUnBoxCall(insn.asInstanceOf[MethodInsnNode])
+    }
+
+    private def isUnBoxCall(mi: MethodInsnNode): Boolean = {
+      mi.owner == BoxesRunTime &&
+        {
+          val retType  = BType.getReturnType(mi.desc)
+          val argTypes = BType.getArgumentTypes((mi.desc))
+
+          argTypes.size == 1 &&
+          asmUnboxTo.contains(retType) &&
+            {
+              val nt = asmUnboxTo(retType)
+              nt.mname == mi.name && nt.mdesc == mi.desc
+            }
+        }
+    }
+
+    private def isBox(insn: AbstractInsnNode): Boolean = {
+      if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
+         insn.getOpcode() != asm.Opcodes.INVOKESTATIC) {
+        return false;
+      }
+
+      isBoxCall(insn.asInstanceOf[MethodInsnNode])
+    }
+
+    private def isBoxCall(mi: MethodInsnNode): Boolean = {
+      mi.owner == BoxesRunTime &&
+        {
+          val retType  = BType.getReturnType(mi.desc)
+          val argTypes = BType.getArgumentTypes((mi.desc))
+
+          argTypes.size == 1 &&
+          asmBoxTo.contains(argTypes(0)) &&
+            {
+              val nt = asmBoxTo(argTypes(0))
+              nt.mname == mi.name && nt.mdesc == mi.desc
+            }
+        }
+    }
+
+  }
+
+  class CopyPCInterpreter extends asm.optimiz.ProdConsInterpreter {
+
+    import asm.tree.AbstractInsnNode
+    import asm.tree.analysis.SourceValue
+
+    override def copyOperation(insn: AbstractInsnNode, value: SourceValue): SourceValue = {
+      update(value, insn);
+      return value;
     }
 
   }

@@ -38,7 +38,7 @@ public class ProdConsInterpreter extends SourceInterpreter {
         super(ASM4);
     }
 
-    protected ProdConsInterpreter(final int api) {
+    public ProdConsInterpreter(final int api) {
         super(api);
     }
 
@@ -66,7 +66,7 @@ public class ProdConsInterpreter extends SourceInterpreter {
     // internal methods
     // ------------------------------------------------------------------------
 
-    private void update(final SourceValue producers, final AbstractInsnNode consumer) {
+    public void update(final SourceValue producers, final AbstractInsnNode consumer) {
         updateProducers(producers, consumer);
         updateConsumers(producers, consumer);
     }
