@@ -70,10 +70,11 @@ public class Util {
         return new InsnNode(opc);
     }
 
-    public static boolean hasStackEffectOnly(AbstractInsnNode producer) {
+    public static boolean hasPushEffectOnly(AbstractInsnNode producer) {
         if(Util.isLOAD(producer)) return true;
         // we leave out LDC <type> on purpose.
         if(Util.isPrimitiveConstant(producer) || Util.isStringConstant(producer)) return true;
+        // TODO DUP
         // TODO check whether a NEW has no side-effects (via constructors).
         return false;
     }

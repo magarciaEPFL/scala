@@ -6,7 +6,7 @@
 
 package scala.tools.asm.optimiz;
 
-import scala.tools.asm.Opcodes;
+import scala.tools.asm.*;
 import scala.tools.asm.tree.*;
 
 import scala.tools.asm.tree.analysis.AnalyzerException;
@@ -81,7 +81,7 @@ public class PushPopCollapser {
     private boolean isAlreadyMinimized(final Set<AbstractInsnNode> producers, InsnNode drop) {
         if(producers.size() == 1) {
             AbstractInsnNode singleProd = producers.iterator().next();
-            if(singleProd.getNext() == drop && !Util.hasStackEffectOnly(singleProd)) {
+            if(singleProd.getNext() == drop && !canSimplify(singleProd)) {
                 return true;
             }
         }
@@ -94,12 +94,26 @@ public class PushPopCollapser {
         Iterator<AbstractInsnNode> iter = producers.iterator();
         while (iter.hasNext()) {
             AbstractInsnNode prod = iter.next();
-            if(Util.hasStackEffectOnly(prod)) {
+            if(Util.hasPushEffectOnly(prod)) {
+                // remove altogether the instruction that pushes.
+                mnode.instructions.remove(prod);
+            } else if(SSLUtil.isSideEffectFreeCall(prod)) {
+                // replace the call-instruction that pushes with as many DROPs as arguments it expects on the stack.
+                MethodInsnNode mi = (MethodInsnNode) prod;
+                Type[] argTs = Type.getArgumentTypes(mi.desc);
+                for(int argIdx = 0; argIdx < argTs.length; argIdx++) {
+                    mnode.instructions.insert(prod, Util.getDrop(argTs[argIdx].getSize()));
+                }
                 mnode.instructions.remove(prod);
             } else {
+                // leave in place the instruction that pushes, add a DROP right after it.
                 mnode.instructions.insert(prod, Util.getDrop(size));
             }
         }
+    }
+
+    private boolean canSimplify(AbstractInsnNode producer) {
+        return Util.hasPushEffectOnly(producer) || SSLUtil.isSideEffectFreeCall(producer);
     }
 
 }
