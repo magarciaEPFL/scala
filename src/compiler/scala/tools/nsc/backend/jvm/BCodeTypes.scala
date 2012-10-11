@@ -2390,7 +2390,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         // Before erasure so we can identify generic mains.
         enteringErasure {
           val companion     = sym.linkedClassOfClass
-          val companionMain = companion.tpe.member(nme.main)
+          val companionMain = companion.tpe_*.member(nme.main)
 
           if (definitions.hasJavaMainMethod(companion))
             failNoForwarder("companion contains its own main method")
