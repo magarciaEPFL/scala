@@ -275,7 +275,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
     def transform(owner: String, mnode: MethodNode) {
 
-      import asm.optimiz.ProdConsAnalyzer
+      import asm.optimiz.{ProdConsAnalyzer, SSLUtil}
 
       changed = false;
 
@@ -288,13 +288,13 @@ abstract class BCodeOpt extends BCodeTypes {
 
       var i = 0;
       while(i < frames.length) {
-        if (frames(i) != null && insns(i) != null && isUnBox(insns(i))) {
+        if (frames(i) != null && insns(i) != null && SSLUtil.isUnBox(insns(i))) {
           val unboxSV = frames(i).getStackTop
           // UNBOX must find something on the stack, yet it may happen that `unboxSV.insns.size() == 0`
           // because of the way Analyzer populates params-slots on method entry: they lack "producer" instructions.
           if(unboxSV.insns.size() == 1) {
             val unboxProd = unboxSV.insns.iterator().next();
-            if(isBox(unboxProd)) {
+            if(SSLUtil.isBox(unboxProd)) {
               val boxIdx    = mnode.instructions.indexOf(unboxProd)
               val unboxedSV = frames(boxIdx).getStackTop
               var localIdx  = 0
@@ -320,54 +320,6 @@ abstract class BCodeOpt extends BCodeTypes {
         i += 1;
       }
 
-    }
-
-    private def isUnBox(insn: AbstractInsnNode): Boolean = {
-      if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
-         insn.getOpcode() != asm.Opcodes.INVOKESTATIC) {
-        return false;
-      }
-
-      isUnBoxCall(insn.asInstanceOf[MethodInsnNode])
-    }
-
-    private def isUnBoxCall(mi: MethodInsnNode): Boolean = {
-      mi.owner == BoxesRunTime &&
-        {
-          val retType  = BType.getReturnType(mi.desc)
-          val argTypes = BType.getArgumentTypes((mi.desc))
-
-          argTypes.size == 1 &&
-          asmUnboxTo.contains(retType) &&
-            {
-              val nt = asmUnboxTo(retType)
-              nt.mname == mi.name && nt.mdesc == mi.desc
-            }
-        }
-    }
-
-    private def isBox(insn: AbstractInsnNode): Boolean = {
-      if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
-         insn.getOpcode() != asm.Opcodes.INVOKESTATIC) {
-        return false;
-      }
-
-      isBoxCall(insn.asInstanceOf[MethodInsnNode])
-    }
-
-    private def isBoxCall(mi: MethodInsnNode): Boolean = {
-      mi.owner == BoxesRunTime &&
-        {
-          val retType  = BType.getReturnType(mi.desc)
-          val argTypes = BType.getArgumentTypes((mi.desc))
-
-          argTypes.size == 1 &&
-          asmBoxTo.contains(argTypes(0)) &&
-            {
-              val nt = asmBoxTo(argTypes(0))
-              nt.mname == mi.name && nt.mdesc == mi.desc
-            }
-        }
     }
 
   }

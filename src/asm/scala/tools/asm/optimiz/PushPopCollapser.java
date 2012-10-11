@@ -97,6 +97,9 @@ public class PushPopCollapser {
             if(Util.hasPushEffectOnly(prod)) {
                 // remove altogether the instruction that pushes.
                 mnode.instructions.remove(prod);
+            } else if(SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
+                // remove altogether the instruction that pushes.
+                mnode.instructions.remove(prod);
             } else if(SSLUtil.isSideEffectFreeCall(prod)) {
                 // replace the call-instruction that pushes with as many DROPs as arguments it expects on the stack.
                 MethodInsnNode mi = (MethodInsnNode) prod;
@@ -113,7 +116,7 @@ public class PushPopCollapser {
     }
 
     private boolean canSimplify(AbstractInsnNode producer) {
-        return Util.hasPushEffectOnly(producer) || SSLUtil.isSideEffectFreeCall(producer);
+        return Util.hasPushEffectOnly(producer) || SSLUtil.isSideEffectFree(producer);
     }
 
 }

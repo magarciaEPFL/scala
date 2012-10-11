@@ -10,6 +10,7 @@ import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.FieldInsnNode;
 
 /**
  *  Utilities about bytecode specific to the Scala Standard Library.
@@ -23,6 +24,19 @@ public class SSLUtil {
     // ------------------------------------------------------------------------
     // utilities made available to clients
     // ------------------------------------------------------------------------
+
+    public static boolean isSideEffectFree(AbstractInsnNode producer) {
+        if(isSideEffectFreeCall(producer) || isSideEffectFreeGETSTATIC(producer)) return true;
+        return false;
+    }
+
+    public static boolean isSideEffectFreeGETSTATIC(AbstractInsnNode producer) {
+        if(producer.getType() == AbstractInsnNode.FIELD_INSN) {
+            FieldInsnNode fi = (FieldInsnNode)producer;
+            return "scala/runtime/BoxedUnit".equals(fi.owner) && "UNIT".equals(fi.name);
+        }
+        return false;
+    }
 
     public static boolean isSideEffectFreeCall(AbstractInsnNode producer) {
         if(isUnBox(producer) || isBox(producer)) return true;
