@@ -33,6 +33,7 @@ abstract class BCodeOpt extends BCodeTypes {
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
     val ppCollapser         = new asm.optimiz.PushPopCollapser
     val unboxElider         = new UnBoxElider
+    val jumpReducer         = new asm.optimiz.JumpReducer(null)
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
@@ -144,6 +145,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
         unboxElider.transform(cName, mnode)    // remove unbox ops
         keepGoing |= unboxElider.changed
+
+        jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
+        keepGoing |= jumpReducer.changed
 
         changed = (changed || keepGoing)
 

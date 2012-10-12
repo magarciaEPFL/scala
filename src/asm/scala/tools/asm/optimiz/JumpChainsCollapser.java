@@ -65,7 +65,7 @@ public class JumpChainsCollapser extends MethodTransformer {
                     changed = true;
                 }
                 if (source.getOpcode() == GOTO) {
-                    AbstractInsnNode target = insnLabelledBy(finalDest);
+                    AbstractInsnNode target = Util.insnLabelledBy(finalDest);
                     int op = target.getOpcode();
                     if ((op >= IRETURN && op <= RETURN) || op == ATHROW) {
                         insns.set(source, target.clone(null));
@@ -77,18 +77,6 @@ public class JumpChainsCollapser extends MethodTransformer {
         super.transform(mn);
     }
 
-    /**
-     *  Returns the executable instruction (if any) denoted by the argument, null otherwise.
-     */
-    private AbstractInsnNode insnLabelledBy(final LabelNode label) {
-        assert label != null;
-        AbstractInsnNode labelled = label;
-        while (labelled != null && labelled.getOpcode() < 0) {
-            labelled = labelled.getNext();
-        }
-        return labelled;
-    }
-
     private LabelNode finalDestLabel(final JumpInsnNode source) {
         assert source != null;
 
@@ -98,7 +86,7 @@ public class JumpChainsCollapser extends MethodTransformer {
         LabelNode label = source.label;
 
         do {
-            AbstractInsnNode dest = insnLabelledBy(label);
+            AbstractInsnNode dest = Util.insnLabelledBy(label);
             if(dest.getOpcode() != GOTO) {
                 return label;
             }
