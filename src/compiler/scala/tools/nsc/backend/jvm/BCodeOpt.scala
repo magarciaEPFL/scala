@@ -9,7 +9,7 @@ package backend
 package jvm
 
 import scala.tools.asm
-import asm.tree.{MethodInsnNode, MethodNode}
+import asm.tree.MethodNode
 
 
 /**
@@ -18,6 +18,10 @@ import asm.tree.{MethodInsnNode, MethodNode}
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  *
+ *  TODO ConstantFolding, including specializing IFEQ etc
+ *  TODO FieldValuePropagation, to propagate field accesses
+ *
+ *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  */
 abstract class BCodeOpt extends BCodeTypes {
 
@@ -79,10 +83,6 @@ abstract class BCodeOpt extends BCodeTypes {
      *  Some of the above are applied repeatedly until no further reductions occur.
      *
      *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
-     *
-     *  TODO PENDING (assuming their activation conditions will trigger):
-     *    - peephole rewriting
-     *    - Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
      *
      */
     def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
@@ -181,6 +181,9 @@ abstract class BCodeOpt extends BCodeTypes {
      *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
      */
     def repOK(mnode: asm.tree.MethodNode): Boolean = {
+      if(!global.settings.debug.value) {
+        return true;
+      }
 
           def isInsn(insn: asm.tree.AbstractInsnNode) {
             assert(mnode.instructions.contains(insn))
@@ -233,7 +236,7 @@ abstract class BCodeOpt extends BCodeTypes {
   }
 
   /**
-   * Upon visiting an unbox instruction, copy-propagation may inform that some local-var holds
+   * Upon visiting an unbox callsite, copy-propagation may inform that some local-var holds
    * at that program-point the unboxed counterpart for the boxed value on top of the stack.
    * In this case, the unbox is replaced with two instructions (drop followed by load of the local).
    *
@@ -271,7 +274,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
     val BoxesRunTime = "scala/runtime/BoxesRunTime"
 
-    import asm.tree.{AbstractInsnNode, MethodInsnNode}
+    import asm.tree.MethodInsnNode
 
     /** after transform() has run, this field records whether
      *  at least one pass of this transformer modified something. */
@@ -292,13 +295,13 @@ abstract class BCodeOpt extends BCodeTypes {
 
       var i = 0;
       while(i < frames.length) {
-        if (frames(i) != null && insns(i) != null && SSLUtil.isUnBox(insns(i))) {
+        if (frames(i) != null && insns(i) != null && SSLUtil.isScalaUnBox(insns(i))) {
           val unboxSV = frames(i).getStackTop
           // UNBOX must find something on the stack, yet it may happen that `unboxSV.insns.size() == 0`
           // because of the way Analyzer populates params-slots on method entry: they lack "producer" instructions.
           if(unboxSV.insns.size() == 1) {
             val unboxProd = unboxSV.insns.iterator().next();
-            if(SSLUtil.isBox(unboxProd)) {
+            if(SSLUtil.isScalaBox(unboxProd)) {
               val boxIdx    = mnode.instructions.indexOf(unboxProd)
               val unboxedSV = frames(boxIdx).getStackTop
               var localIdx  = 0

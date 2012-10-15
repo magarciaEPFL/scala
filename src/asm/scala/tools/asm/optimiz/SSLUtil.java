@@ -39,20 +39,20 @@ public class SSLUtil {
     }
 
     public static boolean isSideEffectFreeCall(AbstractInsnNode producer) {
-        if(isUnBox(producer) || isBox(producer)) return true;
+        if(isScalaUnBox(producer) || isScalaBox(producer)) return true;
         return false;
     }
 
-    public static boolean isUnBox(AbstractInsnNode insn) {
+    public static boolean isScalaUnBox(AbstractInsnNode insn) {
       if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
          insn.getOpcode() != Opcodes.INVOKESTATIC) {
         return false;
       }
 
-      return isUnBoxCall((MethodInsnNode)insn);
+      return isScalaUnBoxCall((MethodInsnNode)insn);
     }
 
-    public static boolean isUnBoxCall(MethodInsnNode mi) {
+    public static boolean isScalaUnBoxCall(MethodInsnNode mi) {
 
         if(!mi.owner.equals(BoxesRunTime)) return false;
 
@@ -73,16 +73,16 @@ public class SSLUtil {
 
     }
 
-    public static boolean isBox(AbstractInsnNode insn) {
+    public static boolean isScalaBox(AbstractInsnNode insn) {
       if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
          insn.getOpcode() != Opcodes.INVOKESTATIC) {
         return false;
       }
 
-      return isBoxCall((MethodInsnNode)insn);
+      return isScalaBoxCall((MethodInsnNode)insn);
     }
 
-    public static boolean isBoxCall(MethodInsnNode mi) {
+    public static boolean isScalaBoxCall(MethodInsnNode mi) {
 
         if(!mi.owner.equals(BoxesRunTime)) return false;
 
