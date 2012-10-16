@@ -258,16 +258,18 @@ public class NullnessPropagator {
         }
 
         MethodNode mnode = null;
-        Frame<StatusValue>[] frames = null;
+        NullnessFrame[] frames = null;
 
         @Override
-        public Frame[] analyze(final String owner, final MethodNode mnode) throws AnalyzerException {
+        public NullnessFrame[] analyze(final String owner, final MethodNode mnode) throws AnalyzerException {
             this.mnode = mnode;
-            frames = super.analyze(owner, mnode);
+            Frame[] src = super.analyze(owner, mnode);
+            frames = new NullnessFrame[src.length];
+            System.arraycopy(src, 0, frames, 0, src.length);
             return frames;
         }
 
-        public Frame<StatusValue> frameAt(AbstractInsnNode insn) {
+        public NullnessFrame frameAt(AbstractInsnNode insn) {
             int idx = mnode.instructions.indexOf(insn);
             return frames[idx];
         }
@@ -284,7 +286,67 @@ public class NullnessPropagator {
 
         // TODO newException()
 
+        /**
+         * Constructs a new frame with the given size.
+         *
+         * @param nLocals the maximum number of local variables of the frame.
+         * @param nStack the maximum stack size of the frame.
+         * @return the created frame.
+         */
+        @Override
+        protected NullnessFrame newFrame(final int nLocals, final int nStack) {
+            return new NullnessFrame(nLocals, nStack);
+        }
+
+        /**
+         * Constructs a new frame that is identical to the given frame.
+         *
+         * @param src a frame.
+         * @return the created frame.
+         */
+        @Override
+        protected NullnessFrame newFrame(final Frame src) {
+            return new NullnessFrame(src);
+        }
+
     } // end of nested class NullnessAnalyzer
+
+    static private class NullnessFrame extends Frame<StatusValue> {
+
+        /**
+         * Constructs a new frame with the given size.
+         *
+         * @param nLocals the maximum number of local variables of the frame.
+         * @param nStack the maximum stack size of the frame.
+         */
+        public NullnessFrame(final int nLocals, final int nStack) {
+            super(nLocals, nStack);
+        }
+
+        /**
+         * Constructs a new frame that is identical to the given frame.
+         *
+         * @param src a frame.
+         */
+        public NullnessFrame(final Frame src) {
+            super(src);
+        }
+
+        public void execute(
+            final AbstractInsnNode insn,
+            final StatusInterpreter interpreter) throws AnalyzerException
+        {
+            StatusValue value1, value2, value3, value4;
+            List<StatusValue> values;
+            int var;
+
+            switch (insn.getOpcode()) {
+                case Opcodes.NOP:
+                    break;
+            }
+        }
+
+    } // end of nested class NullnessFrame
 
 
 } // end of class NullnessPropagator
