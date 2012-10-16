@@ -67,12 +67,12 @@ public class Frame<V extends Value> {
     /**
      * The number of local variables of this frame.
      */
-    private int locals;
+    protected int locals;
 
     /**
      * The number of elements in the operand stack.
      */
-    private int top;
+    protected int top;
 
     /**
      * Constructs a new frame with the given size.
@@ -165,6 +165,14 @@ public class Frame<V extends Value> {
      */
     public int getStackSize() {
         return top;
+    }
+
+    protected V peekValue(final int i) throws IndexOutOfBoundsException {
+        return values[i];
+    }
+
+    protected void pokeValue(final int i, final V v) throws IndexOutOfBoundsException {
+        values[i] = v;
     }
 
     /**

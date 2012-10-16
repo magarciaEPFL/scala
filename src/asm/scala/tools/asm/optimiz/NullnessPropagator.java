@@ -104,7 +104,7 @@ public class NullnessPropagator {
             return size + status.hashCode();
         }
 
-    } // end of class StatusValue
+    } // end of nested class StatusValue
 
 
     static public class StatusInterpreter extends SizingInterpreter<StatusValue> {
@@ -244,7 +244,7 @@ public class NullnessPropagator {
             return false;
         }
 
-    } // end of class StatusInterpreter
+    } // end of nested class StatusInterpreter
 
 
 
@@ -284,8 +284,6 @@ public class NullnessPropagator {
             }
             return sv;
         }
-
-        // TODO newException()
 
         /**
          * Constructs a new frame with the given size.
@@ -338,16 +336,89 @@ public class NullnessPropagator {
             final AbstractInsnNode insn,
             final Interpreter<StatusValue> interpreter) throws AnalyzerException
         {
-            StatusValue saved1, saved2, saved3, saved4;
-            List<StatusValue> savedValues;
-            int var;
+
+            StatusValue ref = null;
 
             switch (insn.getOpcode()) {
-                case Opcodes.NOP:
+                case Opcodes.IALOAD:
+                case Opcodes.LALOAD:
+                case Opcodes.FALOAD:
+                case Opcodes.DALOAD:
+                case Opcodes.AALOAD:
+                case Opcodes.BALOAD:
+                case Opcodes.CALOAD:
+                case Opcodes.SALOAD:
+                    ref = peekDown(1);
                     break;
+                case Opcodes.IASTORE:
+                case Opcodes.FASTORE:
+                case Opcodes.AASTORE:
+                case Opcodes.BASTORE:
+                case Opcodes.CASTORE:
+                case Opcodes.SASTORE:
+                    ref = peekDown(2);
+                    break;
+                case Opcodes.LASTORE:
+                case Opcodes.DASTORE:
+                    ref = peekDown(3);
+                    break;
+                case Opcodes.GETFIELD:
+                case Opcodes.PUTFIELD:
+                    ref = getStackTop();
+                    break;
+                case Opcodes.INVOKEVIRTUAL:
+                case Opcodes.INVOKESPECIAL:
+                case Opcodes.INVOKEINTERFACE:
+                    String desc  = ((MethodInsnNode) insn).desc;
+                    Type[] argTs = Type.getArgumentTypes(desc);
+                    int skip = 0;
+                    for(int i = 0; i < argTs.length; i++) {
+                        skip += argTs[i].getSize();
+                    }
+                    ref = peekDown(skip);
+                    break;
+                case Opcodes.ARRAYLENGTH:
+                case Opcodes.MONITORENTER:
+                case Opcodes.MONITOREXIT:
+                    ref = getStackTop();
+                    break;
+                // TODO it would be great to compute dedicated state frames for each branch of IFNULL and IFNONNULL
+                default:
+                    ref = null;
             }
 
             super.execute(insn, interpreter);
+
+            if(ref != null) {
+                markNONNULL(ref);
+            }
+        }
+
+        /**
+         *  Returns the n-th stack element counting from top starting at 0.
+         *  E.g., peekDown(0) amounts to getStackTop()
+         *        peekDown(1) is the element pushed just before the above, and so on.
+         *
+         *  The argument must take into account the size of each element (e.g., Long has size 2).
+         *
+         * */
+        private StatusValue peekDown(int n) {
+            assert n >= 0;
+            int idxTop = getStackSize() - 1;
+            return getStack(idxTop - n);
+        }
+
+        private void markNONNULL(StatusValue sv) {
+            if(sv.isNonNull()) return;
+            if(sv.isNull()) {
+                // inform about impending runtime NPE.
+            }
+            StatusValue checked = sv.checkedNONNULL();
+            for(int i = 0; i < locals + top; i++) {
+                if(peekValue(i) == sv) {
+                    pokeValue(i, checked);
+                }
+            }
         }
 
     } // end of nested class NullnessFrame
