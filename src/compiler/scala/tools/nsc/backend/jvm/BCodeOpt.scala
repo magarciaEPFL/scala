@@ -38,6 +38,7 @@ abstract class BCodeOpt extends BCodeTypes {
     val ppCollapser         = new asm.optimiz.PushPopCollapser
     val unboxElider         = new UnBoxElider
     val jumpReducer         = new asm.optimiz.JumpReducer(null)
+    val nullnessPropagator  = new asm.optimiz.NullnessPropagator
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
@@ -67,6 +68,9 @@ abstract class BCodeOpt extends BCodeTypes {
             keepGoing |= elimRedundantCode(cName, mnode)
 
           } while(keepGoing)
+
+          nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+          // keepGoing |= nullnessPropagator.changed
 
           lvCompacter.transform(mnode) // compact local vars, remove dangling LocalVariableNodes.
           runTypeFlowAnalysis(cName, mnode) // debug

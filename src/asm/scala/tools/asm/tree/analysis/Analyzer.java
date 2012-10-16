@@ -156,14 +156,18 @@ public class Analyzer<V extends Value> implements Opcodes {
         current.setReturn(interpreter.newValue(Type.getReturnType(m.desc)));
         Type[] args = Type.getArgumentTypes(m.desc);
         int local = 0;
-        if ((m.access & ACC_STATIC) == 0) {
+        boolean isInstanceMethod = (m.access & ACC_STATIC) == 0;
+        if (isInstanceMethod) {
             Type ctype = Type.getObjectType(owner);
-            current.setLocal(local++, interpreter.newValue(ctype));
+            current.setLocal(local, newLocal(current, isInstanceMethod, 0, ctype));
+            local += 1;
         }
         for (int i = 0; i < args.length; ++i) {
-            current.setLocal(local++, interpreter.newValue(args[i]));
+            current.setLocal(local, newLocal(current, isInstanceMethod, local, args[i]));
+            local += 1;
             if (args[i].getSize() == 2) {
-                current.setLocal(local++, interpreter.newValue(null));
+                current.setLocal(local, interpreter.newValue(null));
+                local += 1;
             }
         }
         while (local < m.maxLocals) {
@@ -286,7 +290,7 @@ public class Analyzer<V extends Value> implements Opcodes {
                         if (newControlFlowExceptionEdge(insn, tcb)) {
                             handler.init(f);
                             handler.clearStack();
-                            handler.push(interpreter.newValue(type));
+                            handler.push(newException(tcb, handler, type));
                             merge(jump, handler, subroutine);
                         }
                     }
@@ -546,4 +550,13 @@ public class Analyzer<V extends Value> implements Opcodes {
             queue[top++] = insn;
         }
     }
+
+    protected V newLocal(Frame current, boolean isInstanceMethod, int idx, Type ctype) {
+        return interpreter.newValue(ctype);
+    }
+
+    protected V newException(TryCatchBlockNode tcb, Frame current, Type type) {
+        return interpreter.newValue(type);
+    }
+
 }

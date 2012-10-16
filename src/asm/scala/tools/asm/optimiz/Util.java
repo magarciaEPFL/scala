@@ -8,10 +8,13 @@ package scala.tools.asm.optimiz;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
+
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.InsnNode;
 import scala.tools.asm.tree.LdcInsnNode;
 import scala.tools.asm.tree.LabelNode;
+import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.MethodNode;
 
 /**
  *  Utilities.
@@ -162,6 +165,36 @@ public class Util {
         if(xTarget == null) return false;
         AbstractInsnNode yTarget = insnLabelledBy(y);
         return xTarget == yTarget;
+    }
+
+    // ------------------------------------------------------------------------
+    // boxing and unboxing
+    // ------------------------------------------------------------------------
+
+    public static boolean isInstanceMethod(MethodNode m) {
+        return (m.access & Opcodes.ACC_STATIC) == 0;
+    }
+
+    public static boolean isJavaBoxCall(MethodInsnNode mi) {
+
+        if(!"valueOf".equals(mi.name)) return false;
+
+        Type[] argTs = Type.getArgumentTypes(mi.desc);
+        if(argTs.length != 1) return false;
+
+        switch (argTs[0].getSort()) {
+            case Type.BOOLEAN: return "java/lang/Boolean".equals(mi.owner)   && "(Z)Ljava/lang/Boolean;".equals(mi.desc);
+            case Type.BYTE:    return "java/lang/Byte".equals(mi.owner)      && "(B)Ljava/lang/Byte;".equals(mi.desc);
+            case Type.CHAR:    return "java/lang/Character".equals(mi.owner) && "(C)Ljava/lang/Character;".equals(mi.desc);
+            case Type.SHORT:   return "java/lang/Short".equals(mi.owner)     && "(S)Ljava/lang/Short;".equals(mi.desc);
+            case Type.INT:     return "java/lang/Integer".equals(mi.owner)   && "(I)Ljava/lang/Integer;".equals(mi.desc);
+            case Type.LONG:    return "java/lang/Long".equals(mi.owner)      && "(J)Ljava/lang/Long;".equals(mi.desc);
+            case Type.FLOAT:   return "java/lang/Float".equals(mi.owner)     && "(F)Ljava/lang/Float;".equals(mi.desc);
+            case Type.DOUBLE:  return "java/lang/Double".equals(mi.owner)    && "(D)Ljava/lang/Double;".equals(mi.desc);
+
+            default: return false;
+        }
+
     }
 
 }
