@@ -25,12 +25,12 @@ public class SSLUtil {
     // utilities made available to clients
     // ------------------------------------------------------------------------
 
-    public static boolean isSideEffectFree(AbstractInsnNode producer) {
+    public static boolean isSideEffectFree(final AbstractInsnNode producer) {
         if(isSideEffectFreeCall(producer) || isSideEffectFreeGETSTATIC(producer)) return true;
         return false;
     }
 
-    public static boolean isSideEffectFreeGETSTATIC(AbstractInsnNode producer) {
+    public static boolean isSideEffectFreeGETSTATIC(final AbstractInsnNode producer) {
         if(producer.getType() == AbstractInsnNode.FIELD_INSN) {
             FieldInsnNode fi = (FieldInsnNode)producer;
             return "scala/runtime/BoxedUnit".equals(fi.owner) && "UNIT".equals(fi.name);
@@ -38,12 +38,12 @@ public class SSLUtil {
         return false;
     }
 
-    public static boolean isSideEffectFreeCall(AbstractInsnNode producer) {
+    public static boolean isSideEffectFreeCall(final AbstractInsnNode producer) {
         if(isScalaUnBox(producer) || isScalaBox(producer)) return true;
         return false;
     }
 
-    public static boolean isScalaUnBox(AbstractInsnNode insn) {
+    public static boolean isScalaUnBox(final AbstractInsnNode insn) {
       if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
          insn.getOpcode() != Opcodes.INVOKESTATIC) {
         return false;
@@ -52,7 +52,7 @@ public class SSLUtil {
       return isScalaUnBoxCall((MethodInsnNode)insn);
     }
 
-    public static boolean isScalaUnBoxCall(MethodInsnNode mi) {
+    public static boolean isScalaUnBoxCall(final MethodInsnNode mi) {
 
         if(!mi.owner.equals(BoxesRunTime)) return false;
 
@@ -73,7 +73,7 @@ public class SSLUtil {
 
     }
 
-    public static boolean isScalaBox(AbstractInsnNode insn) {
+    public static boolean isScalaBox(final AbstractInsnNode insn) {
       if(insn.getType()   != AbstractInsnNode.METHOD_INSN ||
          insn.getOpcode() != Opcodes.INVOKESTATIC) {
         return false;
@@ -82,7 +82,7 @@ public class SSLUtil {
       return isScalaBoxCall((MethodInsnNode)insn);
     }
 
-    public static boolean isScalaBoxCall(MethodInsnNode mi) {
+    public static boolean isScalaBoxCall(final MethodInsnNode mi) {
 
         if(!mi.owner.equals(BoxesRunTime)) return false;
 

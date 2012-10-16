@@ -19,9 +19,10 @@ import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.Analyzer;
 import scala.tools.asm.tree.analysis.Frame;
 import scala.tools.asm.tree.analysis.Value;
+import scala.tools.asm.tree.analysis.Interpreter;
 
 /**
- *  Infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+ *  Infers null resp. non-null reaching certain program points, simplifying control-flow when safe to do so.
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
@@ -73,7 +74,7 @@ public class NullnessPropagator {
             this.status = Nullness.INDOUBT_STATUS;
         }
 
-        public StatusValue(final int size, Nullness status) {
+        public StatusValue(final int size, final Nullness status) {
             this.size   = size;
             this.status = status;
         }
@@ -237,7 +238,7 @@ public class NullnessPropagator {
          *  Provided the call given by the argument completes normally,
          *  does that call always return a non-null reference?
          * */
-        private boolean neverReturnsNull(MethodInsnNode callsite) {
+        private boolean neverReturnsNull(final MethodInsnNode callsite) {
             if(Util.isJavaBoxCall(callsite))     return true;
             if(SSLUtil.isScalaBoxCall(callsite)) return true;
             return false;
@@ -275,7 +276,7 @@ public class NullnessPropagator {
         }
 
         @Override
-        protected StatusValue newLocal(Frame current0, boolean isInstanceMethod, int idx, Type type) {
+        protected StatusValue newLocal(final Frame current0, final boolean isInstanceMethod, final int idx, Type type) {
             assert(type != Type.VOID_TYPE);
             StatusValue sv = new StatusValue(type.getSize());
             if(isInstanceMethod && idx == 0) {
@@ -332,18 +333,21 @@ public class NullnessPropagator {
             super(src);
         }
 
+        @Override
         public void execute(
             final AbstractInsnNode insn,
-            final StatusInterpreter interpreter) throws AnalyzerException
+            final Interpreter<StatusValue> interpreter) throws AnalyzerException
         {
-            StatusValue value1, value2, value3, value4;
-            List<StatusValue> values;
+            StatusValue saved1, saved2, saved3, saved4;
+            List<StatusValue> savedValues;
             int var;
 
             switch (insn.getOpcode()) {
                 case Opcodes.NOP:
                     break;
             }
+
+            super.execute(insn, interpreter);
         }
 
     } // end of nested class NullnessFrame

@@ -73,7 +73,7 @@ public class Util {
         return !nonExec;
     }
 
-    public static InsnNode getDrop(int size) {
+    public static InsnNode getDrop(final int size) {
         final int opc  = (size == 1) ? Opcodes.POP : Opcodes.POP2;
         return new InsnNode(opc);
     }
@@ -88,7 +88,7 @@ public class Util {
      *      <init> for JDK classes without side-effecting static constructor AND
      *             the instance constructor in question is known to be side-effects free.
      */
-    public static boolean hasPushEffectOnly(AbstractInsnNode producer) {
+    public static boolean hasPushEffectOnly(final AbstractInsnNode producer) {
         if(Util.isLOAD(producer)) return true;
         // we leave out LDC <type> on purpose.
         if(Util.isPrimitiveConstant(producer) || Util.isStringConstant(producer)) return true;
@@ -99,14 +99,14 @@ public class Util {
     /**
      *  Is the argument a conditional jump?
      */
-    public static boolean isCondJump(AbstractInsnNode insn) {
+    public static boolean isCondJump(final AbstractInsnNode insn) {
         return (insn.getType() == AbstractInsnNode.JUMP_INSN) && !isUncondJump(insn);
     }
 
     /**
      *  Is the argument an unconditional jump?
      */
-    public static boolean isUncondJump(AbstractInsnNode insn) {
+    public static boolean isUncondJump(final AbstractInsnNode insn) {
         if(insn.getType() != AbstractInsnNode.JUMP_INSN) return false;
         switch (insn.getOpcode()) {
             case Opcodes.GOTO:
@@ -119,11 +119,11 @@ public class Util {
         }
     }
 
-    public static boolean isGOTO(AbstractInsnNode insn) {
+    public static boolean isGOTO(final AbstractInsnNode insn) {
         return (insn.getOpcode() == Opcodes.GOTO);
     }
 
-    public static boolean isJSR(AbstractInsnNode insn) {
+    public static boolean isJSR(final AbstractInsnNode insn) {
         return (insn.getOpcode() == Opcodes.JSR);
     }
 
@@ -134,7 +134,7 @@ public class Util {
     /**
      *  Returns the first executable instruction (if any) occuring IN THE PROGRAM TEXT after the argument, null otherwise.
      */
-    public static AbstractInsnNode execInsnAfter(AbstractInsnNode insn) {
+    public static AbstractInsnNode execInsnAfter(final AbstractInsnNode insn) {
         AbstractInsnNode current = insn;
         while(true) {
             current = current.getNext();
@@ -157,7 +157,7 @@ public class Util {
     /**
      *  Reports whether two LabelNodes denote in fact the same jump destination.
      */
-    public static boolean denoteSameTarget(LabelNode x, LabelNode y) {
+    public static boolean denoteSameTarget(final LabelNode x, final LabelNode y) {
         assert x != null;
         assert y != null;
 
@@ -171,11 +171,11 @@ public class Util {
     // boxing and unboxing
     // ------------------------------------------------------------------------
 
-    public static boolean isInstanceMethod(MethodNode m) {
+    public static boolean isInstanceMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_STATIC) == 0;
     }
 
-    public static boolean isJavaBoxCall(MethodInsnNode mi) {
+    public static boolean isJavaBoxCall(final MethodInsnNode mi) {
 
         if(!"valueOf".equals(mi.name)) return false;
 
