@@ -178,12 +178,17 @@ public class Frame<V extends Value> {
     /**
      * Returns the value of the given operand stack slot.
      *
+     * As stated in getStackSize(), for the purposes of stack-indexing:
+     *   "Long and double values are treated as single values."
+     *
      * @param i the index of an operand stack slot.
      * @return the value of the given operand stack slot.
      * @throws IndexOutOfBoundsException if the operand stack slot does not
      *         exist.
      */
     public V getStack(final int i) throws IndexOutOfBoundsException {
+        assert i >= 0;
+        assert i < getStackSize();
         return values[i + locals];
     }
 

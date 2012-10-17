@@ -9,11 +9,14 @@ import java.util.List;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
-
 import scala.tools.asm.tree.MethodNode;
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.InvokeDynamicInsnNode;
 import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.JumpInsnNode;
+import scala.tools.asm.tree.TypeInsnNode;
+import scala.tools.asm.tree.InsnNode;
+import scala.tools.asm.tree.InsnList;
 
 import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.Analyzer;
@@ -36,20 +39,100 @@ public class NullnessPropagator {
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
         NullnessAnalyzer nany    = NullnessAnalyzer.create();
-        Frame[] frames           = nany.analyze(owner, mnode);
+        NullnessFrame[] frames   = nany.analyze(owner, mnode);
         AbstractInsnNode[] insns = mnode.instructions.toArray();
 
         changed = false;
 
+        StatusValue value1 = null;
+        StatusValue value2 = null;
+
+        boolean alwaysTaken   = false;
+        boolean alwaysAvoided = false;
+
+        JumpInsnNode jmp = null;
+
         int i = 0;
-        while(i < frames.length) {
-            if (true) {
-                ;
-                changed = false; // TODO
+        while(i < insns.length) {
+
+            if(insns[i] != null) {
+
+                NullnessFrame frame = frames[i];
+                int opc = insns[i].getOpcode();
+                switch (opc) {
+
+                    case Opcodes.IF_ACMPEQ:
+                    case Opcodes.IF_ACMPNE:
+                        value2 = frame.getStackTop();
+                        value1 = frame.peekDown(1);
+                        boolean alwaysEQ   =
+                                (value1.isNull() && value2.isNull());
+                        boolean alwaysNE =
+                                (value1.isNull()    && value2.isNonNull()) ||
+                                (value1.isNonNull() && value2.isNull());
+                        assert !(alwaysEQ && alwaysNE);
+                        alwaysTaken =
+                                (opc == Opcodes.IF_ACMPEQ && alwaysEQ) ||
+                                (opc == Opcodes.IF_ACMPNE && alwaysNE);
+                        alwaysAvoided =
+                                (opc == Opcodes.IF_ACMPEQ && alwaysNE) ||
+                                (opc == Opcodes.IF_ACMPNE && alwaysEQ);
+                        jmp = (JumpInsnNode) insns[i];
+                        if(alwaysTaken)        { adjustBranch(mnode, jmp, 2, true ); }
+                        else if(alwaysAvoided) { adjustBranch(mnode, jmp, 2, false); }
+                        break;
+
+                    case Opcodes.INSTANCEOF:
+                        if(frame.getStackTop().isNull()) {
+                            // drop ref, ICONST_0
+                            TypeInsnNode iof = (TypeInsnNode)insns[i];
+                            mnode.instructions.insert(iof, new InsnNode(Opcodes.ICONST_0));
+                            mnode.instructions.insert(iof, Util.getDrop(1));
+                            mnode.instructions.remove(iof);
+                            changed = true;
+                        }
+                        break;
+
+                    case Opcodes.IFNULL:
+                    case Opcodes.IFNONNULL:
+                        value1 = frame.getStackTop();
+                        alwaysTaken =
+                                (opc == Opcodes.IFNULL    && value1.isNull()) ||
+                                (opc == Opcodes.IFNONNULL && value1.isNonNull());
+                        alwaysAvoided =
+                                (opc == Opcodes.IFNULL    && value1.isNonNull()) ||
+                                (opc == Opcodes.IFNONNULL && value1.isNull());
+                        assert !(alwaysTaken && alwaysAvoided);
+                        jmp = (JumpInsnNode) insns[i];
+                        if(alwaysTaken)        { adjustBranch(mnode, jmp, 1, true ); }
+                        else if(alwaysAvoided) { adjustBranch(mnode, jmp, 1, false); }
+                        break;
+
+                }
+
             }
+
             i += 1;
         }
 
+    }
+
+    /**
+     *  Adjust the stack by dropping the number of references given by `drops`,
+     *  take the branch always or never depending on `doJump`.
+     *  */
+    private void adjustBranch(MethodNode mn, JumpInsnNode insn, int drops, boolean doJump) {
+        InsnList insns = mn.instructions;
+        if(doJump) {
+            insns.insert(insn, new JumpInsnNode(Opcodes.GOTO, insn.label));
+        }
+        assert drops == 1 || drops == 2;
+        insns.insert(insn, Util.getDrop(1));
+        if(drops == 2) {
+            insns.insert(insn, Util.getDrop(1));
+        }
+        insns.remove(insn);
+        changed = true;
     }
 
 
@@ -61,13 +144,15 @@ public class NullnessPropagator {
 
 
     /**
-     *  Additionally to what SourceValue tracks (instructions that may produce this value),
-     *  a StatusValue tracks its null vs. non-null vs. in-doubt status.
+     *  A StatusValue tracks the null vs. non-null vs. in-doubt status of an abstract value.
+     *  A StatusValue is immutable, yet its object identity carries additional information:
+     *  the same object in, say, two local-vars indicates they refer at runtime to the same object-value,
+     *  thus any change in the status of one of them should apply to the other. See markNONNULL() and markNULL().
      * */
     static private class StatusValue implements Value {
 
-        private int size = 0;
-        private Nullness status = Nullness.INDOUBT_STATUS;
+        private final int size;
+        private final Nullness status;
 
         public StatusValue(final int size) {
             this.size   = size;
@@ -89,6 +174,7 @@ public class NullnessPropagator {
 
         public StatusValue checkedNULL()    { return new StatusValue(this.size, Nullness.NULL_STATUS);    }
         public StatusValue checkedNONNULL() { return new StatusValue(this.size, Nullness.NONNULL_STATUS); }
+        public StatusValue checkedINDOUBT() { return new StatusValue(this.size, Nullness.INDOUBT_STATUS); }
 
         @Override
         public boolean equals(final Object value) {
@@ -132,11 +218,12 @@ public class NullnessPropagator {
 
         @Override
         public StatusValue newOperation(final AbstractInsnNode insn) {
-            StatusValue sv = createStatusValue(getResultSize(insn));
+            final int size = getResultSize(insn);
+            Nullness status = Nullness.INDOUBT_STATUS;
             if (insn.getOpcode() == Opcodes.ACONST_NULL) {
-                return sv.checkedNULL();
+                status = Nullness.NULL_STATUS;
             }
-            return sv;
+            return new StatusValue(size, status);
         }
 
         @Override
@@ -224,9 +311,9 @@ public class NullnessPropagator {
             // this ensures the updated sv.status won't be seen from aliased references if any.
             StatusValue sv = new StatusValue(d.size);
             if (d.isNonNull() && w.isNonNull()) {
-                sv.status = Nullness.NONNULL_STATUS;
+                sv = sv.checkedNONNULL();
             } else if (d.isNull() && w.isNull()) {
-                sv.status = Nullness.NULL_STATUS;
+                sv = sv.checkedNULL();
             } else {
                 assert sv.isIndoubt();
             }
@@ -278,11 +365,12 @@ public class NullnessPropagator {
         @Override
         protected StatusValue newLocal(final Frame current0, final boolean isInstanceMethod, final int idx, Type type) {
             assert(type != Type.VOID_TYPE);
-            StatusValue sv = new StatusValue(type.getSize());
+            int size = type.getSize();
             if(isInstanceMethod && idx == 0) {
-                sv.status = Nullness.NONNULL_STATUS;
+                return new StatusValue(size, Nullness.NONNULL_STATUS);
+            } else {
+                return new StatusValue(size, Nullness.INDOUBT_STATUS);
             }
-            return sv;
         }
 
         /**
@@ -360,21 +448,21 @@ public class NullnessPropagator {
                     break;
                 case Opcodes.LASTORE:
                 case Opcodes.DASTORE:
-                    ref = peekDown(3);
+                    /* As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
+                     *   "Long and double values are treated as single values." */
+                    ref = peekDown(2);
                     break;
                 case Opcodes.GETFIELD:
-                case Opcodes.PUTFIELD:
                     ref = getStackTop();
+                    break;
+                case Opcodes.PUTFIELD:
+                    ref = peekDown(1);
                     break;
                 case Opcodes.INVOKEVIRTUAL:
                 case Opcodes.INVOKESPECIAL:
                 case Opcodes.INVOKEINTERFACE:
-                    String desc  = ((MethodInsnNode) insn).desc;
-                    Type[] argTs = Type.getArgumentTypes(desc);
-                    int skip = 0;
-                    for(int i = 0; i < argTs.length; i++) {
-                        skip += argTs[i].getSize();
-                    }
+                    String desc = ((MethodInsnNode) insn).desc;
+                    int skip = Type.getArgumentTypes(desc).length;
                     ref = peekDown(skip);
                     break;
                 case Opcodes.ARRAYLENGTH:
@@ -382,10 +470,12 @@ public class NullnessPropagator {
                 case Opcodes.MONITOREXIT:
                     ref = getStackTop();
                     break;
-                // TODO it would be great to compute dedicated state frames for each branch of IFNULL and IFNONNULL
                 default:
                     ref = null;
             }
+
+            // TODO It would be great to have computed dedicated state frames for each branch of IFNULL and IFNONNULL.
+            //      For now, only the assumptions that apply to both branches are made (ie, no knowledge is gained from getStackTop()).
 
             super.execute(insn, interpreter);
 
@@ -399,11 +489,11 @@ public class NullnessPropagator {
          *  E.g., peekDown(0) amounts to getStackTop()
          *        peekDown(1) is the element pushed just before the above, and so on.
          *
-         *  The argument must take into account the size of each element (e.g., Long has size 2).
+         * As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
+         *   "Long and double values are treated as single values."
          *
          * */
         private StatusValue peekDown(int n) {
-            assert n >= 0;
             int idxTop = getStackSize() - 1;
             return getStack(idxTop - n);
         }
@@ -412,8 +502,21 @@ public class NullnessPropagator {
             if(sv.isNonNull()) return;
             if(sv.isNull()) {
                 // inform about impending runtime NPE.
+                assert false;
+                // markINDOUBT(sv);
+                return;
             }
             StatusValue checked = sv.checkedNONNULL();
+            for(int i = 0; i < locals + top; i++) {
+                if(peekValue(i) == sv) {
+                    pokeValue(i, checked);
+                }
+            }
+        }
+
+        private void markINDOUBT(StatusValue sv) {
+            if(sv.isIndoubt()) return;
+            StatusValue checked = sv.checkedINDOUBT();
             for(int i = 0; i < locals + top; i++) {
                 if(peekValue(i) == sv) {
                     pokeValue(i, checked);

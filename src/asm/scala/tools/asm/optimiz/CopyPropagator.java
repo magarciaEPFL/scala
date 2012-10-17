@@ -52,7 +52,7 @@ public class CopyPropagator {
         changed = false;
 
         int i = 0;
-        while(i < frames.length) {
+        while(i < insns.length) {
             boolean isVarInsn = (
               insns[i] != null &&
               insns[i].getType()   == AbstractInsnNode.VAR_INSN &&

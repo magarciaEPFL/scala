@@ -66,11 +66,10 @@ abstract class BCodeOpt extends BCodeTypes {
 
             keepGoing |= cleanseMethod(cName, mnode)
             keepGoing |= elimRedundantCode(cName, mnode)
+            nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+            keepGoing |= nullnessPropagator.changed;
 
           } while(keepGoing)
-
-          nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
-          // keepGoing |= nullnessPropagator.changed
 
           lvCompacter.transform(mnode) // compact local vars, remove dangling LocalVariableNodes.
           runTypeFlowAnalysis(cName, mnode) // debug
@@ -170,7 +169,7 @@ abstract class BCodeOpt extends BCodeTypes {
       val frames: Array[Frame[TFValue]]   = tfa.getFrames()
       val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
       var i = 0
-      while(i < frames.length) {
+      while(i < insns.length) {
         if (frames(i) == null && insns(i) != null) {
           // TODO assert(false, "There should be no unreachable code left by now.")
         }
@@ -298,7 +297,7 @@ abstract class BCodeOpt extends BCodeTypes {
       val insns  = mnode.instructions.toArray()
 
       var i = 0;
-      while(i < frames.length) {
+      while(i < insns.length) {
         if (frames(i) != null && insns(i) != null && SSLUtil.isScalaUnBox(insns(i))) {
           val unboxSV = frames(i).getStackTop
           // UNBOX must find something on the stack, yet it may happen that `unboxSV.insns.size() == 0`

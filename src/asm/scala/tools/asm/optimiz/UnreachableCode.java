@@ -44,7 +44,7 @@ public class UnreachableCode {
         AbstractInsnNode[]  insns  = mnode.instructions.toArray();
 
         int i = 0;
-        while(i < frames.length) {
+        while(i < insns.length) {
           if (frames[i] == null &&
               insns[i]  != null &&
               !(insns[i] instanceof LabelNode)) {
