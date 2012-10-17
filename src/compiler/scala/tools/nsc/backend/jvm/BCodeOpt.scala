@@ -66,8 +66,12 @@ abstract class BCodeOpt extends BCodeTypes {
 
             keepGoing |= cleanseMethod(cName, mnode)
             keepGoing |= elimRedundantCode(cName, mnode)
+
             nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
             keepGoing |= nullnessPropagator.changed;
+            if(nullnessPropagator.changed) {
+              unreachCodeRemover.transform(cName, mnode);
+            }
 
           } while(keepGoing)
 

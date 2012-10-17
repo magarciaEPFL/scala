@@ -16,6 +16,7 @@ import scala.tools.asm.tree.MethodInsnNode;
 import scala.tools.asm.tree.JumpInsnNode;
 import scala.tools.asm.tree.TypeInsnNode;
 import scala.tools.asm.tree.InsnNode;
+import scala.tools.asm.tree.VarInsnNode;
 import scala.tools.asm.tree.InsnList;
 
 import scala.tools.asm.tree.analysis.AnalyzerException;
@@ -25,7 +26,18 @@ import scala.tools.asm.tree.analysis.Value;
 import scala.tools.asm.tree.analysis.Interpreter;
 
 /**
- *  Infers null resp. non-null reaching certain program points, simplifying control-flow when safe to do so.
+ *  Infers null resp. non-null reaching certain program points, using that information to:
+ *
+ *    (a) simplify control-flow when a conditional jump will always be taken or avoided,
+ *        for three classes of instructions:
+ *          (a.1) IF_ACMPEQ, IF_ACMPNE
+ *          (a.2) IFNULL,    IFNONNULL
+ *          (a.3) INSTANCEOF
+ *
+ *    (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it).
+ *        This might enable further reductions (e.g., dead-store elimination).
+ *
+ *  After this transformation, use the UnreachableCode transformer to eliminate null frames (which complicate further analyses).
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
@@ -60,6 +72,13 @@ public class NullnessPropagator {
                 NullnessFrame frame = frames[i];
                 int opc = insns[i].getOpcode();
                 switch (opc) {
+
+                    case Opcodes.ALOAD:
+                        VarInsnNode vi = (VarInsnNode)insns[i];
+                        if(frame.getLocal(vi.var).isNull()) {
+                            mnode.instructions.set(vi, new InsnNode(Opcodes.ACONST_NULL));
+                        }
+                        break;
 
                     case Opcodes.IF_ACMPEQ:
                     case Opcodes.IF_ACMPNE:
@@ -118,9 +137,21 @@ public class NullnessPropagator {
     }
 
     /**
-     *  Adjust the stack by dropping the number of references given by `drops`,
-     *  take the branch always or never depending on `doJump`.
-     *  */
+     *  As part of rephrasing the conditional branching given by `insn`, it's necessary to
+     *    (a) drop the arguments it would have consumed.
+     *    (b) rephrase the jump instruction itself.
+     *
+     *  In detail,
+     *    (a) involves dropping the number of references given by `drops`.
+     *    (b) whether the branch is (always or never) taken is given by `doJump`,
+     *        depending on which a GOTO is inserted or not.
+     *
+     *  As usual when inserting instructions, we adopt an instruction as "anchor" (`insns` in this case)
+     *  and insert *one by one* the instructions of interest *right after the anchor*.
+     *  As a result, "the instructions of interest" are inserted in the reverse order they will appear.
+     *  Alternatively, an InsnList could be inserted in one go.
+     *
+     * */
     private void adjustBranch(MethodNode mn, JumpInsnNode insn, int drops, boolean doJump) {
         InsnList insns = mn.instructions;
         if(doJump) {
@@ -155,6 +186,7 @@ public class NullnessPropagator {
         private final Nullness status;
 
         public StatusValue(final int size) {
+            assert size == 1 || size == 2;
             this.size   = size;
             this.status = Nullness.INDOUBT_STATUS;
         }
@@ -212,7 +244,6 @@ public class NullnessPropagator {
         }
 
         public StatusValue createStatusValue(final int size) {
-            assert size == 1 || size == 2;
             return new StatusValue(size);
         }
 
@@ -331,6 +362,8 @@ public class NullnessPropagator {
             return false;
         }
 
+        // TODO similar to `neverReturnsNull`, but for FieldInsnNode (e.g. GETSTATIC for a module never pushes null, right?)
+
     } // end of nested class StatusInterpreter
 
 
@@ -362,6 +395,16 @@ public class NullnessPropagator {
             return frames[idx];
         }
 
+        /**
+         * This override comes handy to track as non-null the THIS reference of an instance method.
+         *
+         * @param current0 the Frame (actually a NullnessFrame) right before the invoker updates it
+         *        with the abstract value this method returns.
+         * @param isInstanceMethod
+         * @param idx the index of the local-var whose abstract value we're returning.
+         * @param type the type of the local-var
+         * @return the created frame.
+         */
         @Override
         protected StatusValue newLocal(final Frame current0, final boolean isInstanceMethod, final int idx, Type type) {
             assert(type != Type.VOID_TYPE);
@@ -501,9 +544,8 @@ public class NullnessPropagator {
         private void markNONNULL(StatusValue sv) {
             if(sv.isNonNull()) return;
             if(sv.isNull()) {
-                // inform about impending runtime NPE.
-                assert false;
-                // markINDOUBT(sv);
+                // TODO inform about potential runtime NPE (if available, display source-line from LineNumberNode, see also ClassNode.sourceFile).
+                markINDOUBT(sv);
                 return;
             }
             StatusValue checked = sv.checkedNONNULL();

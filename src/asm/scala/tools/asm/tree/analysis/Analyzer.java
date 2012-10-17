@@ -551,6 +551,16 @@ public class Analyzer<V extends Value> implements Opcodes {
         }
     }
 
+    /**
+     * This overridable method comes handy (for example) to track as non-null the THIS reference of an instance method.
+     *
+     * @param current the Frame (actually a NullnessFrame) right before the invoker updates it
+     *        with the abstract value this method returns.
+     * @param isInstanceMethod
+     * @param idx the index of the local-var whose abstract value we're returning.
+     * @param ctype the type of the local-var
+     * @return the created frame.
+     */
     protected V newLocal(Frame current, boolean isInstanceMethod, int idx, Type ctype) {
         return interpreter.newValue(ctype);
     }
