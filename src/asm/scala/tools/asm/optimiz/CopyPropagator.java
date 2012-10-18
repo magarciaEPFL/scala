@@ -15,6 +15,7 @@ import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.Analyzer;
 import scala.tools.asm.tree.analysis.Frame;
 import scala.tools.asm.tree.analysis.SourceValue;
+import scala.tools.asm.tree.analysis.SourceInterpreter;
 
 /**
  *  Replaces the last link in a chain of data accesses by a direct access to the chain-start.
@@ -43,7 +44,7 @@ public class CopyPropagator {
 
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
-        Analyzer<SourceValue> propag = new Analyzer<SourceValue>(new CopyInterpreter());
+        Analyzer<SourceValue> propag = new Analyzer<SourceValue>(new SourceCopyInterpreter());
         propag.analyze(owner, mnode);
 
         Frame<SourceValue>[] frames = propag.getFrames();
@@ -78,6 +79,18 @@ public class CopyPropagator {
               }
             }
             i += 1;
+        }
+
+    }
+
+    /**
+     * Propagates the input value through LOAD, STORE, DUP, and SWAP instructions.
+     */
+    static private class SourceCopyInterpreter extends SourceInterpreter {
+
+        @Override
+        public SourceValue copyOperation(final AbstractInsnNode insn, final SourceValue value) {
+            return value;
         }
 
     }

@@ -32,7 +32,6 @@ abstract class BCodeOpt extends BCodeTypes {
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
 
-    val cpInterpreter       = new asm.optimiz.CopyInterpreter
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
     val ppCollapser         = new asm.optimiz.PushPopCollapser
