@@ -33,7 +33,12 @@ public class SSLUtil {
     public static boolean isSideEffectFreeGETSTATIC(final AbstractInsnNode producer) {
         if(producer.getType() == AbstractInsnNode.FIELD_INSN) {
             FieldInsnNode fi = (FieldInsnNode)producer;
-            return "scala/runtime/BoxedUnit".equals(fi.owner) && "UNIT".equals(fi.name);
+            if("scala/runtime/BoxedUnit".equals(fi.owner)) {
+                return "UNIT".equals(fi.name);
+            }
+            if("scala/Unit$".equals(fi.owner)) {
+                return "MODULE$".equals(fi.name); // SI-6527
+            }
         }
         return false;
     }

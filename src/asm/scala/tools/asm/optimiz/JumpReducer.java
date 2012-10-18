@@ -141,4 +141,19 @@ public class JumpReducer extends MethodTransformer {
         insns.remove(insn);
     }
 
+    /*
+     * TODO branch-over-branch
+     *
+     * Code pattern to detect:
+     *
+     *         if<cond> L1 // no matter whether L1 and L2 differ or not
+     *         goto L2     // no executable nor LabelNodes in between this and the previous
+     *     L1:             // no executable nor LabelNodes in between this and the previous
+     *
+     * should be transformed into:
+     *
+     *         if<!cond> L2
+     *     L1:
+     */
+
 }
