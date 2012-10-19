@@ -12,11 +12,11 @@ import scala.tools.asm.Type;
 import scala.tools.asm.tree.MethodNode;
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.InvokeDynamicInsnNode;
-import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.LookupSwitchInsnNode;
 import scala.tools.asm.tree.JumpInsnNode;
 import scala.tools.asm.tree.LabelNode;
 import scala.tools.asm.tree.InsnNode;
-import scala.tools.asm.tree.VarInsnNode;
+import scala.tools.asm.tree.TableSwitchInsnNode;
 import scala.tools.asm.tree.InsnList;
 import scala.tools.asm.tree.IntInsnNode;
 import scala.tools.asm.tree.LdcInsnNode;
@@ -124,11 +124,26 @@ public class ConstantFolder {
                     case Opcodes.LOOKUPSWITCH:
                         if(frame.getStackTop().isConstant()) {
                             ICst ic = (ICst) frame.getStackTop();
+                            LabelNode dest = null;
                             switch (opc) {
-                                case Opcodes.TABLESWITCH:  break;
-                                case Opcodes.LOOKUPSWITCH: break;
+                                case Opcodes.TABLESWITCH:
+                                    TableSwitchInsnNode tsin = (TableSwitchInsnNode)insn;
+                                    if(ic.v < tsin.min || ic.v > tsin.max) {
+                                        dest = tsin.dflt;
+                                    } else {
+                                        dest = tsin.labels.get(ic.v - tsin.min);
+                                    }
+                                    break;
+                                case Opcodes.LOOKUPSWITCH:
+                                    LookupSwitchInsnNode lsin = (LookupSwitchInsnNode)insn;
+                                    int keyIdx = lsin.keys.indexOf(ic.v);
+                                    dest = (keyIdx == -1) ? lsin.dflt : lsin.labels.get(keyIdx);
+                                    break;
                             }
-                            // TODO pop and jump or just pop, changed = true;
+                            InsnList is = dropAndJump(1, true, dest);
+                            mnode.instructions.insert(insn, is);
+                            mnode.instructions.remove(insn);
+                            changed = true;
                         }
                         break;
 
