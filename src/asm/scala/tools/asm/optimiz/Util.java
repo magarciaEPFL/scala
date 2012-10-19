@@ -175,6 +175,10 @@ public class Util {
         return (m.access & Opcodes.ACC_STATIC) == 0;
     }
 
+    public static boolean isJavaBox(final AbstractInsnNode insn) {
+        return (insn.getType() == AbstractInsnNode.METHOD_INSN) && isJavaBoxCall((MethodInsnNode) insn);
+    }
+
     public static boolean isJavaBoxCall(final MethodInsnNode mi) {
 
         if(!"valueOf".equals(mi.name)) return false;

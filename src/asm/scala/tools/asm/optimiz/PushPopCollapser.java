@@ -40,7 +40,7 @@ public class PushPopCollapser {
         changed = false;
         boolean keepGoing = false;
 
-        Set<AbstractInsnNode> skipExam = new HashSet<AbstractInsnNode>();
+        final Set<AbstractInsnNode> skipExam = new HashSet<AbstractInsnNode>();
 
         do {
 
@@ -50,14 +50,14 @@ public class PushPopCollapser {
             this.cp = ProdConsAnalyzer.create();
             this.cp.analyze(owner, mnode);
 
-            Iterator<AbstractInsnNode> iter = mnode.instructions.iterator();
+            final Iterator<AbstractInsnNode> iter = mnode.instructions.iterator();
 
             while(iter.hasNext()) {
-                AbstractInsnNode current = iter.next();
+                final AbstractInsnNode current = iter.next();
                 if(current != null && Util.isDROP(current) && !skipExam.contains(current)) {
-                    InsnNode drop = (InsnNode) current;
-                    Set<AbstractInsnNode> producers = cp.producers(drop);
-                    boolean isElidable = (
+                    final InsnNode drop = (InsnNode) current;
+                    final Set<AbstractInsnNode> producers = cp.producers(drop);
+                    final boolean isElidable = (
                         cp.isSoleConsumerForItsProducers(drop) &&
                         !isAlreadyMinimized(producers, drop)
                     );
@@ -91,26 +91,41 @@ public class PushPopCollapser {
     private void neutralizeStackPush(final Set<AbstractInsnNode> producers, final int size) {
         assert !producers.isEmpty() : "There can't be a POP or POP2 without some other instruction pushing a value for it on the stack.";
 
-        Iterator<AbstractInsnNode> iter = producers.iterator();
+        final Iterator<AbstractInsnNode> iter = producers.iterator();
         while (iter.hasNext()) {
-            AbstractInsnNode prod = iter.next();
-            if(Util.hasPushEffectOnly(prod)) {
+
+            final AbstractInsnNode prod = iter.next();
+            final int opc = prod.getOpcode();
+
+            if(Util.hasPushEffectOnly(prod) || SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
+
                 // remove altogether the instruction that pushes.
                 mnode.instructions.remove(prod);
-            } else if(SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
-                // remove altogether the instruction that pushes.
-                mnode.instructions.remove(prod);
+
             } else if(SSLUtil.isSideEffectFreeCall(prod)) {
+
                 // replace the call-instruction that pushes with as many DROPs as arguments it expects on the stack.
                 MethodInsnNode mi = (MethodInsnNode) prod;
                 Type[] argTs = Type.getArgumentTypes(mi.desc);
                 for(int argIdx = 0; argIdx < argTs.length; argIdx++) {
                     mnode.instructions.insert(prod, Util.getDrop(argTs[argIdx].getSize()));
                 }
+                switch (opc) {
+                    case Opcodes.INVOKEINTERFACE:
+                    case Opcodes.INVOKESPECIAL:
+                    case Opcodes.INVOKEVIRTUAL:
+                        mnode.instructions.insert(prod, Util.getDrop(1));
+                        break;
+                    default:
+                        break;
+                }
                 mnode.instructions.remove(prod);
+
             } else {
+
                 // leave in place the instruction that pushes, add a DROP right after it.
                 mnode.instructions.insert(prod, Util.getDrop(size));
+
             }
         }
     }

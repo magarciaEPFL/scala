@@ -45,6 +45,7 @@ public class SSLUtil {
 
     public static boolean isSideEffectFreeCall(final AbstractInsnNode producer) {
         if(isScalaUnBox(producer) || isScalaBox(producer)) return true;
+        if(Util.isJavaBox(producer)) return true; // Java unbox isn't "side effect free" because on null it NPEs.
         return false;
     }
 
