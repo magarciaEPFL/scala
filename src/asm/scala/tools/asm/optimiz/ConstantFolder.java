@@ -11,7 +11,7 @@ import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
 import scala.tools.asm.tree.MethodNode;
 import scala.tools.asm.tree.AbstractInsnNode;
-import scala.tools.asm.tree.InvokeDynamicInsnNode;
+import scala.tools.asm.tree.VarInsnNode;
 import scala.tools.asm.tree.LookupSwitchInsnNode;
 import scala.tools.asm.tree.JumpInsnNode;
 import scala.tools.asm.tree.LabelNode;
@@ -34,6 +34,10 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *    (b) simplifies control flow when possible.
  *
  *  Information about nullness is not propagated. For that, use NullnessPropagator.
+ *
+ *  A more general approach is covered in:
+ *      Durica Nikolic, Fausto Spoto: Definite Expression Aliasing Analysis for Java Bytecode. ICTAC 2012: 74-89
+ *      http://profs.sci.univr.it/~nikolic/download/ICTAC2012/ICTAC2012Ext.pdf
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
@@ -70,6 +74,22 @@ public class ConstantFolder {
 
                 int opc = insn.getOpcode();
                 switch (opc) {
+
+                    case Opcodes.ILOAD:
+                    case Opcodes.LLOAD:
+                    case Opcodes.FLOAD:
+                    case Opcodes.DLOAD:
+                        VarInsnNode vin = (VarInsnNode)insn;
+                        CFValue vv = frame.getLocal(vin.var);
+                        if(vv.isConstant()) {
+                            AbstractInsnNode lin = ((Constant)vv).pushInsn();
+                            if(lin.getType() == AbstractInsnNode.INSN) {
+                                // InsNode instructions takes just one byte
+                                mnode.instructions.set(insn, lin);
+                                changed = true; // actually not needed: control-flow unaltered, no code has been killed.
+                            }
+                        }
+                        break;
 
                     case Opcodes.IFEQ:
                     case Opcodes.IFNE:
@@ -482,11 +502,7 @@ public class ConstantFolder {
         }
         @Override public CFValue mul(CFValue value2) {
             assert size == value2.size;
-            if(v == 0f) {
-                return this;
-            } else if(v == 1f) {
-                return value2;
-            } else if(value2.isUnknown()) {
+            if(value2.isUnknown()) {
                 return value2;
             } else {
                 FCst that = (FCst) value2;
@@ -513,9 +529,8 @@ public class ConstantFolder {
 
         @Override
         public AbstractInsnNode pushInsn() {
-            if(v == 0f) { return new InsnNode(Opcodes.FCONST_0); }
-            if(v == 1f) { return new InsnNode(Opcodes.FCONST_1); }
-            if(v == 2f) { return new InsnNode(Opcodes.FCONST_2); }
+            // can't test (v == 0f) because it may be -0.0f after all, and FCONST_0 won't make it.
+            // Anyway, ASM will compact an LdcInsnNode into InsnNode if possible.
             return new LdcInsnNode(java.lang.Float.valueOf(v));
         }
 
@@ -685,11 +700,7 @@ public class ConstantFolder {
         }
         @Override public CFValue mul(CFValue value2) {
             assert size == value2.size;
-            if(v == 0d) {
-                return this;
-            } else if(v == 1d) {
-                return value2;
-            } else if(value2.isUnknown()) {
+            if(value2.isUnknown()) {
                 return value2;
             } else {
                 DCst that = (DCst) value2;
@@ -716,8 +727,8 @@ public class ConstantFolder {
 
         @Override
         public AbstractInsnNode pushInsn() {
-            if(v == 0d) { return new InsnNode(Opcodes.DCONST_0); }
-            if(v == 1d) { return new InsnNode(Opcodes.DCONST_1); }
+            // can't test (v == 0d) because it may be -0.0d after all, and DCONST_0 won't make it.
+            // Anyway, ASM will compact an LdcInsnNode into InsnNode if possible.
             return new LdcInsnNode(java.lang.Double.valueOf(v));
         }
 
