@@ -66,72 +66,76 @@ public class ConstantFolder {
             CFValue value2   = null;
             boolean succeeds = false;
 
-            int opc = insns[i].getOpcode();
-            switch (opc) {
+            if(insn != null) {
 
-                case Opcodes.IFEQ:
-                case Opcodes.IFNE:
-                case Opcodes.IFLT:
-                case Opcodes.IFGE:
-                case Opcodes.IFGT:
-                case Opcodes.IFLE:
-                    if(frame.getStackTop().isConstant()) {
-                        ICst ic = (ICst) frame.getStackTop();
-                        switch (opc) {
-                            case Opcodes.IFEQ: succeeds = ic.v == 0; break;
-                            case Opcodes.IFNE: succeeds = ic.v != 0; break;
-                            case Opcodes.IFLT: succeeds = ic.v  < 0; break;
-                            case Opcodes.IFGE: succeeds = ic.v >= 0; break;
-                            case Opcodes.IFGT: succeeds = ic.v  > 0; break;
-                            case Opcodes.IFLE: succeeds = ic.v <= 0; break;
+                int opc = insn.getOpcode();
+                switch (opc) {
+
+                    case Opcodes.IFEQ:
+                    case Opcodes.IFNE:
+                    case Opcodes.IFLT:
+                    case Opcodes.IFGE:
+                    case Opcodes.IFGT:
+                    case Opcodes.IFLE:
+                        if(frame.getStackTop().isConstant()) {
+                            ICst ic = (ICst) frame.getStackTop();
+                            switch (opc) {
+                                case Opcodes.IFEQ: succeeds = ic.v == 0; break;
+                                case Opcodes.IFNE: succeeds = ic.v != 0; break;
+                                case Opcodes.IFLT: succeeds = ic.v  < 0; break;
+                                case Opcodes.IFGE: succeeds = ic.v >= 0; break;
+                                case Opcodes.IFGT: succeeds = ic.v  > 0; break;
+                                case Opcodes.IFLE: succeeds = ic.v <= 0; break;
+                            }
+                            InsnList is = dropAndJump(1, succeeds, ((JumpInsnNode) insn).label);
+                            mnode.instructions.insert(insn, is);
+                            mnode.instructions.remove(insn);
+                            changed = true;
                         }
-                        InsnList is = dropAndJump(1, succeeds, ((JumpInsnNode) insn).label);
-                        mnode.instructions.insert(insn, is);
-                        mnode.instructions.remove(insn);
-                        changed = true;
-                    }
-                    break;
+                        break;
 
-                case Opcodes.IF_ICMPEQ:
-                case Opcodes.IF_ICMPNE:
-                case Opcodes.IF_ICMPLT:
-                case Opcodes.IF_ICMPGE:
-                case Opcodes.IF_ICMPGT:
-                case Opcodes.IF_ICMPLE:
-                    value2 = frame.getStackTop();
-                    value1 = frame.peekDown(1);
-                    if(value1.isConstant() && value2.isConstant()) {
-                        ICst i1 = (ICst) value1;
-                        ICst i2 = (ICst) value2;
-                        switch (opc) {
-                            case Opcodes.IF_ICMPEQ: succeeds = i1.v == i2.v; break;
-                            case Opcodes.IF_ICMPNE: succeeds = i1.v != i2.v; break;
-                            case Opcodes.IF_ICMPLT: succeeds = i1.v  < i2.v; break;
-                            case Opcodes.IF_ICMPGE: succeeds = i1.v >= i2.v; break;
-                            case Opcodes.IF_ICMPGT: succeeds = i1.v  > i2.v; break;
-                            case Opcodes.IF_ICMPLE: succeeds = i1.v <= i2.v; break;
+                    case Opcodes.IF_ICMPEQ:
+                    case Opcodes.IF_ICMPNE:
+                    case Opcodes.IF_ICMPLT:
+                    case Opcodes.IF_ICMPGE:
+                    case Opcodes.IF_ICMPGT:
+                    case Opcodes.IF_ICMPLE:
+                        value2 = frame.getStackTop();
+                        value1 = frame.peekDown(1);
+                        if(value1.isConstant() && value2.isConstant()) {
+                            ICst i1 = (ICst) value1;
+                            ICst i2 = (ICst) value2;
+                            switch (opc) {
+                                case Opcodes.IF_ICMPEQ: succeeds = i1.v == i2.v; break;
+                                case Opcodes.IF_ICMPNE: succeeds = i1.v != i2.v; break;
+                                case Opcodes.IF_ICMPLT: succeeds = i1.v  < i2.v; break;
+                                case Opcodes.IF_ICMPGE: succeeds = i1.v >= i2.v; break;
+                                case Opcodes.IF_ICMPGT: succeeds = i1.v  > i2.v; break;
+                                case Opcodes.IF_ICMPLE: succeeds = i1.v <= i2.v; break;
+                            }
+                            InsnList is = dropAndJump(2, succeeds, ((JumpInsnNode) insn).label);
+                            mnode.instructions.insert(insn, is);
+                            mnode.instructions.remove(insn);
+                            changed = true;
                         }
-                        InsnList is = dropAndJump(2, succeeds, ((JumpInsnNode) insn).label);
-                        mnode.instructions.insert(insn, is);
-                        mnode.instructions.remove(insn);
-                        changed = true;
-                    }
-                    break;
+                        break;
 
-                case Opcodes.TABLESWITCH:
-                case Opcodes.LOOKUPSWITCH:
-                    if(frame.getStackTop().isConstant()) {
-                        ICst ic = (ICst) frame.getStackTop();
-                        switch (opc) {
-                            case Opcodes.TABLESWITCH:  break;
-                            case Opcodes.LOOKUPSWITCH: break;
+                    case Opcodes.TABLESWITCH:
+                    case Opcodes.LOOKUPSWITCH:
+                        if(frame.getStackTop().isConstant()) {
+                            ICst ic = (ICst) frame.getStackTop();
+                            switch (opc) {
+                                case Opcodes.TABLESWITCH:  break;
+                                case Opcodes.LOOKUPSWITCH: break;
+                            }
+                            // TODO pop and jump or just pop, changed = true;
                         }
-                        // TODO pop and jump or just pop, changed = true;
-                    }
-                    break;
+                        break;
 
-                default:
-                    ;
+                    default:
+                        ;
+
+                }
 
             }
 
