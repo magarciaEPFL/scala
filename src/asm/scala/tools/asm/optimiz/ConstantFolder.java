@@ -288,6 +288,11 @@ public class ConstantFolder {
         @Override
         public boolean isConstant() { return true; }
 
+        /**
+         *  Returns a fresh instance of an xCONST instruction that loads the value represented by this instance.
+         */
+        public abstract AbstractInsnNode pushInsn();
+
     } // end of nested class Constant
 
 
@@ -396,6 +401,29 @@ public class ConstantFolder {
         }
 
         @Override
+        public AbstractInsnNode pushInsn() {
+            if(sort == Type.BYTE) {
+                return new IntInsnNode(Opcodes.BIPUSH, v);
+            }
+            if (sort == Type.SHORT) {
+                return new IntInsnNode(Opcodes.SIPUSH, v);
+            }
+            switch (v) {
+                case -1:
+                    return new InsnNode(Opcodes.ICONST_M1);
+                case  0:
+                case  1:
+                case  2:
+                case  3:
+                case  4:
+                case  5:
+                    return new InsnNode(Opcodes.ICONST_0 + v);
+                default:
+                    return new LdcInsnNode(java.lang.Integer.valueOf(v));
+            }
+        }
+
+        @Override
         public boolean equals(final Object value) {
             if (!(value instanceof ICst)) {
                 return false;
@@ -482,6 +510,14 @@ public class ConstantFolder {
 
         @Override public CFValue and(CFValue value2) { throw new UnsupportedOperationException(); }
         @Override public CFValue or(CFValue value2)  { throw new UnsupportedOperationException(); }
+
+        @Override
+        public AbstractInsnNode pushInsn() {
+            if(v == 0f) { return new InsnNode(Opcodes.FCONST_0); }
+            if(v == 1f) { return new InsnNode(Opcodes.FCONST_1); }
+            if(v == 2f) { return new InsnNode(Opcodes.FCONST_2); }
+            return new LdcInsnNode(java.lang.Float.valueOf(v));
+        }
 
         @Override
         public boolean equals(final Object value) {
@@ -586,6 +622,13 @@ public class ConstantFolder {
         }
 
         @Override
+        public AbstractInsnNode pushInsn() {
+            if(v == 0L) { return new InsnNode(Opcodes.LCONST_0); }
+            if(v == 1L) { return new InsnNode(Opcodes.LCONST_1); }
+            return new LdcInsnNode(java.lang.Long.valueOf(v));
+        }
+
+        @Override
         public boolean equals(final Object value) {
             if (!(value instanceof JCst)) {
                 return false;
@@ -670,6 +713,13 @@ public class ConstantFolder {
 
         @Override public CFValue and(CFValue value2) { throw new UnsupportedOperationException(); }
         @Override public CFValue or(CFValue value2)  { throw new UnsupportedOperationException(); }
+
+        @Override
+        public AbstractInsnNode pushInsn() {
+            if(v == 0d) { return new InsnNode(Opcodes.DCONST_0); }
+            if(v == 1d) { return new InsnNode(Opcodes.DCONST_1); }
+            return new LdcInsnNode(java.lang.Double.valueOf(v));
+        }
 
         @Override
         public boolean equals(final Object value) {
