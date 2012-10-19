@@ -38,6 +38,7 @@ abstract class BCodeOpt extends BCodeTypes {
     val unboxElider         = new UnBoxElider
     val jumpReducer         = new asm.optimiz.JumpReducer(null)
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
+    val constantFolder      = new asm.optimiz.ConstantFolder
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
@@ -68,9 +69,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
             nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
             keepGoing |= nullnessPropagator.changed;
-            if(nullnessPropagator.changed) {
-              unreachCodeRemover.transform(cName, mnode);
-            }
+
+            constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
+            keepGoing |= constantFolder.changed;
 
           } while(keepGoing)
 

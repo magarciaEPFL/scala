@@ -204,6 +204,20 @@ public class Frame<V extends Value> {
     }
 
     /**
+     *  Returns the n-th stack element counting from top starting at 0.
+     *  E.g., peekDown(0) amounts to getStackTop()
+     *        peekDown(1) is the element pushed just before the above, and so on.
+     *
+     * As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
+     *   "Long and double values are treated as single values."
+     *
+     * */
+    public V peekDown(int n) {
+        int idxTop = getStackSize() - 1;
+        return getStack(idxTop - n);
+    }
+
+    /**
      * Clears the operand stack of this frame.
      */
     public void clearStack() {

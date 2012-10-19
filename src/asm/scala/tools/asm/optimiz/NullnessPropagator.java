@@ -37,8 +37,6 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *    (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it).
  *        This might enable further reductions (e.g., dead-store elimination).
  *
- *  After this transformation, use the UnreachableCode transformer to eliminate null frames (which complicate further analyses).
- *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  */
@@ -47,6 +45,8 @@ public class NullnessPropagator {
     /** after transform() has run, this field records whether
      *  at least one pass of this transformer modified something. */
     public boolean changed = false;
+
+    private UnreachableCode unreachCodeRemover = new UnreachableCode();
 
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
@@ -132,6 +132,11 @@ public class NullnessPropagator {
             }
 
             i += 1;
+        }
+
+        if(changed) {
+            // UnreachableCode eliminates null frames (which complicate further analyses).
+            unreachCodeRemover.transform(owner, mnode);
         }
 
     }
@@ -248,7 +253,7 @@ public class NullnessPropagator {
         }
 
         @Override
-        public StatusValue newOperation(final AbstractInsnNode insn) {
+        public StatusValue newOperation(final AbstractInsnNode insn) throws AnalyzerException {
             final int size = getResultSize(insn);
             Nullness status = Nullness.INDOUBT_STATUS;
             if (insn.getOpcode() == Opcodes.ACONST_NULL) {
@@ -263,7 +268,7 @@ public class NullnessPropagator {
         }
 
         @Override
-        public StatusValue unaryOperation(final AbstractInsnNode insn, final StatusValue value) {
+        public StatusValue unaryOperation(final AbstractInsnNode insn, final StatusValue value) throws AnalyzerException {
             StatusValue sv = createStatusValue(getResultSize(insn));
             switch (insn.getOpcode()) {
                 case NEWARRAY:
@@ -278,8 +283,7 @@ public class NullnessPropagator {
         public StatusValue binaryOperation(
             final AbstractInsnNode insn,
             final StatusValue value1,
-            final StatusValue value2)
-        {
+            final StatusValue value2) throws AnalyzerException {
             return createStatusValue(getResultSize(insn));
         }
 
@@ -525,20 +529,6 @@ public class NullnessPropagator {
             if(ref != null) {
                 markNONNULL(ref);
             }
-        }
-
-        /**
-         *  Returns the n-th stack element counting from top starting at 0.
-         *  E.g., peekDown(0) amounts to getStackTop()
-         *        peekDown(1) is the element pushed just before the above, and so on.
-         *
-         * As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
-         *   "Long and double values are treated as single values."
-         *
-         * */
-        private StatusValue peekDown(int n) {
-            int idxTop = getStackSize() - 1;
-            return getStack(idxTop - n);
         }
 
         private void markNONNULL(StatusValue sv) {
