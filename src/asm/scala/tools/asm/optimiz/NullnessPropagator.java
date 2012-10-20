@@ -101,6 +101,38 @@ public class NullnessPropagator {
                         else if(alwaysAvoided) { adjustBranch(mnode, jmp, 2, false); }
                         break;
 
+                    case Opcodes.INVOKESTATIC:
+                        if(frame.getStackTop().isNull()) {
+                            MethodInsnNode mi = (MethodInsnNode)insns[i];
+                            if(SSLUtil.isScalaUnBoxCall(mi)) {
+                                // Scala unbox of null is 0
+                                Type retType = Type.getReturnType(mi.desc);
+                                int zeroLoadOpcode = -1;
+                                switch (retType.getSort()) {
+                                    case Type.BOOLEAN:
+                                    case Type.BYTE:
+                                    case Type.CHAR:
+                                    case Type.SHORT:
+                                    case Type.INT:
+                                        zeroLoadOpcode = Opcodes.ICONST_0;
+                                        break;
+                                    case Type.LONG:
+                                        zeroLoadOpcode = Opcodes.LCONST_0;
+                                        break;
+                                    case Type.FLOAT:
+                                        zeroLoadOpcode = Opcodes.FCONST_0;
+                                        break;
+                                    case Type.DOUBLE:
+                                        zeroLoadOpcode = Opcodes.DCONST_0;
+                                        break;
+                                }
+                                mnode.instructions.insert(insns[i], new InsnNode(zeroLoadOpcode));
+                                mnode.instructions.set(insns[i], new InsnNode(Opcodes.POP));
+                                changed = true;
+                            }
+                        }
+                        break;
+
                     case Opcodes.INSTANCEOF:
                         if(frame.getStackTop().isNull()) {
                             // drop ref, ICONST_0
