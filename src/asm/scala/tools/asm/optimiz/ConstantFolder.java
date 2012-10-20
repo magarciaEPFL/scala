@@ -48,9 +48,13 @@ public class ConstantFolder implements Opcodes {
      *  at least one pass of this transformer modified something. */
     public boolean changed = false;
 
+    private MethodNode mnode = null;
+
     private UnreachableCode unreachCodeRemover = new UnreachableCode();
 
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
+
+        this.mnode = mnode;
 
         Analyzer<CFValue> propag = new Analyzer<CFValue>(new ConstantInterpreter());
         propag.analyze(owner, mnode);
@@ -63,7 +67,8 @@ public class ConstantFolder implements Opcodes {
         int i = 0;
         while(i < insns.length) {
 
-            Frame<CFValue>   frame = frames[i];
+            Frame<CFValue>   frame    = frames[i];
+            Frame<CFValue>   nxtFrame = (i+1 < frames.length) ? frames[i+1] : null;
             AbstractInsnNode insn  = insns[i];
 
             CFValue value1   = null;
@@ -88,6 +93,52 @@ public class ConstantFolder implements Opcodes {
                                 mnode.instructions.set(insn, lin);
                                 changed = true; // actually not needed: control-flow unaltered, no code has been killed.
                             }
+                        }
+                        break;
+
+                    case Opcodes.IADD:
+                    case Opcodes.LADD:
+                    case Opcodes.FADD:
+                    case Opcodes.DADD:
+                    case Opcodes.ISUB:
+                    case Opcodes.LSUB:
+                    case Opcodes.FSUB:
+                    case Opcodes.DSUB:
+                    case Opcodes.IMUL:
+                    case Opcodes.LMUL:
+                    case Opcodes.FMUL:
+                    case Opcodes.DMUL:
+                    case Opcodes.IDIV:
+                    case Opcodes.LDIV:
+                    case Opcodes.FDIV:
+                    case Opcodes.DDIV:
+
+                    case Opcodes.INEG:
+                    case Opcodes.LNEG:
+                    case Opcodes.FNEG:
+                    case Opcodes.DNEG:
+
+                    case Opcodes.I2L:
+                    case Opcodes.I2F:
+                    case Opcodes.I2D:
+                    case Opcodes.L2I:
+                    case Opcodes.L2F:
+                    case Opcodes.L2D:
+                    case Opcodes.F2I:
+                    case Opcodes.F2L:
+                    case Opcodes.F2D:
+                    case Opcodes.D2I:
+                    case Opcodes.D2L:
+                    case Opcodes.D2F:
+                    case Opcodes.I2B:
+                    case Opcodes.I2C:
+                    case Opcodes.I2S:
+
+                    case Opcodes.LCMP:
+
+                        if(nxtFrame.getStackTop().isConstant()) {
+                            dropAndLoad(insn, (Constant)nxtFrame.getStackTop());
+                            changed = true; // actually not needed: control-flow unaltered, no code has been killed.
                         }
                         break;
 
@@ -196,6 +247,12 @@ public class ConstantFolder implements Opcodes {
             is.add(new JumpInsnNode(Opcodes.GOTO, label));
         }
         return is;
+    }
+
+    private void dropAndLoad(final AbstractInsnNode insn, Constant cst) {
+        mnode.instructions.insert(insn, cst.pushInsn());
+        // PushPopCollapser will back-propagate the following drop instruction.
+        mnode.instructions.insert(insn, Util.getDrop(cst.getSize()));
     }
 
     static private abstract class CFValue implements Value {

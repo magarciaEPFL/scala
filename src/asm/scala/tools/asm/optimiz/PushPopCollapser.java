@@ -79,9 +79,12 @@ public class PushPopCollapser {
     }
 
     private boolean isAlreadyMinimized(final Set<AbstractInsnNode> producers, InsnNode drop) {
+        final int opc = drop.getOpcode();
+        assert opc == Opcodes.POP || opc == Opcodes.POP2;
         if(producers.size() == 1) {
             AbstractInsnNode singleProd = producers.iterator().next();
-            if(singleProd.getNext() == drop && !canSimplify(singleProd)) {
+            final int size = (opc - 86);
+            if(singleProd.getNext() == drop && !canSimplify(singleProd, size)) {
                 return true;
             }
         }
@@ -368,7 +371,6 @@ public class PushPopCollapser {
                 case Opcodes.INVOKESPECIAL:
                 case Opcodes.INVOKESTATIC:
                 case Opcodes.INVOKEINTERFACE: {
-
                     if(SSLUtil.isSideEffectFreeCall(prod)) {
 
                         // replace the call-instruction that pushes with as many DROPs as arguments it expects on the stack.
@@ -389,14 +391,11 @@ public class PushPopCollapser {
                         appendDrop(prod, size);
 
                     }
-
                     break;
                 }
-                case Opcodes.INVOKEDYNAMIC: {
+                case Opcodes.INVOKEDYNAMIC:
                     appendDrop(prod, size);
                     break;
-
-                }
 
                 case Opcodes.NEW:
                     // TODO some instantiations are side-effect free, and could be elided.
@@ -485,8 +484,58 @@ public class PushPopCollapser {
         mnode.instructions.remove(prod);
     }
 
-    private boolean canSimplify(AbstractInsnNode producer) {
-        return Util.hasPushEffectOnly(producer) || SSLUtil.isSideEffectFree(producer);
+    /**
+     *  This has to be maintained in agreement with ConstantFolder.transform()
+     *  The rule of thumb is: if that method just limits itself to placing a drop instruction right after the producer instruction,
+     *  then that instruction "can't be simplified" any further.
+     */
+    private boolean canSimplify(final AbstractInsnNode producer, final int size) {
+
+        switch (producer.getOpcode()) {
+
+            case Opcodes.IALOAD:
+            case Opcodes.LALOAD:
+            case Opcodes.FALOAD:
+            case Opcodes.DALOAD:
+            case Opcodes.AALOAD:
+            case Opcodes.BALOAD:
+            case Opcodes.CALOAD:
+            case Opcodes.SALOAD:
+                return false;
+
+            case Opcodes.DUP2:
+                return (size == 2);
+
+            case Opcodes.DUP_X1:
+            case Opcodes.DUP_X2:
+            case Opcodes.DUP2_X1:
+            case Opcodes.DUP2_X2:
+            case Opcodes.SWAP:
+                return false;
+
+            case Opcodes.GETSTATIC:
+                return SSLUtil.isSideEffectFreeGETSTATIC(producer);
+
+            case Opcodes.GETFIELD:
+                return false;
+
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKESTATIC:
+            case Opcodes.INVOKEINTERFACE:
+                return SSLUtil.isSideEffectFreeCall(producer);
+
+            case Opcodes.INVOKEDYNAMIC:
+            case Opcodes.NEW:
+            case Opcodes.ARRAYLENGTH:
+            case Opcodes.CHECKCAST:
+                return false;
+
+            default:
+                return true;
+
+        }
+
     }
 
 }
