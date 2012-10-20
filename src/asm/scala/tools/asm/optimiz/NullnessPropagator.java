@@ -230,7 +230,7 @@ public class NullnessPropagator {
     } // end of nested class StatusValue
 
 
-    static public class StatusInterpreter extends SizingInterpreter<StatusValue> {
+    static public class StatusInterpreter extends Interpreter<StatusValue> implements Opcodes {
 
         public StatusInterpreter() {
             super(ASM4);
@@ -254,7 +254,7 @@ public class NullnessPropagator {
 
         @Override
         public StatusValue newOperation(final AbstractInsnNode insn) throws AnalyzerException {
-            final int size = getResultSize(insn);
+            final int size = SizingUtil.getResultSize(insn);
             Nullness status = Nullness.INDOUBT_STATUS;
             if (insn.getOpcode() == Opcodes.ACONST_NULL) {
                 status = Nullness.NULL_STATUS;
@@ -269,7 +269,7 @@ public class NullnessPropagator {
 
         @Override
         public StatusValue unaryOperation(final AbstractInsnNode insn, final StatusValue value) throws AnalyzerException {
-            StatusValue sv = createStatusValue(getResultSize(insn));
+            StatusValue sv = createStatusValue(SizingUtil.getResultSize(insn));
             switch (insn.getOpcode()) {
                 case NEWARRAY:
                 case ANEWARRAY:
@@ -284,7 +284,7 @@ public class NullnessPropagator {
             final AbstractInsnNode insn,
             final StatusValue value1,
             final StatusValue value2) throws AnalyzerException {
-            return createStatusValue(getResultSize(insn));
+            return createStatusValue(SizingUtil.getResultSize(insn));
         }
 
         @Override

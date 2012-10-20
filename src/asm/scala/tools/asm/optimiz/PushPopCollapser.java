@@ -88,6 +88,17 @@ public class PushPopCollapser {
         return false;
     }
 
+    /**
+     *  All we know about the "producer" instructions is each pushes a value we don't need onto the stack,
+     *  while we still need any side-effects producers might have.
+     *
+     *  A blanket way to "neutralize stack push" of an instruction involves inserting a POP or POP2 right after it.
+     *
+     *  That's what we do unless a special case is detected. For example, for IADD shorter code is emitted
+     *  by replacing IADD with two POP instructions (with the added benefit that
+     *  follow-up passes will in turn neutralize their producers, and so on).
+     *
+     */
     private void neutralizeStackPush(final Set<AbstractInsnNode> producers, final int size) {
         assert !producers.isEmpty() : "There can't be a POP or POP2 without some other instruction pushing a value for it on the stack.";
 

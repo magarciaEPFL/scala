@@ -42,7 +42,7 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  */
-public class ConstantFolder {
+public class ConstantFolder implements Opcodes {
 
     /** after transform() has run, this field records whether
      *  at least one pass of this transformer modified something. */
@@ -748,7 +748,7 @@ public class ConstantFolder {
 
     } // end of nested class DCst
 
-    static public class ConstantInterpreter extends SizingInterpreter<CFValue> {
+    static public class ConstantInterpreter extends Interpreter<CFValue> {
 
         public ConstantInterpreter() {
             super(ASM4);
@@ -763,6 +763,10 @@ public class ConstantFolder {
                 return null;
             }
             return (size == 1) ? Unknown.UNKNOWN_1 : Unknown.UNKNOWN_2;
+        }
+
+        private CFValue dunno(AbstractInsnNode producer) {
+            return dunno(SizingUtil.getResultSize(producer));
         }
 
         @Override
@@ -792,7 +796,7 @@ public class ConstantFolder {
          * LDC
          */
         @Override
-        public CFValue newOperation(final AbstractInsnNode insn) throws AnalyzerException {
+        public CFValue newOperation(final AbstractInsnNode insn) {
             int opc = insn.getOpcode();
             switch (opc) {
 
@@ -840,11 +844,11 @@ public class ConstantFolder {
                     } else if (cst instanceof Double) {
                         return dconst(((Double) cst).doubleValue());
                     } else {
-                        return dunno(getResultSize(insn));
+                        return dunno(insn);
                     }
 
                 default:
-                    return dunno(getResultSize(insn));
+                    return dunno(insn);
             }
         }
 
@@ -866,7 +870,7 @@ public class ConstantFolder {
          *  I2B, I2C, I2S
          */
         @Override
-        public CFValue unaryOperation(final AbstractInsnNode insn, final CFValue value) throws AnalyzerException {
+        public CFValue unaryOperation(final AbstractInsnNode insn, final CFValue value) {
             switch (insn.getOpcode()) {
                 case INEG:
                 case FNEG:
@@ -888,7 +892,7 @@ public class ConstantFolder {
                             case I2S: return new ICst((short) ic.v);
                         }
                     } else {
-                        return dunno(getResultSize(insn));
+                        return dunno(insn);
                     }
 
                 case F2I:
@@ -912,7 +916,7 @@ public class ConstantFolder {
                     return value.convD();
 
                 default:
-                    return dunno(getResultSize(insn));
+                    return dunno(insn);
             }
         }
 
@@ -936,7 +940,7 @@ public class ConstantFolder {
         public CFValue binaryOperation(
             final AbstractInsnNode insn,
             final CFValue value1,
-            final CFValue value2) throws AnalyzerException {
+            final CFValue value2) {
             switch (insn.getOpcode()) {
                 case IADD:
                 case FADD:
@@ -966,7 +970,7 @@ public class ConstantFolder {
                 case FREM:
                 case LREM:
                 case DREM:
-                    return dunno(getResultSize(insn)); // TODO return value1.REM(value2);
+                    return dunno(insn); // TODO return value1.REM(value2);
 
                 case IAND:
                 case LAND:
@@ -978,19 +982,19 @@ public class ConstantFolder {
 
                 case IXOR:
                 case LXOR:
-                    return dunno(getResultSize(insn)); // TODO return value1.XOR(value2);
+                    return dunno(insn); // TODO return value1.XOR(value2);
 
                 case ISHL:
                 case LSHL:
-                    return dunno(getResultSize(insn)); // TODO return value1.SHL(value2);
+                    return dunno(insn); // TODO return value1.SHL(value2);
 
                 case ISHR:
                 case LSHR:
-                    return dunno(getResultSize(insn)); // TODO return value1.SHR(value2);
+                    return dunno(insn); // TODO return value1.SHR(value2);
 
                 case IUSHR:
                 case LUSHR:
-                    return dunno(getResultSize(insn)); // TODO return value1.USHR(value2);
+                    return dunno(insn); // TODO return value1.USHR(value2);
 
                 case LCMP:
                     if(value1.isUnknown() || value2.isUnknown()) {
@@ -1005,14 +1009,14 @@ public class ConstantFolder {
 
                 case FCMPL:
                 case DCMPL:
-                    return dunno(getResultSize(insn)); // TODO return value1.CMPL(value2);
+                    return dunno(insn); // TODO return value1.CMPL(value2);
 
                 case FCMPG:
                 case DCMPG:
-                    return dunno(getResultSize(insn)); // TODO return value1.CMPG(value2);
+                    return dunno(insn); // TODO return value1.CMPG(value2);
 
                 default:
-                    return dunno(getResultSize(insn));
+                    return dunno(insn);
             }
         }
 
@@ -1021,18 +1025,18 @@ public class ConstantFolder {
             final AbstractInsnNode insn,
             final CFValue value1,
             final CFValue value2,
-            final CFValue value3) throws AnalyzerException {
-            return dunno(getResultSize(insn));
+            final CFValue value3) {
+            return dunno(insn);
         }
 
         @Override
-        public CFValue naryOperation(final AbstractInsnNode insn, final List<? extends CFValue> values) throws AnalyzerException {
+        public CFValue naryOperation(final AbstractInsnNode insn, final List<? extends CFValue> values) {
             // TODO any calls to the Scala runtime for which we know it returns a primitive constant, given its arguments?
-            return dunno(getResultSize(insn));
+            return dunno(insn);
         }
 
         @Override
-        public void returnOperation(AbstractInsnNode insn, CFValue value, CFValue expected) throws AnalyzerException {
+        public void returnOperation(AbstractInsnNode insn, CFValue value, CFValue expected) {
         }
 
         @Override

@@ -25,13 +25,9 @@ import scala.tools.asm.tree.analysis.AnalyzerException;
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  */
-public abstract class SizingInterpreter<V extends Value> extends Interpreter<V> implements Opcodes {
+public class SizingUtil implements Opcodes {
 
-    protected SizingInterpreter(final int api) {
-        super(api);
-    }
-
-    static public int getResultSize(final AbstractInsnNode insn) throws AnalyzerException {
+    static public int getResultSize(final AbstractInsnNode insn) {
         int size;
         switch (insn.getOpcode()) {
             case Opcodes.ACONST_NULL:
@@ -139,7 +135,7 @@ public abstract class SizingInterpreter<V extends Value> extends Interpreter<V> 
             case Opcodes.DUP2_X1:
             case Opcodes.DUP2_X2:
             case Opcodes.SWAP:
-                throw new AnalyzerException(insn, "Can't compute the size of DUP<sthg> without knowing what's on stack top");
+                throw new IllegalArgumentException("Can't compute the size of DUP<sthg> without knowing what's on stack top");
             case Opcodes.IADD:
             case Opcodes.FADD:
                 size = 1;
@@ -263,7 +259,7 @@ public abstract class SizingInterpreter<V extends Value> extends Interpreter<V> 
                 size = 0;
                 break;
             case Opcodes.JSR:
-                throw new AnalyzerException(insn, "Subroutines are not supported.");
+                throw new IllegalArgumentException("Subroutines are not supported.");
             case Opcodes.RET:
                 size = 0;
                 break;
