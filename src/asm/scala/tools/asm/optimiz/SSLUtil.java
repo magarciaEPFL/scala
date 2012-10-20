@@ -39,6 +39,9 @@ public class SSLUtil {
             if("scala/Unit$".equals(fi.owner)) {
                 return "MODULE$".equals(fi.name); // SI-6527
             }
+            if("scala/collection/immutable/Nil$".equals(fi.owner)) {
+                return "MODULE$".equals(fi.name);
+            }
         }
         return false;
     }

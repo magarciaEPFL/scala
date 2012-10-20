@@ -89,14 +89,17 @@ public class PushPopCollapser {
     }
 
     /**
-     *  All we know about the "producer" instructions is each pushes a value we don't need onto the stack,
+     *  All we know about the "producer" instructions is each of them pushes a value we don't need onto the stack,
      *  while we still need any side-effects producers might have.
      *
-     *  A blanket way to "neutralize stack push" of an instruction involves inserting a POP or POP2 right after it.
+     *  A blanket way to "neutralize stack push" of a "producer" instruction involves:
+     *    (a) leaving the producer in place, and
+     *    (b) inserting a POP or POP2 right after it, based on the `size` argument.
      *
-     *  That's what we do unless a special case is detected. For example, for IADD shorter code is emitted
-     *  by replacing IADD with two POP instructions (with the added benefit that
-     *  follow-up passes will in turn neutralize their producers, and so on).
+     *  That's what we do unless a special case is detected.
+     *  For example, for IADD shorter code is emitted by replacing IADD with two POP instructions.
+     *  Similarly for other producers.
+     *  The thus added POP instructions may in turn be used to "neutralize" their producers, and so on.
      *
      */
     private void neutralizeStackPush(final Set<AbstractInsnNode> producers, final int size) {
@@ -108,37 +111,378 @@ public class PushPopCollapser {
             final AbstractInsnNode prod = iter.next();
             final int opc = prod.getOpcode();
 
-            if(Util.hasPushEffectOnly(prod) || SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
+            switch (opc) {
 
-                // remove altogether the instruction that pushes.
-                mnode.instructions.remove(prod);
+                case Opcodes.ACONST_NULL:
+                case Opcodes.ICONST_M1:
+                case Opcodes.ICONST_0:
+                case Opcodes.ICONST_1:
+                case Opcodes.ICONST_2:
+                case Opcodes.ICONST_3:
+                case Opcodes.ICONST_4:
+                case Opcodes.ICONST_5:
+                case Opcodes.LCONST_0:
+                case Opcodes.LCONST_1:
+                case Opcodes.FCONST_0:
+                case Opcodes.FCONST_1:
+                case Opcodes.FCONST_2:
+                case Opcodes.DCONST_0:
+                case Opcodes.DCONST_1:
+                case Opcodes.BIPUSH:
+                case Opcodes.SIPUSH:
+                case Opcodes.LDC:
+                  // eliding an LDC of the "push ymbolic reference to a class" variety might
+                  // save us a ClassNotFoundException at runtime (ie, change semantics, bad thing).
+                  // Still, seems reasonable to elide.
+                case Opcodes.ILOAD:
+                case Opcodes.LLOAD:
+                case Opcodes.FLOAD:
+                case Opcodes.DLOAD:
+                case Opcodes.ALOAD:
+                    removeProducer(prod);
+                    break;
 
-            } else if(SSLUtil.isSideEffectFreeCall(prod)) {
+                case Opcodes.IALOAD:
+                case Opcodes.LALOAD:
+                case Opcodes.FALOAD:
+                case Opcodes.DALOAD:
+                case Opcodes.AALOAD:
+                case Opcodes.BALOAD:
+                case Opcodes.CALOAD:
+                case Opcodes.SALOAD:
+                    // none of these gets elided to prevent swallowing NPE, out of bounds, exceptions.
+                    appendDrop(prod, size);
+                    break;
 
-                // replace the call-instruction that pushes with as many DROPs as arguments it expects on the stack.
-                MethodInsnNode mi = (MethodInsnNode) prod;
-                Type[] argTs = Type.getArgumentTypes(mi.desc);
-                for(int argIdx = 0; argIdx < argTs.length; argIdx++) {
-                    mnode.instructions.insert(prod, Util.getDrop(argTs[argIdx].getSize()));
+                case Opcodes.ISTORE:
+                case Opcodes.LSTORE:
+                case Opcodes.FSTORE:
+                case Opcodes.DSTORE:
+                case Opcodes.ASTORE:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.IASTORE:
+                case Opcodes.LASTORE:
+                case Opcodes.FASTORE:
+                case Opcodes.DASTORE:
+                case Opcodes.AASTORE:
+                case Opcodes.BASTORE:
+                case Opcodes.CASTORE:
+                case Opcodes.SASTORE:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.POP:
+                case Opcodes.POP2:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.DUP:
+                    assert size == 1;
+                    removeProducer(prod);
+                    break;
+
+                case Opcodes.DUP2:
+                    if(size == 2) {
+                        removeProducer(prod);
+                    } else {
+                        appendDrop(prod, size);
+                    }
+                    break;
+
+                case Opcodes.DUP_X1:
+                case Opcodes.DUP_X2:
+                case Opcodes.DUP2_X1:
+                case Opcodes.DUP2_X2:
+                case Opcodes.SWAP:
+                    appendDrop(prod, size);
+                    break;
+
+                case Opcodes.IADD:
+                case Opcodes.LADD:
+                case Opcodes.FADD:
+                case Opcodes.DADD:
+                case Opcodes.ISUB:
+                case Opcodes.LSUB:
+                case Opcodes.FSUB:
+                case Opcodes.DSUB:
+                case Opcodes.IMUL:
+                case Opcodes.LMUL:
+                case Opcodes.FMUL:
+                case Opcodes.DMUL:
+                case Opcodes.IDIV:
+                case Opcodes.LDIV:
+                case Opcodes.FDIV:
+                case Opcodes.DDIV:
+                case Opcodes.IREM:
+                case Opcodes.LREM:
+                case Opcodes.FREM:
+                case Opcodes.DREM:
+                    replaceProducer(size, size, prod);
+                    break;
+
+                case Opcodes.INEG:
+                case Opcodes.LNEG:
+                case Opcodes.FNEG:
+                case Opcodes.DNEG:
+                    replaceProducer(size, prod);
+                    break;
+
+                case Opcodes.ISHL:
+                case Opcodes.ISHR:
+                case Opcodes.IUSHR:
+                    assert size == 1;
+                    replaceProducer(1, 1, prod);
+                    break;
+
+                case Opcodes.LSHL:
+                case Opcodes.LSHR:
+                case Opcodes.LUSHR:
+                    assert size == 2;
+                    replaceProducer(2, 1, prod); // ie at runtime: POP followed by POP2.
+                    break;
+
+                case Opcodes.IAND:
+                case Opcodes.IOR:
+                case Opcodes.IXOR:
+                    assert size == 1;
+                    replaceProducer(1, 1, prod);
+                    break;
+
+                case Opcodes.LAND:
+                case Opcodes.LOR:
+                case Opcodes.LXOR:
+                    assert size == 2;
+                    replaceProducer(2, 2, prod);
+                    break;
+
+                case Opcodes.IINC:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.I2L:
+                case Opcodes.I2F:
+                case Opcodes.I2D:
+                    replaceProducer(1, prod);
+                    break;
+
+                case Opcodes.L2I:
+                case Opcodes.L2F:
+                case Opcodes.L2D:
+                    replaceProducer(2, prod);
+                    break;
+
+                case Opcodes.F2I:
+                case Opcodes.F2L:
+                case Opcodes.F2D:
+                    replaceProducer(1, prod);
+                    break;
+
+                case Opcodes.D2I:
+                case Opcodes.D2L:
+                case Opcodes.D2F:
+                    replaceProducer(2, prod);
+                    break;
+
+                case Opcodes.I2B:
+                case Opcodes.I2C:
+                case Opcodes.I2S:
+                    replaceProducer(1, prod);
+                    break;
+
+                case Opcodes.LCMP:
+                    replaceProducer(2, 2, prod);
+                    break;
+
+                case Opcodes.FCMPL:
+                case Opcodes.FCMPG:
+                    replaceProducer(1, 1, prod);
+                    break;
+
+                case Opcodes.DCMPL:
+                case Opcodes.DCMPG:
+                    replaceProducer(2, 2, prod);
+                    break;
+
+                case Opcodes.IFEQ:
+                case Opcodes.IFNE:
+                case Opcodes.IFLT:
+                case Opcodes.IFGE:
+                case Opcodes.IFGT:
+                case Opcodes.IFLE:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.IF_ICMPEQ:
+                case Opcodes.IF_ICMPNE:
+                case Opcodes.IF_ICMPLT:
+                case Opcodes.IF_ICMPGE:
+                case Opcodes.IF_ICMPGT:
+                case Opcodes.IF_ICMPLE:
+                case Opcodes.IF_ACMPEQ:
+                case Opcodes.IF_ACMPNE:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.GOTO:
+                case Opcodes.JSR:
+                case Opcodes.RET:
+                case Opcodes.TABLESWITCH:
+                case Opcodes.LOOKUPSWITCH:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.IRETURN:
+                case Opcodes.LRETURN:
+                case Opcodes.FRETURN:
+                case Opcodes.DRETURN:
+                case Opcodes.ARETURN:
+                case Opcodes.RETURN:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.GETSTATIC:
+                    if(SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
+                        removeProducer(prod);
+                    } else {
+                        assert size == SizingUtil.getResultSize(prod);
+                        appendDrop(prod, size); // For example, scala/collection/immutable/Nil$.MODULE$
+                    }
+                    break;
+
+                case Opcodes.PUTSTATIC:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.GETFIELD:
+                    assert size == SizingUtil.getResultSize(prod);
+                    appendDrop(prod, size);
+                    break;
+
+                case Opcodes.PUTFIELD:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.INVOKEVIRTUAL:
+                case Opcodes.INVOKESPECIAL:
+                case Opcodes.INVOKESTATIC:
+                case Opcodes.INVOKEINTERFACE: {
+
+                    if(SSLUtil.isSideEffectFreeCall(prod)) {
+
+                        // replace the call-instruction that pushes with as many DROPs as arguments it expects on the stack.
+                        MethodInsnNode mi = (MethodInsnNode) prod;
+                        Type[] argTs = Type.getArgumentTypes(mi.desc);
+                        for(int argIdx = 0; argIdx < argTs.length; argIdx++) {
+                            mnode.instructions.insert(prod, Util.getDrop(argTs[argIdx].getSize()));
+                        }
+                        if(opc != Opcodes.INVOKESTATIC) {
+                            mnode.instructions.insert(prod, Util.getDrop(1));
+                        }
+                        mnode.instructions.remove(prod);
+
+
+                    } else {
+
+                        assert size == SizingUtil.getResultSize(prod);
+                        appendDrop(prod, size);
+
+                    }
+
+                    break;
                 }
-                switch (opc) {
-                    case Opcodes.INVOKEINTERFACE:
-                    case Opcodes.INVOKESPECIAL:
-                    case Opcodes.INVOKEVIRTUAL:
+                case Opcodes.INVOKEDYNAMIC: {
+                    appendDrop(prod, size);
+                    break;
+
+                }
+
+                case Opcodes.NEW:
+                    // TODO some instantiations are side-effect free, and could be elided.
+                    assert size == 1;
+                    appendDrop(prod, 1);
+                    break;
+
+                case Opcodes.NEWARRAY:
+                case Opcodes.ANEWARRAY:
+                    replaceProducer(1, prod);
+                    break;
+
+                case Opcodes.ARRAYLENGTH:
+                    assert size == 1;
+                    appendDrop(prod, 1);
+                    break;
+
+                case Opcodes.ATHROW:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.CHECKCAST:
+                    assert size == 1;
+                    appendDrop(prod, 1);
+                    break;
+
+                case Opcodes.INSTANCEOF:
+                    // we might swallow at runtime a ClassNotFoundException,
+                    // but we've got a program that typechecks, right? So there should be no exception anyway.
+                    replaceProducer(1, prod);
+                    break;
+
+                case Opcodes.MONITORENTER:
+                case Opcodes.MONITOREXIT:
+                    assert false : "not a stack-loading instruction";
+                    break;
+
+                case Opcodes.MULTIANEWARRAY:
+                    for (int i = ((MultiANewArrayInsnNode) prod).dims; i > 0; --i) {
                         mnode.instructions.insert(prod, Util.getDrop(1));
-                        break;
-                    default:
-                        break;
-                }
-                mnode.instructions.remove(prod);
+                    }
+                    mnode.instructions.remove(prod);
+                    break;
 
-            } else {
+                case Opcodes.IFNULL:
+                case Opcodes.IFNONNULL:
+                    assert false : "not a stack-loading instruction";
+                    break;
 
-                // leave in place the instruction that pushes, add a DROP right after it.
-                mnode.instructions.insert(prod, Util.getDrop(size));
+                default:
+                    throw new RuntimeException("Illegal opcode "+prod.getOpcode());
 
             }
+
         }
+    }
+
+    private void removeProducer(final AbstractInsnNode prod) {
+        mnode.instructions.remove(prod);
+    }
+
+    private void appendDrop(final AbstractInsnNode prod, final int size) {
+        mnode.instructions.insert(prod, Util.getDrop(size));
+    }
+
+    private void replaceProducer(final int dropSize, final AbstractInsnNode prod) {
+        mnode.instructions.set(prod, Util.getDrop(dropSize));
+    }
+
+    /**
+     *  This method assumes `prod` expects an operand stack with elements arranged as shown:
+     *
+     *      ..., oneBelow, stackTop
+     *
+     *  ie `prod` would consume both elements and then push another (not shown).
+     *
+     *  This method "neutralizes" such stack push by removing `prod` from the instruction stream.
+     *  In order to adjust the stack, two drop instructions are necessary:
+     *    (1) for stack top,     whose size is given by THE SECOND argument to this method.
+     *    (2) for one below top, whose size is given by THE FIRST  argument to this method.
+     *
+     */
+    private void replaceProducer(final int oneBelowSize, final int stackTopSize, final AbstractInsnNode prod) {
+        mnode.instructions.insert(prod, Util.getDrop(stackTopSize));
+        mnode.instructions.insert(prod, Util.getDrop(oneBelowSize));
+        mnode.instructions.remove(prod);
     }
 
     private boolean canSimplify(AbstractInsnNode producer) {
