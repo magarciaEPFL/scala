@@ -1405,7 +1405,7 @@ abstract class GenBCode extends BCodeOpt {
         registerCleanup(finCleanup)
         genLoad(block, kind)
         unregisterCleanup(finCleanup)
-        nopIfNeeded(startTryBody) // we can't elide an exception-handler protecting an empty try-body, that would change semantics (e.g. ClassNotFound due to the EH)
+        nopIfNeeded(startTryBody) // we can't elide an exception-handler protecting an empty try-body, that would change semantics (e.g. NoClassDefFoundError due to the EH)
         val endTryBody = currProgramPoint()
         bc goTo postHandlers
 

@@ -135,7 +135,7 @@ public class PushPopCollapser {
                 case Opcodes.SIPUSH:
                 case Opcodes.LDC:
                   // eliding an LDC of the "push ymbolic reference to a class" variety might
-                  // save us a ClassNotFoundException at runtime (ie, change semantics, bad thing).
+                  // save us a NoClassDefFoundError at runtime (ie, change semantics, bad thing).
                   // Still, seems reasonable to elide.
                 case Opcodes.ILOAD:
                 case Opcodes.LLOAD:
@@ -423,7 +423,7 @@ public class PushPopCollapser {
                     break;
 
                 case Opcodes.INSTANCEOF:
-                    // we might swallow at runtime a ClassNotFoundException,
+                    // we might swallow at runtime a NoClassDefFoundError,
                     // but we've got a program that typechecks, right? So there should be no exception anyway.
                     replaceProducer(1, prod);
                     break;
@@ -466,7 +466,7 @@ public class PushPopCollapser {
     }
 
     /**
-     *  This method assumes `prod` expects an operand stack with elements arranged as shown:
+     *  This method assumes `prod` expects an operand stack with the following shape:
      *
      *      ..., oneBelow, stackTop
      *
