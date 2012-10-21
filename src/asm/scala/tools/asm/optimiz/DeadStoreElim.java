@@ -39,12 +39,12 @@ public class DeadStoreElim {
 
         for(int i = 0; i < insns.length; i++) {
             AbstractInsnNode current = insns[i];
-            if (current != null  && Util.isSTORE(current) && !cp.hasConsumers(current)) {
+            if (current != null  && Util.isSTORE(current) && cp.consumers(current).isEmpty()) {
                 int size = cp.frameAt(current).getStackTop().getSize();
                 mnode.instructions.set(current, Util.getDrop(size));
                 changed = true;
             }
-            if (current != null  && current.getOpcode() == Opcodes.IINC && !cp.hasConsumers(current)) {
+            if (current != null  && current.getOpcode() == Opcodes.IINC && cp.consumers(current).isEmpty()) {
                 // IINC doesn't show up in Scala-emitted code.
                 mnode.instructions.remove(current);
                 changed = true;

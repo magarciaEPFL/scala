@@ -90,31 +90,6 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
     }
 
         // ------------------------------------------------------------------------
-        // functionality used by DeadStoreElim
-        // ------------------------------------------------------------------------
-
-    /**
-     *  The value produced by insn (if any) is "dropped" in case no non-trivial instruction consumes it.
-     *  Examples of dropping are:
-     *      - returning from a method with non-empty operand stack
-     *      - POP
-     *      - POP2
-     *  This method returns whether insn has non-trivial consumers, ie those using the value for "real" computation.
-     * */
-    public boolean hasConsumers(final AbstractInsnNode insn) {
-        Set<AbstractInsnNode> cs = pt.consumers(insn);
-        Iterator<AbstractInsnNode> iter = cs.iterator();
-        while(iter.hasNext()) {
-            AbstractInsnNode c = iter.next();
-            if(c.getOpcode() != Opcodes.POP &&
-               c.getOpcode() != Opcodes.POP2) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-        // ------------------------------------------------------------------------
         // functionality used by PushPopCollapser
         // ------------------------------------------------------------------------
 
