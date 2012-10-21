@@ -311,7 +311,28 @@ public class ConstantFolder implements Opcodes {
 
         @Override public Unknown add(CFValue value2) { assert size == value2.size; return this; }
         @Override public Unknown sub(CFValue value2) { assert size == value2.size; return this; }
-        @Override public Unknown mul(CFValue value2) { assert size == value2.size; return this; } // TODO times integral zero return a zero of that size
+
+        @Override public CFValue mul(CFValue value2) {
+            assert size == value2.size;
+            if(value2.isConstant()) {
+                final Constant cst = (Constant)value2;
+                if(cst.isIntegral()) {
+                    boolean isZero;
+                    if(cst.sort == Type.LONG) {
+                        JCst jc = (JCst) cst;
+                        isZero = (jc.v == 0);
+                    } else {
+                        ICst ic = (ICst) cst;
+                        isZero = (ic.v == 0);
+                    }
+                    if(isZero) {
+                        return value2;
+                    }
+                }
+            }
+            return this;
+        }
+
         @Override public Unknown div(CFValue value2) { assert size == value2.size; return this; }
 
         @Override public CFValue and(CFValue value2) {
@@ -358,12 +379,36 @@ public class ConstantFolder implements Opcodes {
 
     static private abstract class Constant extends CFValue {
 
-        public Constant(int size) {
+        public final int sort;
+
+        public Constant(final int size, final int sort) {
             super(size);
+            this.sort = sort;
         }
 
         @Override
         public boolean isConstant() { return true; }
+
+        public boolean isIntegral() {
+            switch (sort) {
+                case Type.BYTE:
+                case Type.SHORT:
+                case Type.INT:
+                case Type.LONG:
+                case Type.CHAR:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        public boolean isFloatingPoint() {
+            return (sort == Type.FLOAT) || (sort == Type.DOUBLE);
+        }
+
+        public boolean isBoolean() {
+            return (sort == Type.BOOLEAN);
+        }
 
         /**
          *  Returns a fresh instance of an xCONST instruction that loads the value represented by this instance.
@@ -375,30 +420,25 @@ public class ConstantFolder implements Opcodes {
 
     final static private class ICst extends Constant {
 
-        private final int sort;
         private final int v;
 
         public ICst(final char c) {
-            super(1);
-            this.sort = Type.CHAR;
+            super(1, Type.CHAR);
             this.v    = c;
         }
 
         public ICst(final byte b) {
-            super(1);
-            this.sort = Type.BYTE;
+            super(1, Type.BYTE);
             this.v    = b;
         }
 
         public ICst(final short s) {
-            super(1);
-            this.sort = Type.SHORT;
+            super(1, Type.SHORT);
             this.v    = s;
         }
 
         public ICst(final int i) {
-            super(1);
-            this.sort = Type.INT;
+            super(1, Type.INT);
             this.v    = i;
         }
 
@@ -520,12 +560,10 @@ public class ConstantFolder implements Opcodes {
 
     final static private class FCst extends Constant {
 
-        private final int   sort;
         private final float v;
 
         public FCst(final float f) {
-            super(1);
-            this.sort = Type.FLOAT;
+            super(1, Type.FLOAT);
             this.v    = f;
         }
 
@@ -609,12 +647,10 @@ public class ConstantFolder implements Opcodes {
 
     final static private class JCst extends Constant {
 
-        private final int   sort;
         private final long  v;
 
         public JCst(final long j) {
-            super(2);
-            this.sort = Type.LONG;
+            super(2, Type.LONG);
             this.v    = j;
         }
 
@@ -718,12 +754,10 @@ public class ConstantFolder implements Opcodes {
 
     static private class DCst extends Constant {
 
-        private final int    sort;
         private final double v;
 
         public DCst(final double d) {
-            super(2);
-            this.sort = Type.DOUBLE;
+            super(2, Type.DOUBLE);
             this.v    = d;
         }
 
