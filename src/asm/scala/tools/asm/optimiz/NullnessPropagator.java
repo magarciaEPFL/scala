@@ -37,6 +37,8 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *    (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it).
  *        This might enable further reductions (e.g., dead-store elimination).
  *
+ *    (c) Scala unbox of null is replaced by a 0 load of the appropriate sort (I, L, F, or D).
+ *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  */
@@ -498,6 +500,31 @@ public class NullnessPropagator {
             super(src);
         }
 
+        /**
+         *  In order to track the effects of an instruction beyond what the dataflow framework does, the general recipe is:
+         *
+         *    (1) subclass Frame, add fields to track those additional effects
+         *
+         *    (2) override Frame.execute(). For the opcodes of interest,
+         *        collect any information deemed useful at the pre-state (ie before invoking super.execute())
+         *
+         *    (3) either let super.execute() perform the usual locals-and-stack update; or
+         *        perform a custom update from pre-state to post-state
+         *
+         *    (4) update the (additional) fields used to track effects (based on the post-state).
+         *
+         *  Regarding NullnessFrame, the above can be seen at work as follows:
+         *
+         *    (a) After, say, GETFIELD we know (assuming normal ternimation) that the "receiver" object reference is not null.
+         *        Similarly for array de-references, callsites targeting instance methods, and a few others.
+         *
+         *    (b) We can encode the thus gained information in the abstract values the dataflow manipulates
+         *        (no additional fields in the Frame subclass are needed).
+         *
+         *    (c) A basic "pointer analysis" is also used (aliasing is detected only for references held in locals).
+         *        Two locals must point to the same object whenever they hold the same StatusValue ("same" as in "object identity").
+         *
+         */
         @Override
         public void execute(
             final AbstractInsnNode insn,

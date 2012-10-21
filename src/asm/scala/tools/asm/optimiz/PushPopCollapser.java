@@ -57,15 +57,14 @@ public class PushPopCollapser {
                 if(current != null && Util.isDROP(current) && !skipExam.contains(current)) {
                     final InsnNode drop = (InsnNode) current;
                     final Set<AbstractInsnNode> producers = cp.producers(drop);
-                    final boolean isElidable = (
-                        cp.isSoleConsumerForItsProducers(drop) &&
-                        !isAlreadyMinimized(producers, drop)
-                    );
+                    final boolean isElidable = cp.isSoleConsumerForItsProducers(drop);
                     if (isElidable) {
                         int size = (drop.getOpcode() == Opcodes.POP ? 1 : 2);
-                        neutralizeStackPush(producers, size);
+                        boolean wasSimplified = (neutralizeStackPush(producers, size, skipExam) > 0);
+                        if(wasSimplified) {
+                            keepGoing = true;
+                        }
                         mnode.instructions.remove(drop);
-                        keepGoing = true;
                     } else {
                         skipExam.add(drop);
                     }
@@ -105,8 +104,12 @@ public class PushPopCollapser {
      *  The thus added POP instructions may in turn be used to "neutralize" their producers, and so on.
      *
      */
-    private void neutralizeStackPush(final Set<AbstractInsnNode> producers, final int size) {
+    private int neutralizeStackPush(final Set<AbstractInsnNode> producers, final int size, final Set<AbstractInsnNode> skipExam) {
         assert !producers.isEmpty() : "There can't be a POP or POP2 without some other instruction pushing a value for it on the stack.";
+
+        // accumulates how many producers were simplified (as part of which they are removed),
+        // ie not counting leaving the producer in place and appending a DROP.
+        int simplified = 0;
 
         final Iterator<AbstractInsnNode> iter = producers.iterator();
         while (iter.hasNext()) {
@@ -154,7 +157,7 @@ public class PushPopCollapser {
                 case Opcodes.CALOAD:
                 case Opcodes.SALOAD:
                     // none of these gets elided to prevent swallowing NPE, out of bounds, exceptions.
-                    appendDrop(prod, size);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.ISTORE:
@@ -190,7 +193,7 @@ public class PushPopCollapser {
                     if(size == 2) {
                         removeProducer(prod);
                     } else {
-                        appendDrop(prod, size);
+                        skipExam.add(appendDrop(prod, size));
                     }
                     break;
 
@@ -199,7 +202,7 @@ public class PushPopCollapser {
                 case Opcodes.DUP2_X1:
                 case Opcodes.DUP2_X2:
                 case Opcodes.SWAP:
-                    appendDrop(prod, size);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.IADD:
@@ -350,7 +353,7 @@ public class PushPopCollapser {
                         removeProducer(prod);
                     } else {
                         assert size == SizingUtil.getResultSize(prod);
-                        appendDrop(prod, size); // For example, scala/collection/immutable/Nil$.MODULE$
+                        skipExam.add(appendDrop(prod, size));
                     }
                     break;
 
@@ -360,7 +363,7 @@ public class PushPopCollapser {
 
                 case Opcodes.GETFIELD:
                     assert size == SizingUtil.getResultSize(prod);
-                    appendDrop(prod, size);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.PUTFIELD:
@@ -388,19 +391,19 @@ public class PushPopCollapser {
                     } else {
 
                         assert size == SizingUtil.getResultSize(prod);
-                        appendDrop(prod, size);
+                        skipExam.add(appendDrop(prod, size));
 
                     }
                     break;
                 }
                 case Opcodes.INVOKEDYNAMIC:
-                    appendDrop(prod, size);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.NEW:
                     // TODO some instantiations are side-effect free, and could be elided.
                     assert size == 1;
-                    appendDrop(prod, 1);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.NEWARRAY:
@@ -410,7 +413,7 @@ public class PushPopCollapser {
 
                 case Opcodes.ARRAYLENGTH:
                     assert size == 1;
-                    appendDrop(prod, 1);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.ATHROW:
@@ -419,7 +422,7 @@ public class PushPopCollapser {
 
                 case Opcodes.CHECKCAST:
                     assert size == 1;
-                    appendDrop(prod, 1);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.INSTANCEOF:
@@ -450,15 +453,23 @@ public class PushPopCollapser {
 
             }
 
+            if(!mnode.instructions.contains(prod)) {
+                simplified++;
+            }
+
         }
+
+        return simplified;
     }
 
     private void removeProducer(final AbstractInsnNode prod) {
         mnode.instructions.remove(prod);
     }
 
-    private void appendDrop(final AbstractInsnNode prod, final int size) {
-        mnode.instructions.insert(prod, Util.getDrop(size));
+    private InsnNode appendDrop(final AbstractInsnNode prod, final int size) {
+        InsnNode drop = Util.getDrop(size);
+        mnode.instructions.insert(prod, drop);
+        return drop;
     }
 
     private void replaceProducer(final int dropSize, final AbstractInsnNode prod) {
