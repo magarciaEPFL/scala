@@ -1949,14 +1949,6 @@ abstract class GenBCode extends BCodeOpt {
           case Apply(fun @ _, List(expr)) if (definitions.isBox(fun.symbol)) =>
             val nativeKind = tpeTK(expr)
             genLoad(expr, nativeKind)
-            if (true) { // TODO if(settings.optimise.value) ... @see UnBoxElider
-              // we store this boxed value to a local, even if not really needed.
-              // boxing optimization might use it, and dead code elimination will
-              // take care of unnecessary stores
-              val loc1 = makeLocal(nativeKind, "boxed")
-              store(loc1)
-              load(loc1)
-            }
             val MethodNameAndType(mname, mdesc) = asmBoxTo(nativeKind)
             bc.invokestatic(BoxesRunTime, mname, mdesc)
             generatedType = boxResultType(fun.symbol) // was toTypeKind(fun.symbol.tpe.resultType)

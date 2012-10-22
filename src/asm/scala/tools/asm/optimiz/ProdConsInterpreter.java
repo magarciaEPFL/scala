@@ -66,7 +66,7 @@ public class ProdConsInterpreter extends SourceInterpreter {
     // internal methods
     // ------------------------------------------------------------------------
 
-    public void update(final SourceValue producers, final AbstractInsnNode consumer) {
+    protected void update(final SourceValue producers, final AbstractInsnNode consumer) {
         updateProducers(producers, consumer);
         updateConsumers(producers, consumer);
     }

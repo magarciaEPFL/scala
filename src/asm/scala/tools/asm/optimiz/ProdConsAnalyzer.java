@@ -8,6 +8,8 @@ package scala.tools.asm.optimiz;
 
 import java.util.Set;
 import java.util.Iterator;
+import java.util.Queue;
+import java.util.LinkedList;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.tree.*;
@@ -114,6 +116,62 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         Set<AbstractInsnNode> cs = pt.consumers(producer);
         boolean result = (cs.size() == 1) && (cs.iterator().next().equals(consumer));
         return result;
+    }
+
+        // ------------------------------------------------------------------------
+        // functionality used by UnBoxElider
+        // ------------------------------------------------------------------------
+
+    /**
+     *  Given a `consumer` instruction, finds all its producers, for each all its consumers, for each all its producers,
+     *  and so on until a fixpoint is reached. End results are returned in `allProducers` and `allConsumers`.
+     *
+     * */
+    public void fixpointGivenConsumer(AbstractInsnNode consumer, Set<AbstractInsnNode> allProducers, Set<AbstractInsnNode> allConsumers) {
+
+        Queue<AbstractInsnNode> cq = new LinkedList<AbstractInsnNode>();
+        Queue<AbstractInsnNode> pq = new LinkedList<AbstractInsnNode>();
+
+        cq.add(consumer);
+
+        do {
+
+            Iterator<AbstractInsnNode> iterProd = pq.iterator();
+            while (iterProd.hasNext()) {
+                AbstractInsnNode p = iterProd.next();
+                allProducers.add(p);
+                Set<AbstractInsnNode> cs = consumers(p);
+                Iterator<AbstractInsnNode> iterCons = cs.iterator();
+                while(iterCons.hasNext()) {
+                    AbstractInsnNode c = iterCons.next();
+                    if(!allConsumers.contains(c)) {
+                        cq.add(c);
+                    }
+                }
+            }
+            pq.clear();
+
+            Iterator<AbstractInsnNode> iterCons = cq.iterator();
+            while (iterCons.hasNext()) {
+                AbstractInsnNode c = iterCons.next();
+                allConsumers.add(c);
+                Set<AbstractInsnNode> ps = producers(c);
+                iterProd = ps.iterator();
+                while(iterProd.hasNext()) {
+                    AbstractInsnNode p = iterProd.next();
+                    if(!allProducers.contains(p)) {
+                        pq.add(p);
+                    }
+                }
+            }
+            cq.clear();
+
+
+        } while(!pq.isEmpty() || !cq.isEmpty());
+
+
+
+
     }
 
     // ------------------------------------------------------------------------
