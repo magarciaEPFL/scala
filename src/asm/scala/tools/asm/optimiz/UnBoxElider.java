@@ -27,21 +27,21 @@ import scala.tools.asm.tree.analysis.SourceValue;
 /**
  *  This method transformer recognizes the following code pattern:
  *
- *        box    box    box
- *          \     |     /
- *           \    |    /
- *            \   |   /
- *             \  |  /
- *              \ | /
- *               \|/
- *             phi node
- *               /|\
- *              / | \
- *             /  |  \
- *            /   |   \
- *           /    |    \
- *          /     |     \
- *     unbox    unbox   unbox
+ *       box-1  box-2  ... box-N
+ *          \      |      /
+ *           \     |     /
+ *            \    |    /
+ *             \   |   /
+ *              \  |  /
+ *               \ | /
+ *              phi node
+ *               / | \
+ *              /  |  \
+ *             /   |   \
+ *            /    |    \
+ *           /     |     \
+ *          /      |      \
+ *     unbox-1  unbox-2 ... unbox-M
  *
  *  And proceeds to remove all of the unbox and box operations.
  *
@@ -50,6 +50,8 @@ import scala.tools.asm.tree.analysis.SourceValue;
  *    (a) the only producers of values in the web are box   operations (be they Java or Scala boxing, see `isBox()`)
  *
  *    (b) the only consumers of values in the web are unbox operations (be they Java or Scala boxing, see `isUnBox()`)
+ *
+ *    (c) N > 0 and M > 0. It's not necessary for M == N.
  *
  *  Implementation notes:
  *

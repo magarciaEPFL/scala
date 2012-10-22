@@ -17,7 +17,7 @@ import scala.tools.asm.tree.analysis.SourceValue;
 import scala.tools.asm.tree.analysis.Frame;
 
 /**
- *
+ *  See explanation in `UnBoxElider`
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
