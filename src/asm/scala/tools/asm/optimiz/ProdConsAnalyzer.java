@@ -169,9 +169,11 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
 
         } while(!pq.isEmpty() || !cq.isEmpty());
 
+    }
 
-
-
+    public void fixpointGivenProducer(AbstractInsnNode producer, Set<AbstractInsnNode> allProducers, Set<AbstractInsnNode> allConsumers) {
+        AbstractInsnNode bootstrapConsumer = consumers(producer).iterator().next();
+        fixpointGivenConsumer(bootstrapConsumer, allProducers, allConsumers);
     }
 
     // ------------------------------------------------------------------------
