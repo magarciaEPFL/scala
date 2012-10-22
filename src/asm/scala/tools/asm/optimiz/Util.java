@@ -73,6 +73,10 @@ public class Util {
         return !nonExec;
     }
 
+    public static boolean isLabel(final AbstractInsnNode insn) {
+        return (insn.getType() == AbstractInsnNode.LABEL);
+    }
+
     public static InsnNode getDrop(final int size) {
         final int opc  = (size == 1) ? Opcodes.POP : Opcodes.POP2;
         return new InsnNode(opc);
@@ -100,7 +104,23 @@ public class Util {
      *  Is the argument a conditional jump?
      */
     public static boolean isCondJump(final AbstractInsnNode insn) {
-        return (insn.getType() == AbstractInsnNode.JUMP_INSN) && !isUncondJump(insn);
+        switch (insn.getOpcode()) {
+            case Opcodes.IFEQ:
+            case Opcodes.IFNE:
+            case Opcodes.IFLT:
+            case Opcodes.IFGE:
+            case Opcodes.IFGT:
+            case Opcodes.IFLE:
+            case Opcodes.IF_ICMPEQ:
+            case Opcodes.IF_ICMPNE:
+            case Opcodes.IF_ICMPLT:
+            case Opcodes.IF_ICMPGE:
+            case Opcodes.IF_ICMPGT:
+            case Opcodes.IF_ICMPLE:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -139,6 +159,20 @@ public class Util {
         while(true) {
             current = current.getNext();
             if(current == null || isExecutable(current)) return current;
+        }
+    }
+
+    /**
+     *  Returns the first
+     *    (a) executable instruction (if any); or
+     *    (b) LabelNode
+     *  occuring IN THE PROGRAM TEXT after the argument, null otherwise.
+     */
+    public static AbstractInsnNode execInsnOrLabelAfter(final AbstractInsnNode insn) {
+        AbstractInsnNode current = insn;
+        while(true) {
+            current = current.getNext();
+            if(current == null || isExecutable(current) || isLabel(current)) return current;
         }
     }
 

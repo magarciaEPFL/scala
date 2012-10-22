@@ -37,14 +37,16 @@ public class JumpReducer extends MethodTransformer {
         changed = false;
         boolean keepGoing = false;
         do {
-            keepGoing = jumpToNext(mn) || branchOverGoto(mn);
+            keepGoing = jumpToNext(mn) || sameDestination(mn) || branchOverGoto(mn);
             changed   = (changed || keepGoing);
         } while(keepGoing);
         super.transform(mn);
     }
 
     /**
-     *  Simplifies a conditional jump followed by unconditional jump (both to the same destination) by removing the conditional jump (and adjusting the stack).
+     *  Simplifies a conditional jump followed by unconditional jump (both to the same destination)
+     *  by removing the conditional jump (and adjusting the stack).
+     *  Returns true if rewriting was done, false otherwise.
      *
      *  Example:
      *
@@ -58,14 +60,12 @@ public class JumpReducer extends MethodTransformer {
      *      because among the "zero or more non-executable Nodes" a jump target may exist.
      *
      */
-    private boolean branchOverGoto(final MethodNode mn) {
-        boolean touched = false;
+    private boolean sameDestination(final MethodNode mn) {
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
             AbstractInsnNode insn = i.next();
-            boolean isJumpWeLike = !Util.isJSR(insn) && Util.isCondJump(insn);
-            if (isJumpWeLike) {
+            if (Util.isCondJump(insn)) {
                 AbstractInsnNode nxtinsn = Util.execInsnAfter(insn);
                 if(nxtinsn != null && Util.isGOTO(nxtinsn)) {
                     JumpInsnNode jin = (JumpInsnNode) insn;
@@ -73,17 +73,18 @@ public class JumpReducer extends MethodTransformer {
                     LabelNode yLabel = ((JumpInsnNode) nxtinsn).label;
                     if(Util.denoteSameTarget(xLabel, yLabel)) {
                         removeJumpAndAdjustStack(mn, jin);
-                        touched = true;
+                        return true;
                     }
                 }
             }
         }
-        return touched;
+        return false;
     }
 
     /**
      *  Removes a (conditional or unconditional) jump to a destination that is the next program point anyway.
      *  In the "conditional" case, DROP instructions are added to make up for the removed instruction.
+     *  Returns true if rewriting was done, false otherwise.
      *
      *  Example of (2), case (a)
      *
@@ -100,25 +101,27 @@ public class JumpReducer extends MethodTransformer {
      *
      */
     private boolean jumpToNext(final MethodNode mn) {
-        boolean touched = false;
+
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
             AbstractInsnNode insn = i.next();
-            boolean isJumpWeLike = !Util.isJSR(insn) && (Util.isCondJump(insn) || Util.isGOTO(insn));
+            boolean isJumpWeLike = (Util.isCondJump(insn) || Util.isGOTO(insn));
             if (isJumpWeLike) {
                 AbstractInsnNode nxtinsn = Util.execInsnAfter(insn);
                 JumpInsnNode jin = (JumpInsnNode) insn;
                 if(nxtinsn != null && Util.insnLabelledBy(jin.label) == nxtinsn) {
                     removeJumpAndAdjustStack(mn, jin);
-                    touched = true;
+                    return true;
                 }
             }
         }
-        return touched;
+        return false;
+
     }
 
     private void removeJumpAndAdjustStack(MethodNode mn, JumpInsnNode insn) {
+
         InsnList insns = mn.instructions;
         int opc = insn.getOpcode();
         if(opc >= Opcodes.IFEQ && opc <= Opcodes.IFGE) {
@@ -139,21 +142,75 @@ public class JumpReducer extends MethodTransformer {
             assert insn.getOpcode() == Opcodes.GOTO;
         }
         insns.remove(insn);
+
     }
 
     /*
-     * TODO branch-over-branch
-     *
      * Code pattern to detect:
      *
      *         if<cond> L1 // no matter whether L1 and L2 differ or not
      *         goto L2     // no executable nor LabelNodes in between this and the previous
      *     L1:             // no executable nor LabelNodes in between this and the previous
      *
-     * should be transformed into:
+     * Rewritten into:
      *
      *         if<!cond> L2
      *     L1:
+     *
+     * Returns true if rewriting was done, false otherwise.
+     *
      */
+    private boolean branchOverGoto(final MethodNode mn) {
+
+        InsnList insns = mn.instructions;
+        Iterator<AbstractInsnNode> i = insns.iterator();
+        while (i.hasNext()) {
+            AbstractInsnNode insn = i.next();
+            if (Util.isCondJump(insn)) {
+                JumpInsnNode condJump = (JumpInsnNode)insn;
+                AbstractInsnNode uncondJump = Util.execInsnOrLabelAfter(insn);
+                if(Util.isGOTO(uncondJump)) {
+                    AbstractInsnNode dest = Util.execInsnOrLabelAfter(uncondJump);
+                    if(Util.isLabel(dest)) {
+                        LabelNode destLabel = (LabelNode)dest;
+                        if(Util.denoteSameTarget(condJump.label, destLabel)) {
+
+                            int negatedOpc = -1;
+                            switch (condJump.getOpcode()) {
+
+                                case Opcodes.IFEQ: negatedOpc = Opcodes.IFNE; break;
+                                case Opcodes.IFNE: negatedOpc = Opcodes.IFEQ; break;
+
+                                case Opcodes.IFLT: negatedOpc = Opcodes.IFGE; break;
+                                case Opcodes.IFGE: negatedOpc = Opcodes.IFLT; break;
+
+                                case Opcodes.IFGT: negatedOpc = Opcodes.IFLE; break;
+                                case Opcodes.IFLE: negatedOpc = Opcodes.IFGT; break;
+
+                                case Opcodes.IF_ICMPEQ: negatedOpc = Opcodes.IF_ICMPNE; break;
+                                case Opcodes.IF_ICMPNE: negatedOpc = Opcodes.IF_ICMPEQ; break;
+
+                                case Opcodes.IF_ICMPLT: negatedOpc = Opcodes.IF_ICMPGE; break;
+                                case Opcodes.IF_ICMPGE: negatedOpc = Opcodes.IF_ICMPLT; break;
+
+                                case Opcodes.IF_ICMPGT: negatedOpc = Opcodes.IF_ICMPLE; break;
+                                case Opcodes.IF_ICMPLE: negatedOpc = Opcodes.IF_ICMPGT; break;
+
+                            }
+
+                            assert negatedOpc != -1;
+                            JumpInsnNode updCondInsn = new JumpInsnNode(negatedOpc, ((JumpInsnNode)uncondJump).label);
+
+                            mn.instructions.set(condJump, updCondInsn);
+                            mn.instructions.remove(uncondJump);
+
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
 
 }

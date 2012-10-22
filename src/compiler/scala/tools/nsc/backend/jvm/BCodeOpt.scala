@@ -18,7 +18,6 @@ import asm.tree.MethodNode
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  *
- *  TODO ConstantFolding, including specializing IFEQ etc
  *  TODO FieldValuePropagation, to propagate field accesses
  *
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
