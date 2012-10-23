@@ -101,7 +101,13 @@ public class PushPopCollapser {
      *  That's what we do unless a special case is detected.
      *  For example, for IADD shorter code is emitted by replacing IADD with two POP instructions.
      *  Similarly for other producers.
-     *  The thus added POP instructions may in turn be used to "neutralize" their producers, and so on.
+     *  The added POP instructions may in turn be used to "neutralize" their producers, and so on.
+     *
+     *  TODO-1 elide a field-load followed by drop (for both instance and static fields) unless the field is volatile.
+     *  PeepholeOpt does it like so:
+     *   case (LOAD_FIELD(sym, isStatic), DROP(_)) if !sym.hasAnnotation(definitions.VolatileAttr) =>
+     *     if (isStatic) Some(Nil)
+     *     else          Some(DROP(REFERENCE(definitions.ObjectClass)) :: Nil)
      *
      */
     private int neutralizeStackPush(final Set<AbstractInsnNode> producers, final int size, final Set<AbstractInsnNode> skipExam) {

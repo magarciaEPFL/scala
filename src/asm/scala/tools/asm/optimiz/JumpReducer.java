@@ -61,6 +61,7 @@ public class JumpReducer extends MethodTransformer {
      *
      */
     private boolean sameDestination(final MethodNode mn) {
+        boolean touched = false;
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
@@ -73,12 +74,12 @@ public class JumpReducer extends MethodTransformer {
                     LabelNode yLabel = ((JumpInsnNode) nxtinsn).label;
                     if(Util.denoteSameTarget(xLabel, yLabel)) {
                         removeJumpAndAdjustStack(mn, jin);
-                        return true;
+                        touched = true;
                     }
                 }
             }
         }
-        return false;
+        return touched;
     }
 
     /**
@@ -101,7 +102,7 @@ public class JumpReducer extends MethodTransformer {
      *
      */
     private boolean jumpToNext(final MethodNode mn) {
-
+        boolean touched = false;
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
@@ -112,12 +113,11 @@ public class JumpReducer extends MethodTransformer {
                 JumpInsnNode jin = (JumpInsnNode) insn;
                 if(nxtinsn != null && Util.insnLabelledBy(jin.label) == nxtinsn) {
                     removeJumpAndAdjustStack(mn, jin);
-                    return true;
+                    touched = true;
                 }
             }
         }
-        return false;
-
+        return touched;
     }
 
     private void removeJumpAndAdjustStack(MethodNode mn, JumpInsnNode insn) {
@@ -161,7 +161,7 @@ public class JumpReducer extends MethodTransformer {
      *
      */
     private boolean branchOverGoto(final MethodNode mn) {
-
+        boolean touched = false;
         InsnList insns = mn.instructions;
         Iterator<AbstractInsnNode> i = insns.iterator();
         while (i.hasNext()) {
@@ -204,13 +204,13 @@ public class JumpReducer extends MethodTransformer {
                             mn.instructions.set(condJump, updCondInsn);
                             mn.instructions.remove(uncondJump);
 
-                            return true;
+                            touched = true;
                         }
                     }
                 }
             }
         }
-        return false;
+        return touched;
     }
 
 }
