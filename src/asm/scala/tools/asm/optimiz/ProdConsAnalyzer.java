@@ -11,7 +11,6 @@ import java.util.Iterator;
 import java.util.Queue;
 import java.util.LinkedList;
 
-import scala.tools.asm.Opcodes;
 import scala.tools.asm.tree.*;
 
 import scala.tools.asm.tree.analysis.Analyzer;
@@ -95,27 +94,80 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         // functionality used by PushPopCollapser
         // ------------------------------------------------------------------------
 
-    public boolean isSoleConsumerForItsProducers(InsnNode consumer) {
-        Set<AbstractInsnNode> ps = pt.producers(consumer);
-        if(ps.isEmpty()) {
-            // a POP as firs instruction of an exception handler should be left as-is
-            // (its distinctive feature being a lack of explicit producers, ie the exception on the stack is loaded implicitly).
+    /**
+     *  This method checks whether a multiplexer connects producers to consumer,
+     *  ie whether `consumer` is the only concentrator for values `producers` deliver.
+     *
+     *  This method returns true iff
+     *    (a) each value one of the `producers` delivers has `consumer` as single recipient; and
+     *    (b) `consumer` may receive values from any instruction listed in `producers` and no others.
+     *
+     */
+    public boolean isMux(Set<AbstractInsnNode> producers, AbstractInsnNode consumer) {
+        assert !producers.isEmpty();
+        // condition (b)
+        if(!producers(consumer).equals(producers)) {
             return false;
         }
-        Iterator<AbstractInsnNode> iter = ps.iterator();
+        // condition (a)
+        Iterator<AbstractInsnNode> iter = producers.iterator();
         while (iter.hasNext()) {
             AbstractInsnNode prod = iter.next();
-            if(!hasAsSingleConsumer(prod, consumer)) {
+            if(!hasUniqueImage(prod, consumer)) {
                 return false;
             }
         }
         return true;
     }
 
-    public boolean hasAsSingleConsumer(AbstractInsnNode producer, AbstractInsnNode consumer) {
-        Set<AbstractInsnNode> cs = pt.consumers(producer);
-        boolean result = (cs.size() == 1) && (cs.iterator().next().equals(consumer));
-        return result;
+    /**
+     *  This method checks whether a demultiplexer connects producer to consumers,
+     *  ie whether `producer` is an spreader of values that any sink in `consumers` may receive.
+     *
+     *  This method returns true iff
+     *    (a) each value `producer` delivers must end up in one of the `consumers`; and
+     *    (b) each of the `consumers` may receive a value from the `producer` and no other.
+     *
+     */
+    public boolean isDemux(AbstractInsnNode producer, Set<AbstractInsnNode> consumers) {
+        assert !consumers.isEmpty();
+        // condition (a)
+        if(!consumers(producer).equals(consumers)) {
+            return false;
+        }
+        // condition (b)
+        Iterator<AbstractInsnNode> iter = consumers.iterator();
+        while (iter.hasNext()) {
+            AbstractInsnNode cons = iter.next();
+            if(!hasUniquePreimage(producer, cons)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     *  Does the value `producer` deliver invariably end up in `consumer`? (ie no other recipient is possible)
+     *  Please notice `consumer` may receive values from sources other than `producer`.
+     */
+    public boolean hasUniqueImage(AbstractInsnNode producer, AbstractInsnNode consumer) {
+        return isSingleton(consumers(producer), consumer);
+    }
+
+    /**
+     *  Does the value `consumer` receives invariably originate in `producer`? (ie no other source is possible)
+     *  Please notice `producer` may deliver values to sinks other than `consumer`.
+     */
+    public boolean hasUniquePreimage(AbstractInsnNode producer, AbstractInsnNode consumer) {
+        return isSingleton(producers(consumer), producer);
+    }
+
+    /**
+     *  Is `insns` a singleton set whose only element is given by `elem`?
+     *  (object identity test between `elem` and the singleton's element)
+     */
+    public boolean isSingleton(Set<AbstractInsnNode> insns, AbstractInsnNode elem) {
+        return (insns.size() == 1) && (insns.iterator().next() == elem);
     }
 
         // ------------------------------------------------------------------------

@@ -63,7 +63,7 @@ import scala.tools.asm.tree.analysis.SourceValue;
  *    thus the precondition above.
  *
  *    What is depicted as "phi node" in the diagram can be a combination of copies between stack slots and loca vars.
- *    This motivates turning those ALOAD, ASTORE instructions into their counterpart for an primitive (unboxed) value.
+ *    This motivates turning those ALOAD, ASTORE instructions into their counterpart for a primitive (unboxed) value.
  *    In particular, when the primitive is category-2 (J or D) then two local-slots are needed.
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/

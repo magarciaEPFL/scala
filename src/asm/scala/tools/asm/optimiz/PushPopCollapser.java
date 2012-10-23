@@ -57,7 +57,7 @@ public class PushPopCollapser {
                 if(current != null && Util.isDROP(current) && !skipExam.contains(current)) {
                     final InsnNode drop = (InsnNode) current;
                     final Set<AbstractInsnNode> producers = cp.producers(drop);
-                    final boolean isElidable = cp.isSoleConsumerForItsProducers(drop);
+                    final boolean isElidable = isSoleConsumerForItsProducers(drop);
                     if (isElidable) {
                         int size = (drop.getOpcode() == Opcodes.POP ? 1 : 2);
                         boolean wasSimplified = (neutralizeStackPush(producers, size, skipExam) > 0);
@@ -75,6 +75,17 @@ public class PushPopCollapser {
 
         } while(keepGoing);
 
+    }
+
+    private boolean isSoleConsumerForItsProducers(InsnNode drop) {
+        final Set<AbstractInsnNode> ps = cp.producers(drop);
+        if(ps.isEmpty()) {
+            // POP as first instruction of an exception handler has no explicit producers.
+            // A pseudo-instruction could be used to denote the implicit producer (see UnBoxAnalyzer.FakeEHLoad)
+            // Instead, it's more expedient to just veto the eliding of that POP, by returning false.
+            return false;
+        }
+        return cp.isMux(ps, drop);
     }
 
     private boolean isAlreadyMinimized(final Set<AbstractInsnNode> producers, InsnNode drop) {
