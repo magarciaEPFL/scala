@@ -103,29 +103,35 @@ public class UnBoxElider {
 
                     MethodInsnNode ubox = (MethodInsnNode)insns[i];
 
-                    Set<AbstractInsnNode> allProducers = new HashSet<AbstractInsnNode>();
-                    Set<AbstractInsnNode> allConsumers = new HashSet<AbstractInsnNode>();
+                    // test of necessary condition, saves testing full condition most of the time
+                    Set<AbstractInsnNode> directProducers = cp.producers(ubox);
+                    if(areAllBox(directProducers)) {
 
-                    cp.fixpointGivenConsumer(ubox, allProducers, allConsumers);
+                        Set<AbstractInsnNode> allProducers = new HashSet<AbstractInsnNode>();
+                        Set<AbstractInsnNode> allConsumers = new HashSet<AbstractInsnNode>();
 
-                    assert !allConsumers.isEmpty();
-                    assert !allProducers.isEmpty();
+                        cp.fixpointGivenConsumer(ubox, allProducers, allConsumers);
 
-                    if(areAllUnBox(allConsumers) && areAllBox(allProducers) &&
-                       areDisjoint(allProducers, skipExam) && areDisjoint(allConsumers, skipExam)) {
+                        assert !allConsumers.isEmpty();
+                        assert !allProducers.isEmpty();
 
-                        // those local var used to convey boxed values will now convey unboxed ones
-                        // ie ALOAD has to be converted to (I | F | L | D)LOAD, similarly for local-var store instructions.
-                        updateCopyOps(allProducers, allConsumers, Type.getReturnType(ubox.desc));
+                        if(areAllUnBox(allConsumers) && areAllBox(allProducers) &&
+                           areDisjoint(allProducers, skipExam) && areDisjoint(allConsumers, skipExam)) {
 
-                        skipExam.addAll(allProducers);
-                        skipExam.addAll(allConsumers);
+                            // those local var used to convey boxed values will now convey unboxed ones
+                            // ie ALOAD has to be converted to (I | F | L | D)LOAD, similarly for local-var store instructions.
+                            updateCopyOps(allProducers, allConsumers, Type.getReturnType(ubox.desc));
 
-                        // the actual transform: cancel out all boxes and all unboxes by removing them.
-                        removeAll(allProducers);
-                        removeAll(allConsumers);
+                            skipExam.addAll(allProducers);
+                            skipExam.addAll(allConsumers);
 
-                        changed = true;
+                            // the actual transform: cancel out all boxes and all unboxes by removing them.
+                            removeAll(allProducers);
+                            removeAll(allConsumers);
+
+                            changed = true;
+
+                        }
 
                     }
 

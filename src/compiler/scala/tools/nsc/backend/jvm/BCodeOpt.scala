@@ -74,7 +74,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
           } while(keepGoing)
 
-          lvCompacter.transform(mnode) // compact local vars, remove dangling LocalVariableNodes.
+          unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
+          lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
+
           runTypeFlowAnalysis(cName, mnode) // debug
         }
       }
@@ -148,9 +150,6 @@ abstract class BCodeOpt extends BCodeTypes {
 
         ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         keepGoing |= ppCollapser.changed
-
-        unboxElider.transform(cName, mnode)    // remove unbox ops
-        keepGoing |= unboxElider.changed
 
         jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
         keepGoing |= jumpReducer.changed
