@@ -9,6 +9,7 @@ import java.util.List;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
+
 import scala.tools.asm.tree.MethodNode;
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.VarInsnNode;
@@ -20,6 +21,7 @@ import scala.tools.asm.tree.TableSwitchInsnNode;
 import scala.tools.asm.tree.InsnList;
 import scala.tools.asm.tree.IntInsnNode;
 import scala.tools.asm.tree.LdcInsnNode;
+import scala.tools.asm.tree.IincInsnNode;
 
 import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.Analyzer;
@@ -275,7 +277,7 @@ public class ConstantFolder implements Opcodes {
         public abstract CFValue convJ();
         public abstract CFValue convD();
 
-        public abstract CFValue iinc();
+        public abstract CFValue iinc(int incr);
         public abstract CFValue neg();
 
         public abstract CFValue add(CFValue value2);
@@ -306,7 +308,7 @@ public class ConstantFolder implements Opcodes {
         @Override public Unknown convJ() { return Unknown.UNKNOWN_2; }
         @Override public Unknown convD() { return Unknown.UNKNOWN_2; }
 
-        @Override public Unknown iinc() { return this; }
+        @Override public Unknown iinc(int incr) { return this; }
         @Override public Unknown neg()  { return this; }
 
         @Override public Unknown add(CFValue value2) { assert size == value2.size; return this; }
@@ -447,7 +449,7 @@ public class ConstantFolder implements Opcodes {
         @Override public JCst convJ() { return new JCst((long)   this.v); }
         @Override public DCst convD() { return new DCst((double) this.v); }
 
-        @Override public ICst iinc()  { return new ICst(v + 1); }
+        @Override public ICst iinc(int incr)  { return new ICst(v + incr); }
         @Override public ICst neg()   { return new ICst(-v); }
 
         @Override public CFValue add(CFValue value2) {
@@ -572,7 +574,7 @@ public class ConstantFolder implements Opcodes {
         @Override public JCst convJ() { return new JCst((long)   this.v); }
         @Override public DCst convD() { return new DCst((double) this.v); }
 
-        @Override public FCst iinc()  { throw new UnsupportedOperationException(); }
+        @Override public FCst iinc(int incr)  { throw new UnsupportedOperationException(); }
         @Override public FCst neg()   { return new FCst(-v); }
 
         @Override public CFValue add(CFValue value2) {
@@ -659,7 +661,7 @@ public class ConstantFolder implements Opcodes {
         @Override public JCst convJ() { return this;                      }
         @Override public DCst convD() { return new DCst((double) this.v); }
 
-        @Override public JCst iinc()  { throw new UnsupportedOperationException(); }
+        @Override public JCst iinc(int incr)  { throw new UnsupportedOperationException(); }
         @Override public JCst neg()   { return new JCst(-v); }
 
         @Override public CFValue add(CFValue value2) {
@@ -766,7 +768,7 @@ public class ConstantFolder implements Opcodes {
         @Override public JCst convJ() { return new JCst((long)   this.v); }
         @Override public DCst convD() { return this;                      }
 
-        @Override public DCst iinc()  { throw new UnsupportedOperationException(); }
+        @Override public DCst iinc(int incr)  { throw new UnsupportedOperationException(); }
         @Override public DCst neg()   { return new DCst(-v); }
 
         @Override public CFValue add(CFValue value2) {
@@ -970,7 +972,7 @@ public class ConstantFolder implements Opcodes {
                     return value.neg();
 
                 case IINC:
-                    return value.iinc();
+                    return value.iinc(((IincInsnNode)insn).incr);
 
                 case I2B:
                 case I2C:

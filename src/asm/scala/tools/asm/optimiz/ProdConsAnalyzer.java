@@ -90,10 +90,6 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         return pt.consumers(insn);
     }
 
-        // ------------------------------------------------------------------------
-        // functionality used by PushPopCollapser
-        // ------------------------------------------------------------------------
-
     /**
      *  This method checks whether a multiplexer connects producers to consumer,
      *  ie whether `consumer` is the only concentrator for values `producers` deliver.
@@ -160,6 +156,14 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      */
     public boolean hasUniquePreimage(AbstractInsnNode producer, AbstractInsnNode consumer) {
         return isSingleton(producers(consumer), producer);
+    }
+
+    /**
+     *  Does the value `consumer` receives invariably originate in `producer`, and moreover
+     *  is `consumer` the only sink for `producer`?
+     */
+    public boolean isPointToPoint(AbstractInsnNode producer, AbstractInsnNode consumer) {
+        return hasUniqueImage(producer, consumer) && hasUniquePreimage(producer, consumer);
     }
 
     /**
