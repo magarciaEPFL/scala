@@ -12,13 +12,21 @@ import scala.tools.asm.tree.*;
 import scala.tools.asm.tree.analysis.AnalyzerException;
 
 /**
- *  Replaces STORE instructions for local-vars which aren't live with DROP instructions.
+ *  Replaces (a STORE instruction for a local-var which isn't live) with a DROP instruction.
  *  A local-var is deemed live iff some instruction other than DROP consumes its value.
  *
  *  In particular, the initialization of a loca-var that is never read is replaced with DROP.
  *
  *  The rewriting performed here doesn't lead to non-definitely-initialized errors,
  *  because the local-vars in question are never read.
+ *
+ *  TODO This code pattern can be elided:
+ *     9:	istore_2
+ *     10:	iload_2  // no intervening LabelNode between previous instruction and this one
+ *     // there's no consumer for the STORE instruction above other than the (immediately following) LOAD.
+ *   Not sure if frequency justifies it (PeepholeOpt used to run LivenessAnalysis to handle it).
+ *   In our case , we use a SourceInterpreter rather than a SourceCopyInterpreter.
+ *
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
