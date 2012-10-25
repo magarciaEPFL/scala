@@ -115,7 +115,7 @@ public class UnBoxElider {
                         assert !allConsumers.isEmpty();
                         assert !allProducers.isEmpty();
 
-                        if(areAllUnBox(allConsumers) && areAllBox(allProducers) &&
+                        if(areAllUnBox(allConsumers) && areAllBox(allProducers) && samePrimitive(allProducers, allConsumers) &&
                            areDisjoint(allProducers, skipExam) && areDisjoint(allConsumers, skipExam)) {
 
                             // those local var used to convey boxed values will now convey unboxed ones
@@ -244,6 +244,42 @@ public class UnBoxElider {
             }
         }
         return true;
+    }
+
+    // SI-6547
+    private boolean samePrimitive(final Set<AbstractInsnNode> producers, final Set<AbstractInsnNode> consumers) {
+        // question: do all producers box from the same primtive?
+        final Iterator<AbstractInsnNode> iterProds = producers.iterator();
+        final Type bt = boxArgType(iterProds.next());
+        while(iterProds.hasNext()) {
+            final boolean sameAsPrev = bt.equals(boxArgType(iterProds.next()));
+            if(!sameAsPrev) {
+                return false;
+            }
+        }
+
+        // question: do all consumers unbox to the same primtive?
+        final Iterator<AbstractInsnNode> iterCons = consumers.iterator();
+        final Type ut = unboxRetType(iterCons.next());
+        while(iterCons.hasNext()) {
+            final boolean sameAsPrev = ut.equals(unboxRetType(iterCons.next()));
+            if(!sameAsPrev) {
+                return false;
+            }
+        }
+
+        // question: is it the same primtive that's being boxed from and unboxed to?
+        return bt.equals(ut);
+    }
+
+    private Type unboxRetType(final AbstractInsnNode unboxCallsite) {
+        final MethodInsnNode callsite = (MethodInsnNode)unboxCallsite;
+        return Type.getReturnType(callsite.desc);
+    }
+
+    private Type boxArgType(final AbstractInsnNode boxCallsite) {
+        final MethodInsnNode callsite = (MethodInsnNode)boxCallsite;
+        return Type.getArgumentTypes(callsite.desc)[0];
     }
 
 }

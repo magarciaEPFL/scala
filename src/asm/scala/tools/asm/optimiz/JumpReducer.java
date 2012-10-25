@@ -196,6 +196,9 @@ public class JumpReducer extends MethodTransformer {
                                 case Opcodes.IF_ICMPGT: negatedOpc = Opcodes.IF_ICMPLE; break;
                                 case Opcodes.IF_ICMPLE: negatedOpc = Opcodes.IF_ICMPGT; break;
 
+                                case Opcodes.IFNULL:    negatedOpc = Opcodes.IFNONNULL; break;
+                                case Opcodes.IFNONNULL: negatedOpc = Opcodes.IFNULL;    break;
+
                             }
 
                             assert negatedOpc != -1;
