@@ -30,12 +30,36 @@ import scala.tools.asm.tree.analysis.Value;
 import scala.tools.asm.tree.analysis.Interpreter;
 
 /**
- *  This method transformer uses a custom interpreter that propagates primitive constants (over copy operations).
- *  With that information, this transformer:
- *    (a) replaces an operation taking constant inputs by a load of the result (the inputs are dropped).
- *    (b) simplifies control flow when possible.
+ *  This method transformer works in three steps:
  *
- *  Information about nullness is not propagated. For that, use NullnessPropagator.
+ *    (1) a pre-state is computed for each instruction (using ConstantInterpreter)
+ *        classifying values into Unknown or Constant. The latter denote primitive constants only (for nullness propagation use NullnessPropagator).
+ *
+ *    (2) a single pass is made over the method's instructions. This is where constants are "propagated".
+ *
+ *          (a) loads that can be expressed as shorthand (e.g. ICONST_1)
+ *
+ *          (b) binary operations with constant result are left in place,
+ *              but a DROP and a load of the constant-result are inserted rigth after them.
+ *              That way, the next round of PushPopCollapser will back-propagate the DROP to the operation's arguments,
+ *              leaving just the constant-load in place.
+ *
+ *          (c) conditional jumps, as well as lookup and table switches are simplified when their operand is constant.
+ *              Details of the simplification differ only in the way the jump-destination is determined:
+ *
+ *                - conditional jumps (ie if<cond> and if_icmp<cond> instructions)
+ *                  are removed, leaving in their place a DROP and an unconditional jump (again, PushPopCollapser will backpropagate the DROP)
+ *
+ *                - after looking up the target, a tableswitch or lookupswith instruction is removed,
+ *                  leaving in its place a DROP and an unconditional jump (PushPopCollapser will simplify further).
+ *
+ *                The reason for leaving work for PushPopCollapser to do is that it contains the logic to preserve side-effects,
+ *                and eliding the rest. We reuse all that at the cost of an additional dataflow iteration.
+ *
+ *    (3) unreachable code elimination, to remove from the instruction stream what (2.c) above has made dead code.
+ *
+ *  The ConstantInterpreter starts off with Unknown values for params and for exceptions in EHs, see `ConstantInterpreter.newValue()`
+ *  The only place where Constant values are introduced is via loads (ICONST_1 etc).
  *
  *  A more general approach is covered in:
  *      Durica Nikolic, Fausto Spoto: Definite Expression Aliasing Analysis for Java Bytecode. ICTAC 2012: 74-89
@@ -119,6 +143,11 @@ public class ConstantFolder implements Opcodes {
                     case Opcodes.LNEG:
                     case Opcodes.FNEG:
                     case Opcodes.DNEG:
+
+                    case Opcodes.IAND:
+                    case Opcodes.LAND:
+                    case Opcodes.IOR:
+                    case Opcodes.LOR:
 
                     case Opcodes.I2L:
                     case Opcodes.I2F:

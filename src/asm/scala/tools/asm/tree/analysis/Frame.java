@@ -234,7 +234,10 @@ public class Frame<V extends Value> {
         if (top == 0) {
             throw new IndexOutOfBoundsException("Cannot pop operand off an empty stack.");
         }
-        return values[--top + locals];
+        V popped = getStackTop();
+        values[top - 1 + locals] = null; // post-top values ignored when merging, now that garbage collector also knows that.
+        top -= 1;
+        return popped;
     }
 
     /**
