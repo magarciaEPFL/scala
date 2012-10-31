@@ -71,7 +71,7 @@ trait BytecodeWriters {
         override def findBytes(path: String): Array[Byte] = bytes
       }
 
-      try javap(Seq("-verbose", "dummy")) foreach (_.show())
+      try javap(Seq("-verbose", "-private", "dummy")) foreach (_.show())
       finally pw.close()
     }
     abstract override def writeClass(label: String, jclassName: String, jclassBytes: Array[Byte], outfile: AbstractFile) {
