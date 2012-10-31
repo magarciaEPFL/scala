@@ -895,10 +895,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   /**
    *  Typically, a question about a BType can be answered only by using the BType as lookup key in one or more maps.
    *  A `Tracked` object saves time by holding together information required to answer those questions:
+   *
    *    - `sc`     denotes the bytecode-level superclass if any, null otherwise
+   *
    *    - `ifaces` denotes the interfaces explicitly declared.
-   *               Not included are those transitively supported, but a utility method, `allLeafIfaces`, can be used for that.
+   *               Not included are those transitively supported, but the utility method `allLeafIfaces()` can be used for that.
+   *
    *    - `innersChain` denotes the containing classes for a non-package-level class `c`, null otherwise.
+   *               Note: the optimizer may inline anonymous closures, thus eliding those inner classes
+   *               (no physical class file is emitted for elided classes).
+   *               Before committing `innersChain` to bytecode, cross-check with the list of elided classes (SI-6546).
    *
    *  All methods of this class @can-multi-thread
    **/
@@ -2755,6 +2761,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
+     * TODO SI-6546 Optimizer leaves references to classes that have been eliminated by inlining,
+     *      Better yet than https://github.com/scala/scala/pull/1529 , remove them
+     *
      * @can-multi-thread
      **/
     final def addInnerClassesASM(jclass: asm.ClassVisitor, refedInnerClasses: List[BType]) {
@@ -2783,7 +2792,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         }
 
       }
-      // sort them so inner classes succeed their enclosing class to satisfy the Eclipse Java compiler
+      // sorting ensures inner classes are listed after their enclosing class thus satisfying the Eclipse Java compiler
       for(e <- result.toList sortBy (_.name.toString)) {
         jclass.visitInnerClass(e.name, e.outerName, e.innerName, e.access)
       }
