@@ -200,17 +200,6 @@ abstract class Duplicators extends Analyzer {
       typed(ddef)
     }
 
-    private def inspectTpe(tpe: Type) = {
-      tpe match {
-        case MethodType(_, res) =>
-          res + ", " + res.bounds.hi + ", " + (res.bounds.hi match {
-            case TypeRef(_, _, args) if (args.length > 0) => args(0) + ", " + args(0).bounds.hi
-            case _ => "non-tref: " + res.bounds.hi.getClass
-          })
-        case _ =>
-      }
-    }
-
     /** Optionally cast this tree into some other type, if required.
      *  Unless overridden, just returns the tree.
      */
@@ -357,7 +346,7 @@ abstract class Duplicators extends Analyzer {
           val tree1 = This(newClassOwner)
           // log("tree1: " + tree1)
           debuglog("mapped " + tree + " to " + tree1)
-          super.typed(atPos(tree.pos)(tree1), mode, pt)
+          super.typedPos(tree.pos, mode, pt)(tree1)
 
         case This(_) =>
           debuglog("selection on this, plain: " + tree)
@@ -394,7 +383,7 @@ abstract class Duplicators extends Analyzer {
               cases
           }
 
-          super.typed(atPos(tree.pos)(Match(scrut, cases1)), mode, pt)
+          super.typedPos(tree.pos, mode, pt)(Match(scrut, cases1))
 
         case EmptyTree =>
           // no need to do anything, in particular, don't set the type to null, EmptyTree.tpe_= asserts

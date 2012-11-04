@@ -299,11 +299,7 @@ self =>
       inScalaPackage = false
       currentPackage = ""
     }
-    private lazy val primitiveNames: Set[Name] = tpnme.ScalaValueNames.toSet
-
-    private def inScalaRootPackage       = inScalaPackage && currentPackage == "scala"
-    private def isScalaArray(name: Name) = inScalaRootPackage && name == tpnme.Array
-    private def isPrimitiveType(name: Name) = inScalaRootPackage && primitiveNames(name)
+    private def inScalaRootPackage = inScalaPackage && currentPackage == "scala"
 
     def parseStartRule: () => Tree
 
@@ -980,11 +976,8 @@ self =>
 
     /** Assumed (provisionally) to be TermNames. */
     def ident(skipIt: Boolean): Name =
-      if (isIdent) {
-        val name = in.name.encode
-        in.nextToken()
-        name
-      } else {
+      if (isIdent) rawIdent().encode
+      else {
         syntaxErrorOrIncomplete(expectedMsg(IDENTIFIER), skipIt)
         nme.ERROR
       }
@@ -1138,16 +1131,7 @@ self =>
       })
     }
 
-    private def stringOp(t: Tree, op: TermName) = {
-      val str = in.strVal
-      in.nextToken()
-      if (str.length == 0) t
-      else atPos(t.pos.startOrPoint) {
-        Apply(Select(t, op), List(Literal(Constant(str))))
-      }
-    }
-
-    private def interpolatedString(inPattern: Boolean = false): Tree = atPos(in.offset) {
+    private def interpolatedString(inPattern: Boolean): Tree = atPos(in.offset) {
       val start = in.offset
       val interpolator = in.name
 

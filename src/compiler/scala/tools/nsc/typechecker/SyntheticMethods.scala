@@ -104,12 +104,6 @@ trait SyntheticMethods extends ast.TreeDSL {
         (m0 ne meth) && !m0.isDeferred && !m0.isSynthetic && (m0.owner != AnyValClass) && (typeInClazz(m0) matches typeInClazz(meth))
       }
     }
-    def readConstantValue[T](name: String, default: T = null.asInstanceOf[T]): T = {
-      clazzMember(newTermName(name)).info match {
-        case NullaryMethodType(ConstantType(Constant(value))) => value.asInstanceOf[T]
-        case _                                                => default
-      }
-    }
     def productIteratorMethod = {
       createMethod(nme.productIterator, iteratorOfType(accessorLub))(_ =>
         gen.mkMethodCall(ScalaRunTimeModule, nme.typedProductIterator, List(accessorLub), List(mkThis))
@@ -206,7 +200,8 @@ trait SyntheticMethods extends ast.TreeDSL {
       Select(mkThisSelect(clazz.derivedValueClassUnbox), nme.hashCode_)
     }
 
-    /** The _1, _2, etc. methods to implement ProductN.
+    /** The _1, _2, etc. methods to implement ProductN, disabled
+     *  until we figure out how to introduce ProductN without cycles.
      */
      def productNMethods = {
       val accs = accessors.toIndexedSeq
@@ -266,13 +261,13 @@ trait SyntheticMethods extends ast.TreeDSL {
       Any_equals -> (() => equalsDerivedValueClassMethod)
     )
 
-    def caseClassMethods = productMethods ++ productNMethods ++ Seq(
+    def caseClassMethods = productMethods ++ /*productNMethods ++*/ Seq(
       Object_hashCode -> (() => chooseHashcode),
       Object_toString -> (() => forwardToRuntime(Object_toString)),
       Object_equals   -> (() => equalsCaseClassMethod)
     )
 
-    def valueCaseClassMethods = productMethods ++ productNMethods ++ valueClassMethods ++ Seq(
+    def valueCaseClassMethods = productMethods ++ /*productNMethods ++*/ valueClassMethods ++ Seq(
       Any_toString -> (() => forwardToRuntime(Object_toString))
     )
 

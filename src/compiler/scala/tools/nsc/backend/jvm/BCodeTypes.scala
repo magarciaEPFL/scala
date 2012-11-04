@@ -787,9 +787,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     hashMethodSym = getMember(ScalaRunTimeModule, nme.hash_)
 
+    // TODO avoiding going through through missingHook for every line in the REPL: https://github.com/scala/scala/commit/8d962ed4ddd310cc784121c426a2e3f56a112540
     AndroidParcelableInterface = rootMirror.getClassIfDefined("android.os.Parcelable")
     AndroidCreatorClass        = rootMirror.getClassIfDefined("android.os.Parcelable$Creator")
 
+    // the following couldn't be an eager vals in Phase constructors:
+    // that might cause cycles before Global has finished initialization.
     BeanInfoAttr = rootMirror.getRequiredClass("scala.beans.BeanInfo")
 
     String_valueOf = {
