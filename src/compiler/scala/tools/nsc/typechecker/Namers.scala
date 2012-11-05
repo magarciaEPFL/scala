@@ -337,7 +337,6 @@ trait Namers extends MethodSynthesis {
     }
 
     private def enterClassSymbol(tree: ClassDef, clazz: ClassSymbol): Symbol = {
-      val file = contextFile
       if (clazz.sourceFile != null && clazz.sourceFile != contextFile)
         debugwarn("!!! Source mismatch in " + clazz + ": " + clazz.sourceFile + " vs. " + contextFile)
 
@@ -381,8 +380,8 @@ trait Namers extends MethodSynthesis {
       if (sym eq NoSymbol) return
 
       val ctx    = if (context.owner.isPackageObjectClass) context.outer else context
-      val module = if (sym.isModule) sym else ctx.scope lookup tree.name.toTermName
-      val clazz  = if (sym.isClass) sym else ctx.scope lookup tree.name.toTypeName
+      val module = if (sym.isModule) sym else ctx.scope lookupModule tree.name
+      val clazz  = if (sym.isClass) sym else ctx.scope lookupClass tree.name
       val fails  = (
            module.isModule
         && clazz.isClass
@@ -643,7 +642,7 @@ trait Namers extends MethodSynthesis {
     }
 
     def enterClassDef(tree: ClassDef) {
-      val ClassDef(mods, name, tparams, impl) = tree
+      val ClassDef(mods, _, _, impl) = tree
       val primaryConstructorArity = treeInfo.firstConstructorArgs(impl.body).size
       tree.symbol = enterClassSymbol(tree)
       tree.symbol setInfo completerOf(tree)
@@ -1200,9 +1199,9 @@ trait Namers extends MethodSynthesis {
               // same local block several times (which can happen in interactive mode) we might
               // otherwise not find the default symbol, because the second time it the method
               // symbol will be re-entered in the scope but the default parameter will not.
-              val att = meth.attachments.get[DefaultsOfLocalMethodAttachment] match {
+              meth.attachments.get[DefaultsOfLocalMethodAttachment] match {
                 case Some(att) => att.defaultGetters += default
-                case None => meth.updateAttachment(new DefaultsOfLocalMethodAttachment(default))
+                case None      => meth.updateAttachment(new DefaultsOfLocalMethodAttachment(default))
               }
             }
           } else if (baseHasDefault) {

@@ -540,10 +540,12 @@ trait Definitions extends api.StandardDefinitions {
     lazy val ScalaLongSignatureAnnotation = requiredClass[scala.reflect.ScalaLongSignature]
 
     // Option classes
-    lazy val OptionClass: ClassSymbol = requiredClass[Option[_]]
-    lazy val SomeClass: ClassSymbol   = requiredClass[Some[_]]
-    lazy val NoneModule: ModuleSymbol = requiredModule[scala.None.type]
-    lazy val SomeModule: ModuleSymbol = requiredModule[scala.Some.type]
+    lazy val OptionClass: ClassSymbol   = requiredClass[Option[_]]
+    lazy val OptionModule: ModuleSymbol = requiredModule[scala.Option.type]
+      lazy val Option_apply             = getMemberMethod(OptionModule, nme.apply)
+    lazy val SomeClass: ClassSymbol     = requiredClass[Some[_]]
+    lazy val NoneModule: ModuleSymbol   = requiredModule[scala.None.type]
+    lazy val SomeModule: ModuleSymbol   = requiredModule[scala.Some.type]
 
     def compilerTypeFromTag(tt: ApiUniverse # WeakTypeTag[_]): Type = tt.in(rootMirror).tpe
     def compilerSymbolFromTag(tt: ApiUniverse # WeakTypeTag[_]): Symbol = tt.in(rootMirror).tpe.typeSymbol
@@ -1068,7 +1070,6 @@ trait Definitions extends api.StandardDefinitions {
       }
     }
     def getMemberClass(owner: Symbol, name: Name): ClassSymbol = {
-      val y = getMember(owner, name.toTypeName)
       getMember(owner, name.toTypeName) match {
         case x: ClassSymbol => x
         case _              => fatalMissingSymbol(owner, name, "member class")
@@ -1235,7 +1236,7 @@ trait Definitions extends api.StandardDefinitions {
     def init() {
       if (isInitialized) return
       // force initialization of every symbol that is synthesized or hijacked by the compiler
-      val forced = symbolsNotPresentInBytecode
+      val _ = symbolsNotPresentInBytecode
       isInitialized = true
     } //init
 

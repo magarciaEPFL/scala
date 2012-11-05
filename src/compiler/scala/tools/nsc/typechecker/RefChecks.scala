@@ -237,7 +237,7 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
 
       case class MixinOverrideError(member: Symbol, msg: String)
 
-      var mixinOverrideErrors = new ListBuffer[MixinOverrideError]()
+      val mixinOverrideErrors = new ListBuffer[MixinOverrideError]()
 
       def printMixinOverrideErrors() {
         mixinOverrideErrors.toList match {
@@ -1051,6 +1051,12 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
       def apply(tp: Type) = mapOver(tp).normalize
     }
 
+    def checkImplicitViewOptionApply(pos: Position, fn: Tree, args: List[Tree]): Unit = if (settings.lint.value) (fn, args) match {
+      case (tap@TypeApply(fun, targs), List(view: ApplyImplicitView)) if fun.symbol == Option_apply =>
+        unit.warning(pos, s"Suspicious application of an implicit view (${view.fun}) in the argument to Option.apply.") // SI-6567
+      case _ =>
+    }
+
     def checkSensible(pos: Position, fn: Tree, args: List[Tree]) = fn match {
       case Select(qual, name @ (nme.EQ | nme.NE | nme.eq | nme.ne)) if args.length == 1 =>
         def isReferenceOp = name == nme.eq || name == nme.ne
@@ -1217,7 +1223,7 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
 
     /* Convert a reference to a case factory of type `tpe` to a new of the class it produces. */
     def toConstructor(pos: Position, tpe: Type): Tree = {
-      var rtpe = tpe.finalResultType
+      val rtpe = tpe.finalResultType
       assert(rtpe.typeSymbol hasFlag CASE, tpe);
       localTyper.typedOperator {
         atPos(pos) {
@@ -1298,7 +1304,7 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
         }
       case ModuleDef(_, _, _) => eliminateModuleDefs(tree)
       case ValDef(_, _, _, _) =>
-        val tree1 @ ValDef(_, _, _, rhs) = transform(tree) // important to do before forward reference check
+        val tree1 = transform(tree) // important to do before forward reference check
         if (tree1.symbol.isLazy) tree1 :: Nil
         else {
           val lazySym = tree.symbol.lazyAccessorOrSelf
@@ -1535,12 +1541,15 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
 
       case Apply(fn, args) =>
         // sensicality should be subsumed by the unreachability/exhaustivity/irrefutability analyses in the pattern matcher
-        if (!inPattern) checkSensible(tree.pos, fn, args)
+        if (!inPattern) {
+          checkImplicitViewOptionApply(tree.pos, fn, args)
+          checkSensible(tree.pos, fn, args)
+        }
         currentApplication = tree
         tree
     }
     private def transformSelect(tree: Select): Tree = {
-      val Select(qual, name) = tree
+      val Select(qual, _) = tree
       val sym = tree.symbol
 
       /** Note: if a symbol has both @deprecated and @migration annotations and both

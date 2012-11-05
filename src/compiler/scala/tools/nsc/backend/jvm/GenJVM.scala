@@ -87,7 +87,6 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
         // Before erasure so we can identify generic mains.
         enteringErasure {
           val companion     = sym.linkedClassOfClass
-          val companionMain = companion.tpe.member(nme.main)
 
           if (hasJavaMainMethod(companion))
             failNoForwarder("companion contains its own main method")
@@ -532,9 +531,6 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
      * @author Ross Judson (ross.judson@soletta.com)
      */
     def genBeanInfoClass(c: IClass) {
-      val description = c.symbol getAnnotation BeanDescriptionAttr
-      // informProgress(description.toString)
-
       val beanInfoClass = fjbgContext.JClass(javaFlags(c.symbol),
             javaName(c.symbol) + "BeanInfo",
             "scala/beans/ScalaBeanInfo",
@@ -1087,7 +1083,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
 
       var i = 0
       var index = 0
-      var argTypes = mirrorMethod.getArgumentTypes()
+      val argTypes = mirrorMethod.getArgumentTypes()
       while (i < argTypes.length) {
         mirrorCode.emitLOAD(index, argTypes(i))
         index += argTypes(i).getSize()
@@ -1119,7 +1115,6 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
 
       val className    = jclass.getName
       val linkedClass  = moduleClass.companionClass
-      val linkedModule = linkedClass.companionSymbol
       lazy val conflictingNames: Set[Name] = {
         linkedClass.info.members collect { case sym if sym.name.isTermName => sym.name } toSet
       }
@@ -1363,7 +1358,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
             case LOAD_LOCAL(local)     => jcode.emitLOAD(indexOf(local), javaType(local.kind))
 
             case lf @ LOAD_FIELD(field, isStatic) =>
-              var owner = javaName(lf.hostClass)
+              val owner = javaName(lf.hostClass)
               debuglog("LOAD_FIELD with owner: " + owner +
                     " flags: " + Flags.flagsToString(field.owner.flags))
               val fieldJName = javaName(field)
