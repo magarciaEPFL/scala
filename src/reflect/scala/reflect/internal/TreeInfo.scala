@@ -1,5 +1,5 @@
 /* NSC -- new Scala compiler
- * Copyright 2005-2012 LAMP/EPFL
+ * Copyright 2005-2013 LAMP/EPFL
  * @author  Martin Odersky
  */
 
@@ -263,6 +263,20 @@ abstract class TreeInfo {
       expr
     case _ =>
       tree
+  }
+
+  /** Strips layers of `.asInstanceOf[T]` / `_.$asInstanceOf[T]()` from an expression */
+  def stripCast(tree: Tree): Tree = tree match {
+    case TypeApply(sel @ Select(inner, _), _) if isCastSymbol(sel.symbol) =>
+      stripCast(inner)
+    case Apply(TypeApply(sel @ Select(inner, _), _), Nil) if isCastSymbol(sel.symbol) =>
+      stripCast(inner)
+    case t =>
+      t
+  }
+
+  object StripCast {
+    def unapply(tree: Tree): Some[Tree] = Some(stripCast(tree))
   }
 
   /** Is tree a self or super constructor call? */

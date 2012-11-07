@@ -1076,6 +1076,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val key = brefType(csym.javaBinaryName.toTypeName)
     assert(key.isNonSpecial || isCompilingStdLib, "Not a class to track: " + csym.fullName)
 
+    // TODO accomodate the fix for SI-5031 of https://github.com/scala/scala/commit/0527b2549bcada2fda2201daa630369b377d0877
+    // TODO Weaken this assertion? buildExemplar() needs to be updated, too. In the meantime, pos/t5031_3 has been moved to test/disabled/pos.
     assert(!exemplars.containsKey(key), "Maps `symExemplars` and `exemplars` got out of synch.")
     val tr = buildExemplar(key, csym)
     symExemplars.put(csym, tr)
