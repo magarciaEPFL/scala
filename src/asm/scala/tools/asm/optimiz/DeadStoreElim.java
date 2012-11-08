@@ -12,21 +12,22 @@ import scala.tools.asm.tree.*;
 import scala.tools.asm.tree.analysis.AnalyzerException;
 
 /**
- *  Replaces (a STORE instruction for a local-var which isn't live) with a DROP instruction.
- *  A local-var is deemed live iff some instruction other than DROP consumes its value.
  *
- *  In particular, the initialization of a loca-var that is never read is replaced with DROP.
+ *  This transformer elides operations on a local-var provided the local in question isn't used afterwards.
  *
- *  The rewriting performed here doesn't lead to non-definitely-initialized errors,
- *  because the local-vars in question are never read.
+ *  Three rewritings are performed:
  *
- *  TODO This code pattern can be elided:
- *     9:	istore_2
- *     10:	iload_2  // no intervening LabelNode between previous instruction and this one
- *     // there's no consumer for the STORE instruction above other than the (immediately following) LOAD.
- *   Not sure if frequency justifies it (PeepholeOpt used to run LivenessAnalysis to handle it).
- *   In our case , we use a SourceInterpreter rather than a SourceCopyInterpreter.
+ *    (a) Replace (a STORE instruction for a local-var which isn't live) with a DROP instruction.
+ *        In particular, the initialization of (a loca-var that is never read) is replaced with DROP.
+ *        This rewriting doesn't lead to non-definitely-initialized errors, because the local-vars is never read anyway.
  *
+ *    (b) Remove an IINC instruction for a non-live local.
+ *
+ *    (c) Elide a STORE-LOAD pair provided the local isn't used afterwards.
+ *        For example:
+ *           9:  istore_2
+ *          10:  iload_2  // no intervening LabelNode between previous instruction and this one
+ *        ie there's no consumer for the STORE instruction above other than the (immediately following) LOAD.
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
@@ -36,28 +37,54 @@ public class DeadStoreElim {
 
     public boolean changed = false;
 
+    private ProdConsAnalyzer cp = null;
+
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
         changed = false;
 
         // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
-        ProdConsAnalyzer cp = ProdConsAnalyzer.create();
+        cp = ProdConsAnalyzer.create();
         cp.analyze(owner, mnode);
         AbstractInsnNode[] insns  = mnode.instructions.toArray();
 
         for(int i = 0; i < insns.length; i++) {
             AbstractInsnNode current = insns[i];
-            if (current != null  && Util.isSTORE(current) && cp.consumers(current).isEmpty()) {
-                int size = cp.frameAt(current).getStackTop().getSize();
-                mnode.instructions.set(current, Util.getDrop(size));
-                changed = true;
-            }
-            if (current != null  && current.getOpcode() == Opcodes.IINC && cp.consumers(current).isEmpty()) {
-                // IINC doesn't show up in Scala-emitted code.
-                mnode.instructions.remove(current);
-                changed = true;
+            if (current != null) {
+                if (Util.isSTORE(current) && cp.consumers(current).isEmpty()) {
+
+                    if(cp.consumers(current).isEmpty()) {
+                        // Rewriting: elide STORE to a local that sees no use afterwards.
+                        int size = cp.frameAt(current).getStackTop().getSize();
+                        mnode.instructions.set(current, Util.getDrop(size));
+                        changed = true;
+                    } else if (isRedundantStoreLoad((VarInsnNode)current)) {
+                        // Rewriting: elide a STORE-LOAD pair provided the local isn't used afterwards.
+                        mnode.instructions.remove(current.getNext());
+                        mnode.instructions.remove(current);
+                        i++;
+                        changed = true;
+                    }
+
+                } else if (current.getOpcode() == Opcodes.IINC && cp.consumers(current).isEmpty()) {
+                    // Rewriting: remove IINC of a local that sees no use afterwards.
+                    // BTW, IINC doesn't show up in Scala-emitted code.
+                    mnode.instructions.remove(current);
+                    changed = true;
+                }
             }
         }
+    }
+
+    private boolean isRedundantStoreLoad(VarInsnNode current) {
+        assert Util.isSTORE(current);
+        AbstractInsnNode nxt = Util.execInsnOrLabelAfter(current);
+        if(nxt != null && Util.isLOAD(nxt)) {
+            if(Util.denoteSameLocal(current, nxt) && cp.isPointToPoint(current, nxt)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

@@ -9,12 +9,7 @@ package scala.tools.asm.optimiz;
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
 
-import scala.tools.asm.tree.AbstractInsnNode;
-import scala.tools.asm.tree.InsnNode;
-import scala.tools.asm.tree.LdcInsnNode;
-import scala.tools.asm.tree.LabelNode;
-import scala.tools.asm.tree.MethodInsnNode;
-import scala.tools.asm.tree.MethodNode;
+import scala.tools.asm.tree.*;
 
 /**
  *  Utilities.
@@ -147,6 +142,21 @@ public class Util {
 
     public static boolean isJSR(final AbstractInsnNode insn) {
         return (insn.getOpcode() == Opcodes.JSR);
+    }
+
+    /**
+     *  Reports whether two LabelNodes denote in fact the same jump destination.
+     */
+    public static boolean denoteSameLocal(final AbstractInsnNode x, final AbstractInsnNode y) {
+        assert x != null;
+        assert y != null;
+
+        if(x.getType() == AbstractInsnNode.VAR_INSN && y.getType() == AbstractInsnNode.VAR_INSN) {
+            VarInsnNode vx = (VarInsnNode)x;
+            VarInsnNode vy = (VarInsnNode)y;
+            return vx.var == vy.var;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------------
