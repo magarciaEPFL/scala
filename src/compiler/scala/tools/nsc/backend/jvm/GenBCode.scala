@@ -46,7 +46,7 @@ import asm.tree.MethodNode
  *
  *        Rather than performing all the work involved in lowering a ClassDef,
  *        pipeline-1 leaves in general for later those operations that don't require typer.
- *        All the @can-multi-thread operations that pipeline-2 performs can also run during pipeline-1, in fact some of them do.
+ *        All the can-multi-thread operations that pipeline-2 performs can also run during pipeline-1, in fact some of them do.
  *        In contrast, typer operations can't be performed by pipeline-2.
  *        pipeline-2 consists of MAX_THREADS worker threads running concurrently.
  *
@@ -161,7 +161,7 @@ abstract class GenBCode extends BCodeOpt {
     /**
      *  Pipeline that takes ClassDefs from queue-1, lowers them into an intermediate form, placing them on queue-2
      *
-     *  @must-single-thread (because it relies on typer).
+     *  must-single-thread (because it relies on typer).
      */
     class Worker1(needsOutfileForSymbol: Boolean) extends _root_.java.lang.Runnable {
 
@@ -228,7 +228,7 @@ abstract class GenBCode extends BCodeOpt {
      *    - lowers them into byte array classfiles,
      *    - placing them on the queue where they wait to be written to disk.
      *
-     *  @can-multi-thread
+     *  can-multi-thread
      */
     class Worker2 extends _root_.java.lang.Runnable {
 
@@ -240,8 +240,9 @@ abstract class GenBCode extends BCodeOpt {
           val item = q2.take
           if(item.isPoison) {
             woExited.put(id, item)
-            q3 put poison3 // therefore queue-3 will contain as many poison pills as worker threads in pipeline-2
-            return // in order to terminate all workers, queue-1 must contain as many poison pills as worker threads in pipeline-2
+            q3 put poison3 // therefore queue-3 will contain as many poison pills as pipeline-2 threads.
+            // to terminate all pipeline-2 workers, queue-1 must contain as many poison pills as pipeline-2 threads.
+            return
           }
           else {
             try   { visit(item) }
@@ -727,7 +728,7 @@ abstract class GenBCode extends BCodeOpt {
       } // end of method genPlainClass()
 
       /**
-       * @must-single-thread
+       * must-single-thread
        */
       private def initJClass(jclass: asm.ClassVisitor) {
 
@@ -801,7 +802,7 @@ abstract class GenBCode extends BCodeOpt {
       } // end of method initJClass
 
       /**
-       * @can-multi-thread
+       * can-multi-thread
        */
       private def addModuleInstanceField() {
         val fv =
@@ -816,7 +817,7 @@ abstract class GenBCode extends BCodeOpt {
       }
 
       /**
-       * @must-single-thread
+       * must-single-thread
        */
       def initJMethod(flags: Int, paramAnnotations: List[List[AnnotationInfo]]) {
 
@@ -846,7 +847,7 @@ abstract class GenBCode extends BCodeOpt {
       } // end of method initJMethod
 
       /**
-       * @must-single-thread
+       * must-single-thread
        */
       private def fabricateStaticInit() {
 
@@ -1042,7 +1043,7 @@ abstract class GenBCode extends BCodeOpt {
       } // end of method genDefDef()
 
       /**
-       *  @must-single-thread
+       *  must-single-thread
        *
        *  TODO document, explain interplay with `fabricateStaticInit()`
        **/
@@ -1707,20 +1708,20 @@ abstract class GenBCode extends BCodeOpt {
       // ---------------- field load and store ----------------
 
       /**
-       * @must-single-thread
+       * must-single-thread
        **/
       def fieldLoad( field: Symbol, hostClass: Symbol = null) {
         fieldOp(field, isLoad = true,  hostClass)
       }
       /**
-       * @must-single-thread
+       * must-single-thread
        **/
       def fieldStore(field: Symbol, hostClass: Symbol = null) {
         fieldOp(field, isLoad = false, hostClass)
       }
 
       /**
-       * @must-single-thread
+       * must-single-thread
        **/
       private def fieldOp(field: Symbol, isLoad: Boolean, hostClass: Symbol = null) {
         // LOAD_FIELD.hostClass , CALL_METHOD.hostClass , and #4283
@@ -1741,7 +1742,7 @@ abstract class GenBCode extends BCodeOpt {
 
       /**
        * For const.tag in {ClazzTag, EnumTag}
-       *   @must-single-thread
+       *   must-single-thread
        * Otherwise it's safe to call from multiple threads.
        **/
       def genConstant(const: Constant) {
@@ -2555,7 +2556,7 @@ abstract class GenBCode extends BCodeOpt {
       /** Does this tree have a try-catch block? */
       def mayCleanStack(tree: Tree): Boolean = tree exists { t => t.isInstanceOf[Try] }
 
-      /** @can-multi-thread **/
+      /** can-multi-thread **/
       def getMaxType(ts: List[Type]): BType = {
         ts map toTypeKind reduceLeft maxType
       }

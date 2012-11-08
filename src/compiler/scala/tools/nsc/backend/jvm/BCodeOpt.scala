@@ -19,6 +19,11 @@ import asm.tree.MethodNode
  *  @version 1.0
  *
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
+ *
+ *  TODO https://github.com/retronym/scala/compare/topic/closure-sharing
+ *       Why not constrain isSafeToUseConstantFunction to just Function whose apply()'s body has constant type?
+ *       Useful e.g. with assert(cond, msg) when msg is string literal
+ *       (otherwise, the anon-closure-class refers to the enclosing method, which refers to inner classes chain, not to mention the ConstantPool grows, etc.)
  */
 abstract class BCodeOpt extends BCodeTypes {
 
@@ -32,7 +37,7 @@ abstract class BCodeOpt extends BCodeTypes {
    *  while GenBCode's pipeline-1 keeps building more `asm.tree.ClassNode`s.
    *  Moreover, pipeline-2 is realized by a thread-pool.
    *
-   *  The entry point is `cleanseClass()``.
+   *  The entry point is `cleanseClass()`.
    */
   class BCodeCleanser(cnode: asm.tree.ClassNode) {
 
