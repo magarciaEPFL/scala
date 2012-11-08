@@ -64,15 +64,8 @@ import asm.tree.MethodNode
  *             This comes handy because in pipelin-2, `MethodNode.visitMaxs()` invokes `getCommonSuperclass()` on different method nodes,
  *             and each of these activations accesses typer-independent structures (exemplars, Tracked) to compute its answer.
  *
- *        In the future, a pipeline-2 worker could also perform intra-method optimizations on the ASM tree
- *        before handing it over to queue-3, including:
- *          - collapsing jump-chains,
- *          - constant propagation,
- *          - arith and logical ops reductions,
- *          - pattern-based simplification aka peephole optimization,
- *          - eliminating unreachable-code, and
- *          - removing unused locals.
- *        See Ch. 8. "Method Analysis" in the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
+ *        A pipeline-2 worker performs intra-method optimizations on the ASM tree.
+ *        In detail, `Worker2.visit()` instantiates a `BCodeOpt.BCodeCleanser` to perform those optimizations.
  *
  *    (3) The third queue contains items ready for serialization.
  *        It's a priority queue that follows the original arrival order,

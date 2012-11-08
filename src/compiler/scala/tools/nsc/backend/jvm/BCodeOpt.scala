@@ -18,12 +18,22 @@ import asm.tree.MethodNode
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  *
- *  TODO FieldValuePropagation, to propagate field accesses
- *
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  */
 abstract class BCodeOpt extends BCodeTypes {
 
+  /**
+   *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
+   *  optimizations are applied iteratively to until a fixpoint is reached.
+   *
+   *  All optimizations implemented here rely on information local to the method only
+   *  (in particular, no lookups on `exemplars` are performed).
+   *  That way, intra-method optimizations can be performed in parallel (in pipeline-2)
+   *  while GenBCode's pipeline-1 keeps building more `asm.tree.ClassNode`s.
+   *  Moreover, pipeline-2 is realized by a thread-pool.
+   *
+   *  The entry point is `cleanseClass()``.
+   */
   class BCodeCleanser(cnode: asm.tree.ClassNode) {
 
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
@@ -43,6 +53,22 @@ abstract class BCodeOpt extends BCodeTypes {
 
     cleanseClass();
 
+    /**
+     *  The (intra-method) optimizations below are performed until a fixpoint is reached.
+     *  They are grouped somewhat arbitrarily into:
+     *    - those performed by `cleanseMethod()`
+     *    - those performed by `elimRedundandtCode()`
+     *    - nullness propagation
+     *    - constant folding
+     *
+     *  After the fixpoint has been reached, two more optimizations are performed just once
+     *  (further applications wouldn't reduce any further):
+     *    - eliding of box/unbox pairs
+     *    - eliding redundant local vars.
+     *
+     *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
+     *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
+     */
     def cleanseClass() {
       // find out maxLocals and maxStack (maxLocals is given by nxtIdx in PlainClassBuilder, but maxStack hasn't been computed yet).
       val cw = new asm.ClassWriter(asm.ClassWriter.COMPUTE_MAXS)

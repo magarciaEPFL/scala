@@ -9,8 +9,13 @@ package scala.tools.asm.optimiz;
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
 
-import scala.tools.asm.tree.*;
-
+import scala.tools.asm.tree.AbstractInsnNode;
+import scala.tools.asm.tree.InsnNode;
+import scala.tools.asm.tree.LdcInsnNode;
+import scala.tools.asm.tree.LabelNode;
+import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.MethodNode;
+import scala.tools.asm.tree.VarInsnNode;
 /**
  *  Utilities.
  *
