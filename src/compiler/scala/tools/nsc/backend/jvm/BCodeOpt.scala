@@ -9,6 +9,7 @@ package backend
 package jvm
 
 import scala.tools.asm
+import asm.Opcodes
 import asm.tree.MethodNode
 
 
@@ -98,12 +99,14 @@ abstract class BCodeOpt extends BCodeTypes {
             keepGoing |= elimRedundantCode(cName, mnode)
 
             nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
-            keepGoing |= nullnessPropagator.changed;
+            keepGoing |= nullnessPropagator.changed
 
             constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
-            keepGoing |= constantFolder.changed;
+            keepGoing |= constantFolder.changed
 
           } while(keepGoing)
+
+          cacheRepeatableReads(cName, mnode)
 
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
@@ -112,6 +115,10 @@ abstract class BCodeOpt extends BCodeTypes {
         }
       }
     }
+
+    //--------------------------------------------------------------------
+    // First optimization pack
+    //--------------------------------------------------------------------
 
     /**
      *  This method performs a few intra-method optimizations:
@@ -156,6 +163,10 @@ abstract class BCodeOpt extends BCodeTypes {
 
     }
 
+    //--------------------------------------------------------------------
+    // Second optimization pack
+    //--------------------------------------------------------------------
+
     /**
      *  This method performs a few intra-method optimizations,
      *  aimed at reverting the extra copying introduced by inlining:
@@ -192,6 +203,122 @@ abstract class BCodeOpt extends BCodeTypes {
       changed
     }
 
+    //--------------------------------------------------------------------
+    // Third optimization pack: Repeatable reads
+    //--------------------------------------------------------------------
+
+    /**
+     *  A common idiom emitted by explicitouter and lambdalift involves
+     *  dot navigation rooted at a local (for example, LOAD 0)
+     *  followed by invocations of isStable (getters or GETFIELD)
+     *  that result in a value that depends only on the access path described above.
+     *
+     *  Rather than duplicating the access path each time the value in question is required,
+     *  it can be stored in a local-var added for that purpose.
+     *  This way, any side-effects required upon first access (e.g. lazy-val initialization)
+     *  are preserved, while successive accesses load the local directly (shorter code size, faster).
+     *
+     */
+    def cacheRepeatableReads(cName: String, mnode: asm.tree.MethodNode) {
+
+      // (1) Those params never assigned qualify as "stable-roots" for "stable-access-paths"
+      //     Code that has been tail-call-transformed contains assignments to formals.
+      val stableLocals = new Array[Boolean](descrToBType(mnode.desc).getArgumentCount)
+      var idx = 0
+      while(idx < stableLocals.length) {
+        stableLocals(idx) = true
+        idx += 1
+      }
+      val insns = mnode.instructions.toArray
+      for (insn <- insns) {
+        if (asm.optimiz.Util.isSTORE(insn)) {
+          val st = insn.asInstanceOf[asm.tree.VarInsnNode]
+          if (st.`var` < stableLocals.length) {
+            stableLocals(st.`var`) = false
+          }
+        }
+      }
+
+      // (2)
+      import asm.tree.analysis.{ Analyzer, Frame }
+      import asm.tree.AbstractInsnNode
+      val tfa = new Analyzer[StableValue](new StableChainInterpreter)
+      tfa.analyze(cName, mnode)
+
+    }
+
+    /**
+     *  Represents *an individual link* in a lattice element in the stable-chain lattice.
+     *  In other words, an element is a List[StableLink]
+     */
+    abstract class StableLink extends asm.tree.analysis.Value
+
+    case class StableLocal(index: Int, vtype: BType) extends StableLink {
+      override def getSize() = vtype.getSize
+    }
+    case class StableFieldLoad(owner: BType, name: String, ftype: BType) extends StableLink {
+      override def getSize() = ftype.getSize
+    }
+    case class StableCallsite( owner: BType, name: String, mtype: BType) extends StableLink {
+      override def getSize() = mtype.getReturnType.getSize
+    }
+
+    case class StableValue(links: List[StableLink]) extends asm.tree.analysis.Value {
+      assert(links.nonEmpty)
+      override def getSize() = links.head.getSize
+    }
+
+    class StableChainInterpreter extends asm.tree.analysis.Interpreter[StableValue](asm.Opcodes.ASM4) {
+
+      override def newValue(t: asm.Type) = null
+
+      override def newOperation(insn: asm.tree.AbstractInsnNode) = null
+
+      override def copyOperation(insn: asm.tree.AbstractInsnNode, value: StableValue) = {
+        value // copy propagation
+      }
+
+      override def unaryOperation(insn: asm.tree.AbstractInsnNode, value: StableValue) = {
+        null // ???
+      }
+
+      override def binaryOperation(insn: asm.tree.AbstractInsnNode, value1: StableValue, value2: StableValue) = {
+        null // ???
+      }
+
+      override def ternaryOperation(
+        insn:   asm.tree.AbstractInsnNode,
+        value1: StableValue,
+        value2: StableValue,
+        value3: StableValue) = {
+        null // ???
+      }
+
+      override def naryOperation(insn: asm.tree.AbstractInsnNode, values: java.util.List[_ <: StableValue]) = {
+        null // ???
+      }
+
+      override def returnOperation(
+        insn: asm.tree.AbstractInsnNode,
+        value:    StableValue,
+        expected: StableValue) = {
+        null // ???
+      }
+
+      override def drop(insn: asm.tree.AbstractInsnNode, value: StableValue) = {
+        null // ???
+      }
+
+      override def merge(value1: StableValue, value2: StableValue) = {
+        null // ???
+      }
+
+    }
+
+    //--------------------------------------------------------------------
+    // Type-flow analysis
+    //--------------------------------------------------------------------
+
     def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
 
       import asm.tree.analysis.{ Analyzer, Frame }
@@ -209,6 +336,10 @@ abstract class BCodeOpt extends BCodeTypes {
         i += 1
       }
     }
+
+    //--------------------------------------------------------------------
+    // Utilities for reuse by different optimizations
+    //--------------------------------------------------------------------
 
     /**
      *  Well-formedness checks, useful after each fine-grained transformation step on a MethodNode.

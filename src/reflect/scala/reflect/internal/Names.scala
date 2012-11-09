@@ -144,7 +144,7 @@ trait Names extends api.Names with LowPriorityNames {
    *  For those of ARRAY sort,  its descriptor is stored ie has a leading '['
    *  For those of METHOD sort, its descriptor is stored ie starts with leading '('
    *
-   *  @can-multi-thread
+   *  can-multi-thread
    */
   def lookupTypeName(cs: Array[Char]): TypeName = {
 

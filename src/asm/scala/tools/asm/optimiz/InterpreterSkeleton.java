@@ -5,8 +5,6 @@
 
 package scala.tools.asm.optimiz;
 
-import java.util.List;
-
 import scala.tools.asm.Handle;
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;

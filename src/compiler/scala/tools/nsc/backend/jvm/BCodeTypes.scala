@@ -3736,6 +3736,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val EXACT_MASK    = 2
   }
 
+  /**
+   *  can-multi-thread
+   */
   def toBType(t: asm.Type): BType = {
     (t.getSort: @switch) match {
       case asm.Type.VOID    => BType.VOID_TYPE
@@ -3761,6 +3764,34 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
+   * ASM trees represent types as strings (internal names, descriptors).
+   * Given that we operate instead on BTypes, conversion is needed when visiting MethodNodes outside GenBCode.
+   *
+   * can-multi-thread
+   */
+  def descrToBType(typeDescriptor: String): BType = {
+    val c: Char = typeDescriptor(0)
+    c match {
+      case 'V' => BType.VOID_TYPE
+      case 'Z' => BType.BOOLEAN_TYPE
+      case 'C' => BType.CHAR_TYPE
+      case 'B' => BType.BYTE_TYPE
+      case 'S' => BType.SHORT_TYPE
+      case 'I' => BType.INT_TYPE
+      case 'F' => BType.FLOAT_TYPE
+      case 'J' => BType.LONG_TYPE
+      case 'D' => BType.DOUBLE_TYPE
+      case 'L' =>
+        val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
+        val n = global.lookupTypeName(iname.toCharArray)
+        new BType(asm.Type.OBJECT, n.start, n.length)
+      case _   =>
+        val n = global.lookupTypeName(typeDescriptor.toCharArray)
+        BType.getType(n.start)
+    }
+  }
+
+  /**
    *  Can be used to compute a type-flow analysis for an asm.tree.MethodNode, as in: `tfa.analyze(owner, mnode)`
    *  The abstract state, right before each instruction, comprises abstract values
    *  for each local variable and for each position in the operand stack.
@@ -3768,32 +3799,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  All methods in this class can-multi-thread
    **/
   class TypeFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TFValue] {
-
-    /**
-     * ASM trees represent types as strings (internal names, descriptors).
-     * Given that we operate instead on TFValues and BTypes, a few conversion methods are needed.
-     */
-    def descrToBType(typeDescriptor: String): BType = {
-      val c: Char = typeDescriptor(0)
-      c match {
-        case 'V' => BType.VOID_TYPE
-        case 'Z' => BType.BOOLEAN_TYPE
-        case 'C' => BType.CHAR_TYPE
-        case 'B' => BType.BYTE_TYPE
-        case 'S' => BType.SHORT_TYPE
-        case 'I' => BType.INT_TYPE
-        case 'F' => BType.FLOAT_TYPE
-        case 'J' => BType.LONG_TYPE
-        case 'D' => BType.DOUBLE_TYPE
-        case 'L' =>
-          val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
-          val n = global.lookupTypeName(iname.toCharArray)
-          new BType(asm.Type.OBJECT, n.start, n.length)
-        case _   =>
-          val n = global.lookupTypeName(typeDescriptor.toCharArray)
-          BType.getType(n.start)
-      }
-    }
 
     def lookupRefBType(iname: String): BType = {
       import global.chrs
