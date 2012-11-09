@@ -117,6 +117,8 @@ abstract class GenBCode extends BCodeOpt {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
+    val isOptimizedRun = settings.optimise.value || settings.canUseBCode // TODO "|| canUseBCode" is debug only
+
     // Once pipeline-2 starts doing optimizations more threads will be needed.
     val MAX_THREADS = scala.math.min(
       8,
@@ -2144,7 +2146,7 @@ abstract class GenBCode extends BCodeOpt {
 
       /** Generate code that loads args into label parameters. */
       def genLoadLabelArguments(args: List[Tree], lblDef: LabelDef, gotoPos: Position) {
-        assert(args forall { a => !a.hasSymbol || a.hasSymbolWhich( s => !s.isLabel) }, "SI-6089 at: " + gotoPos) // SI-6089
+        assert(args forall { a => !a.hasSymbolField || a.hasSymbolWhich( s => !s.isLabel) }, "SI-6089 at: " + gotoPos) // SI-6089
 
         val aps = {
           val params: List[Symbol] = lblDef.params.map(_.symbol)
@@ -2282,9 +2284,11 @@ abstract class GenBCode extends BCodeOpt {
           || hostSymbol.isBottomClass
         )
         val receiver = if (useMethodOwner) methodOwner else hostSymbol
-        val jowner   = internalName(receiver)
+        val bmOwner  = asmClassType(receiver)
+        val jowner   = bmOwner.getInternalName
         val jname    = method.javaSimpleName.toString
-        val jtype    = asmMethodType(method).getDescriptor
+        val bmType   = asmMethodType(method)
+        val mdescr   = bmType.getDescriptor
 
             def initModule() {
               // we initialize the MODULE$ field immediately after the super ctor
@@ -2304,17 +2308,24 @@ abstract class GenBCode extends BCodeOpt {
             }
 
         if(style.isStatic) {
-          if(style.hasInstance) { bc.invokespecial  (jowner, jname, jtype) }
-          else                  { bc.invokestatic   (jowner, jname, jtype) }
+          if(style.hasInstance) { bc.invokespecial  (jowner, jname, mdescr) }
+          else                  { bc.invokestatic   (jowner, jname, mdescr) }
         }
         else if(style.isDynamic) {
-          if(isInterfaceCall(receiver)) { bc.invokeinterface(jowner, jname, jtype) }
-          else                          { bc.invokevirtual  (jowner, jname, jtype) }
+          if(isInterfaceCall(receiver)) { bc.invokeinterface(jowner, jname, mdescr) }
+          else                          { bc.invokevirtual  (jowner, jname, mdescr) }
         }
         else {
           assert(style.isSuper, "An unknown InvokeStyle: " + style)
-          bc.invokespecial(jowner, jname, jtype)
+          bc.invokespecial(jowner, jname, mdescr)
           initModule()
+        }
+
+        if(isOptimizedRun && method.isStable) {
+          // the pattern matcher (and possible others) emit stable methods that take args. Our analysis won't cache invocations to them.
+          if(bmType.getArgumentCount == 0 && !bmType.getReturnType.isUnitType) {
+            markAsRepeatableRead(bmOwner, jname, bmType)
+          }
         }
 
       } // end of genCallMethod()

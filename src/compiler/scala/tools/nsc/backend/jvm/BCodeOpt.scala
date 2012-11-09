@@ -29,9 +29,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
   /**
    *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
-   *  optimizations are applied iteratively to until a fixpoint is reached.
+   *  optimizations are applied iteratively until a fixpoint is reached.
    *
-   *  All optimizations implemented here rely on information local to the method only
+   *  All optimizations implemented here can do based solely on information local to the method
    *  (in particular, no lookups on `exemplars` are performed).
    *  That way, intra-method optimizations can be performed in parallel (in pipeline-2)
    *  while GenBCode's pipeline-1 keeps building more `asm.tree.ClassNode`s.
@@ -68,7 +68,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *
      *  After the fixpoint has been reached, two more optimizations are performed just once
      *  (further applications wouldn't reduce any further):
-     *    - eliding of box/unbox pairs
+     *    - eliding box/unbox pairs
      *    - eliding redundant local vars.
      *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in

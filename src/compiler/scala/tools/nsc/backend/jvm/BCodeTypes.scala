@@ -151,27 +151,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * can-multi-thread
      **/
-    def getArgumentTypes(idx0: Int): Array[BType] = {
+    private def getArgumentTypes(idx0: Int): Array[BType] = {
       assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
-      var off  = idx0
+      val args = new Array[BType](getArgumentCount(idx0))
+      var off = idx0
       var size = 0
-      var keepGoing = true
-      while (keepGoing) {
-        val car = chrs(off)
-        off += 1
-        if (car == ')') {
-          keepGoing = false
-        } else if (car == 'L') {
-          while (chrs(off) != ';') { off += 1 }
-          off += 1
-          size += 1
-        } else if (car != '[') {
-          size += 1
-        }
-      }
-      val args = new Array[BType](size)
-      off = idx0
-      size = 0
       while (chrs(off) != ')') {
         args(size) = getType(off)
         off += args(size).len
@@ -195,6 +179,36 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def getArgumentTypes(methodDescriptor: String): Array[BType] = {
       val n = global.newTypeName(methodDescriptor)
       getArgumentTypes(n.start + 1)
+    }
+
+    /**
+     * Returns the number of argument types of this method type, whose first argument starts at idx0.
+     *
+     * @param idx0 index into chrs of the first argument.
+     * @return the number of argument types of this method type.
+     *
+     * can-multi-thread
+     **/
+    private def getArgumentCount(idx0: Int): Int = {
+      assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
+      var off  = idx0
+      var size = 0
+      var keepGoing = true
+      while (keepGoing) {
+        val car = chrs(off)
+        off += 1
+        if (car == ')') {
+          keepGoing = false
+        } else if (car == 'L') {
+          while (chrs(off) != ';') { off += 1 }
+          off += 1
+          size += 1
+        } else if (car != '[') {
+          size += 1
+        }
+      }
+
+      size
     }
 
     /**
@@ -397,6 +411,18 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      **/
     def getArgumentTypes: Array[BType] = {
       BType.getArgumentTypes(off + 1)
+    }
+
+    /**
+     * Returns the number of arguments of methods of this type.
+     * This method should only be used for method types.
+     *
+     * @return the number of arguments of methods of this type.
+     *
+     * can-multi-thread
+     **/
+    def getArgumentCount: Int = {
+      BType.getArgumentCount(off + 1)
     }
 
     /**
@@ -823,6 +849,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
+    repeatableReads.clear()
   }
 
   val BOXED_UNIT    = brefType("java/lang/Void")
@@ -893,8 +920,32 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   // allowing answering `conforms()` resorting to typer.
   // ------------------------------------------------
 
-  val exemplars    = new java.util.concurrent.ConcurrentHashMap[BType,  Tracked]
-  val symExemplars = new java.util.concurrent.ConcurrentHashMap[Symbol, Tracked]
+  val exemplars       = new java.util.concurrent.ConcurrentHashMap[BType,  Tracked]
+  val symExemplars    = new java.util.concurrent.ConcurrentHashMap[Symbol, Tracked]
+  val repeatableReads = mutable.Map.empty[BType, mutable.Map[String, BType]] // (class-owner -> (method-or-field-name -> method-or-field-type))
+
+  def markAsRepeatableRead(owner: BType, name: String, member: BType) {
+    var members: mutable.Map[String, BType] = null
+    repeatableReads.get(owner) match {
+      case Some(v) => members = v
+      case None    =>
+        members = mutable.Map.empty[String, BType]
+        repeatableReads.put(owner, members)
+    }
+    members.put(name, member)
+  }
+
+  def isKnownRepeatableRead(owner: BType, name: String, member: BType): Boolean = {
+    repeatableReads.get(owner) match {
+      case Some(members) =>
+        members.get(name) match {
+          case Some(mtype) => return mtype == member
+          case _ => ()
+        }
+      case _ => ()
+    }
+    false
+  }
 
   /**
    *  Typically, a question about a BType can be answered only by using the BType as lookup key in one or more maps.
