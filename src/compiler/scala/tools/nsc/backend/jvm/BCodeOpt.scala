@@ -10,7 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.tree.MethodNode
+import asm.tree.{MethodInsnNode, MethodNode}
 
 
 /**
@@ -214,7 +214,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *  that result in a value that depends only on the access path described above.
      *
      *  Rather than duplicating the access path each time the value in question is required,
-     *  it can be stored in a local-var added for that purpose.
+     *  that value can be stored after its first access in a local-var added for that purpose.
      *  This way, any side-effects required upon first access (e.g. lazy-val initialization)
      *  are preserved, while successive accesses load the local directly (shorter code size, faster).
      *
@@ -248,72 +248,162 @@ abstract class BCodeOpt extends BCodeTypes {
     }
 
     /**
-     *  Represents *an individual link* in a lattice element in the stable-chain lattice.
-     *  In other words, an element is a List[StableLink]
+     *  Represents *an individual link* in an access-path all whose links are stable.
+     *  Such access-path is a lattice element in the StableChainInterpreter dataflow-analysis.
+     *
+     *  @param index TODO
+     *  @param vsize TODO
      */
-    abstract class StableLink extends asm.tree.analysis.Value
-
-    case class StableLocal(index: Int, vtype: BType) extends StableLink {
-      override def getSize() = vtype.getSize
-    }
-    case class StableFieldLoad(owner: BType, name: String, ftype: BType) extends StableLink {
-      override def getSize() = ftype.getSize
-    }
-    case class StableCallsite( owner: BType, name: String, mtype: BType) extends StableLink {
-      override def getSize() = mtype.getReturnType.getSize
-    }
-
-    case class StableValue(links: List[StableLink]) extends asm.tree.analysis.Value {
-      assert(links.nonEmpty)
-      override def getSize() = links.head.getSize
+    case class StableValue(index: Int, vsize: Int) extends asm.tree.analysis.Value {
+      override def getSize() = vsize
+      def isStable = (index != -1)
     }
 
     class StableChainInterpreter extends asm.tree.analysis.Interpreter[StableValue](asm.Opcodes.ASM4) {
 
-      override def newValue(t: asm.Type) = null
+      private val UNKNOWN_1 = StableValue(-1, 1)
+      private val UNKNOWN_2 = StableValue(-1, 2)
 
-      override def newOperation(insn: asm.tree.AbstractInsnNode) = null
-
-      override def copyOperation(insn: asm.tree.AbstractInsnNode, value: StableValue) = {
-        value // copy propagation
+      private def dunno(size: Int): StableValue = {
+        (size: @unchecked) match {
+          case 0 => null
+          case 1 => UNKNOWN_1
+          case 2 => UNKNOWN_2
+        }
       }
 
+      private def dunno(producer: asm.tree.AbstractInsnNode): StableValue = {
+        dunno(asm.optimiz.SizingUtil.getResultSize(producer))
+      }
+
+      override def newValue(t: asm.Type) = {
+        if (t == asm.Type.VOID_TYPE) null
+        else dunno(t.getSize())
+      }
+
+      /**
+       * ACONST_NULL,
+       * ICONST_M1, ICONST_0, ICONST_1, ICONST_2, ICONST_3, ICONST_4, ICONST_5,
+       * LCONST_0, LCONST_1,
+       * FCONST_0, FCONST_1, FCONST_2,
+       * DCONST_0, DCONST_1,
+       * BIPUSH,   SIPUSH,
+       * LDC,
+       * JSR,
+       * GETSTATIC, // TODO
+       * NEW
+       */
+      override def newOperation(insn: asm.tree.AbstractInsnNode) = { dunno(insn) }
+
+      /**
+       * Propagates the input value through LOAD, STORE, DUP, and SWAP instructions.
+       */
+      override def copyOperation(insn: asm.tree.AbstractInsnNode, value: StableValue) = { value }
+
+      /**
+       * INEG, LNEG, FNEG, DNEG,
+       * IINC,
+       *       I2L, I2F, I2D,
+       * L2I,      L2F, L2D,
+       * F2I, F2L,      F2D,
+       * D2I, D2L, D2F,
+       * I2B, I2C, I2S
+       *
+       * IFEQ, IFNE, IFLT, IFGE, IFGT, IFLE,
+       * IFNULL, IFNONNULL
+       * TABLESWITCH, LOOKUPSWITCH,
+       * IRETURN, LRETURN, FRETURN, DRETURN, ARETURN,
+       * PUTSTATIC,
+       * GETFIELD, // TODO
+       * NEWARRAY, ANEWARRAY, ARRAYLENGTH,
+       * ATHROW,
+       * CHECKCAST, INSTANCEOF,
+       * MONITORENTER, MONITOREXIT,
+       */
       override def unaryOperation(insn: asm.tree.AbstractInsnNode, value: StableValue) = {
-        null // ???
+        // Actually some unaryOperation on a stable-value results in another stable-value,
+        // but to keep things simple this operation is considered to finish a stable-access-path
+        // ("to keep things simple" means: the only way to extend an stable-access-path is via a "stable" INVOKE or GETFIELD)
+        dunno(insn)
       }
 
+      /**
+       * IADD, LADD, FADD, DADD,
+       * ISUB, LSUB, FSUB, DSUB,
+       * IMUL, LMUL, FMUL, DMUL,
+       * IDIV, LDIV, FDIV, DDIV,
+       * IREM, LREM, FREM, DREM,
+       * ISHL, LSHL,
+       * ISHR, LSHR,
+       * IUSHR, LUSHR,
+       * IAND, LAND,
+       * IOR, LOR,
+       * IXOR, LXOR,
+       * LCMP,
+       * FCMPL, FCMPG,
+       * DCMPL, DCMPG,
+       * IALOAD, LALOAD, FALOAD, DALOAD, AALOAD, BALOAD, CALOAD, SALOAD,
+       * IF_ICMPEQ, IF_ICMPNE, IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE,
+       * IF_ACMPEQ, IF_ACMPNE,
+       * PUTFIELD
+       */
       override def binaryOperation(insn: asm.tree.AbstractInsnNode, value1: StableValue, value2: StableValue) = {
-        null // ???
+        // Actually some binaryOperations on two stable-values results in another stable-value,
+        // but to keep things simple this operation is considered to finish a stable-access-path
+        // ("to keep things simple" means: the only way to extend an stable-access-path is via a "stable" INVOKE or GETFIELD)
+        dunno(insn)
       }
 
+      /**
+       * IASTORE, LASTORE, FASTORE, DASTORE, AASTORE, BASTORE, CASTORE, SASTORE
+       */
       override def ternaryOperation(
         insn:   asm.tree.AbstractInsnNode,
         value1: StableValue,
         value2: StableValue,
         value3: StableValue) = {
-        null // ???
+        dunno(insn)
       }
 
-      override def naryOperation(insn: asm.tree.AbstractInsnNode, values: java.util.List[_ <: StableValue]) = {
-        null // ???
+      /**
+       * INVOKEVIRTUAL, INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE,
+       * MULTIANEWARRAY and INVOKEDYNAMIC
+       */
+      override def naryOperation(insn: asm.tree.AbstractInsnNode, values: java.util.List[_ <: StableValue]): StableValue = {
+        insn.getOpcode match {
+
+          case Opcodes.INVOKEVIRTUAL
+             | Opcodes.INVOKESPECIAL
+             | Opcodes.INVOKEINTERFACE if values.size() == 1 && values.get(0).isStable =>
+            val rcv      = values.get(0)
+            val callsite = insn.asInstanceOf[MethodInsnNode]
+            repeatableReads
+            ???
+
+          case Opcodes.INVOKESTATIC    => ???
+
+          case Opcodes.INVOKEDYNAMIC   => dunno(insn)
+
+          case _                       => dunno(insn)
+        }
       }
 
-      override def returnOperation(
-        insn: asm.tree.AbstractInsnNode,
-        value:    StableValue,
-        expected: StableValue) = {
-        null // ???
+      /**
+       * IRETURN, LRETURN, FRETURN, DRETURN, ARETURN
+       */
+      override def returnOperation(insn: asm.tree.AbstractInsnNode, value: StableValue, expected: StableValue) { }
+
+      /**
+       * POP, POP2
+       */
+      override def drop(insn: asm.tree.AbstractInsnNode, value: StableValue) { }
+
+      override def merge(d: StableValue, w: StableValue) = {
+        assert(d.getSize() == w.getSize())
+        if (d == w) d else dunno(d.getSize())
       }
 
-      override def drop(insn: asm.tree.AbstractInsnNode, value: StableValue) = {
-        null // ???
-      }
-
-      override def merge(value1: StableValue, value2: StableValue) = {
-        null // ???
-      }
-
-    }
+    } // end of class StableChainInterpreter
 
     //--------------------------------------------------------------------
     // Type-flow analysis

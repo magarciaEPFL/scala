@@ -922,29 +922,34 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   val exemplars       = new java.util.concurrent.ConcurrentHashMap[BType,  Tracked]
   val symExemplars    = new java.util.concurrent.ConcurrentHashMap[Symbol, Tracked]
-  val repeatableReads = mutable.Map.empty[BType, mutable.Map[String, BType]] // (class-owner -> (method-or-field-name -> method-or-field-type))
 
-  def markAsRepeatableRead(owner: BType, name: String, member: BType) {
-    var members: mutable.Map[String, BType] = null
-    repeatableReads.get(owner) match {
-      case Some(v) => members = v
-      case None    =>
-        members = mutable.Map.empty[String, BType]
-        repeatableReads.put(owner, members)
-    }
-    members.put(name, member)
+  /**
+   *  @param owner      a JVM-level class
+   *  @param memberName name of a method or field defined in `owner`
+   *  @param memberType the member's type ie a MethodType denotes "name" refers to a method, otherwise to a field.
+   *
+   */
+  case class StableMember(owner: BType, memberName: String, memberType: BType) {
+    assert(if(memberType.sort == asm.Type.METHOD) { memberType.getArgumentCount == 0 && !memberType.getReturnType.isUnitType } else { true })
   }
 
-  def isKnownRepeatableRead(owner: BType, name: String, member: BType): Boolean = {
-    repeatableReads.get(owner) match {
-      case Some(members) =>
-        members.get(name) match {
-          case Some(mtype) => return mtype == member
-          case _ => ()
-        }
-      case _ => ()
+  /**
+   * Set of known JVM-level getters and fields allowing access to stable values
+   * A stable path must consist only of stable links, ie the receiver of a stable getter itself must be stable,
+   * and simimlarly for fields.
+   */
+  val repeatableReads = new StableMembersSet
+
+  class StableMembersSet extends mutable.HashSet[StableMember] {
+
+    def markAsRepeatableRead(owner: BType, memberName: String, memberType: BType) {
+      this += StableMember(owner, memberName, memberType)
     }
-    false
+
+    def isKnownRepeatableRead(owner: BType, memberName: String, memberType: BType): Boolean = {
+      contains(StableMember(owner, memberName, memberType))
+    }
+
   }
 
   /**

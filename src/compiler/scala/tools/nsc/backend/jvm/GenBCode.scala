@@ -2324,7 +2324,7 @@ abstract class GenBCode extends BCodeOpt {
         if(isOptimizedRun && method.isStable) {
           // the pattern matcher (and possible others) emit stable methods that take args. Our analysis won't cache invocations to them.
           if(bmType.getArgumentCount == 0 && !bmType.getReturnType.isUnitType) {
-            markAsRepeatableRead(bmOwner, jname, bmType)
+            repeatableReads.markAsRepeatableRead(bmOwner, jname, bmType)
           }
         }
 
