@@ -106,7 +106,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
           } while(keepGoing)
 
-          cacheRepeatableReads(cName, mnode)
+          // cacheRepeatableReads(cName, mnode)
 
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.

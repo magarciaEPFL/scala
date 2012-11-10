@@ -158,10 +158,7 @@ abstract class ExplicitOuter extends InfoTransform
       var decls1 = decls
       if (isInner(clazz) && !clazz.isInterface) {
         decls1 = decls.cloneScope
-        val outerAcc = clazz.newMethod(nme.OUTER, clazz.pos) // 3
-        outerAcc expandName clazz
-
-        decls1 enter newOuterAccessor(clazz)
+        decls1 enter newOuterAccessor(clazz) // 3
         if (hasOuterField(clazz)) //2
           decls1 enter newOuterField(clazz)
       }

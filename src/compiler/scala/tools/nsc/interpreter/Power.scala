@@ -8,8 +8,6 @@ package interpreter
 
 import scala.collection.{ mutable, immutable }
 import scala.util.matching.Regex
-import scala.reflect.internal.util.{ BatchSourceFile }
-import session.{ History }
 import scala.io.Codec
 import java.net.{ URL, MalformedURLException }
 import io.{ Path }
@@ -48,7 +46,6 @@ class Power[ReplValsImpl <: ReplVals : ru.TypeTag: ClassTag](val intp: IMain, re
   import intp.{ beQuietDuring, typeOfExpression, interpret, parse }
   import intp.global._
   import definitions.{ compilerTypeFromTag, compilerSymbolFromTag}
-  import rootMirror.{ getClassIfDefined, getModuleIfDefined }
 
   abstract class SymSlurper {
     def isKeep(sym: Symbol): Boolean
@@ -148,7 +145,7 @@ class Power[ReplValsImpl <: ReplVals : ru.TypeTag: ClassTag](val intp: IMain, re
     // First we create the ReplVals instance and bind it to $r
     intp.bind("$r", replVals)
     // Then we import everything from $r.
-    intp interpret ("import " + intp.pathToTerm("$r") + "._")
+    intp interpret ("import " + intp.originalPath("$r") + "._")
     // And whatever else there is to do.
     init.lines foreach (intp interpret _)
   }
@@ -283,8 +280,6 @@ class Power[ReplValsImpl <: ReplVals : ru.TypeTag: ClassTag](val intp: IMain, re
 
   abstract class PrettifierClass[T: Prettifier]() {
     val pretty = implicitly[Prettifier[T]]
-    import pretty._
-
     def value: Seq[T]
 
     def pp(f: Seq[T] => Seq[T]): Unit =
@@ -411,20 +406,15 @@ class Power[ReplValsImpl <: ReplVals : ru.TypeTag: ClassTag](val intp: IMain, re
   lazy val rutil: ReplUtilities = new ReplUtilities { }
   lazy val phased: Phased       = new { val global: intp.global.type = intp.global } with Phased { }
 
-  def context(code: String)    = analyzer.rootContext(unit(code))
-  def source(code: String)     = newSourceFile(code)
-  def unit(code: String)       = newCompilationUnit(code)
-  def trees(code: String)      = parse(code) getOrElse Nil
-  def typeOf(id: String)       = intp.typeOfExpression(id)
+  def context(code: String) = analyzer.rootContext(unit(code))
+  def source(code: String)  = newSourceFile(code)
+  def unit(code: String)    = newCompilationUnit(code)
+  def trees(code: String)   = parse(code) getOrElse Nil
+  def typeOf(id: String)    = intp.typeOfExpression(id)
 
-  override def toString = """
+  override def toString = s"""
     |** Power mode status **
-    |Default phase: %s
-    |Names: %s
-    |Identifiers: %s
-  """.stripMargin.format(
-      phased.get,
-      intp.allDefinedNames mkString " ",
-      intp.unqualifiedIds mkString " "
-    )
+    |Default phase: ${phased.get}
+    |Names: ${intp.unqualifiedIds mkString " "}
+  """.stripMargin
 }
