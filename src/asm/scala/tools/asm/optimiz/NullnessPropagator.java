@@ -444,7 +444,7 @@ public class NullnessPropagator {
          * @return the created frame.
          */
         @Override
-        protected StatusValue newLocal(final Frame current0, final boolean isInstanceMethod, final int idx, Type type) {
+        public StatusValue newLocal(final Frame current0, final boolean isInstanceMethod, final int idx, Type type) {
             assert(type != Type.VOID_TYPE);
             int size = type.getSize();
             if(isInstanceMethod && idx == 0) {

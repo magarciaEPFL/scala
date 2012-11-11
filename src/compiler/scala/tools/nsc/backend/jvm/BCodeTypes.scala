@@ -96,7 +96,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
           var resPos = off + 1
           while(chrs(resPos) != ')') { resPos += 1 }
           val resType = getType(resPos + 1)
-          new BType(METHOD, off, resPos + resType.len)
+          val len = resPos - off + 1 + resType.len;
+          new BType(
+            METHOD,
+            off,
+            if(resType.hasObjectSort) {
+              len + 2 // "+ 2" accounts for the "L ... ;" in a descriptor for a non-array reference.
+            } else {
+              len
+            }
+          )
       }
     }
 
@@ -929,8 +938,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  @param memberType the member's type ie a MethodType denotes "name" refers to a method, otherwise to a field.
    *
    */
-  case class StableMember(owner: BType, memberName: String, memberType: BType) {
-    assert(if(memberType.sort == asm.Type.METHOD) { memberType.getArgumentCount == 0 && !memberType.getReturnType.isUnitType } else { true })
+  case class StableMember(owner: BType, memberName: String, memberType: BType) { // TODO lookupTermName rather than String for memberName
+    /** Can't be made into an assert because building a StableMember for use as lookup key is valid, even though that StableMember may be non-well-formed. */
+    def isRepOK: Boolean = {
+      if(memberType.sort == asm.Type.METHOD) { memberType.getArgumentCount == 0 && !memberType.getReturnType.isUnitType } else { true }
+    }
   }
 
   /**
@@ -3797,6 +3809,19 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
+   *
+   * Use only to lookup reference types, otherwise use `descrToBType()`
+   *
+   * can-multi-thread
+   */
+  def lookupRefBType(iname: String): BType = {
+    import global.chrs
+    val n    = global.lookupTypeName(iname.toCharArray)
+    val sort = if(chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+    new BType(sort, n.start, n.length)
+  }
+
+  /**
    *  Can be used to compute a type-flow analysis for an asm.tree.MethodNode, as in: `tfa.analyze(owner, mnode)`
    *  The abstract state, right before each instruction, comprises abstract values
    *  for each local variable and for each position in the operand stack.
@@ -3804,13 +3829,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  All methods in this class can-multi-thread
    **/
   class TypeFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TFValue] {
-
-    def lookupRefBType(iname: String): BType = {
-      import global.chrs
-      val n    = global.lookupTypeName(iname.toCharArray)
-      val sort = if(chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
-      new BType(sort, n.start, n.length)
-    }
 
     override def newValue(t: asm.Type): TFValue = {
       if (t == null || t == asm.Type.VOID_TYPE) { null }

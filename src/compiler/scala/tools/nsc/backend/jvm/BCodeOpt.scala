@@ -106,7 +106,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
           } while(keepGoing)
 
-          // cacheRepeatableReads(cName, mnode)
+          cacheRepeatableReads(cName, mnode)
 
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
@@ -210,40 +210,54 @@ abstract class BCodeOpt extends BCodeTypes {
     /**
      *  A common idiom emitted by explicitouter and lambdalift involves
      *  dot navigation rooted at a local (for example, LOAD 0)
-     *  followed by invocations of isStable (getters or GETFIELD)
-     *  that result in a value that depends only on the access path described above.
+     *  followed by invocations of one or more getters or GETFIELD each of which isStable.
+     *  The result of that access-path is a value that depends only on the access path,
+     *  where the access path behaves as "repeatable read".
      *
      *  Rather than duplicating the access path each time the value in question is required,
      *  that value can be stored after its first access in a local-var added for that purpose.
      *  This way, any side-effects required upon first access (e.g. lazy-val initialization)
-     *  are preserved, while successive accesses load the local directly (shorter code size, faster).
+     *  are preserved, while successive accesses load a local (shorter code size, faster).
      *
      */
     def cacheRepeatableReads(cName: String, mnode: asm.tree.MethodNode) {
 
-      // (1) Those params never assigned qualify as "stable-roots" for "stable-access-paths"
-      //     Code that has been tail-call-transformed contains assignments to formals.
-      val stableLocals = new Array[Boolean](descrToBType(mnode.desc).getArgumentCount)
-      var idx = 0
-      while(idx < stableLocals.length) {
-        stableLocals(idx) = true
-        idx += 1
-      }
-      val insns = mnode.instructions.toArray
-      for (insn <- insns) {
-        if (asm.optimiz.Util.isSTORE(insn)) {
-          val st = insn.asInstanceOf[asm.tree.VarInsnNode]
-          if (st.`var` < stableLocals.length) {
-            stableLocals(st.`var`) = false
-          }
-        }
-      }
-
-      // (2)
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
-      val tfa = new Analyzer[StableValue](new StableChainInterpreter)
+      val interpreter = new StableChainInterpreter(mnode)
+      val tfa         = new StableChainAnalyzer(mnode, interpreter)
       tfa.analyze(cName, mnode)
+
+    }
+
+    class StableChainAnalyzer(mnode: asm.tree.MethodNode, interpreter: StableChainInterpreter)
+    extends asm.tree.analysis.Analyzer(interpreter) {
+
+      // Those params never assigned qualify as "stable-roots" for "stable-access-paths"
+      // Code that has been tail-call-transformed contains assignments to formals.
+      val stableLocals = {
+        val stableLocals = new Array[Boolean](descrToBType(mnode.desc).getArgumentCount)
+        var idx = 0
+        while(idx < stableLocals.length) {
+          stableLocals(idx) = true
+          idx += 1
+        }
+        val insns = mnode.instructions.toArray
+        for (insn <- insns if insn != null) {
+          if (asm.optimiz.Util.isSTORE(insn)) {
+            val st = insn.asInstanceOf[asm.tree.VarInsnNode]
+            if (st.`var` < stableLocals.length) {
+              stableLocals(st.`var`) = false
+            }
+          }
+        }
+
+        stableLocals
+      }
+      override def newLocal(current: asm.tree.analysis.Frame[_ <: asm.tree.analysis.Value], isInstanceMethod: Boolean, idx: Int, ctype: asm.Type): StableValue = {
+        if ((idx < stableLocals.length) && stableLocals(idx)) StableValue(idx, ctype.getSize)
+        else interpreter.dunno(ctype.getSize)
+      }
 
     }
 
@@ -251,33 +265,58 @@ abstract class BCodeOpt extends BCodeTypes {
      *  Represents *an individual link* in an access-path all whose links are stable.
      *  Such access-path is a lattice element in the StableChainInterpreter dataflow-analysis.
      *
-     *  @param index TODO
-     *  @param vsize TODO
+     *  Rather than representing it as chain, a more compact way leverages the property that
+     *  each prefix of one such access-path is associated to a unique local (ie, a form of "unique value numbering").
+     *  An access-path `P` can be expressed as `P.init` . `P.last`, which in turn is mapped to a unique local.
+     *
+     *  @param index unique local (as in "unique value numbering") denoting this stable access-path
+     *  @param vsize whether the resulting value is a category-1 or category-2 JVM type.
      */
     case class StableValue(index: Int, vsize: Int) extends asm.tree.analysis.Value {
       override def getSize() = vsize
       def isStable = (index != -1)
     }
 
-    class StableChainInterpreter extends asm.tree.analysis.Interpreter[StableValue](asm.Opcodes.ASM4) {
+    case class UniqueValueKey(prefixIndex: Int, link: StableMember)
+
+    class StableChainInterpreter(mnode: asm.tree.MethodNode) extends asm.tree.analysis.Interpreter[StableValue](asm.Opcodes.ASM4) {
 
       private val UNKNOWN_1 = StableValue(-1, 1)
       private val UNKNOWN_2 = StableValue(-1, 2)
 
-      private def dunno(size: Int): StableValue = {
-        (size: @unchecked) match {
-          case 0 => null
-          case 1 => UNKNOWN_1
-          case 2 => UNKNOWN_2
-        }
-      }
+      val dunno = Array[StableValue](null, UNKNOWN_1, UNKNOWN_2)
 
       private def dunno(producer: asm.tree.AbstractInsnNode): StableValue = {
         dunno(asm.optimiz.SizingUtil.getResultSize(producer))
       }
 
+      var nxtFreeLocalIdx = mnode.maxLocals
+      val uniqueValue     = scala.collection.mutable.Map.empty[UniqueValueKey, Int]
+      val uniqueValueInv  = scala.collection.mutable.Map.empty[Int, UniqueValueKey]
+
+      private def getUniqueValueNumbering(prefixIndex: Int, link: StableMember): StableValue = {
+        val size =
+          if (link.memberType.sort == asm.Type.METHOD) link.memberType.getReturnType.getSize
+          else link.memberType.getSize
+
+        var index = -1
+        uniqueValue.get(UniqueValueKey(prefixIndex, link)) match {
+          case Some(existing) =>
+            index = existing
+          case _ =>
+            index   = nxtFreeLocalIdx
+            val uvk = UniqueValueKey(prefixIndex, link)
+            uniqueValue   .put(uvk, index)
+            uniqueValueInv.put(index, uvk)
+            nxtFreeLocalIdx += size
+        }
+
+        StableValue(index, size)
+      }
+
       override def newValue(t: asm.Type) = {
         if (t == asm.Type.VOID_TYPE) null
+        else if (t == null) null
         else dunno(t.getSize())
       }
 
@@ -375,12 +414,21 @@ abstract class BCodeOpt extends BCodeTypes {
           case Opcodes.INVOKEVIRTUAL
              | Opcodes.INVOKESPECIAL
              | Opcodes.INVOKEINTERFACE if values.size() == 1 && values.get(0).isStable =>
-            val rcv      = values.get(0)
-            val callsite = insn.asInstanceOf[MethodInsnNode]
-            repeatableReads
-            ???
 
-          case Opcodes.INVOKESTATIC    => ???
+            val stableRcv  = values.get(0)
+            val callsite   = insn.asInstanceOf[MethodInsnNode]
+            val owner      = lookupRefBType(callsite.owner)
+            val memberName = callsite.name
+            val memberType = descrToBType(callsite.desc)
+            val link       = StableMember(owner, memberName, memberType)
+
+            if (repeatableReads.contains(link)) {
+              getUniqueValueNumbering(stableRcv.index, link)
+            } else {
+              dunno(memberType.getReturnType.getSize)
+            }
+
+          case Opcodes.INVOKESTATIC    => dunno(insn)
 
           case Opcodes.INVOKEDYNAMIC   => dunno(insn)
 
@@ -399,8 +447,12 @@ abstract class BCodeOpt extends BCodeTypes {
       override def drop(insn: asm.tree.AbstractInsnNode, value: StableValue) { }
 
       override def merge(d: StableValue, w: StableValue) = {
-        assert(d.getSize() == w.getSize())
-        if (d == w) d else dunno(d.getSize())
+        if(d == null) w
+        else if (w == null) d
+        else {
+          assert(d.getSize() == w.getSize())
+          if (d == w) d else dunno(d.getSize())
+        }
       }
 
     } // end of class StableChainInterpreter
@@ -428,7 +480,7 @@ abstract class BCodeOpt extends BCodeTypes {
     }
 
     //--------------------------------------------------------------------
-    // Utilities for reuse by different optimizations
+    // Utilities for reuse by different optimizers
     //--------------------------------------------------------------------
 
     /**

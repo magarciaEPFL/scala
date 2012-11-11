@@ -561,11 +561,11 @@ public class Analyzer<V extends Value> implements Opcodes {
      * @param ctype the type of the local-var
      * @return the created frame.
      */
-    protected V newLocal(Frame current, boolean isInstanceMethod, int idx, Type ctype) {
+    public V newLocal(Frame current, boolean isInstanceMethod, int idx, Type ctype) {
         return interpreter.newValue(ctype);
     }
 
-    protected V newException(TryCatchBlockNode tcb, Frame current, Type type) {
+    public V newException(TryCatchBlockNode tcb, Frame current, Type type) {
         return interpreter.newValue(type);
     }
 
