@@ -71,6 +71,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         return frames;
     }
 
+    @Override
     public Frame<SourceValue> frameAt(AbstractInsnNode insn) {
         int idx = mnode.instructions.indexOf(insn);
         return frames[idx];

@@ -10,7 +10,10 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.tree.{MethodInsnNode, MethodNode}
+import asm.optimiz.{UnBoxAnalyzer, Util}
+import asm.tree.analysis.SourceValue
+import asm.tree.{VarInsnNode, MethodInsnNode, MethodNode}
+import reflect.internal.util.HashSet
 
 
 /**
@@ -222,11 +225,143 @@ abstract class BCodeOpt extends BCodeTypes {
      */
     def cacheRepeatableReads(cName: String, mnode: asm.tree.MethodNode) {
 
+      val insnCountOnEntry = mnode.instructions.size()
+
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
-      val interpreter = new StableChainInterpreter(mnode)
-      val tfa         = new StableChainAnalyzer(mnode, interpreter)
-      tfa.analyze(cName, mnode)
+      val sci = new StableChainInterpreter(mnode)
+      val sca = new StableChainAnalyzer(mnode, sci)
+      sca.analyze(cName, mnode)
+
+      // those links of an access-path that are accessed just once need not be cached
+      /*
+      val bins = interpreter.candidates.groupBy( { case Pair(callsite, idx) => idx } )
+      for(bin <- bins; if bin._2.size == 1; Pair(callsite, _) <- bin._2) {
+        interpreter.candidates.remove(callsite)
+      }
+      */
+      if(sci.candidates.isEmpty) {
+        return
+      }
+
+      mnode.maxLocals = sci.nxtFreeLocalIdx
+
+      for (Pair(callsite, idx) <- sci.candidates) {
+        val t  = BType.getReturnType(callsite.desc)
+        val st = new asm.tree.VarInsnNode(t.getOpcode(Opcodes.ISTORE), idx)
+        val ld = new asm.tree.VarInsnNode(t.getOpcode(Opcodes.ILOAD),  idx)
+        // after inserting or removing instructions, frameAt() doesn't work because Analyzer.frames doesn't know about the added insns.
+        mnode.instructions.insert(callsite, ld)
+        mnode.instructions.insert(callsite, st)
+      }
+
+      // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
+      val dai = new DefinitelyInterpreter(sci.uniqueValueInv)
+      val daa = new DefinitelyAnalyzer(dai)
+      daa.analyze(cName, mnode)
+
+      // Those callsites for which we cache (again) an already-cached stable-value can be elided.
+      // "Eliding" involves:
+      //   (a) deleting the follow-up STORE but leaving the follow-up LOAD;
+      //   (b) replacing the callsite with a DROP for the receiver of the callsite
+
+      val cachedFrames = (
+        for(Pair(callsite, idx) <- sci.candidates)
+        yield (callsite -> daa.frameAt(callsite).asInstanceOf[Frame[SourceValue]])
+      ).toMap
+
+      for (Pair(callsite, idx) <- sci.candidates) {
+        val frame = cachedFrames(callsite)
+        val sv    = frame.getLocal(idx)
+        if(dai.isDefinitelyAssigned(sv)) {
+
+          assert(Util.isSTORE(callsite.getNext))
+          val st = callsite.getNext.asInstanceOf[VarInsnNode]
+          assert(st.`var` == idx)
+
+          mnode.instructions.remove(callsite.getNext)
+
+          val stackTop = frame.getStackTop
+          val rcvSize  = stackTop.getSize
+          assert(rcvSize == 1)
+          mnode.instructions.insert(callsite, Util.getDrop(rcvSize))
+
+          mnode.instructions.remove(callsite)
+        }
+      }
+
+      ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+      deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+      lvCompacter.transform(mnode)           // compact local vars, remove dangling LocalVariableNodes.
+
+      val insnCountOnExit = mnode.instructions.size()
+      /*
+      if(insnCountOnExit > insnCountOnEntry) {
+        println("Added " + (insnCountOnExit - insnCountOnEntry) + " in class " + cName + " , method " + mnode.name + mnode.desc)
+      } else if(insnCountOnExit < insnCountOnEntry) {
+        println("Subtracted " + (insnCountOnEntry - insnCountOnExit) + " in class " + cName + " , method " + mnode.name + mnode.desc)
+      }
+      */
+
+    }
+
+    class DefinitelyAnalyzer(dint: DefinitelyInterpreter)
+    extends asm.tree.analysis.Analyzer(dint) {
+
+      override def newNonFormalLocal(idx: Int): SourceValue = {
+        dint.uniqueValueInv.get(idx) match {
+          case Some(uv) => dint.unassigneds(uv.link.getSize)
+          case _        => super.newNonFormalLocal(idx)
+        }
+      }
+
+    }
+
+    class DefinitelyInterpreter(val uniqueValueInv: scala.collection.Map[Int, UniqueValueKey])
+    extends asm.tree.analysis.SourceInterpreter {
+
+      val unassigneds: Array[SourceValue] = Array(
+        null,
+        unAssignedValue(1),
+        unAssignedValue(2)
+      )
+
+      private def unAssignedValue(size: Int): SourceValue = {
+        val fake = new UnBoxAnalyzer.FakeParamLoad(-1, null, false)
+        new SourceValue(size, fake)
+      }
+
+      def isDefinitelyAssigned(sv: SourceValue): Boolean = {
+        if(sv.insns.isEmpty()) {
+          return false
+        }
+        val iter = sv.insns.iterator()
+        while(iter.hasNext()) {
+          if(iter.next().isInstanceOf[UnBoxAnalyzer.FakeInsn]) {
+            return false
+          }
+        }
+
+        true
+      }
+
+      override def copyOperation(insn: asm.tree.AbstractInsnNode, value: SourceValue): SourceValue = {
+        insn.getOpcode match {
+          case Opcodes.ISTORE |
+               Opcodes.FSTORE |
+               Opcodes.ASTORE => new SourceValue(1, insn) // kills previous (possibly not-definitely-assigned) value
+          case Opcodes.LSTORE |
+               Opcodes.DSTORE => new SourceValue(2, insn) // kills previous (possibly not-definitely-assigned) value
+          case _ =>
+            value // propagates the (possibly not-definitely-assigned) value
+        }
+      }
+
+      override def newValue(ctype: asm.Type): SourceValue = {
+        if      (ctype == asm.Type.VOID_TYPE) { null }
+        else if (ctype == null)               { unassigneds(1) }
+        else                                  { unassigneds(ctype.getSize()) }
+      }
 
     }
 
@@ -254,7 +389,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
         stableLocals
       }
-      override def newLocal(current: asm.tree.analysis.Frame[_ <: asm.tree.analysis.Value], isInstanceMethod: Boolean, idx: Int, ctype: asm.Type): StableValue = {
+      override def newFormal(isInstanceMethod: Boolean, idx: Int, ctype: asm.Type): StableValue = {
         if ((idx < stableLocals.length) && stableLocals(idx)) StableValue(idx, ctype.getSize)
         else interpreter.dunno(ctype.getSize)
       }
@@ -294,10 +429,11 @@ abstract class BCodeOpt extends BCodeTypes {
       val uniqueValue     = scala.collection.mutable.Map.empty[UniqueValueKey, Int]
       val uniqueValueInv  = scala.collection.mutable.Map.empty[Int, UniqueValueKey]
 
+      // maps an instruction that pushes a StableValue to THE local that caches method-wide that StableValue
+      val candidates = scala.collection.mutable.Map.empty[MethodInsnNode, Int]
+
       private def getUniqueValueNumbering(prefixIndex: Int, link: StableMember): StableValue = {
-        val size =
-          if (link.memberType.sort == asm.Type.METHOD) link.memberType.getReturnType.getSize
-          else link.memberType.getSize
+        val size = link.getSize
 
         var index = -1
         uniqueValue.get(UniqueValueKey(prefixIndex, link)) match {
@@ -423,8 +559,14 @@ abstract class BCodeOpt extends BCodeTypes {
             val link       = StableMember(owner, memberName, memberType)
 
             if (repeatableReads.contains(link)) {
-              getUniqueValueNumbering(stableRcv.index, link)
+              val sv = getUniqueValueNumbering(stableRcv.index, link)
+              candidates.get(callsite) match {
+                case Some(existingIdx) => assert(existingIdx == sv.index)
+                case None => candidates.put(callsite, sv.index)
+              }
+              sv
             } else {
+              candidates.remove(callsite)
               dunno(memberType.getReturnType.getSize)
             }
 

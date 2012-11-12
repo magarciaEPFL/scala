@@ -41,7 +41,7 @@ public class UnBoxAnalyzer extends ProdConsAnalyzer {
     // ------------------------------------------------------------------------
 
     @Override
-    public SourceValue newLocal(Frame current, boolean isInstanceMethod, int idx, Type ctype) {
+    public SourceValue newFormal(boolean isInstanceMethod, int idx, Type ctype) {
         assert ctype != Type.VOID_TYPE;
         final int size = (ctype == null) ? 1 : ctype.getSize();
         return new SourceValue(size, new FakeParamLoad(idx, ctype, isInstanceMethod));

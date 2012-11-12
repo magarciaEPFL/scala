@@ -434,17 +434,17 @@ public class NullnessPropagator {
         }
 
         /**
-         * This override comes handy to track as non-null the THIS reference of an instance method.
+         * An initial value for a formal param.
          *
-         * @param current0 the Frame (actually a NullnessFrame) right before the invoker updates it
-         *        with the abstract value this method returns.
+         * This overridable method comes handy (for example) to track as non-null the THIS reference of an instance method.
+         *
          * @param isInstanceMethod
          * @param idx the index of the local-var whose abstract value we're returning.
          * @param type the type of the local-var
-         * @return the created frame.
+         * @return the created abstract value.
          */
         @Override
-        public StatusValue newLocal(final Frame current0, final boolean isInstanceMethod, final int idx, Type type) {
+        public StatusValue newFormal(final boolean isInstanceMethod, final int idx, Type type) {
             assert(type != Type.VOID_TYPE);
             int size = type.getSize();
             if(isInstanceMethod && idx == 0) {

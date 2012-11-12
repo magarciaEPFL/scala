@@ -9,7 +9,7 @@ package scala.tools.asm.optimiz;
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.tree.*;
 
-import scala.tools.asm.tree.analysis.AnalyzerException;
+import scala.tools.asm.tree.analysis.*;
 
 /**
  *
@@ -45,17 +45,17 @@ public class DeadStoreElim {
 
         // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
         cp = ProdConsAnalyzer.create();
-        cp.analyze(owner, mnode);
-        AbstractInsnNode[] insns  = mnode.instructions.toArray();
+        Frame<SourceValue>[] frames = cp.analyze(owner, mnode);
+        AbstractInsnNode[]   insns  = mnode.instructions.toArray();
 
         for(int i = 0; i < insns.length; i++) {
             AbstractInsnNode current = insns[i];
             if (current != null) {
-                if (Util.isSTORE(current) && cp.consumers(current).isEmpty()) {
+                if (Util.isSTORE(current)) {
 
                     if(cp.consumers(current).isEmpty()) {
                         // Rewriting: elide STORE to a local that sees no use afterwards.
-                        int size = cp.frameAt(current).getStackTop().getSize();
+                        int size = frames[i].getStackTop().getSize();
                         mnode.instructions.set(current, Util.getDrop(size));
                         changed = true;
                     } else if (isRedundantStoreLoad((VarInsnNode)current)) {

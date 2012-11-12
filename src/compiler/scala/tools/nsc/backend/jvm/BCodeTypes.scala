@@ -939,10 +939,17 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    */
   case class StableMember(owner: BType, memberName: String, memberType: BType) { // TODO lookupTermName rather than String for memberName
+
     /** Can't be made into an assert because building a StableMember for use as lookup key is valid, even though that StableMember may be non-well-formed. */
     def isRepOK: Boolean = {
       if(memberType.sort == asm.Type.METHOD) { memberType.getArgumentCount == 0 && !memberType.getReturnType.isUnitType } else { true }
     }
+
+    def getSize: Int = {
+      if (memberType.sort == asm.Type.METHOD) memberType.getReturnType.getSize
+      else memberType.getSize
+    }
+
   }
 
   /**
