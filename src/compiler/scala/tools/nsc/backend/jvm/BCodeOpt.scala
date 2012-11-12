@@ -222,6 +222,16 @@ abstract class BCodeOpt extends BCodeTypes {
      *  This way, any side-effects required upon first access (e.g. lazy-val initialization)
      *  are preserved, while successive accesses load a local (shorter code size, faster).
      *
+     *  Those callsites for which an already-cached stable-value is cached yet again, are elided.
+     *  In order to determine when a stable-value expression is available (ie "already-cached")
+     *  a Definite Assignment Analysis is used. Eliding involves:
+     *    (a) deleting the follow-up STORE but leaving the follow-up LOAD;
+     *    (b) replacing the callsite with a DROP, to pop the receiver of the callsite
+     *
+     *  After the above, most redundant access-paths are gone away.
+     *  Three standard optimizers are run (push-pop collapser, dead-store elimination,
+     *  and eliding of unused local vars) to emit more compact code.
+     *
      */
     def cacheRepeatableReads(cName: String, mnode: asm.tree.MethodNode) {
 
@@ -255,15 +265,10 @@ abstract class BCodeOpt extends BCodeTypes {
         mnode.instructions.insert(callsite, st)
       }
 
-      // compute the produce-consume relation (ie values flow from "producer" instructions to "consumer" instructions).
+      // Definite Assignment analysis
       val dai = new DefinitelyInterpreter(sci.uniqueValueInv)
       val daa = new DefinitelyAnalyzer(dai)
       daa.analyze(cName, mnode)
-
-      // Those callsites for which we cache (again) an already-cached stable-value can be elided.
-      // "Eliding" involves:
-      //   (a) deleting the follow-up STORE but leaving the follow-up LOAD;
-      //   (b) replacing the callsite with a DROP for the receiver of the callsite
 
       val cachedFrames = (
         for(Pair(callsite, idx) <- sci.candidates)
@@ -305,6 +310,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
     }
 
+    /**
+     *  Definite Assignment analysis. See `DefinitelyInterpreter`
+     */
     class DefinitelyAnalyzer(dint: DefinitelyInterpreter)
     extends asm.tree.analysis.Analyzer(dint) {
 
@@ -317,6 +325,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
     }
 
+    /**
+     *  Interpreter for a Definite Assignment analysis. See `DefinitelyAnalyzer`
+     */
     class DefinitelyInterpreter(val uniqueValueInv: scala.collection.Map[Int, UniqueValueKey])
     extends asm.tree.analysis.SourceInterpreter {
 
