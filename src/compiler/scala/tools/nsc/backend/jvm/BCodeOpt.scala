@@ -13,7 +13,6 @@ import asm.Opcodes
 import asm.optimiz.{UnBoxAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree.{VarInsnNode, MethodInsnNode, MethodNode}
-import reflect.internal.util.HashSet
 
 
 /**
@@ -222,23 +221,56 @@ abstract class BCodeOpt extends BCodeTypes {
      *  This way, any side-effects required upon first access (e.g. lazy-val initialization)
      *  are preserved, while successive accesses load a local (shorter code size, faster).
      *
-     *  Those callsites for which an already-cached stable-value is cached yet again, are elided.
-     *  In order to determine when a stable-value expression is available (ie "already-cached")
-     *  a Definite Assignment Analysis is used. Eliding involves:
-     *    (a) deleting the follow-up STORE but leaving the follow-up LOAD;
-     *    (b) replacing the callsite with a DROP, to pop the receiver of the callsite
+     *  Method `cacheRepeatableReads()` injects caching code in four steps:
      *
-     *  After the above, most redundant access-paths are gone away.
-     *  Three standard optimizers are run (push-pop collapser, dead-store elimination,
-     *  and eliding of unused local vars) to emit more compact code.
+     *    (1) A dataflow-analysis (realized by `StableChainAnalyzer` and `StableChainInterpreter`)
+     *        associates a (for now virtual) local var to each prefix of an access-path,
+     *        in effect a form of Unique Value Numbering. The dataflow-analysis determines
+     *        those callsites that finish a prefix (in particular, to really be a prefix,
+     *        the same stable-value must reach the callsite over all control-flow paths).
+     *
+     *    (2) So far the list of instructions hasn't been changed in any way,
+     *        because the unique-value-numbering above doesn't discriminate
+     *        whether an access-path "is seen for the first time" (and should be cached)
+     *        or not (thus the cached value is available and should be used instead).
+     *        This step takes a conservative approach, and "always caches",
+     *        inserting a STORE-LOAD for the unique variable for that access path
+     *        (even if it was already available, this will be fixed later).
+     *
+     *        `StableChainInterpreter` represents the unique-value-numbering in a form useful for Steps (2) and (3):
+     *
+     *          // maps an instruction that pushes a StableValue to THE local that caches method-wide that StableValue
+     *          val candidates = scala.collection.mutable.Map.empty[MethodInsnNode, Int]
+     *
+     *    (3) Those callsites for which an already-cached stable-value is cached yet again, are elided.
+     *        In order to determine when a stable-value expression is available (ie "already-cached")
+     *        a Definite Assignment Analysis is used (realized by `DefinitelyAnalyzer` and `DefinitelyInterpreter`).
+     *        Eliding involves:
+     *
+     *          (3.a) deleting the follow-up STORE but leaving the follow-up LOAD;
+     *          (3.b) replacing the callsite with a DROP, to pop the receiver of the callsite
+     *
+     *    (4) After the above, most redundant access-paths are gone away.
+     *        Three standard optimizers are run (push-pop collapser, dead-store elimination,
+     *        and eliding of unused local vars) to emit more compact code.
+     *
+     * TODO 1: This optimization is always applied even though there's a treshold under which
+     *         it increases by 1 the instruction count (a stable value accessed twice over a single hop).
+     *         Still, the resulting code shouldn't be slower.
+     *
+     * TODO 2: STORE-LOAD right before a tableswitch is considered non-elidable by DeadStoreElim
+     *
+     * TODO 3: Stable-values accessed only via getters are taken into account, unlike those via GETFIELD or GETSTATIC.
      *
      */
     def cacheRepeatableReads(cName: String, mnode: asm.tree.MethodNode) {
 
-      val insnCountOnEntry = mnode.instructions.size()
+      import asm.tree.analysis.Frame
 
-      import asm.tree.analysis.{ Analyzer, Frame }
-      import asm.tree.AbstractInsnNode
+      val insnCountOnEntry = mnode.instructions.size() // debug
+
+      // ---------------------- Step (1) ----------------------
+
       val sci = new StableChainInterpreter(mnode)
       val sca = new StableChainAnalyzer(mnode, sci)
       sca.analyze(cName, mnode)
@@ -254,6 +286,8 @@ abstract class BCodeOpt extends BCodeTypes {
         return
       }
 
+      // ---------------------- Step (2) ----------------------
+
       mnode.maxLocals = sci.nxtFreeLocalIdx
 
       for (Pair(callsite, idx) <- sci.candidates) {
@@ -264,6 +298,8 @@ abstract class BCodeOpt extends BCodeTypes {
         mnode.instructions.insert(callsite, ld)
         mnode.instructions.insert(callsite, st)
       }
+
+      // ---------------------- Step (3) ----------------------
 
       // Definite Assignment analysis
       val dai = new DefinitelyInterpreter(sci.uniqueValueInv)
@@ -295,11 +331,14 @@ abstract class BCodeOpt extends BCodeTypes {
         }
       }
 
+      // ---------------------- Step (4) ----------------------
+
       ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
       deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
       lvCompacter.transform(mnode)           // compact local vars, remove dangling LocalVariableNodes.
 
-      val insnCountOnExit = mnode.instructions.size()
+      val insnCountOnExit = mnode.instructions.size() // debug
+
       /*
       if(insnCountOnExit > insnCountOnEntry) {
         println("Added " + (insnCountOnExit - insnCountOnEntry) + " in class " + cName + " , method " + mnode.name + mnode.desc)
@@ -400,6 +439,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
         stableLocals
       }
+
       override def newFormal(isInstanceMethod: Boolean, idx: Int, ctype: asm.Type): StableValue = {
         if ((idx < stableLocals.length) && stableLocals(idx)) StableValue(idx, ctype.getSize)
         else interpreter.dunno(ctype.getSize)
