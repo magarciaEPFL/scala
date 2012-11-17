@@ -740,6 +740,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def elisionLevel        = getAnnotation(ElidableMethodClass) flatMap { _.intArg(0) }
     def implicitNotFoundMsg = getAnnotation(ImplicitNotFoundClass) flatMap { _.stringArg(0) }
 
+    def isCompileTimeOnly       = hasAnnotation(CompileTimeOnlyAttr)
+    def compileTimeOnlyMessage  = getAnnotation(CompileTimeOnlyAttr) flatMap (_ stringArg 0)
+
     /** Is this symbol an accessor method for outer? */
     final def isOuterAccessor = {
       hasFlag(STABLE | ARTIFACT) &&
@@ -1259,6 +1262,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         }
         val current = phase
         try {
+          assertCorrectThread()
           phase = phaseOf(infos.validFrom)
           tp.complete(this)
         } finally {
@@ -1329,6 +1333,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           infos = infos.prev
 
         if (validTo < curPeriod) {
+          assertCorrectThread()
           // adapt any infos that come from previous runs
           val current = phase
           try {
@@ -2463,6 +2468,14 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     override def isMethod           = this hasFlag METHOD
     override def isModule           = this hasFlag MODULE
     override def isOverloaded       = this hasFlag OVERLOADED
+    /*** !!! TODO: shouldn't we do something like the following:
+    override def isOverloaded       = (
+      if (this.isInitialized)
+        this hasFlag OVERLOADED
+      else
+        (infos ne null) && infos.info.isInstanceOf[OverloadedType]
+    )
+    ***/
     override def isPackage          = this hasFlag PACKAGE
     override def isValueParameter   = this hasFlag PARAM
 

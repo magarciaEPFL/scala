@@ -130,6 +130,15 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
           }
         }
       }
+
+      // Check for doomed attempt to overload applyDynamic
+      if (clazz isSubClass DynamicClass) {
+        clazz.info member nme.applyDynamic match {
+          case sym if sym.isOverloaded => unit.error(sym.pos, "implementation restriction: applyDynamic cannot be overloaded")
+          case _                       =>
+        }
+      }
+
       if (settings.lint.value) {
         clazz.info.decls filter (x => x.isImplicit && x.typeParams.nonEmpty) foreach { sym =>
           val alts = clazz.info.decl(sym.name).alternatives
@@ -1369,6 +1378,16 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
         )
     }
 
+    private def checkCompileTimeOnly(sym: Symbol, pos: Position) = {
+      if (sym.isCompileTimeOnly) {
+        def defaultMsg =
+          s"""|Reference to ${sym.fullLocationString} should not have survived past type checking,
+              |it should have been processed and eliminated during expansion of an enclosing macro.""".stripMargin
+        // The getOrElse part should never happen, it's just here as a backstop.
+        unit.error(pos, sym.compileTimeOnlyMessage getOrElse defaultMsg)
+      }
+    }
+
     private def lessAccessible(otherSym: Symbol, memberSym: Symbol): Boolean = (
          (otherSym != NoSymbol)
       && !otherSym.isProtected
@@ -1561,6 +1580,7 @@ abstract class RefChecks extends InfoTransform with scala.reflect.internal.trans
       checkDeprecated(sym, tree.pos)
       if (settings.Xmigration28.value)
         checkMigration(sym, tree.pos)
+      checkCompileTimeOnly(sym, tree.pos)
 
       if (sym eq NoSymbol) {
         unit.warning(tree.pos, "Select node has NoSymbol! " + tree + " / " + tree.tpe)
