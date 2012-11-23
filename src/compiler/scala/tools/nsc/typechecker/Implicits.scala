@@ -82,7 +82,7 @@ trait Implicits {
     val result = new ImplicitSearch(tree, pt, isView, implicitSearchContext, pos).bestImplicit
     if (saveAmbiguousDivergent && implicitSearchContext.hasErrors) {
       context.updateBuffer(implicitSearchContext.errBuffer.filter(err => err.kind == ErrorKinds.Ambiguous || err.kind == ErrorKinds.Divergent))
-      debugwarn("update buffer: " + implicitSearchContext.errBuffer)
+      debuglog("update buffer: " + implicitSearchContext.errBuffer)
     }
     printInference("[infer implicit] inferred " + result)
     context.undetparams = context.undetparams filterNot result.subst.from.contains
@@ -233,10 +233,6 @@ trait Implicits {
   object HasMember {
     private val hasMemberCache = perRunCaches.newMap[Name, Type]()
     def apply(name: Name): Type = hasMemberCache.getOrElseUpdate(name, memberWildcardType(name, WildcardType))
-    def unapply(pt: Type): Option[Name] = pt match {
-      case RefinedType(List(WildcardType), Scope(sym)) if sym.tpe == WildcardType => Some(sym.name)
-      case _ => None
-    }
   }
 
   /** An extractor for types of the form ? { name: (? >: argtpe <: Any*)restp }
@@ -1493,9 +1489,7 @@ object ImplicitsStats {
   val subtypeImpl         = Statistics.newSubCounter("  of which in implicit", subtypeCount)
   val findMemberImpl      = Statistics.newSubCounter("  of which in implicit", findMemberCount)
   val subtypeAppInfos     = Statistics.newSubCounter("  of which in app impl", subtypeCount)
-  val subtypeImprovCount  = Statistics.newSubCounter("  of which in improves", subtypeCount)
   val implicitSearchCount = Statistics.newCounter   ("#implicit searches", "typer")
-  val triedImplicits      = Statistics.newSubCounter("  #tried", implicitSearchCount)
   val plausiblyCompatibleImplicits
                                   = Statistics.newSubCounter("  #plausibly compatible", implicitSearchCount)
   val matchingImplicits   = Statistics.newSubCounter("  #matching", implicitSearchCount)

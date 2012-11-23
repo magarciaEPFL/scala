@@ -219,8 +219,6 @@ trait Contexts { self: Analyzer =>
       current
     }
 
-    def logError(err: AbsTypeError) = buffer += err
-
     def withImplicitsEnabled[T](op: => T): T = {
       val saved = implicitsEnabled
       implicitsEnabled = true
@@ -312,15 +310,6 @@ trait Contexts { self: Analyzer =>
       c
     }
 
-    // TODO: remove? Doesn't seem to be used
-    def make(unit: CompilationUnit): Context = {
-      val c = make(unit, EmptyTree, owner, scope, imports)
-      c.setReportErrors()
-      c.implicitsEnabled = true
-      c.macrosEnabled = true
-      c
-    }
-
     def makeNewImport(sym: Symbol): Context =
       makeNewImport(gen.mkWildcardImport(sym))
 
@@ -398,8 +387,10 @@ trait Contexts { self: Analyzer =>
       unit.error(pos, if (checking) "\n**** ERROR DURING INTERNAL CHECKING ****\n" + msg else msg)
 
     @inline private def issueCommon(err: AbsTypeError)(pf: PartialFunction[AbsTypeError, Unit]) {
-      debugwarn("issue error: " + err.errMsg)
-      if (settings.Yissuedebug.value) (new Exception).printStackTrace()
+      if (settings.Yissuedebug.value) {
+        log("issue error: " + err.errMsg)
+        (new Exception).printStackTrace()
+      }
       if (pf isDefinedAt err) pf(err)
       else if (bufferErrors) { buffer += err }
       else throw new TypeError(err.errPos, err.errMsg)
@@ -488,17 +479,6 @@ trait Contexts { self: Analyzer =>
     def isSubClassOrCompanion(sub: Symbol, base: Symbol) =
       sub.isNonBottomSubClass(base) ||
       sub.isModuleClass && sub.linkedClassOfClass.isNonBottomSubClass(base)
-
-    /** Return closest enclosing context that defines a superclass of `clazz`, or a
-     *  companion module of a superclass of `clazz`, or NoContext if none exists */
-    def enclosingSuperClassContext(clazz: Symbol): Context = {
-      var c = this.enclClass
-      while (c != NoContext &&
-             !clazz.isNonBottomSubClass(c.owner) &&
-             !(c.owner.isModuleClass && clazz.isNonBottomSubClass(c.owner.companionClass)))
-        c = c.outer.enclClass
-      c
-    }
 
     /** Return the closest enclosing context that defines a subclass of `clazz`
      *  or a companion object thereof, or `NoContext` if no such context exists.

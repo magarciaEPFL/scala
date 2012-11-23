@@ -54,13 +54,16 @@ abstract class SymbolTable extends macros.Universe
   @deprecated("Give us a reason", "2.10.0")
   def abort(): Nothing = abort("unknown error")
 
+  @deprecated("Use devWarning if this is really a warning; otherwise use log", "2.11.0")
+  def debugwarn(msg: => String): Unit = devWarning(msg)
+
   /** Override with final implementation for inlining. */
   def debuglog(msg:  => String): Unit = if (settings.debug.value) log(msg)
-  def debugwarn(msg: => String): Unit = if (settings.debug.value) Console.err.println(msg)
+  def devWarning(msg: => String): Unit = if (settings.debug.value) Console.err.println(msg)
   def throwableAsString(t: Throwable): String = "" + t
 
   /** Prints a stack trace if -Ydebug or equivalent was given, otherwise does nothing. */
-  def debugStack(t: Throwable): Unit  = debugwarn(throwableAsString(t))
+  def debugStack(t: Throwable): Unit  = devWarning(throwableAsString(t))
 
   /** Overridden when we know more about what was happening during a failure. */
   def supplementErrorMessage(msg: String): String = msg
@@ -183,9 +186,6 @@ abstract class SymbolTable extends macros.Universe
   /** The phase identifier of the given period. */
   final def phaseId(period: Period): Phase#Id = period & 0xFF
 
-  /** The period at the start of run that includes `period`. */
-  final def startRun(period: Period): Period = period & 0xFFFFFF00
-
   /** The current period. */
   final def currentPeriod: Period = {
     //assert(per == (currentRunId << 8) + phase.id)
@@ -298,7 +298,6 @@ abstract class SymbolTable extends macros.Universe
 
   object perRunCaches {
     import java.lang.ref.WeakReference
-    import scala.runtime.ScalaRunTime.stringOf
     import scala.collection.generic.Clearable
 
     // Weak references so the garbage collector will take care of

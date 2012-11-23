@@ -289,7 +289,7 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
       for (mixinMember <- mixinClass.info.decls) {
         if (isConcreteAccessor(mixinMember)) {
           if (isOverriddenAccessor(mixinMember, clazz.info.baseClasses))
-            debugwarn("!!! is overridden val: "+mixinMember.fullLocationString)
+            devWarning(s"Overridden concrete accessor: ${mixinMember.fullLocationString}")
           else {
             // mixin field accessors
             val mixedInAccessor = cloneAndAddMixinMember(mixinClass, mixinMember)
@@ -588,8 +588,8 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
         tree
     }
 
-    /** Create a static reference to given symbol <code>sym</code> of the
-     *  form <code>M.sym</code> where M is the symbol's implementation module.
+    /** Create a static reference to given symbol `sym` of the
+     *  form `M.sym` where M is the symbol's implementation module.
      */
     private def staticRef(sym: Symbol): Tree = {
       sym.owner.info        //todo: needed?
@@ -671,8 +671,8 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
       def addValDef(sym: Symbol, rhs: Tree = EmptyTree) = addDef(position(sym), ValDef(sym, rhs))
 
       /** Add `newdefs` to `stats`, removing any abstract method definitions
-       *  in <code>stats</code> that are matched by some symbol defined in
-       *  <code>newDefs</code>.
+       *  in `stats` that are matched by some symbol defined in
+       *  `newDefs`.
        */
       def add(stats: List[Tree], newDefs: List[Tree]) = {
         val newSyms = newDefs map (_.symbol)
@@ -1144,9 +1144,9 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
           qual
 
         case Apply(Select(qual, _), args) =>
-          /** Changes <code>qual.m(args)</code> where m refers to an implementation
+          /** Changes `qual.m(args)` where m refers to an implementation
            *  class method to Q.m(S, args) where Q is the implementation module of
-           *  <code>m</code> and S is the self parameter for the call, which
+           *  `m` and S is the self parameter for the call, which
            *  is determined as follows:
            *     - if qual != super, qual itself
            *     - if qual == super, and we are in an implementation class,

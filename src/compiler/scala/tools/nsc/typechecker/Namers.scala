@@ -336,7 +336,7 @@ trait Namers extends MethodSynthesis {
 
     private def enterClassSymbol(tree: ClassDef, clazz: ClassSymbol): Symbol = {
       if (clazz.sourceFile != null && clazz.sourceFile != contextFile)
-        debugwarn("!!! Source mismatch in " + clazz + ": " + clazz.sourceFile + " vs. " + contextFile)
+        devWarning(s"Source file mismatch in $clazz: ${clazz.sourceFile} vs. $contextFile")
 
       clazz.associatedFile = contextFile
       if (clazz.sourceFile != null) {
@@ -1315,7 +1315,8 @@ trait Namers extends MethodSynthesis {
           if (clazz.isDerivedValueClass) {
             log("Ensuring companion for derived value class " + name + " at " + cdef.pos.show)
             clazz setFlag FINAL
-            enclosingNamerWithScope(clazz.owner.info.decls).ensureCompanionObject(cdef)
+            // Don't force the owner's info lest we create cycles as in SI-6357.
+            enclosingNamerWithScope(clazz.owner.rawInfo.decls).ensureCompanionObject(cdef)
           }
           result
 
@@ -1385,12 +1386,6 @@ trait Namers extends MethodSynthesis {
         else ClassInfoType(parents :+ parent.tpe, decls, clazz)
       case _ =>
         tpe
-    }
-
-    def ensureParent(clazz: Symbol, parent: Symbol) = {
-      val info0 = clazz.info
-      val info1 = includeParent(info0, parent)
-      if (info0 ne info1) clazz setInfo info1
     }
 
     class LogTransitions[S](onEnter: S => String, onExit: S => String) {
