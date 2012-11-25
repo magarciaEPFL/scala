@@ -275,7 +275,7 @@ trait TraversableLike[+A, +Repr] extends Any
 
   def collect[B, That](pf: PartialFunction[A, B])(implicit bf: CanBuildFrom[Repr, B, That]): That = {
     val b = bf(repr)
-    for (x <- this) if (pf.isDefinedAt(x)) b += pf(x)
+    foreach(pf.runWith(b += _))
     b.result
   }
 
@@ -660,7 +660,6 @@ trait TraversableLike[+A, +Repr] extends Any
   def view = new TraversableView[A, Repr] {
     protected lazy val underlying = self.repr
     override def foreach[U](f: A => U) = self foreach f
-    override def isEmpty = self.isEmpty
   }
 
   /** Creates a non-strict view of a slice of this $coll.
