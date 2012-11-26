@@ -16,6 +16,7 @@ import asm.tree._
 
 import scala.collection.{ mutable, immutable }
 import scala.Some
+import collection.convert.Wrappers.JListWrapper
 
 /**
  *  Optimize and tidy-up bytecode before it's emitted for good.
@@ -1145,7 +1146,35 @@ abstract class BCodeOpt extends BCodeTypes {
       val tsc       = enterIfUnseen(cn.superName)
       val ifacesArr = enterIfUnseens(cn.interfaces)
 
-      val tr = Tracked(bt, cn.access, tsc, ifacesArr, null) // TODO innersChain if needed
+      // ClassNode.innerClasses isn't indexed by InnerClassNode.name, this map accomplishes that feat.
+      val innerClassNode: Map[String, InnerClassNode] = {
+        JListWrapper(cn.innerClasses) map (icn => (icn.name -> icn)) toMap
+      }
+
+      val isInnerClass = innerClassNode.contains(cn.name)
+      val innersChain: Array[InnerClassEntry] =
+        if(!isInnerClass) null
+        else {
+
+              def toInnerClassEntry(icn: InnerClassNode): InnerClassEntry = {
+                InnerClassEntry(icn.name, icn.outerName, icn.innerName, icn.access)
+              }
+
+          var chain: List[InnerClassEntry] = toInnerClassEntry(innerClassNode(cn.name)) :: Nil
+          var keepGoing = true
+          do {
+            // is the enclosing class of the current class itself an inner class?
+            val currentOuter = chain.head.outerName
+            keepGoing = innerClassNode.contains(currentOuter)
+            if(keepGoing) {
+              chain ::= toInnerClassEntry(innerClassNode(currentOuter))
+            }
+          } while(keepGoing)
+
+          chain.toArray
+        }
+
+      val tr = Tracked(bt, cn.access, tsc, ifacesArr, innersChain)
       exemplars.put(tr.c, tr) // no counterpart in symExemplars, that's life.
 
       cn
