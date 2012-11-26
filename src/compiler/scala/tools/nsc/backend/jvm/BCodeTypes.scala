@@ -341,7 +341,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      **/
     def toASMType: scala.tools.asm.Type = {
       import scala.tools.asm
-      // TODO using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
+      // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
       (sort: @switch) match {
         case asm.Type.VOID    => asm.Type.VOID_TYPE
         case asm.Type.BOOLEAN => asm.Type.BOOLEAN_TYPE
@@ -1743,7 +1743,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       // We're done with BOOL already
       (from.sort: @switch) match {
 
-        // TODO using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
+        // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
 
         case asm.Type.BYTE  => pickOne(JCodeMethodN.fromByteT2T)
         case asm.Type.SHORT => pickOne(JCodeMethodN.fromShortT2T)
@@ -1828,14 +1828,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     // can-multi-thread
-    final def newarray(elem: BType) { // TODO switch on elem.getSort
+    final def newarray(elem: BType) {
       if(elem.isRefOrArrayType || elem.isPhantomType ) {
         /* phantom type at play in `Array(null)`, SI-1513. On the other hand, Array(()) has element type `scala.runtime.BoxedUnit` which hasObjectSort. */
         jmethod.visitTypeInsn(Opcodes.ANEWARRAY, elem.getInternalName)
       } else {
         val rand = {
-          // TODO using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
-          (elem.sort: @switch) match { // TODO use BType.getOpcode instead
+          // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
+          (elem.sort: @switch) match {
             case asm.Type.BOOLEAN => Opcodes.T_BOOLEAN
             case asm.Type.BYTE    => Opcodes.T_BYTE
             case asm.Type.SHORT   => Opcodes.T_SHORT
@@ -1992,7 +1992,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     // ---------------- array load and store ----------------
 
     // can-multi-thread
-    final def emitTypeBased(opcs: Array[Int], tk: BType) { // TODO index on tk.sort , or use tk.getOpcode
+    final def emitTypeBased(opcs: Array[Int], tk: BType) {
       assert(tk != UNIT, tk)
       val opc = {
         if(tk.isRefOrArrayType) {  opcs(0) }
@@ -2019,7 +2019,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      // can-multi-thread
     final def emitPrimitive(opcs: Array[Int], tk: BType) {
       val opc = {
-        // TODO using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
+        // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
         (tk.sort: @switch) match {
           case asm.Type.LONG   => opcs(1)
           case asm.Type.FLOAT  => opcs(2)
@@ -2044,7 +2044,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     // can-multi-thread
-    final def checkCast(tk: BType) { // TODO GenASM could use this method
+    final def checkCast(tk: BType) {
       assert(tk.isRefOrArrayType, "checkcast on primitive type: " + tk)
       // TODO ICode also requires: but that's too much, right? assert(!isBoxedType(tk),     "checkcast on boxed type: " + tk)
       jmethod.visitTypeInsn(Opcodes.CHECKCAST, tk.getInternalName)
@@ -2741,8 +2741,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val emitSource = debugLevel >= 1
     val emitLines  = debugLevel >= 2
     val emitVars   = debugLevel >= 3
-
-    // TODO here's where innerClasses-related stuff should go , as well as javaName , and the helpers they invoke.
 
     /**
      *  Contains class-symbols that:
@@ -4046,7 +4044,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     override def nullValue()   = TF_NULL
-    // TODO also needed: B, C, S, Z
+    // TODO also desirable: B, C, S, Z
     override def intValue()    = TF_INT
     override def longValue()   = TF_LONG
     override def floatValue()  = TF_FLOAT
