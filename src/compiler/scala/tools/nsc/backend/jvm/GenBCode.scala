@@ -13,7 +13,8 @@ import scala.tools.nsc.symtab._
 import scala.annotation.switch
 
 import scala.tools.asm
-import asm.tree.MethodNode
+import asm.tree.{MethodInsnNode, MethodNode}
+import collection.immutable.HashMap
 
 /**
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -117,11 +118,13 @@ abstract class GenBCode extends BCodeOpt {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isOptimizedRun = settings.optimise.value || settings.canUseBCode // TODO "|| canUseBCode" is debug only
+    // TODO for now lumped together, but in principle intra-method and inter-proc could be on/off independent of each other.
+    val isIntraMethodOptimizOn = settings.optimise.value || settings.canUseBCode // TODO "|| canUseBCode" is debug only
+    val isInterProcOptimizOn   = isIntraMethodOptimizOn
 
-    // Once pipeline-2 starts doing optimizations more threads will be needed.
+    // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(
-      8,
+      16,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 
@@ -267,7 +270,9 @@ abstract class GenBCode extends BCodeOpt {
           } else null;
 
         // -------------- "plain" class --------------
-        val cc = new BCodeCleanser(plain.cnode)
+        if(isIntraMethodOptimizOn) {
+          new BCodeCleanser(plain.cnode)
+        }
         val cw = new CClassWriter(extraProc)
         plain.cnode.accept(cw)
         val plainC =
@@ -287,6 +292,7 @@ abstract class GenBCode extends BCodeOpt {
     var arrivalPos = 0
 
     override def run() {
+
       arrivalPos = 0 // just in case
       scalaPrimitives.init
       initBCodeTypes()
@@ -295,28 +301,17 @@ abstract class GenBCode extends BCodeOpt {
       val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
       mirrorCodeGen   = new JMirrorBuilder(  needsOutfileForSymbol)
       beanInfoCodeGen = new JBeanInfoBuilder(needsOutfileForSymbol)
-      // -----------------------
-      // Pipeline from q1 to q2.
-      // -----------------------
-      new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
-      // -----------------------
-      // Pipeline from q2 to q3.
-      // -----------------------
-      val workers = for(i <- 1 to MAX_THREADS) yield {
-        val w = new Worker2
-        val t = new _root_.java.lang.Thread(w, "bcode-worker-" + i)
-        t.start()
-        t
-      }
-      // -------------------------------------------------------------------
-      // Feed pipeline-1: place all ClassDefs on q1, recording their arrival position.
-      // -------------------------------------------------------------------
-      super.run()
-      q1 put poison1
 
-      /* TODO Whole-program analysis just before writing classfiles to disk:
-       *
-       *  Bytecode verification, consisting of:
+      if(isInterProcOptimizOn) {
+        wholeProgramThenWriteToDisk(needsOutfileForSymbol)
+      } else {
+        buildAndSendToDiskInParallel(needsOutfileForSymbol)
+      }
+
+      // closing output files.
+      bytecodeWriter.close()
+
+      /* TODO Bytecode can be verified (now that all classfiles have been written to disk)
        *
        * (1) asm.util.CheckAdapter.verify()
        *       public static void verify(ClassReader cr, ClassLoader loader, boolean dump, PrintWriter pw)
@@ -329,24 +324,60 @@ abstract class GenBCode extends BCodeOpt {
        *
        */
 
-      // -------------------------------------------------------
-      // Pipeline that writes classfile representations to disk.
-      // -------------------------------------------------------
+      // clearing maps
+      clearBCodeTypes()
+
+    }
+
+    /**
+     *  We need to have all classfiles built in-memory for inlining to act on them, before doing anything else.
+     *  Afterwards, as soon as all intra-method work for any given class is over, that class can be written to disk.
+     *  In other words, pipeline-2 and pipeline-3 run in parallel (granted, once inter-procedural optimizations are over, which run sequential).
+     */
+    private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
+      feedPipeline1()
+      val w1 = new Worker1(needsOutfileForSymbol)
+      w1.run()
+
+      val wp = new WholeProgramAnalysis()
+      val start = System.currentTimeMillis
+      wp.inlining()
+      // println("Inlining took " + (System.currentTimeMillis - start) + " ms.")
+
+      val workers = spawnPipeline2()
       drainQ3()
-      // we're done
-      assert(q1.isEmpty, "Some ClassDefs remained in the first queue: "   + q1.toString)
-      assert(q2.isEmpty, "Some classfiles remained in the second queue: " + q2.toString)
-      assert(q3.isEmpty, "Some classfiles weren't written to disk: "      + q3.toString)
-      // assert(exec.isTerminated, "Some workers just keep working.")
+    }
+
+    private def buildAndSendToDiskInParallel(needsOutfileForSymbol: Boolean) {
+
+      new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
+      val workers = spawnPipeline2()
+
+      feedPipeline1()
+      drainQ3()
 
       for(t <- workers) { assert(woExited.containsKey(t.getId)) } // debug
       assert(woExited.size == MAX_THREADS)                        // debug
 
-      // clearing maps, closing output files.
-      bytecodeWriter.close()
-      clearBCodeTypes()
     }
 
+    /** Feed pipeline-1: place all ClassDefs on q1, recording their arrival position. */
+    private def feedPipeline1() {
+      super.run()
+      q1 put poison1
+    }
+
+    /** Pipeline from q2 to q3. */
+    private def spawnPipeline2(): IndexedSeq[Thread] = {
+      for(i <- 1 to MAX_THREADS) yield {
+        val w = new Worker2
+        val t = new _root_.java.lang.Thread(w, "bcode-worker-" + i)
+        t.start()
+        t
+      }
+    }
+
+    /** Pipeline that writes classfile representations to disk. */
     private def drainQ3() {
 
           def sendToDisk(cfr: SubItem3) {
@@ -383,6 +414,12 @@ abstract class GenBCode extends BCodeOpt {
           expected += 1
         }
       }
+
+      // we're done
+      assert(q1.isEmpty, "Some ClassDefs remained in the first queue: "   + q1.toString)
+      assert(q2.isEmpty, "Some classfiles remained in the second queue: " + q2.toString)
+      assert(q3.isEmpty, "Some classfiles weren't written to disk: "      + q3.toString)
+
     }
 
     /**
@@ -426,8 +463,10 @@ abstract class GenBCode extends BCodeOpt {
       private var mnode: asm.tree.MethodNode = null
       private var jMethodName: String        = null
       private var isMethSymStaticCtor        = false
+      private var isMethSymBridge            = false
       private var returnType: BType          = null
       private var methSymbol: Symbol         = null
+      private var cgn: CallGraphNode         = null
       // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
       private var isModuleInitialized        = false
       // used by genLoadTry() and genSynchronized()
@@ -719,11 +758,17 @@ abstract class GenBCode extends BCodeOpt {
         if(optSerial.isDefined) { addSerialVUID(optSerial.get, cnode)}
 
         addClassFields()
-        trackMemberClasses(claszSymbol)
+        innerClassBufferASM ++= trackMemberClasses(claszSymbol)
 
         gen(cd.impl)
 
         addInnerClassesASM(cnode, innerClassBufferASM.toList)
+
+        if(isInterProcOptimizOn) {
+          val bt = lookupRefBType(cnode.name)
+          assert(!codeRepo.contains(bt))
+          codeRepo.classes.put(bt, cnode)
+        }
 
         assert(cd.symbol == claszSymbol, "Someone messed up BCodePhase.claszSymbol during genPlainClass().")
 
@@ -933,6 +978,7 @@ abstract class GenBCode extends BCodeOpt {
         jMethodName = methSymbol.javaSimpleName.toString
         returnType  = asmMethodType(dd.symbol).getReturnType
         isMethSymStaticCtor = methSymbol.isStaticConstructor
+        isMethSymBridge     = methSymbol.isBridge
 
         resetMethodBookkeeping(dd)
 
@@ -998,7 +1044,6 @@ abstract class GenBCode extends BCodeOpt {
 
 
         if (!isAbstractMethod && !isNative) {
-          lineNumber(rhs)
 
               def emitNormalMethodBody() {
                 val veryFirstProgramPoint = currProgramPoint()
@@ -1035,8 +1080,12 @@ abstract class GenBCode extends BCodeOpt {
                 if(isMethSymStaticCtor) { appendToStaticCtor(dd) }
               } // end of emitNormalMethodBody()
 
+          lineNumber(rhs)
+          cgn = new CallGraphNode(cnode, mnode)
           emitNormalMethodBody()
-
+          if(!cgn.isEmpty) {
+            cgns += cgn
+          }
 
           // Note we don't invoke visitMax, thus there are no FrameNode among mnode.instructions.
           // The only non-instruction nodes to be found are LabelNode and LineNumberNode.
@@ -1833,7 +1882,6 @@ abstract class GenBCode extends BCodeOpt {
       } // end of genReturn()
 
       private def genApply(app: Apply, expectedType: BType): BType = {
-        val BoxesRunTime = "scala/runtime/BoxesRunTime"
         var generatedType = expectedType
         lineNumber(app)
         app match {
@@ -1946,7 +1994,7 @@ abstract class GenBCode extends BCodeOpt {
             val nativeKind = tpeTK(expr)
             genLoad(expr, nativeKind)
             val MethodNameAndType(mname, mdesc) = asmBoxTo(nativeKind)
-            bc.invokestatic(BoxesRunTime, mname, mdesc)
+            bc.invokestatic(BoxesRunTime.getInternalName, mname, mdesc)
             generatedType = boxResultType(fun.symbol) // was toTypeKind(fun.symbol.tpe.resultType)
 
           case Apply(fun @ _, List(expr)) if (definitions.isUnbox(fun.symbol)) =>
@@ -1954,7 +2002,7 @@ abstract class GenBCode extends BCodeOpt {
             val boxType = unboxResultType(fun.symbol) // was toTypeKind(fun.symbol.owner.linkedClassOfClass.tpe)
             generatedType = boxType
             val MethodNameAndType(mname, mdesc) = asmUnboxTo(boxType)
-            bc.invokestatic(BoxesRunTime, mname, mdesc)
+            bc.invokestatic(BoxesRunTime.getInternalName, mname, mdesc)
 
           case app @ Apply(fun, args) =>
             val sym = fun.symbol
@@ -2321,12 +2369,94 @@ abstract class GenBCode extends BCodeOpt {
           initModule()
         }
 
-        if(isOptimizedRun && method.isStable) {
-          // the pattern matcher (and possible others) emit stable methods that take args. Our analysis won't cache invocations to them.
-          if(bmType.getArgumentCount == 0 && !bmType.getReturnType.isUnitType) {
+        if(isIntraMethodOptimizOn) {
+
+          /**
+           * Gather data for "caching of stable values".
+           *
+           * The pattern matcher (and possible others) emit stable methods that take args. Our analysis won't cache invocations to them.
+           */
+          if(method.isStable && (bmType.getArgumentCount == 0) && !bmType.getReturnType.isUnitType) {
             repeatableReads.markAsRepeatableRead(bmOwner, jname, bmType)
           }
-        }
+
+        } // intra-procedural optimizations
+
+        if(isInterProcOptimizOn) {
+
+          /**
+           *  `method.isEffectivelyFinal` implies `method` pinpoints the implementation to dispatch at runtime.
+           *  Nevertheless, in order to appease the JVM verifier, it's necessary sometimes to emit INVOKEVIRTUAL
+           *  instead of INVOKESPECIAL. There's nothing we can do about it.
+           *
+           *  However, an INVOKEINTERFACE callsite targeting an isEffectivelyFinal method *could* be rewritten.
+           *  This indicates a trait-method that is final, whose counterpart in the implementation class can be targeted directly.
+           */
+          if(!style.isSuper) {
+            val callsite = mnode.instructions.getLast.asInstanceOf[MethodInsnNode]
+            val opc = callsite.getOpcode
+            if(opc == asm.Opcodes.INVOKEINTERFACE && method.isEffectivelyFinal) {
+              // TODO Let's find the forwarded method in the impl-class, and call it directly thus fixing SI-4767.
+              // TODO The alternative being to chase the final callee bytecode level, given `callsite`. Seems over-complicated.
+              assert(receiver.isTrait)
+              val implClazz = receiver.implClass
+              if(implClazz != NoSymbol) {
+                // val implMethod = ... take overloading into account
+              }
+
+            }
+          }
+
+          /**
+           * Gather data for "method inlining".
+           *
+           * Conditions on the target method:
+           *
+           *   (a.1) must be marked @inline AND one of:
+           *         - called via INVOKESTATIC, INVOKESPECIAL, or INVOKEVIRTUAL
+           *         - method.isEffectivelyFinal (in particular, method.isFinal)
+           *         The above amounts to "cannot be overridden"
+           *         Therefore, the actual (runtime) method to dispatch can be determined statically,
+           *         moreover without type-flow analysis. Instead, walking up the superclass-hierarchy is enough.
+           *
+           *   (a.2) not a self-recursive call
+           *
+           *   (a.3) not a super-call
+           *
+           * Conditions on the host method (ie the method being emitted, which hosts the callsite candidate for inlining):
+           *   (b.1) not a bridge method
+           * Therefore, marking a method @inline does not preclude inlining inside it.
+           *
+           * The callsite thus tracked may be amenable to
+           *   - "closure inlining" (in case it takes one ore more closures as arguments)
+           *   - or "method inlining".
+           * The former will be tried first.
+           */
+          val knockOuts = (isMethSymBridge || (method == methSymbol) || style.isSuper)
+          if(!knockOuts && hasInline(method)) {
+            val callsite = mnode.instructions.getLast.asInstanceOf[MethodInsnNode]
+            val opc = callsite.getOpcode
+            val cannotBeOverridden = (
+              opc == asm.Opcodes.INVOKESTATIC  ||
+              opc == asm.Opcodes.INVOKESPECIAL ||
+              method.isFinal ||
+              method.isEffectivelyFinal
+            ) && (
+              opc != asm.Opcodes.INVOKEDYNAMIC   &&
+              opc != asm.Opcodes.INVOKEINTERFACE &&
+              callsite.name != "<init>"          &&
+              callsite.name != "<clinit>"
+            )
+            if(cannotBeOverridden) {
+              val isHiO = isHigherOrderMethod(bmType)
+              // the callsite may be INVOKEVIRTUAL (but not INVOKEINTERFACE) in addition to INVOKESTATIC or INVOKESPECIAL.
+              val inlnTarget = new InlineTarget(callsite)
+              if(isHiO) { cgn.hiOs  ::= inlnTarget }
+              else      { cgn.procs ::= inlnTarget }
+            }
+          }
+
+        } // inter-procedural optimizations
 
       } // end of genCallMethod()
 

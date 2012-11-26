@@ -411,6 +411,19 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
+     * @return the prefix of the internal name until the last '/' (if '/' present), empty string otherwise.
+     *
+     * can-multi-thread
+     **/
+    def getRuntimePackage: String = {
+      assert(hasObjectSort)
+      val iname = getInternalName
+      val idx = iname.lastIndexOf('/')
+      if(idx == -1) ""
+      else iname.substring(0, idx)
+    }
+
+    /**
      * Returns the argument types of methods of this type.
      * This method should only be used for method types.
      *
@@ -773,6 +786,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   var StringBuilderReference: BType = null
 
+  // scala.FunctionX and scala.PartialFunction
+  var PartialFunctionReference: BType   = null
+  var FunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
+
   /**
    * must-single-thread
    **/
@@ -849,6 +866,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     jioSerializableReference    = exemplar(JavaSerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
 
+    PartialFunctionReference    = exemplar(PartialFunctionClass).c
+    for(idx <- 0 until definitions.MaxFunctionArity) {
+      FunctionReference(idx) = exemplar(FunctionClass(idx))
+    }
+
     initBCodeOpt()
   }
 
@@ -858,7 +880,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
-    repeatableReads.clear()
+    clearBCodeOpt()
   }
 
   val BOXED_UNIT    = brefType("java/lang/Void")
@@ -933,45 +955,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val symExemplars    = new java.util.concurrent.ConcurrentHashMap[Symbol, Tracked]
 
   /**
-   *  @param owner      a JVM-level class
-   *  @param memberName name of a method or field defined in `owner`
-   *  @param memberType the member's type ie a MethodType denotes "name" refers to a method, otherwise to a field.
-   *
-   */
-  case class StableMember(owner: BType, memberName: String, memberType: BType) { // TODO lookupTermName rather than String for memberName
-
-    /** Can't be made into an assert because building a StableMember for use as lookup key is valid, even though that StableMember may be non-well-formed. */
-    def isRepOK: Boolean = {
-      if(memberType.sort == asm.Type.METHOD) { memberType.getArgumentCount == 0 && !memberType.getReturnType.isUnitType } else { true }
-    }
-
-    def getSize: Int = {
-      if (memberType.sort == asm.Type.METHOD) memberType.getReturnType.getSize
-      else memberType.getSize
-    }
-
-  }
-
-  /**
-   * Set of known JVM-level getters and fields allowing access to stable values
-   * A stable path must consist only of stable links, ie the receiver of a stable getter itself must be stable,
-   * and simimlarly for fields.
-   */
-  val repeatableReads = new StableMembersSet
-
-  class StableMembersSet extends mutable.HashSet[StableMember] {
-
-    def markAsRepeatableRead(owner: BType, memberName: String, memberType: BType) {
-      this += StableMember(owner, memberName, memberType)
-    }
-
-    def isKnownRepeatableRead(owner: BType, memberName: String, memberType: BType): Boolean = {
-      contains(StableMember(owner, memberName, memberType))
-    }
-
-  }
-
-  /**
    *  Typically, a question about a BType can be answered only by using the BType as lookup key in one or more maps.
    *  A `Tracked` object saves time by holding together information required to answer those questions:
    *
@@ -988,6 +971,22 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  All methods of this class can-multi-thread
    **/
   case class Tracked(c: BType, flags: Int, sc: Tracked, ifaces: Array[Tracked], innersChain: Array[InnerClassEntry]) {
+
+    // not a case-field because we initialize it only for JVM classes we emit.
+    private var _directMemberClasses: List[BType] = null
+
+    def directMemberClasses: List[BType] = {
+      assert(_directMemberClasses != null)
+      _directMemberClasses
+    }
+
+    def directMemberClasses_=(bs: List[BType]) {
+      if(_directMemberClasses != null) {
+        // TODO we enter here when both mirror class and plain class are emitted for the same ModuleClassSymbol.
+        assert(_directMemberClasses == bs.sortBy(_.off))
+      }
+      _directMemberClasses = bs.sortBy(_.off)
+    }
 
     /* `isCompilingStdLib` saves the day when compiling:
      *     (1) scala.Nothing (the test `c.isNonSpecial` fails for it)
@@ -1493,6 +1492,55 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
   }
 
+  /**
+   * Whether the argument (the signature of a method) takes as argument
+   * one ore more Function or PartialFunction (in particular an anonymous closure).
+   *
+   * can-multi-thread
+   */
+  final def isHigherOrderMethod(mtype: BType): Boolean = {
+    assert(mtype.sort == BType.METHOD)
+
+    val ats = mtype.getArgumentTypes
+    var idx = 0
+    while(idx < ats.length) {
+      val t = ats(idx)
+      if(isFunctionType(t) || isPartialFunctionType(t)) {
+        return true
+      }
+      idx += 1
+    }
+    false
+  }
+
+  /**
+   *  Whether the argument is a subtype of scala.PartialFunction.
+   *  For example, this method returns true for scala.runtime.AbstractPartialFunction
+   *
+   *  can-multi-thread
+   */
+  def isPartialFunctionType(t: BType): Boolean = {
+    (t.hasObjectSort) && exemplars.get(t).isSubtypeOf(PartialFunctionReference)
+  }
+
+  /**
+   *  Whether the argument is a subtype of scala.PartialFunction.
+   *  For example, this method returns true for scala.runtime.AbstractPartialFunction
+   *
+   *  can-multi-thread
+   */
+  def isFunctionType(t: BType): Boolean = {
+    if(!t.hasObjectSort) return false
+    var idx = 0
+    val et: Tracked = exemplars.get(t)
+    while(idx < definitions.MaxFunctionArity) {
+      if(et.isSubtypeOf(FunctionReference(idx).c)) {
+        return true
+      }
+      idx += 1
+    }
+    false
+  }
 
   /** Just a namespace for utilities that encapsulate MethodVisitor idioms.
    *  In the ASM world, org.objectweb.asm.commons.InstructionAdapter plays a similar role,
@@ -1640,22 +1688,22 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * can-multi-thread
      **/
     final def genStringConcat(el: BType) {
+
       val jtype =
         if(el.isArray || el.hasObjectSort) JAVA_LANG_OBJECT
         else el;
 
-      invokevirtual(
-        StringBuilderClassName,
-        "append",
-        BType.getMethodDescriptor(StringBuilderReference, Array(jtype))
-      )
+      val bt = BType.getMethodType(StringBuilderReference, Array(jtype))
+
+      invokevirtual(StringBuilderClassName, "append", bt.getDescriptor)
     }
 
     /**
      * can-multi-thread
      **/
     final def genEndConcat {
-      invokevirtual(StringBuilderClassName, "toString", "()Ljava/lang/String;")
+      val bt = BType.getMethodType("()Ljava/lang/String;")
+      invokevirtual(StringBuilderClassName, "toString", bt.getDescriptor)
     }
 
     /**
@@ -2092,21 +2140,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   // ---------------- InnerClasses attribute (JVMS 4.7.6) ----------------
 
   /**
-   *
-   * Checks if given symbol corresponds to inner class/object.
-   *   If so, add it to the result, along with all other inner classes over the owner-chain for that symbol
-   *   Otherwise returns Nil.
-   *
-   * This method also adds as member classes those inner classes that have been declared, but otherwise not referred in instructions.
-   *
-   * TODO: some enteringFlatten { ... } which accounts for being nested in parameterized classes (if we're going to selectively flatten.)
-   *
-   * TODO assert (JVMS 4.7.6 The InnerClasses attribute)
-   * If a class file has a version number that is greater than or equal to 51.0, and has an InnerClasses attribute in its attributes table,
-   * then for all entries in the classes array of the InnerClasses attribute,
-   * the value of the outer_class_info_index item must be zero if the value of the inner_name_index item is zero.
+   * @param name the internal name of an inner class.
+   * @param outerName the internal name of the class to which the inner class belongs.
+   *                  May be `null` for non-member inner classes (ie for a Java local class or a Java anonymous class).
+   * @param innerName the (simple) name of the inner class inside its enclosing class. It's `null` for anonymous inner classes.
+   * @param access the access flags of the inner class as originally declared in the enclosing class.
    */
-
   case class InnerClassEntry(name: String, outerName: String, innerName: String, access: Int) {
     assert(name != null, "Null isn't good as class name in an InnerClassEntry.")
   }
@@ -2561,6 +2600,53 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     cd.impl.body collect { case dd: DefDef => dd.symbol }
   }
 
+  /**
+   * Populates the InnerClasses JVM attribute with `refedInnerClasses`.
+   * In additiona to inner classes mentioned somewhere in `jclass` (where `jclass` is a class file being emitted)
+   * `refedInnerClasses` should contain those inner classes defined as direct member classes of `jclass`
+   * but otherwise not mentioned in `jclass`.
+   *
+   * `refedInnerClasses` may contain duplicates,
+   * need not contain the enclosing inner classes of each inner class it lists (those are looked up for consistency).
+   *
+   * This method serializes in the InnerClasses JVM attribute in an appropriate order,
+   * not necessarily that given by `refedInnerClasses`.
+   *
+   * can-multi-thread
+   **/
+  final def addInnerClassesASM(jclass: asm.ClassVisitor, refedInnerClasses: Iterable[BType]) {
+    // used to detect duplicates.
+    val seen = mutable.Map.empty[String, String]
+    // result without duplicates, not yet sorted.
+    val result = mutable.Set.empty[InnerClassEntry]
+
+    for(s: BType           <- refedInnerClasses;
+        e: InnerClassEntry <- exemplars.get(s).innersChain) {
+
+      assert(e.name != null, "saveInnerClassesFor() is broken.") // documentation
+      val doAdd = seen.get(e.name) match {
+        // TODO is it ok for prevOName to be null? (Someone should really document the invariants of the InnerClasses bytecode attribute)
+        case Some(prevOName) =>
+          // this occurs e.g. when innerClassBuffer contains both class Thread$State, object Thread$State,
+          // i.e. for them it must be the case that oname == java/lang/Thread
+          assert(prevOName == e.outerName, "duplicate")
+          false
+        case None => true
+      }
+
+      if(doAdd) {
+        seen   += (e.name -> e.outerName)
+        result += e
+      }
+
+    }
+    // sorting ensures inner classes are listed after their enclosing class thus satisfying the Eclipse Java compiler
+    for(e <- result.toList sortBy (_.name.toString)) {
+      jclass.visitInnerClass(e.name, e.outerName, e.innerName, e.access)
+    }
+
+  } // end of method addInnerClassesASM()
+
   /*
    * Custom attribute (JVMS 4.7.1) "ScalaSig" used as marker only
    * i.e., the pickle is contained in a custom annotation, see:
@@ -2818,7 +2904,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     *  Adds to `innerClassBufferASM` all (direct) member inner classes of `csym`,
+     *  Returns all direct member inner classes of `csym`,
      *  thus making sure they get entries in the InnerClasses JVM attribute
      *  even if otherwise not mentioned in the class being built.
      *
@@ -2830,54 +2916,18 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         yield memberc
       }
       // as a precaution, do the following outside the above `exitingErasure` otherwise funny internal names might be computed.
-      for(memberc <- lateInnerClasses) yield {
+      val result = for(memberc <- lateInnerClasses) yield {
         val tracked = exemplar(memberc)
         val memberCTK = tracked.c
         assert(tracked.isInnerClass, "saveInnerClassesFor() says this was no inner-class after all: " + memberc.fullName)
-        innerClassBufferASM += memberCTK
 
         memberCTK
       }
+
+      exemplar(csym).directMemberClasses = result
+
+      result
     }
-
-    /**
-     * TODO SI-6546 Optimizer leaves references to classes that have been eliminated by inlining,
-     *      Better yet than https://github.com/scala/scala/pull/1529 , remove them
-     *
-     * can-multi-thread
-     **/
-    final def addInnerClassesASM(jclass: asm.ClassVisitor, refedInnerClasses: List[BType]) {
-      // used to detect duplicates.
-      val seen = mutable.Map.empty[String, String]
-      // result without duplicates, not yet sorted.
-      val result = mutable.Set.empty[InnerClassEntry]
-
-      for(s: BType           <- refedInnerClasses;
-          e: InnerClassEntry <- exemplars.get(s).innersChain) {
-
-        assert(e.name != null, "saveInnerClassesFor() is broken.") // documentation
-        val doAdd = seen.get(e.name) match {
-          // TODO is it ok for prevOName to be null? (Someone should really document the invariants of the InnerClasses bytecode attribute)
-          case Some(prevOName) =>
-            // this occurs e.g. when innerClassBuffer contains both class Thread$State, object Thread$State,
-            // i.e. for them it must be the case that oname == java/lang/Thread
-            assert(prevOName == e.outerName, "duplicate")
-            false
-          case None => true
-        }
-
-        if(doAdd) {
-          seen   += (e.name -> e.outerName)
-          result += e
-        }
-
-      }
-      // sorting ensures inner classes are listed after their enclosing class thus satisfying the Eclipse Java compiler
-      for(e <- result.toList sortBy (_.name.toString)) {
-        jclass.visitInnerClass(e.name, e.outerName, e.innerName, e.access)
-      }
-
-    } // end of method addInnerClassesASM()
 
     /**
      *  Tracks (if needed) the inner class given by `t`.
@@ -3260,7 +3310,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       val thrownExceptions: List[String] = getExceptions(throws)
 
       val jReturnType = toTypeKind(methodInfo.resultType)
-      val mdesc = BType.getMethodDescriptor(jReturnType, mkArray(paramJavaTypes))
+      val mdesc = BType.getMethodType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
       val mirrorMethodName = m.javaSimpleName.toString
       val mirrorMethod: asm.MethodVisitor = jclass.visitMethod(
         flags,
@@ -3468,7 +3518,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       addForwarders(isRemote(modsym), mirrorClass, mirrorName, modsym)
 
-      trackMemberClasses(modsym)
+      innerClassBufferASM ++= trackMemberClasses(modsym)
       addInnerClassesASM(mirrorClass, innerClassBufferASM.toList)
 
       mirrorClass.visitEnd()
@@ -3585,7 +3635,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       constructor.visitMaxs(0, 0) // just to follow protocol, dummy arguments
       constructor.visitEnd()
 
-      trackMemberClasses(cls)
+      innerClassBufferASM ++= trackMemberClasses(cls)
       addInnerClassesASM(beanInfoClass, innerClassBufferASM.toList)
 
       beanInfoClass.visitEnd()
@@ -3641,11 +3691,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       )
 
       // INVOKEVIRTUAL `moduleName`.CREATOR() : android.os.Parcelable$Creator;
+      val bt = BType.getMethodType(androidCreatorType, Array.empty[BType])
       clinit.visitMethodInsn(
         asm.Opcodes.INVOKEVIRTUAL,
         moduleName,
         "CREATOR",
-        BType.getMethodDescriptor(androidCreatorType, Array.empty[BType])
+        bt.getDescriptor
       )
 
       // PUTSTATIC `thisName`.CREATOR;
@@ -3694,20 +3745,22 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   var TF_NULL   : TFValue = null
   var TF_STRING : TFValue = null
+  var BoxesRunTime: BType = null
 
   def initBCodeOpt() {
-    TF_NULL =
-      TFValue(
-        RT_NULL,
-        0
-      )
+
+    TF_NULL = TFValue(RT_NULL, 0)
     val trString = exemplar(global.definitions.StringClass)
-    TF_STRING =
-      TFValue(
-        StringReference,
-        TypeFlowConstants.EXACT_MASK
-      )
+    TF_STRING = TFValue(StringReference, TypeFlowConstants.EXACT_MASK)
+
+    // later a few analyses (e.g. refreshInnerClasses) will look up BTypes based on descriptors in instructions
+    // we make sure those BTypes can be found via lookup as opposed to creating them on the fly.
+    BoxesRunTime = brefType("scala/runtime/BoxesRunTime")
+    asmBoxTo.values   foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
+    asmUnboxTo.values foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
   }
+
+  def clearBCodeOpt()
 
   /**
    *  Represents a lattice element in the type-flow lattice.

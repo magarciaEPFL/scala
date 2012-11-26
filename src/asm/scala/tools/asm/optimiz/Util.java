@@ -8,6 +8,9 @@ package scala.tools.asm.optimiz;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
+import scala.tools.asm.Label;
+import scala.tools.asm.ClassWriter;
+import scala.tools.asm.MethodWriter;
 
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.InsnNode;
@@ -16,6 +19,12 @@ import scala.tools.asm.tree.LabelNode;
 import scala.tools.asm.tree.MethodInsnNode;
 import scala.tools.asm.tree.MethodNode;
 import scala.tools.asm.tree.VarInsnNode;
+import scala.tools.asm.tree.InsnList;
+import scala.tools.asm.tree.LocalVariableNode;
+import scala.tools.asm.tree.TryCatchBlockNode;
+
+import java.util.*;
+
 /**
  *  Utilities.
  *
@@ -273,6 +282,172 @@ public class Util {
             default: return false;
         }
 
+    }
+
+    // ------------------------------------------------------------------------
+    // cloning
+    // ------------------------------------------------------------------------
+
+    public static Map<LabelNode, LabelNode> clonedLabels(MethodNode mnode) {
+        ListIterator<AbstractInsnNode> iter   = mnode.instructions.iterator();
+        Map<LabelNode, LabelNode>      result = new HashMap<LabelNode, LabelNode>();
+        while(iter.hasNext()) {
+            AbstractInsnNode insn = iter.next();
+            if(insn.getType() == AbstractInsnNode.LABEL) {
+                result.put((LabelNode)insn, fabricateLabelNode());
+            }
+        }
+        return result;
+    }
+
+    public static LabelNode fabricateLabelNode() {
+        Label     lab  = new Label();
+        LabelNode labN = new LabelNode(lab);
+        lab.info       = labN;
+        return labN;
+    }
+
+    /**
+     * Returns a list of cloned instructions for those in input, except that FrameNodes aren't cloned
+     * (therefore, the returned list may well be shorter than input).
+     * The correspondence between original and clone is mapped in insnMap,
+     * a Map provided by the caller which is populated in this method.
+     */
+    public static InsnList clonedInsns(
+            InsnList                                input,
+            Map<LabelNode, LabelNode>               labelMap,
+            Map<AbstractInsnNode, AbstractInsnNode> insnMap
+    ) {
+        assert insnMap.isEmpty();
+        ListIterator<AbstractInsnNode> iter = input.iterator();
+        InsnList output = new InsnList();
+        while(iter.hasNext()) {
+            AbstractInsnNode nxt = iter.next();
+            if(nxt.getType() != AbstractInsnNode.FRAME) {
+                // don't clone any frames as they most likely won't make sense at the new usage point
+                AbstractInsnNode cln = nxt.clone(labelMap);
+                output.add(cln);
+                insnMap.put(nxt, cln);
+            }
+        }
+        return output;
+    }
+
+    /**
+     * @param prefix at the new usage point, pasting cloned names of local vars as-is might lead to duplicates,
+     *               in particular for `this`. Thus a prefix (e.g., the callee's name) may be provided by the invoker.
+     */
+    public static List<LocalVariableNode> cloneLocalVariableNodes(MethodNode mnode, Map<LabelNode, LabelNode> labelMap, String prefix) {
+        Iterator<LocalVariableNode> iter   = mnode.localVariables.iterator();
+        List<LocalVariableNode>     output = new LinkedList<LocalVariableNode>();
+        while(iter.hasNext()) {
+            LocalVariableNode oldLVN = iter.next();
+            LocalVariableNode newLVN = cloneLocalVariableNode(oldLVN, labelMap, prefix);
+            output.add(newLVN);
+        }
+        return output;
+    }
+
+    public static LocalVariableNode cloneLocalVariableNode(LocalVariableNode old, Map<LabelNode, LabelNode> labelMap, String prefix) {
+        LocalVariableNode result = new LocalVariableNode(
+            prefix + old.name,
+            old.desc,
+            old.signature,
+            labelMap.get(old.start),
+            labelMap.get(old.end),
+            old.index
+        );
+        return result;
+    }
+
+    public static List<TryCatchBlockNode> cloneTryCatchBlockNodes(MethodNode mnode, Map<LabelNode, LabelNode> labelMap) {
+        Iterator<TryCatchBlockNode> iter    = mnode.tryCatchBlocks.iterator();
+        List<TryCatchBlockNode>     output  = new LinkedList<TryCatchBlockNode>();
+        while(iter.hasNext()) {
+            TryCatchBlockNode oldTCB = iter.next();
+            TryCatchBlockNode newTCB = cloneTryCatchBlockNode(oldTCB, labelMap);
+            output.add(newTCB);
+        }
+        return output;
+    }
+
+    public static TryCatchBlockNode cloneTryCatchBlockNode(TryCatchBlockNode old, Map<LabelNode, LabelNode> labelMap) {
+        TryCatchBlockNode result = new TryCatchBlockNode(
+            labelMap.get(old.start),
+            labelMap.get(old.end),
+            labelMap.get(old.handler),
+            old.type
+        );
+        return result;
+    }
+
+    // ------------------------------------------------------------------------
+    // miscellaneous
+    // ------------------------------------------------------------------------
+
+    /**
+     *  @return the number of arguments the callsite expects on the operand stack,
+     *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
+     */
+    public static int expectedArgs(MethodInsnNode callsite) {
+        int result = Type.getArgumentTypes(callsite.desc).length;
+        switch (callsite.getOpcode()) {
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKEINTERFACE:
+                result++;
+                break;
+            case Opcodes.INVOKEDYNAMIC:
+                result++;
+                break;
+            case Opcodes.INVOKESTATIC:
+                break;
+        }
+        return result;
+    }
+
+    /**
+     *  @return the number of arguments the callsite expects on the operand stack,
+     *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
+     */
+    public static int expectedArgs(MethodNode mnode) {
+        int formals = Type.getArgumentTypes(mnode.desc).length;
+        return (isInstanceMethod(mnode) ? 1 : 0) + formals;
+    }
+
+    /**
+     * In order to run Analyzer.analyze() on a method, its `maxLocals` should have been computed.
+     */
+    public static boolean isReadyForAnalyzer(scala.tools.asm.tree.MethodNode mnode) {
+      return mnode.maxLocals != 0 || mnode.maxStack != 0;
+    }
+
+    /**
+     * In order to run Analyzer.analyze() on a method, its `maxLocals` should have been computed.
+     */
+    public static void computeMaxLocalsMaxStack(scala.tools.asm.tree.MethodNode mnode) {
+        ClassWriter cw  = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        String[] excs   = mnode.exceptions.toArray(new String[0]);
+        MethodWriter mw = (MethodWriter)cw.visitMethod(mnode.access, mnode.name, mnode.desc, mnode.signature, excs);
+        mnode.accept(mw);
+        mnode.maxLocals = mw.getMaxLocals();
+        mnode.maxStack  = mw.getMaxStack();
+    }
+
+    // ------------------------------------------------------------------------
+    // Textification
+    // ------------------------------------------------------------------------
+
+    /**
+     * Returns a human-readable representation of the code in the mnode MethodNode.
+     */
+    public static String textify(MethodNode mnode) {
+      scala.tools.asm.util.TraceClassVisitor trace = new scala.tools.asm.util.TraceClassVisitor(new java.io.PrintWriter(new java.io.StringWriter()));
+      mnode.accept(trace);
+      java.io.StringWriter sw = new java.io.StringWriter();
+      java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
+      trace.p.print(pw);
+      return sw.toString();
     }
 
 }
