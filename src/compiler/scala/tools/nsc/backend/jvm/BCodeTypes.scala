@@ -416,7 +416,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * can-multi-thread
      **/
     def getRuntimePackage: String = {
-      assert(hasObjectSort)
+      assert(hasObjectSort, "not of object sort: " + toString)
       val iname = getInternalName
       val idx = iname.lastIndexOf('/')
       if(idx == -1) ""

@@ -1094,8 +1094,8 @@ abstract class BCodeOpt extends BCodeTypes {
     }
 
     def parseClassAndEnterExemplar(bt: BType): ClassNode = {
-      assert(bt.isNonSpecial)
-      assert(!contains(bt))
+      assert(bt.isNonSpecial, "isNonSpecial failed for " + bt.getInternalName)
+      assert(!contains(bt), "codeRepo contains " + bt.getInternalName)
 
           /** must-single-thread */
           def parseClass(): asm.tree.ClassNode = {
@@ -1198,8 +1198,11 @@ abstract class BCodeOpt extends BCodeTypes {
     def enterExemplarsForUnseenTypeNames(insns: InsnList) {
 
         def enterInternalName(iname: String) {
-          val bt = brefType(iname)
-          if(!exemplars.containsKey(bt)) {
+          var bt = brefType(iname)
+          if(bt.isArray) {
+            bt = bt.getElementType
+          }
+          if(bt.isNonSpecial && !exemplars.containsKey(bt)) {
             codeRepo.parseClassAndEnterExemplar(bt)
           }
         }
@@ -1448,7 +1451,12 @@ abstract class BCodeOpt extends BCodeTypes {
               val here = lookupRefBType(hostOwner)
 
                   def isAccessible(there: BType): Boolean = {
-                    (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
+                    if(!there.isNonSpecial) true
+                    else if (there.isArray) isAccessible(there.getElementType)
+                    else {
+                      assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
+                      (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
+                    }
                   }
 
                   /**
