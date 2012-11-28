@@ -62,4 +62,26 @@
 <     102	LOAD_LOCAL(variable x)
 ---
 >     102	LOAD_LOCAL(variable y)
+265,266c249,250
+<   def apply(x$1: TestSetterInline.type (REF(object TestSetterInline))): Unit {
+<   locals: value x$1
+---
+>   def apply(x: TestSetterInline.type (REF(object TestSetterInline))): Unit {
+>   locals: value x
+271,273d254
+<     40	LOAD_MODULE object TestSetterInline
+<     40	LOAD_LOCAL(value x$1)
+<     40	CALL_METHOD TestSetterInline.TestSetterInline$$poorMansMH1$1 (dynamic)
+357,367d337
+<   def TestSetterInline$$poorMansMH1$1(x: TestSetterInline.type (REF(object TestSetterInline))): Unit {
+<   locals: value x
+<   startBlock: 1
+<   blocks: [1]
+<   
+<   1: 
+<     40	RETURN(UNIT)
+<     
+<   }
+<   Exception handlers: 
+<     
 
