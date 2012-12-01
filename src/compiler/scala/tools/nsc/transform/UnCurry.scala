@@ -222,6 +222,24 @@ abstract class UnCurry extends InfoTransform
     }
 
 
+    def transformFunction(fun: Function): Tree = {
+      deEta(fun) match {
+        // nullary or parameterless
+        case fun1 if fun1 ne fun => fun1
+        case _ if fun.tpe.typeSymbol == PartialFunctionClass =>
+          // only get here when running under -Xoldpatmat
+          synthPartialFunction(fun)
+        case _ =>
+          if((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value) {
+            // checking inConstructorFlag prevents hitting SI-6666
+            closureConversionTraditional(fun)
+          }
+          else {
+            closureConversionMethodHandle(fun)
+          }
+      }
+    }
+
     /**  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
      *
      *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
@@ -232,47 +250,121 @@ abstract class UnCurry extends InfoTransform
      * If `settings.XoldPatmat.value`, also synthesized AbstractPartialFunction subclasses (see synthPartialFunction).
      *
      */
-    def transformFunction(fun: Function): Tree =
-      deEta(fun) match {
-        // nullary or parameterless
-        case fun1 if fun1 ne fun => fun1
-        case _ if fun.tpe.typeSymbol == PartialFunctionClass =>
-          // only get here when running under -Xoldpatmat
-          synthPartialFunction(fun)
-        case _ =>
-          val parents = (
-            if (isFunctionType(fun.tpe)) addSerializable(abstractFunctionForFunctionType(fun.tpe))
-            else addSerializable(ObjectClass.tpe, fun.tpe)
-          )
-          val anonClass = fun.symbol.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation serialVersionUIDAnnotation
-          anonClass setInfo ClassInfoType(parents, newScope, anonClass)
+    def closureConversionTraditional(fun: Function): Tree = {
+      val parents = (
+        if (isFunctionType(fun.tpe)) addSerializable(abstractFunctionForFunctionType(fun.tpe))
+        else addSerializable(ObjectClass.tpe, fun.tpe)
+      )
+      val anonClass = fun.symbol.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation serialVersionUIDAnnotation
+      anonClass setInfo ClassInfoType(parents, newScope, anonClass)
 
-          val targs     = fun.tpe.typeArgs
-          val (formals, restpe) = (targs.init, targs.last)
+      val targs     = fun.tpe.typeArgs
+      val (formals, restpe) = (targs.init, targs.last)
 
-          val applyMethodDef = {
-            val methSym = anonClass.newMethod(nme.apply, fun.pos, FINAL)
-            methSym setInfoAndEnter MethodType(methSym newSyntheticValueParams formals, restpe)
+      val applyMethodDef = {
+        val methSym = anonClass.newMethod(nme.apply, fun.pos, FINAL)
+        methSym setInfoAndEnter MethodType(methSym newSyntheticValueParams formals, restpe)
 
-            fun.vparams foreach  (_.symbol.owner =  methSym)
-            fun.body changeOwner (fun.symbol     -> methSym)
+        fun.vparams foreach  (_.symbol.owner =  methSym)
+        fun.body changeOwner (fun.symbol     -> methSym)
 
-            val body    = localTyper.typedPos(fun.pos)(fun.body)
-            val methDef = DefDef(methSym, List(fun.vparams), body)
+        val body    = localTyper.typedPos(fun.pos)(fun.body)
+        val methDef = DefDef(methSym, List(fun.vparams), body)
 
-            // Have to repack the type to avoid mismatches when existentials
-            // appear in the result - see SI-4869.
-            methDef.tpt setType localTyper.packedType(body, methSym)
-            methDef
-          }
-
-          localTyper.typedPos(fun.pos) {
-            Block(
-              List(ClassDef(anonClass, NoMods, ListOfNil, ListOfNil, List(applyMethodDef), fun.pos)),
-              Typed(New(anonClass.tpe), TypeTree(fun.tpe)))
-          }
-
+        // Have to repack the type to avoid mismatches when existentials
+        // appear in the result - see SI-4869.
+        methDef.tpt setType localTyper.packedType(body, methSym)
+        methDef
       }
+
+      localTyper.typedPos(fun.pos) {
+        Block(
+          List(ClassDef(anonClass, NoMods, ListOfNil, ListOfNil, List(applyMethodDef), fun.pos)),
+          Typed(New(anonClass.tpe), TypeTree(fun.tpe)))
+      }
+    }
+
+    /** Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
+     *
+     *  {
+     *    def hoistedMethodDef(x_1: T_1, ..., x_N: T_n): R = body
+     *
+     *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
+     *      def apply(x_1: T_1, ..., x_N: T_n): R = hoistedMethodDef(x_1, ..., x_N)
+     *    }
+     *
+     *    new $anon()
+     *  }
+     *
+     *  By 'hoisting' the closure-body out of the anon-closure-class, lambdalift and explicitouter
+     *  are prompted to add formal-params to convey values captured from the lexical environment.
+     *  This amounts to 'scalar replacement of aggregates' that cuts down on heap-hops over outer() methods.
+     *
+     *  TODO In case the closure-body captures nothing, it need not be hoisted out of the closure.
+     *
+     *  TODO SI-6666 , SI-6727 (pos/z1730)
+     *
+     *  Not a bug but beware: SI-6730
+     *
+     *  If `settings.XoldPatmat.value`, also synthesized AbstractPartialFunction subclasses (see synthPartialFunction).
+     *
+     */
+    def closureConversionMethodHandle(fun: Function): Tree = {
+      val parents = (
+        if (isFunctionType(fun.tpe)) addSerializable(abstractFunctionForFunctionType(fun.tpe))
+        else addSerializable(ObjectClass.tpe, fun.tpe)
+      )
+
+      val targs = fun.tpe.typeArgs
+      val (formals, restpe) = (targs.init, targs.last)
+      val closureOwner = fun.symbol.owner
+
+      val hoistedMethodDef: DefDef = {
+        val hoistedName  = unit.freshTermName("dlgt")
+        val hoistmethSym = closureOwner.newMethod(hoistedName, fun.pos, inConstructorFlag | FINAL)
+        hoistmethSym setInfo MethodType(hoistmethSym newSyntheticValueParams formals, restpe)
+
+        fun.vparams foreach  (_.symbol.owner =  hoistmethSym)
+        fun.body changeOwner (fun.symbol     -> hoistmethSym)
+
+        val hbody    = localTyper.typedPos(fun.pos)(fun.body)
+        val hmethDef = DefDef(hoistmethSym, List(fun.vparams), hbody)
+
+        // Have to repack the type to avoid mismatches when existentials
+        // appear in the result - see SI-4869.
+        hmethDef.tpt setType localTyper.packedType(hbody, hoistmethSym)
+        hmethDef
+      }
+
+      val anonClass = closureOwner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation serialVersionUIDAnnotation
+      anonClass setInfo ClassInfoType(parents, newScope, anonClass)
+
+      val applyMethodDef: DefDef = {
+        val appmethSym  = anonClass.newMethod(nme.apply, fun.pos, FINAL)
+        val appvparamsS = appmethSym newSyntheticValueParams formals
+        appmethSym setInfoAndEnter MethodType(appvparamsS, restpe)
+
+        val appbody     = Apply(hoistedMethodDef.symbol, (appvparamsS map Ident): _*)
+        val amethDef    = DefDef(appmethSym, List(appvparamsS map ValDef), appbody)
+
+        // Have to repack the type to avoid mismatches when existentials
+        // appear in the result - see SI-4869.
+        // TODO causes NPE why? amethDef.tpt setType localTyper.packedType(appbody, appmethSym)
+        amethDef
+      }
+
+      // val pmmh = closureOwner newValue(unit.freshTermName("pmmh"), fun.pos, inConstructorFlag) setInfo fun.tpe
+
+      localTyper.typedPos(fun.pos) {
+        Block(
+          List(
+            hoistedMethodDef,
+            ClassDef(anonClass, NoMods, ListOfNil, ListOfNil, List(applyMethodDef), fun.pos)
+          ),
+          New(anonClass.tpe) // was Typed(New(anonClass.tpe), TypeTree(fun.tpe))
+        )
+      }
+    }
 
     /** Transform a function node (x => body) of type PartialFunction[T, R] where
      *    body = expr match { case P_i if G_i => E_i }_i=1..n
