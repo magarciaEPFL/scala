@@ -1427,24 +1427,25 @@ abstract class BCodeOpt extends BCodeTypes {
       // instruction cloning requires the following map to consistently replace new for old LabelNodes.
       val labelMap = Util.clonedLabels(callee)
 
-      // the list where all instructions to replace the callsite are to be collected.
-      val insnMap = new java.util.HashMap[AbstractInsnNode, AbstractInsnNode]()
-      val body    = Util.clonedInsns(callee.instructions, labelMap, insnMap)
-
       /*
        * In general callee.instructions and bodyInsns aren't same size,
        * for example because calleeInsns may contain FrameNodes which weren't cloned into body.
        * Therefore, don't try to match up original and cloned instructions by position!
        * Instead, `insnMap` is a safe way to find a cloned instruction using the original as key.
        */
-      val bodyInsns   = body.toArray
+      val insnMap   = new java.util.HashMap[AbstractInsnNode, AbstractInsnNode]()
+      val body      = Util.clonedInsns(callee.instructions, labelMap, insnMap)
+      val bodyInsns = body.toArray
 
       /*
-       * In case the callee has been parsed from bytecode, its instructions may refer to type descriptors
+       * In case the callee has been parsed from bytecode, its instructions may refer to type descriptors and internal names
        * that as of yet lack a corresponding TypeName in Names.chrs
-       * (the GenBCode infrastructure standardizes on TypeNames for lookups, thus we need to create them).
-       * Therefore, the callee's instructions are scanned to enter TypeNames
-       * for any type descriptor or internal name not yet encountered while emitting bytecode for the program being compiled.
+       * (the GenBCode infrastructure standardizes on TypeNames for lookups,
+       *  thus we need to create TypeNames for those descriptors and internal names).
+       * The utility below takes care of that.
+       * Even if inlining proves unfeasible, those TypeNames won't cause any harm.
+       *
+       * TODO why weren't those TypeNames entered as part of parsing callee from bytecode? After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
       codeRepo.enterExemplarsForUnseenTypeNames(body)
 
@@ -1453,6 +1454,7 @@ abstract class BCodeOpt extends BCodeTypes {
         return false
       }
 
+      // From this point on it's a done deal that method-inlining will be performed. There's no going back.
 
       // each local-var access in `body` is shifted host.maxLocals places
       for(bodyInsn <- bodyInsns; if bodyInsn.getType == AbstractInsnNode.VAR_INSN) {
