@@ -1365,7 +1365,7 @@ abstract class BCodeOpt extends BCodeTypes {
     } // end of method inlining()
 
     /**
-     * This method takes care of all the little details around inlining the callee's instructions at a callsite located in a `host` method.
+     * This method takes care of all the little details around inlining the callee's instructions for a callsite located in a `host` method.
      * Those details boil down to:
      *   (a) checking whether inlining is feasible. If unfeasible, don't touch anything and return false.
      *   (b) replacing the callsite with:
@@ -1383,7 +1383,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *   (a.2) inlining would lead to illegal access errors.
      *
      * @param ha
-     *           allows finding out the stack depth and stack-slot-sizes at the callsite in host (callsite targeting callee)
+     *           allows finding out the stack depth and stack-slot-sizes at the callsite of interest in the host method
      * @param hostOwner
      *                  the internal name of the class declaring the host method
      * @param host
@@ -1395,21 +1395,28 @@ abstract class BCodeOpt extends BCodeTypes {
      *         true iff inlining was actually performed.
      *
      */
-    private def inlineMethod(ha: Analyzer[BasicValue], hostOwner: String, host: MethodNode, callsite: MethodInsnNode, callee: MethodNode): Boolean = {
+    private def inlineMethod(ha:        Analyzer[BasicValue],
+                             hostOwner: String,
+                             host:      MethodNode,
+                             callsite:  MethodInsnNode,
+                             callee:    MethodNode): Boolean = {
+
       assert(host.instructions.contains(callsite))
       assert(callee != null)
+      assert(callsite.name == callee.name)
+      assert(callsite.desc == callee.desc)
 
       /*
        * The first situation (a.1) under which method-inlining is unfeasible: In case both conditions below hold:
        *   (a.1.i ) the operand stack may be cleared in the callee, and
        *   (a.1.ii) the stack at the callsite in host contains more values than args expected by the callee.
        *
-       *   Alternatively, additional STORE instructions could be inserted to park those extra values while the inlined body executes,
-       *   but the overhead doesn't make it worth the effort.
+       * Alternatively, additional STORE instructions could be inserted to park those extra values while the inlined body executes,
+       * but the overhead doesn't make it worth the effort.
        */
-      val stackHeight  = ha.frameAt(callsite).getStackSize
-      val expectedArgs = Util.expectedArgs(callsite)
       if(!callee.tryCatchBlocks.isEmpty) {
+        val stackHeight       = ha.frameAt(callsite).getStackSize
+        val expectedArgs: Int = Util.expectedArgs(callsite)
         if(stackHeight > expectedArgs) {
           // TODO warning()
           return false
@@ -1441,142 +1448,7 @@ abstract class BCodeOpt extends BCodeTypes {
        */
       codeRepo.enterExemplarsForUnseenTypeNames(body)
 
-            /**
-             *
-             * The second situation (a.2) under which method-inlining is unfeasible:
-             *   In case access control doesn't give green light.
-             *   Otherwise a java.lang.IllegalAccessError would be thrown at runtime.
-             *
-             * Quoting from the JVMS (our terminology: `there` stands for `C`; `here` for `D`):
-             *
-             *  5.4.4 Access Control
-             *
-             *  A class or interface C is accessible to a class or interface D if and only if either of the following conditions is true:
-             *    (cond A1) C is public.
-             *    (cond A2) C and D are members of the same runtime package (Sec 5.3).
-             *
-             *  A field or method R is accessible to a class or interface D if and only if any of the following conditions are true:
-             *    (cond B1) R is public.
-             *    (cond B2) R is protected and is declared in a class C, and D is either a subclass of C or C itself.
-             *              Furthermore, if R is not static, then the symbolic reference to R
-             *              must contain a symbolic reference to a class T, such that T is either a subclass
-             *              of D, a superclass of D or D itself.
-             *    (cond B3) R is either protected or has default access (that is, neither public nor
-             *              protected nor private), and is declared by a class in the same runtime package as D.
-             *    (cond B4) R is private and is declared in D.
-             *
-             *  This discussion of access control omits a related restriction on the target of a
-             *  protected field access or method invocation (the target must be of class D or a
-             *  subtype of D). That requirement is checked as part of the verification process
-             *  (Sec 5.4.1); it is not part of link-time access control.
-             *
-             */
-            def allAccessesLegal(): Boolean = {
-
-              val here = lookupRefBType(hostOwner)
-
-                  def isAccessible(there: BType): Boolean = {
-                    if(!there.isNonSpecial) true
-                    else if (there.isArray) isAccessible(there.getElementType)
-                    else {
-                      assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
-                      (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
-                    }
-                  }
-
-                  /**
-                   * @return whether the first argument is a subtype of the second, or both are the same BType.
-                   */
-                  def isSubtypeOrSame(a: BType, b: BType): Boolean = {
-                    (a == b) || {
-                      val ax = exemplars.get(a)
-                      val bx = exemplars.get(b)
-
-                      (ax != null) && (bx != null) && ax.isSubtypeOf(b)
-                    }
-                  }
-
-                  /**
-                   * Furthermore, if R is not static, then the symbolic reference to R
-                   * must contain a symbolic reference to a class T, such that T is either a subclass
-                   * of D, a superclass of D or D itself.
-                   */
-                  def sameLineage(thereSymRef: BType): Boolean = {
-                    (thereSymRef == here) ||
-                    isSubtypeOrSame(thereSymRef, here) ||
-                    isSubtypeOrSame(here, thereSymRef)
-                  }
-
-                  def samePackageAsHere(there: BType): Boolean = { there.getRuntimePackage == here.getRuntimePackage }
-
-                  def memberAccess(flags: Int, thereOwner: BType, thereSymRef: BType) = {
-                    val key = { (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE) & flags }
-                    key match {
-
-                      case 0 /* default access */ => // (cond B3)
-                        samePackageAsHere(thereOwner)
-
-                      case Opcodes.ACC_PUBLIC     => // (cond B1)
-                        true
-
-                      case Opcodes.ACC_PROTECTED  =>
-                        // (cond B2)
-                        val condB2 = isSubtypeOrSame(here, thereOwner) && {
-                          val isStatic = ((Opcodes.ACC_STATIC & flags) != 0)
-                          isStatic || sameLineage(thereSymRef)
-                        }
-                        condB2 || samePackageAsHere(thereOwner)
-
-                      case Opcodes.ACC_PRIVATE    => // (cond B4)
-                        (thereOwner == here)
-                    }
-                  }
-
-              val iter = body.iterator()
-              while(iter.hasNext) {
-                val insn    = iter.next()
-                val isLegal = insn match {
-
-                  case ti: TypeInsnNode  => isAccessible(lookupRefBType(ti.desc))
-
-                  case fi: FieldInsnNode =>
-                    val fowner: BType = lookupRefBType(fi.owner)
-                    val fn: FieldNode = codeRepo.getFieldOrNull(fowner, fi.name, fi.desc)
-                    (fn != null) && memberAccess(fn.access, fowner, fowner)
-
-                  case mi: MethodInsnNode =>
-                    val thereSymRef: BType  = lookupRefBType(mi.owner)
-                    val mnAndOwner = codeRepo.getMethodOrNull(thereSymRef, mi.name, mi.desc) // TODO look up in superclasses too
-                    (mnAndOwner != null) && {
-                      val MethodNodeAndOwner(mn, thereClassNode) = mnAndOwner
-                      val thereOwner = lookupRefBType(thereClassNode.name)
-                      memberAccess(mn.access, thereOwner, thereSymRef)
-                    }
-
-                  case ivd: InvokeDynamicInsnNode => false // TODO
-
-                  case ci: LdcInsnNode =>
-                    ci.cst match {
-                      case t: asm.Type => isAccessible(lookupRefBType(t.getInternalName))
-                      case _           => true
-                    }
-
-                  case ma: MultiANewArrayInsnNode =>
-                    val et = descrToBType(ma.desc).getElementType
-                    if(et.hasObjectSort) isAccessible(et)
-                    else true
-
-                  case _ => true
-                }
-                if(!isLegal) {
-                  return false
-                }
-              }
-
-              true
-            }
-
-      if(!allAccessesLegal()) {
+      if(!allAccessesLegal(body, lookupRefBType(hostOwner))) {
         // TODO warning()
         return false
       }
@@ -1682,6 +1554,143 @@ abstract class BCodeOpt extends BCodeTypes {
       true
 
     } // end of method inlineMethod()
+
+    /**
+     * The second situation (a.2) under which method-inlining is unfeasible:
+     *   In case access control doesn't give green light.
+     *   Otherwise a java.lang.IllegalAccessError would be thrown at runtime.
+     *
+     * Quoting from the JVMS (our terminology: `there` stands for `C`; `here` for `D`):
+     *
+     *  5.4.4 Access Control
+     *
+     *  A class or interface C is accessible to a class or interface D if and only if either of the following conditions is true:
+     *    (cond A1) C is public.
+     *    (cond A2) C and D are members of the same runtime package (Sec 5.3).
+     *
+     *  A field or method R is accessible to a class or interface D if and only if any of the following conditions are true:
+     *    (cond B1) R is public.
+     *    (cond B2) R is protected and is declared in a class C, and D is either a subclass of C or C itself.
+     *              Furthermore, if R is not static, then the symbolic reference to R
+     *              must contain a symbolic reference to a class T, such that T is either a subclass
+     *              of D, a superclass of D or D itself.
+     *    (cond B3) R is either protected or has default access (that is, neither public nor
+     *              protected nor private), and is declared by a class in the same runtime package as D.
+     *    (cond B4) R is private and is declared in D.
+     *
+     *  This discussion of access control omits a related restriction on the target of a
+     *  protected field access or method invocation (the target must be of class D or a
+     *  subtype of D). That requirement is checked as part of the verification process
+     *  (Sec 5.4.1); it is not part of link-time access control.
+     *
+     *  @param body
+     *              instructions that will be inlined in a method in class `here`
+     *  @param here
+     *              class from which accesses given by `body` will take place.
+     *
+     */
+    private def allAccessesLegal(body: InsnList, here: BType): Boolean = {
+
+          def isAccessible(there: BType): Boolean = {
+            if(!there.isNonSpecial) true
+            else if (there.isArray) isAccessible(there.getElementType)
+            else {
+              assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
+              (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
+            }
+          }
+
+          /**
+           * @return whether the first argument is a subtype of the second, or both are the same BType.
+           */
+          def isSubtypeOrSame(a: BType, b: BType): Boolean = {
+            (a == b) || {
+              val ax = exemplars.get(a)
+              val bx = exemplars.get(b)
+
+              (ax != null) && (bx != null) && ax.isSubtypeOf(b)
+            }
+          }
+
+          /**
+           * Furthermore, if R is not static, then the symbolic reference to R
+           * must contain a symbolic reference to a class T, such that T is either a subclass
+           * of D, a superclass of D or D itself.
+           */
+          def sameLineage(thereSymRef: BType): Boolean = {
+            (thereSymRef == here) ||
+            isSubtypeOrSame(thereSymRef, here) ||
+            isSubtypeOrSame(here, thereSymRef)
+          }
+
+          def samePackageAsHere(there: BType): Boolean = { there.getRuntimePackage == here.getRuntimePackage }
+
+          def memberAccess(flags: Int, thereOwner: BType, thereSymRef: BType) = {
+            val key = { (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE) & flags }
+            key match {
+
+              case 0 /* default access */ => // (cond B3)
+                samePackageAsHere(thereOwner)
+
+              case Opcodes.ACC_PUBLIC     => // (cond B1)
+                true
+
+              case Opcodes.ACC_PROTECTED  =>
+                // (cond B2)
+                val condB2 = isSubtypeOrSame(here, thereOwner) && {
+                  val isStatic = ((Opcodes.ACC_STATIC & flags) != 0)
+                  isStatic || sameLineage(thereSymRef)
+                }
+                condB2 || samePackageAsHere(thereOwner)
+
+              case Opcodes.ACC_PRIVATE    => // (cond B4)
+                (thereOwner == here)
+            }
+          }
+
+      val iter = body.iterator()
+      while(iter.hasNext) {
+        val insn    = iter.next()
+        val isLegal = insn match {
+
+          case ti: TypeInsnNode  => isAccessible(lookupRefBType(ti.desc))
+
+          case fi: FieldInsnNode =>
+            val fowner: BType = lookupRefBType(fi.owner)
+            val fn: FieldNode = codeRepo.getFieldOrNull(fowner, fi.name, fi.desc)
+            (fn != null) && memberAccess(fn.access, fowner, fowner)
+
+          case mi: MethodInsnNode =>
+            val thereSymRef: BType  = lookupRefBType(mi.owner)
+            val mnAndOwner = codeRepo.getMethodOrNull(thereSymRef, mi.name, mi.desc) // TODO look up in superclasses too
+            (mnAndOwner != null) && {
+              val MethodNodeAndOwner(mn, thereClassNode) = mnAndOwner
+              val thereOwner = lookupRefBType(thereClassNode.name)
+              memberAccess(mn.access, thereOwner, thereSymRef)
+            }
+
+          case ivd: InvokeDynamicInsnNode => false // TODO
+
+          case ci: LdcInsnNode =>
+            ci.cst match {
+              case t: asm.Type => isAccessible(lookupRefBType(t.getInternalName))
+              case _           => true
+            }
+
+          case ma: MultiANewArrayInsnNode =>
+            val et = descrToBType(ma.desc).getElementType
+            if(et.hasObjectSort) isAccessible(et)
+            else true
+
+          case _ => true
+        }
+        if(!isLegal) {
+          return false
+        }
+      }
+
+      true
+    } // end of method allAccessesLegal()
 
   } // end of class WholeProgramAnalysis
 
