@@ -1490,14 +1490,19 @@ trait Infer extends Checkable {
      *  If several alternatives match `pt`, take parameterless one.
      *  If no alternative matches `pt`, take the parameterless one anyway.
      */
-    def inferExprAlternative(tree: Tree, pt: Type) = tree.tpe match {
-      case OverloadedType(pre, alts) => tryTwice { isSecondTry =>
-        val alts0 = alts filter (alt => isWeaklyCompatible(pre.memberType(alt), pt))
-        val alts1 = if (alts0.isEmpty) alts else alts0
+    def inferExprAlternative(tree: Tree, pt: Type) = {
+
+      // TODO workaround for a (probably lambdalift-related) unexpected behavior.
+      // TODO In the original code, the capture of OverloadedType's pre and alternatives in the closure (that tryTwice consumes) wasn't ok.
+      val ot = tree.tpe.asInstanceOf[OverloadedType]
+
+      tryTwice { isSecondTry =>
+        val alts0 = ot.alternatives.filter(alt => isWeaklyCompatible(ot.pre.memberType(alt), pt))
+        val alts1 = if (alts0.isEmpty) ot.alternatives else alts0
 
         val bests = bestAlternatives(alts1) { (sym1, sym2) =>
-          val tp1 = pre.memberType(sym1)
-          val tp2 = pre.memberType(sym2)
+          val tp1 = ot.pre.memberType(sym1)
+          val tp2 = ot.pre.memberType(sym2)
 
           (    tp2 == ErrorType
             || (!isWeaklyCompatible(tp2, pt) && isWeaklyCompatible(tp1, pt))
@@ -1506,11 +1511,12 @@ trait Infer extends Checkable {
         }
         // todo: missing test case for bests.isEmpty
         bests match {
-          case best :: Nil                              => tree setSymbol best setType (pre memberType best)
-          case best :: competing :: _ if alts0.nonEmpty => if (!pt.isErroneous) AmbiguousExprAlternativeError(tree, pre, best, competing, pt, isSecondTry)
+          case best :: Nil                              => tree setSymbol best setType (ot.pre memberType best)
+          case best :: competing :: _ if alts0.nonEmpty => if (!pt.isErroneous) AmbiguousExprAlternativeError(tree, ot.pre, best, competing, pt, isSecondTry)
           case _                                        => if (bests.isEmpty || alts0.isEmpty) NoBestExprAlternativeError(tree, pt, isSecondTry)
         }
       }
+
     }
 
     @inline private def inSilentMode(context: Context)(expr: => Boolean): Boolean = {
