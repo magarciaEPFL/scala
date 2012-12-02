@@ -1365,25 +1365,44 @@ abstract class BCodeOpt extends BCodeTypes {
     } // end of method inlining()
 
     /**
-     * Inlining is considered unfeasible in two cases, summarized below and described in more detail later:
-     *   (1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
-     *   (2) inlining would lead to illegal access errors.
+     * This method takes care of all the little details around inlining the callee's instructions at a callsite located in a `host` method.
+     * Those details boil down to:
+     *   (a) checking whether inlining is feasible. If unfeasible, don't touch anything and return false.
+     *   (b) replacing the callsite with:
+     *       STORE instructions for expected arguments,
+     *       callee instructions adapted to their new environment
+     *         (accesses to local-vars shifted,
+     *          RETURNs replaced by jumps to the single-exit of the inlined instructions,
+     *          without forgetting to empty all the stack slots except stack-top right before jumping)
+     *   (c) copying over the debug info from the callee's
+     *   (d) re-computing the maxLocals and maxStack of the host method.
+     *   (e) return true.
      *
-     * @param ha allows finding out the stack depth and stack-slot-sizes at the callsite in host (callsite targeting callee)
-     * @param hostOwner the internal name of the class declaring the host method
-     * @param host the method containing a callsite for which inlining has been requested
-     * @param callsite the invocation to inline, provided it's feasible to do so.
+     * Inlining is considered unfeasible in two cases, summarized below and described in more detail on the spot:
+     *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
+     *   (a.2) inlining would lead to illegal access errors.
      *
-     * @return true iff inlining was actually performed.
+     * @param ha
+     *           allows finding out the stack depth and stack-slot-sizes at the callsite in host (callsite targeting callee)
+     * @param hostOwner
+     *                  the internal name of the class declaring the host method
+     * @param host
+     *             the method containing a callsite for which inlining has been requested
+     * @param callsite
+     *                 the invocation whose inlining is requested.
+     *
+     * @return
+     *         true iff inlining was actually performed.
+     *
      */
     private def inlineMethod(ha: Analyzer[BasicValue], hostOwner: String, host: MethodNode, callsite: MethodInsnNode, callee: MethodNode): Boolean = {
       assert(host.instructions.contains(callsite))
       assert(callee != null)
 
       /*
-       * Inlining unfeasible in case both (1.a) and (1.b) hold:
-       *   (1.a) the operand stack may be cleared in the callee, and
-       *   (1.b) the stack at the callsite in host contains more values than args expected by the callee.
+       * The first situation (a.1) under which method-inlining is unfeasible: In case both conditions below hold:
+       *   (a.1.i ) the operand stack may be cleared in the callee, and
+       *   (a.1.ii) the stack at the callsite in host contains more values than args expected by the callee.
        *
        *   Alternatively, additional STORE instructions could be inserted to park those extra values while the inlined body executes,
        *   but the overhead doesn't make it worth the effort.
@@ -1398,29 +1417,35 @@ abstract class BCodeOpt extends BCodeTypes {
         assert(stackHeight == expectedArgs)
       }
 
-      // cloning of instructions in ASM presupposes a map has been built to guide old-LabelNode -> new-LabelNode replacements.
+      // instruction cloning requires the following map to consistently replace new for old LabelNodes.
       val labelMap = Util.clonedLabels(callee)
 
-      // the list of instructions to replace the callsite instruction
+      // the list where all instructions to replace the callsite are to be collected.
       val insnMap = new java.util.HashMap[AbstractInsnNode, AbstractInsnNode]()
       val body    = Util.clonedInsns(callee.instructions, labelMap, insnMap)
 
       /*
        * In general callee.instructions and bodyInsns aren't same size,
-       * because calleeInsns may contain FrameNodes which weren't cloned into body.
-       * The safest way to find a cloned instruction is via `insnMap`
+       * for example because calleeInsns may contain FrameNodes which weren't cloned into body.
+       * Therefore, don't try to match up original and cloned instructions by position!
+       * Instead, `insnMap` is a safe way to find a cloned instruction using the original as key.
        */
       val bodyInsns   = body.toArray
 
       /*
-       * The callee's instructions have to be scanned to enter TypeNames for any type descriptor that might be present
-       * and hasn't been seen in the program being compiled.
+       * In case the callee has been parsed from bytecode, its instructions may refer to type descriptors
+       * that as of yet lack a corresponding TypeName in Names.chrs
+       * (the GenBCode infrastructure standardizes on TypeNames for lookups, thus we need to create them).
+       * Therefore, the callee's instructions are scanned to enter TypeNames
+       * for any type descriptor or internal name not yet encountered while emitting bytecode for the program being compiled.
        */
       codeRepo.enterExemplarsForUnseenTypeNames(body)
 
             /**
-             * In case access control doesn't give green light, inlining is unfeasible.
-             * Otherwise a java.lang.IllegalAccessError will occur at runtime.
+             *
+             * The second situation (a.2) under which method-inlining is unfeasible:
+             *   In case access control doesn't give green light.
+             *   Otherwise a java.lang.IllegalAccessError would be thrown at runtime.
              *
              * Quoting from the JVMS (our terminology: `there` stands for `C`; `here` for `D`):
              *
@@ -1565,7 +1590,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
       val calleeMethodType = BType.getMethodType(callee.desc)
 
-      // add a STORE instruction for each expected argument, including THIS instance if any.
+      // add a STORE instruction for each expected argument, including for THIS instance if any.
       val argStores   = new InsnList
       var nxtLocalIdx = host.maxLocals
       if(Util.isInstanceMethod(callee)) {
