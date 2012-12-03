@@ -1006,9 +1006,8 @@ abstract class BCodeOpt extends BCodeTypes {
     val parsed  = new java.util.concurrent.ConcurrentHashMap[BType, asm.tree.ClassNode]
     val classes = new java.util.concurrent.ConcurrentHashMap[BType, asm.tree.ClassNode]
 
-    def contains(bt: BType): Boolean = {
-      val res = (classes.contains(bt) || parsed.contains(bt))
-      assert(res == exemplars.contains(bt))
+    def containsKey(bt: BType): Boolean = {
+      val res = (classes.containsKey(bt) || parsed.containsKey(bt))
 
       res
     }
@@ -1036,7 +1035,7 @@ abstract class BCodeOpt extends BCodeTypes {
      * must-single-thread
      */
     def getField(bt: BType, name: String, desc: String): FieldNode = {
-      val cn = getClass(bt)
+      val cn = getClassNode(bt)
       val iter = cn.fields.iterator()
       while(iter.hasNext) {
         val fn = iter.next()
@@ -1062,7 +1061,7 @@ abstract class BCodeOpt extends BCodeTypes {
       var current = bt
 
       while(current != null) {
-        val cn = getClass(current)
+        val cn = getClassNode(current)
         val iter = cn.methods.iterator()
         while(iter.hasNext) {
           val mn = iter.next()
@@ -1077,12 +1076,20 @@ abstract class BCodeOpt extends BCodeTypes {
     }
 
     /** must-single-thread */
-    def getClass(owner: String): asm.tree.ClassNode = {
-      getClass(brefType(owner))
+    def getClassNode(owner: String): asm.tree.ClassNode = {
+      getClassNode(brefType(owner))
     }
 
-    /** must-single-thread */
-    def getClass(bt: BType): asm.tree.ClassNode = {
+    /**
+     *  Returns the ASM ClassNode for a class that's being compiled or that's going to be parsed from external bytecode.
+     *
+     *  After this method has run, the following two post-conditions hold:
+     *    - `exemplars.containsKey(bt)`
+     *    - `codeRepo.containsKey(bt)`
+     *
+     *  must-single-thread
+     */
+    def getClassNode(bt: BType): asm.tree.ClassNode = {
       var res = classes.get(bt)
       if(res == null) {
         res = parsed.get(bt)
@@ -1090,15 +1097,18 @@ abstract class BCodeOpt extends BCodeTypes {
           res = parseClassAndEnterExemplar(bt)
         }
       }
+      assert(exemplars.containsKey(bt))
       res
     }
 
     /**
      *  A few analyses (e.g., Type-Flow Analysis) require `exemplars` to contain entries for all classes the analysis encounters.
-     *  A class that's being compiled in this run has already a Tracked instance (GenBCode took care of that).
+     *  A class that's being compiled in this is already associated to a Tracked instance (GenBCode took care of that).
      *  For a class `bt` mentioned in external bytecode, this method takes care of creating the necessary entry in `exemplars`.
      *
-     *  After this method has run, `exemplars(bt)` provides a Tracked instance describing the superclass, interfaces, and innersChain of `bt`.
+     *  After this method has run the following two post-conditions hold:
+     *    - `exemplars.containsKey(bt)`
+     *    - `codeRepo.parsed.containsKey(bt)`
      *
      *  @param bt a "normal" class (see `BType.isNonSpecial`) for which an entry in `exemplars` should be added if not yet there.
      *
@@ -1108,11 +1118,11 @@ abstract class BCodeOpt extends BCodeTypes {
      */
     def parseClassAndEnterExemplar(bt: BType): ClassNode = {
       assert(bt.isNonSpecial, "The `exemplars` map is supposed to hold ''normal'' classes only, not " + bt.getInternalName)
-      assert(!contains(bt),   "codeRepo already contains " + bt.getInternalName)
+      assert(!containsKey(bt),   "codeRepo already contains " + bt.getInternalName)
 
           /** must-single-thread */
           def parseClass(): asm.tree.ClassNode = {
-            assert(!contains(bt))
+            assert(!containsKey(bt))
             val iname   = bt.getInternalName
             val dotName = iname.replace('/', '.')
             classPath.findSourceFile(dotName) match {

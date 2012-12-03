@@ -766,7 +766,7 @@ abstract class GenBCode extends BCodeOpt {
 
         if(isInterProcOptimizOn) {
           val bt = lookupRefBType(cnode.name)
-          assert(!codeRepo.contains(bt))
+          assert(!codeRepo.containsKey(bt))
           codeRepo.classes.put(bt, cnode)
         }
 
