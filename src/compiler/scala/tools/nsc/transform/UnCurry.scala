@@ -300,14 +300,17 @@ abstract class UnCurry extends InfoTransform
      *  are prompted to add formal-params to convey values captured from the lexical environment.
      *  This amounts to 'scalar replacement of aggregates' that cuts down on heap-hops over outer() methods.
      *
-     *  TODO In case the closure-body captures nothing, it need not be hoisted out of the closure.
-     *
-     *  TODO SI-6666 , SI-6727 (pos/z1730)
-     *
-     *  Not a bug but beware: SI-6730
+     *  TODO SI-6666 , SI-6727 (pos/z1730) . Also: not a bug but beware: SI-6730
      *
      *  If `settings.XoldPatmat.value`, also synthesized AbstractPartialFunction subclasses (see synthPartialFunction).
      *
+     *  TODO In case the closure-body captures nothing, it need not be hoisted out of the closure.
+     *
+     *  TODO Related approach: https://github.com/retronym/scala/compare/topic/closure-sharing
+     *       Why not constrain isSafeToUseConstantFunction to just Function whose apply()'s body has constant type?
+     *       Useful e.g. with assert(cond, msg) when msg is string literal
+     *       (otherwise, the anon-closure-class refers to the enclosing method, which refers to inner classes chain, not to mention the ConstantPool grows, etc.)
+      *
      */
     def closureConversionMethodHandle(fun: Function): Tree = {
       val parents = (

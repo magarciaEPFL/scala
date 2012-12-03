@@ -26,10 +26,6 @@ import collection.convert.Wrappers.JListWrapper
  *
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
- *  TODO https://github.com/retronym/scala/compare/topic/closure-sharing
- *       Why not constrain isSafeToUseConstantFunction to just Function whose apply()'s body has constant type?
- *       Useful e.g. with assert(cond, msg) when msg is string literal
- *       (otherwise, the anon-closure-class refers to the enclosing method, which refers to inner classes chain, not to mention the ConstantPool grows, etc.)
  */
 abstract class BCodeOpt extends BCodeTypes {
 
@@ -1478,7 +1474,7 @@ abstract class BCodeOpt extends BCodeTypes {
         return false
       }
 
-      // From this point on it's a done deal that method-inlining will be performed. There's no going back.
+      // By now it's a done deal that method-inlining will be performed. There's no going back.
 
       // each local-var access in `body` is shifted host.maxLocals places
       for(bodyInsn <- bodyInsns; if bodyInsn.getType == AbstractInsnNode.VAR_INSN) {
