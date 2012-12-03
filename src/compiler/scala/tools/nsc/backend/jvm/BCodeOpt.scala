@@ -1190,10 +1190,10 @@ abstract class BCodeOpt extends BCodeTypes {
      *  fabricating a Tracked instance for them (if needed by parsing bytecode,
      *  thus the location of this method as utility in codeRepo).
      *
-     *  Besides their use as keys in the `exemplars` map, BType instances are needed
-     * to support conversions in the directions:
-     *   from type-descriptor to BType, via `BCodeTypes.descrToBType()`
-     *   from internal-name   to BType, via `BCodeTypes.lookupRefBType()`
+     *  Without a TypeName for an internal name or method descriptor, the following conversions can't be performed:
+     *    from type-descriptor to BType, via `BCodeTypes.descrToBType()`
+     *    from internal-name   to BType, via `BCodeTypes.lookupRefBType()`
+     *  In turn, BTypes are indispensable as keys to the `exemplars` map.
      */
     def enterExemplarsForUnseenTypeNames(insns: InsnList) {
 
@@ -1440,9 +1440,8 @@ abstract class BCodeOpt extends BCodeTypes {
       /*
        * In case the callee has been parsed from bytecode, its instructions may refer to type descriptors and internal names
        * that as of yet lack a corresponding TypeName in Names.chrs
-       * (the GenBCode infrastructure standardizes on TypeNames for lookups,
-       *  thus we need to create TypeNames for those descriptors and internal names).
-       * The utility below takes care of that.
+       * (the GenBCode infrastructure standardizes on TypeNames for lookups.
+       * The utility below takes care of creating TypeNames for those descriptors and internal names.
        * Even if inlining proves unfeasible, those TypeNames won't cause any harm.
        *
        * TODO why weren't those TypeNames entered as part of parsing callee from bytecode? After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
