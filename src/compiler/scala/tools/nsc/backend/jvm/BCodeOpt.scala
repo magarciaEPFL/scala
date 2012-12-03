@@ -1093,9 +1093,22 @@ abstract class BCodeOpt extends BCodeTypes {
       res
     }
 
+    /**
+     *  A few analyses (e.g., Type-Flow Analysis) require `exemplars` to contain entries for all classes the analysis encounters.
+     *  A class that's being compiled in this run has already a Tracked instance (GenBCode took care of that).
+     *  For a class `bt` mentioned in external bytecode, this method takes care of creating the necessary entry in `exemplars`.
+     *
+     *  After this method has run, `exemplars(bt)` provides a Tracked instance describing the superclass, interfaces, and innersChain of `bt`.
+     *
+     *  @param bt a "normal" class (see `BType.isNonSpecial`) for which an entry in `exemplars` should be added if not yet there.
+     *
+     *  @return   the ASM ClassNode after parsing the argument from external bytecode.
+     *
+     *  must-single-thread
+     */
     def parseClassAndEnterExemplar(bt: BType): ClassNode = {
-      assert(bt.isNonSpecial, "isNonSpecial failed for " + bt.getInternalName)
-      assert(!contains(bt), "codeRepo contains " + bt.getInternalName)
+      assert(bt.isNonSpecial, "The `exemplars` map is supposed to hold ''normal'' classes only, not " + bt.getInternalName)
+      assert(!contains(bt),   "codeRepo already contains " + bt.getInternalName)
 
           /** must-single-thread */
           def parseClass(): asm.tree.ClassNode = {
@@ -1194,6 +1207,8 @@ abstract class BCodeOpt extends BCodeTypes {
      *    from type-descriptor to BType, via `BCodeTypes.descrToBType()`
      *    from internal-name   to BType, via `BCodeTypes.lookupRefBType()`
      *  In turn, BTypes are indispensable as keys to the `exemplars` map.
+     *
+     *  must-single-thread
      */
     def enterExemplarsForUnseenTypeNames(insns: InsnList) {
 
