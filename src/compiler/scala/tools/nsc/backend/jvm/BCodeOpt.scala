@@ -208,11 +208,19 @@ abstract class BCodeOpt extends BCodeTypes {
     /**
      * One of the intra-method optimizations (dead-code elimination)
      * and a few of the inter-procedural ones (inlining)
-     * may have caused the InnerClass JVM attribute to have become stale
+     * may have caused the InnerClass JVM attribute to become stale
      * (e.g. some inner classes that were mentioned aren't anymore,
      * or inlining added instructions referring to inner classes not yet accounted for)
      *
      * This method takes care of SI-6546 Optimizer leaves references to classes that have been eliminated by inlining
+     *
+     * TODO SI-6759 Seek clarification about necessary and sufficient conditions to be listed in InnerClasses JVM attribute (GenASM).
+     * The JVM spec states in Sec. 4.7.6 that
+     *   for each CONSTANT_Class_info (constant-pool entry) which represents a class or interface that is not a member of a package
+     * an entry should be made in the class' InnerClasses JVM attribute.
+     * According to the above, the mere fact an inner class is mentioned in, for example, an annotation
+     * wouldn't be reason enough for adding it to the InnerClasses JVM attribute.
+     * However that's what GenASM does. Instead, this method scans only those internal names that will make it to a CONSTANT_Class_info.
      */
     private def refreshInnerClasses(cnode: ClassNode) {
 
