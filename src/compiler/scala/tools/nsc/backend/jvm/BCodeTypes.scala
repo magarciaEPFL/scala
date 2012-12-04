@@ -424,6 +424,19 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
+     * @return the suffix of the internal name until the last '/' (if '/' present), internal name otherwise.
+     *
+     * can-multi-thread
+     **/
+    def getSimpleName: String = {
+      assert(hasObjectSort, "not of object sort: " + toString)
+      val iname = getInternalName
+      val idx = iname.lastIndexOf('/')
+      if(idx == -1) iname
+      else iname.substring(idx + 1)
+    }
+
+    /**
      * Returns the argument types of methods of this type.
      * This method should only be used for method types.
      *
@@ -1011,6 +1024,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isSuper      = hasFlags(ACC_SUPER)
     def isDeprecated = hasFlags(ACC_DEPRECATED)
     def isInnerClass = { innersChain != null }
+    def isClosureClass = {
+      isInnerClass && isFinal && isFunctionType(c) && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString))
+    }
 
     /** can-multi-thread */
     def superClasses: List[Tracked] = {
@@ -2804,7 +2820,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
               if (!sym0.isPackageClass) sym0
               else sym0.info.member(nme.PACKAGE) match {
                 case NoSymbol => assert(false, "Cannot use package as value: " + sym0.fullName) ; NoSymbol
-                case s        => debugwarn("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
+                case s        => devWarning("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
               }
             )
 

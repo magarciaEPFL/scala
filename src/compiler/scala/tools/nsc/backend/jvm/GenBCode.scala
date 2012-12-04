@@ -2232,7 +2232,7 @@ abstract class GenBCode extends BCodeOpt {
           if (!tree.symbol.isPackageClass) tree.symbol
           else tree.symbol.info.member(nme.PACKAGE) match {
             case NoSymbol => assert(false, "Cannot use package as value: " + tree) ; NoSymbol
-            case s        => debugwarn("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
+            case s        => devWarning("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
           }
         )
         lineNumber(tree)

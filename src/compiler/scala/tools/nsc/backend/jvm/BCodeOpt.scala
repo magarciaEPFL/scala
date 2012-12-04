@@ -1292,10 +1292,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
     /**
      *  Performs closure-inlining and method-inlining, by first breaking any cycles over the "inlined-into" relation (see `object dagset`).
-     *  Afterwards, method-inlining is done in:
-     *     def inlineMethod(ha: Analyzer[BasicValue], host: MethodNode, callsite: MethodInsnNode, callee: MethodNode): Boolean
-     *  And closure-inlining is done in:
-     *     TODO
+     *  Afterwards, `inlineMethod(...)` takes care of method-inlining, and `inlineClosures(..)` of closure-inlining.
      */
     def inlining() {
 
@@ -1369,80 +1366,73 @@ abstract class BCodeOpt extends BCodeTypes {
         val leaves = remaining.filter( cgn => cgn.candidates.forall( c => !mn2cgn.contains(c.callee) || !remaining.contains(mn2cgn(c.callee)) ) )
         assert(leaves.nonEmpty, "Otherwise loop forever")
 
-        for(leaf <- leaves) {
-
-          // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
-
-          //----------------------------------------------------------------------
-          // Part 0 of 2: Type-Flow Analysis to determine non-nullness of receiver
-          //----------------------------------------------------------------------
-          val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
-          tfa.analyze(leaf.hostOwner.name, leaf.host)
-          // looking up in array `frames` using the whatever-then-current index of `insn` would assume the instruction list hasn't changed.
-          // while in general after adding or removing instructions an analysis should be re-run,
-          // for the purposes of inlining it's ok to have at hand for a callsite its frame as it was when the analysis was computed.
-          val tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]] = {
-            leaf.candidates.map(it => it.callsite -> tfa.frameAt(it.callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]).toMap
-          }
-
-          //-----------------------------
-          // Part 1 of 2: method-inlining
-          //-----------------------------
-          leaf.procs foreach { proc =>
-
-            val frame = tfaFrameAt(proc.callsite)
-
-            if(isReceiverKnownNonNull(frame, proc.callsite)) {
-
-              inlineMethod(
-                leaf.hostOwner.name,
-                leaf.host,
-                proc.callsite,
-                frame,
-                proc.callee
-              )
-
-            } else {
-              // TODO warn
-            }
-
-          }
-          leaf.procs = Nil
-
-          //------------------------------
-          // Part 2 of 2: closure-inlining
-          //------------------------------
-          leaf.hiOs foreach { hiO =>
-
-            val frame = tfaFrameAt(hiO.callsite)
-
-            if(isReceiverKnownNonNull(frame, hiO.callsite)) {
-
-              inlineClosures(
-                leaf.hostOwner.name,
-                leaf.host,
-                hiO.callsite,
-                frame,
-                hiO.callee,
-                hiO.owner
-              )
-
-            } else {
-              // TODO warn
-            }
-
-          }
-          leaf.hiOs = Nil
-
-          // debug
-          val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
-          da.analyze(leaf.hostOwner.name, leaf.host)
-        }
+        leaves foreach { leaf  => inlineCallees(leaf) }
 
         remaining --= leaves
       }
 
     } // end of method inlining()
+
+    /**
+     *
+     */
+    private def inlineCallees(leaf: CallGraphNode) {
+
+      // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
+
+      //----------------------------------------------------------------------
+      // Part 0 of 2: Type-Flow Analysis to determine non-nullness of receiver
+      //----------------------------------------------------------------------
+      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+      tfa.analyze(leaf.hostOwner.name, leaf.host)
+      // looking up in array `frames` using the whatever-then-current index of `insn` would assume the instruction list hasn't changed.
+      // while in general after adding or removing instructions an analysis should be re-run,
+      // for the purposes of inlining it's ok to have at hand for a callsite its frame as it was when the analysis was computed.
+      val tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]] = {
+        leaf.candidates.map(it => it.callsite -> tfa.frameAt(it.callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]).toMap
+      }
+
+      //-----------------------------
+      // Part 1 of 2: method-inlining
+      //-----------------------------
+      leaf.procs foreach { proc =>
+
+        val frame = tfaFrameAt(proc.callsite)
+
+        inlineMethod(
+          leaf.hostOwner.name,
+          leaf.host,
+          proc.callsite,
+          frame,
+          proc.callee
+        )
+
+      }
+      leaf.procs = Nil
+
+      //------------------------------
+      // Part 2 of 2: closure-inlining
+      //------------------------------
+      leaf.hiOs foreach { hiO =>
+
+        val frame = tfaFrameAt(hiO.callsite)
+
+        inlineClosures(
+          leaf.hostOwner.name,
+          leaf.host,
+          hiO.callsite,
+          frame,
+          hiO.callee,
+          hiO.owner
+        )
+
+      }
+      leaf.hiOs = Nil
+
+      // debug
+      val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
+      da.analyze(leaf.hostOwner.name, leaf.host)
+    }
 
     /**
      * SI-5850: Inlined code shouldn't forget null-check on the original receiver
@@ -1489,7 +1479,9 @@ abstract class BCodeOpt extends BCodeTypes {
 
       // TODO: closure-inlining
 
-      false
+      logSuccessfulInlining(hostOwner, host, callsite, isReceiverKnownNonNull(frame, callsite))
+
+      false // TODO
     }
 
     /**
@@ -1676,9 +1668,24 @@ abstract class BCodeOpt extends BCodeTypes {
       Util.computeMaxLocalsMaxStack(host)
       assert(host.maxLocals >= nxtLocalIdx) // TODO why not == ?
 
+      logSuccessfulInlining(hostOwner, host, callsite, isReceiverKnownNonNull(frame, callsite))
+
       true
 
     } // end of method inlineMethod()
+
+    def logSuccessfulInlining(hostOwner: String,
+                              host:      MethodNode,
+                              callsite:  MethodInsnNode,
+                              isReceiverKnownNonNull: Boolean) {
+      val remark =
+        if(isReceiverKnownNonNull) ""
+        else " (albeit null receiver couldn't be ruled out)"
+
+      log("Successful @inline" + remark +
+          ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
+          " , occurring in method " + hostOwner + "::" + host.name + "." + host.desc)
+    }
 
     /**
      * The second situation (a.2) under which method-inlining is unfeasible:
