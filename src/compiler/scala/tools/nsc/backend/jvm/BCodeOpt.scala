@@ -1397,13 +1397,11 @@ abstract class BCodeOpt extends BCodeTypes {
       //-----------------------------
       leaf.procs foreach { proc =>
 
-        val frame = tfaFrameAt(proc.callsite)
-
         inlineMethod(
           leaf.hostOwner.name,
           leaf.host,
           proc.callsite,
-          frame,
+          tfaFrameAt(proc.callsite),
           proc.callee
         )
 
@@ -1415,13 +1413,11 @@ abstract class BCodeOpt extends BCodeTypes {
       //------------------------------
       leaf.hiOs foreach { hiO =>
 
-        val frame = tfaFrameAt(hiO.callsite)
-
         inlineClosures(
           leaf.hostOwner.name,
           leaf.host,
           hiO.callsite,
-          frame,
+          tfaFrameAt(hiO.callsite),
           hiO.callee,
           hiO.owner
         )
@@ -1452,8 +1448,53 @@ abstract class BCodeOpt extends BCodeTypes {
     }
 
     /**
-     * This method inlines the invocation of a higher-order method,
-     * stack-allocating the anonymous closures it receives as arguments.
+     * This method inlines the invocation of a higher-order method, stack-allocating the anonymous closures it receives as arguments.
+     *
+     * "Stack-allocating" in the sense of "scalar replacement of aggregates" (see also "object fusion").
+     * This can always be done for closures converted in UnCurry by `closureConversionMethodHandle()`
+     * a conversion that has the added benefit of lower pointer-chasing (heap navigation).
+     *
+     * -----------
+     * Terminology
+     * -----------
+     *
+     * hi-O method:     the "higher-order" method taking one or more closure instances as argument. For example, Range.foreach()
+     *
+     * closure-state:   the values of fields of an anonymous-closure-class, all of them final.
+     *                  In particular an $outer field is present whenever the closure "contains" inner classes (in particular, closures).
+     *
+     * closure-methods: apply() which possibly forwards to a specialized variant after unboxing some of its arguments.
+     *                  For a closure converted in UnCurry:
+     *                    - via `closureConversionMethodHandle()` there are no additional closure-methods.
+     *                    - via `closureConversionTraditional()`  those methods that were local to the source-level apply()
+     *                      also become closure-methods after lambda-lifting.
+     *
+     * closure-constructor: a sequence of assignments to initialize the (from then on immutable) closure-state by copying arguments' values.
+     *                      The first such argument is always the THIS of the invoker, which becomes the $outer value from the perspective of the closure-class.
+     *
+     * -----------------
+     * Closure lifecycle
+     * -----------------
+     *
+     * In terms of bytecode, two code sections are relevant: instantiation of AC (the "Anonymous Closure") and passing it as argument to Hi-O:
+     *
+     *   NEW AC
+     *   DUP
+     *   // load of closure-state args, the first of which is THIS
+     *   INVOKESPECIAL <init>
+     *
+     * The above in turn prepares the i-th argument as part of this code section:
+     *
+     *   // instructions that load (i-1) args
+     *   // here goes the snippet above (whose instructions load the closure instance we want to elide)
+     *   // more args get loaded
+     *   INVOKE Hi-O
+     *
+     * In order to inline Hi-O, the closure-argument shouldn't escape from it. A stronger condition is easier to check:
+     * all LOADs of the closure-arg in that method are consumed by invocations of apply(). We don't check the body of the apply() itself,
+     * confident that by construction it never lets its THIS escape.
+     *
+     * The condition above can be checked only if the type-flow analysis determines the method implementation dispatched at runtime by "INVOKE Hi-O".
      *
      * TODO documentation
      *
