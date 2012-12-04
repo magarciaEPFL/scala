@@ -1373,28 +1373,39 @@ abstract class BCodeOpt extends BCodeTypes {
 
           // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
 
-          // Type-Flow Analysis needed to determine non-nullness of receiver.
-          import asm.tree.analysis.Frame
+          //----------------------------------------------------------------------
+          // Part 0 of 2: Type-Flow Analysis to determine non-nullness of receiver
+          //----------------------------------------------------------------------
           val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
           tfa.analyze(leaf.hostOwner.name, leaf.host)
           // looking up in array `frames` using the whatever-then-current index of `insn` would assume the instruction list hasn't changed.
           // while in general after adding or removing instructions an analysis should be re-run,
           // for the purposes of inlining it's ok to have at hand for a callsite its frame as it was when the analysis was computed.
-          val tfaFrameAt: Map[MethodInsnNode, Frame[TFValue]] = {
-            leaf.candidates.map(it => it.callsite -> tfa.frameAt(it.callsite).asInstanceOf[Frame[TFValue]]).toMap
+          val tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]] = {
+            leaf.candidates.map(it => it.callsite -> tfa.frameAt(it.callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]).toMap
           }
 
           //-----------------------------
           // Part 1 of 2: method-inlining
           //-----------------------------
           leaf.procs foreach { proc =>
-            inlineMethod(
-              leaf.hostOwner.name,
-              leaf.host,
-              proc.callsite,
-              tfaFrameAt(proc.callsite),
-              proc.callee
-            )
+
+            val frame = tfaFrameAt(proc.callsite)
+
+            if(isReceiverKnownNonNull(frame, proc.callsite)) {
+
+              inlineMethod(
+                leaf.hostOwner.name,
+                leaf.host,
+                proc.callsite,
+                frame,
+                proc.callee
+              )
+
+            } else {
+              // TODO warn
+            }
+
           }
           leaf.procs = Nil
 
@@ -1402,14 +1413,24 @@ abstract class BCodeOpt extends BCodeTypes {
           // Part 2 of 2: closure-inlining
           //------------------------------
           leaf.hiOs foreach { hiO =>
-            inlineClosures(
-              leaf.hostOwner.name,
-              leaf.host,
-              hiO.callsite,
-              tfaFrameAt(hiO.callsite),
-              hiO.callee,
-              hiO.owner
-            )
+
+            val frame = tfaFrameAt(hiO.callsite)
+
+            if(isReceiverKnownNonNull(frame, hiO.callsite)) {
+
+              inlineClosures(
+                leaf.hostOwner.name,
+                leaf.host,
+                hiO.callsite,
+                frame,
+                hiO.callee,
+                hiO.owner
+              )
+
+            } else {
+              // TODO warn
+            }
+
           }
           leaf.hiOs = Nil
 
@@ -1424,17 +1445,34 @@ abstract class BCodeOpt extends BCodeTypes {
     } // end of method inlining()
 
     /**
+     * SI-5850: Inlined code shouldn't forget null-check on the original receiver
+     */
+    private def isReceiverKnownNonNull(frame: asm.tree.analysis.Frame[TFValue], callsite: MethodInsnNode): Boolean = {
+      callsite.getOpcode match {
+        case Opcodes.INVOKEDYNAMIC => false // TODO
+        case Opcodes.INVOKESTATIC  => true
+        case Opcodes.INVOKEVIRTUAL   |
+             Opcodes.INVOKESPECIAL   |
+             Opcodes.INVOKEINTERFACE =>
+          val args: Int     = BType.getArgumentTypes(callsite.desc).length
+          var rcv:  TFValue = frame.peekDown(args)
+          assert(rcv.lca.hasObjectSort)
+          rcv.isNonNull
+      }
+    }
+
+    /**
      * This method inlines the invocation of a higher-order method,
      * stack-allocating the anonymous closures it receives as arguments.
      *
+     * TODO documentation
      *
-     *
-     * @param hostOwner       the internal name of the class declaring the host method
-     * @param host            the method containing a callsite for which inlining has been requested
-     * @param callsite        the invocation whose inlining is requested.
-     * @param frameAtCallsite the invocation whose inlining is requested.
-     * @param callee          the actual method-implementation that will be dispatched at runtime
-     * @param calleeOwner     the Classnode where callee was declared.
+     * @param hostOwner   the internal name of the class declaring the host method
+     * @param host        the method containing a callsite for which inlining has been requested
+     * @param callsite    the invocation whose inlining is requested.
+     * @param frame       frame at callsite
+     * @param callee      the actual method-implementation that will be dispatched at runtime
+     * @param calleeOwner the Classnode where callee was declared.
      *
      * @return true iff inlining was actually performed.
      *
@@ -1442,7 +1480,7 @@ abstract class BCodeOpt extends BCodeTypes {
     private def inlineClosures(hostOwner:   String,
                                host:        MethodNode,
                                callsite:    MethodInsnNode,
-                               frameAtCallsite: asm.tree.analysis.Frame[TFValue],
+                               frame:       asm.tree.analysis.Frame[TFValue],
                                callee:      MethodNode,
                                calleeOwner: ClassNode): Boolean = {
 
@@ -1472,11 +1510,11 @@ abstract class BCodeOpt extends BCodeTypes {
      *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
      *   (a.2) inlining would lead to illegal access errors.
      *
-     * @param hostOwner       the internal name of the class declaring the host method
-     * @param host            the method containing a callsite for which inlining has been requested
-     * @param callsite        the invocation whose inlining is requested.
-     * @param frameAtCallsite informs about stack depth at the callsite
-     * @param callee          the actual method-implementation that will be dispatched at runtime.
+     * @param hostOwner the internal name of the class declaring the host method
+     * @param host      the method containing a callsite for which inlining has been requested
+     * @param callsite  the invocation whose inlining is requested.
+     * @param frame     informs about stack depth at the callsite
+     * @param callee    the actual method-implementation that will be dispatched at runtime.
      *
      * @return true iff method-inlining was actually performed.
      *
@@ -1484,7 +1522,7 @@ abstract class BCodeOpt extends BCodeTypes {
     private def inlineMethod(hostOwner: String,
                              host:      MethodNode,
                              callsite:  MethodInsnNode,
-                             frameAtCallsite: asm.tree.analysis.Frame[TFValue],
+                             frame:     asm.tree.analysis.Frame[TFValue],
                              callee:    MethodNode): Boolean = {
 
       assert(host.instructions.contains(callsite))
@@ -1501,7 +1539,7 @@ abstract class BCodeOpt extends BCodeTypes {
        * but the overhead doesn't make it worth the effort.
        */
       if(!callee.tryCatchBlocks.isEmpty) {
-        val stackHeight       = frameAtCallsite.getStackSize
+        val stackHeight       = frame.getStackSize
         val expectedArgs: Int = Util.expectedArgs(callsite)
         if(stackHeight > expectedArgs) {
           // TODO warning()
