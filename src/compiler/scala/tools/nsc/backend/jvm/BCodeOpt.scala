@@ -1358,9 +1358,9 @@ abstract class BCodeOpt extends BCodeTypes {
       }
 
       /**
-       *  It only remains to visit `cgns` in an order that ensures
+       *  It only remains to visit the elements of `cgns` in an order that ensures
        *  a CallGraphNode has stabilitzed (ie all inlinings have been performed inside it, with stable calees)
-       *  by the time it's inlined in a host method.
+       *  by the time it's inlined into a host method.
        */
       val remaining = mutable.Set.empty[CallGraphNode]
       remaining ++= cgns.toList
@@ -1370,28 +1370,82 @@ abstract class BCodeOpt extends BCodeTypes {
         assert(leaves.nonEmpty, "Otherwise loop forever")
 
         for(leaf <- leaves) {
-          val ha = new Analyzer[BasicValue](new BasicInterpreter)
-          ha.analyze(leaf.hostOwner.name, leaf.host)
-          // method-inlining
+
+          // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
+
+          // TODO A Type-Flow Analysis needed to determine non-nullness of receiver (instead of basicAnalysis below).
+
+          //-----------------------------
+          // Part 1 of 2: method-inlining
+          //-----------------------------
+          // this analysis informs about stack depth and the size of each stack-slot at the callsite of interest in the host method
+          val basicAnalysis = new Analyzer[BasicValue](new BasicInterpreter)
+          basicAnalysis.analyze(leaf.hostOwner.name, leaf.host)
           leaf.procs foreach { proc =>
-            // val before = Util.textify(leaf.host) // debug
-            inlineMethod(ha, leaf.hostOwner.name, leaf.host, proc.callsite, proc.callee)
-            ifDebug {
-              val after = Util.textify(leaf.host)
-              val da    = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
-              da.analyze(leaf.hostOwner.name, leaf.host)
-            }
+            inlineMethod(
+              basicAnalysis,
+              leaf.hostOwner.name,
+              leaf.host,
+              proc.callsite,
+              proc.callee
+            )
           }
           leaf.procs = Nil
-          // closure-inlining
-          leaf.hiOs foreach { hiO => /* TODO: closure-inlining */ }
+
+          //------------------------------
+          // Part 2 of 2: closure-inlining
+          //------------------------------
+          leaf.hiOs foreach { hiO =>
+            inlineClosures(
+              leaf.hostOwner.name,
+              leaf.host,
+              hiO.callsite,
+              hiO.callee,
+              hiO.owner
+            )
+          }
           leaf.hiOs = Nil
+
+          // debug
+          val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
+          da.analyze(leaf.hostOwner.name, leaf.host)
         }
 
         remaining --= leaves
       }
 
     } // end of method inlining()
+
+    /**
+     * This method inlines the invocation of a higher-order method,
+     * stack-allocating the anonymous closures it receives as arguments.
+     *
+     *
+     *
+     * @param hostOwner
+     *                  the internal name of the class declaring the host method
+     * @param host
+     *             the method containing a callsite for which inlining has been requested
+     * @param callsite
+     *                 the invocation whose inlining is requested.
+     *
+     * @return
+     *         true iff inlining was actually performed.
+     *
+     */
+    private def inlineClosures(hostOwner:   String,
+                               host:        MethodNode,
+                               callsite:    MethodInsnNode,
+                               callee:      MethodNode,
+                               calleeOwner: ClassNode): Boolean = {
+
+      // val cp = asm.optimiz.ProdConsAnalyzer.create()
+      // Frame<SourceValue>[] frames = cp.analyze(owner, mnode)
+
+      // TODO: closure-inlining
+
+      false
+    }
 
     /**
      * This method takes care of all the little details around inlining the callee's instructions for a callsite located in a `host` method.
@@ -1412,7 +1466,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *   (a.2) inlining would lead to illegal access errors.
      *
      * @param ha
-     *           allows finding out the stack depth and stack-slot-sizes at the callsite of interest in the host method
+     *           informs about stack depth and the size of each stack-slot at the callsite of interest in the host method
      * @param hostOwner
      *                  the internal name of the class declaring the host method
      * @param host
