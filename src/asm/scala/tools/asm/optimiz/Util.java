@@ -235,6 +235,20 @@ public class Util {
         return (m.access & Opcodes.ACC_STATIC) == 0;
     }
 
+    /**
+     *  INVOKEDYNAMIC and INVOKESTATIC don't qualify as `isInstanceCallsite()`
+     * */
+    public static boolean isInstanceCallsite(final MethodInsnNode callsite) {
+        switch (callsite.getOpcode()) {
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKEINTERFACE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public static boolean isJavaBox(final AbstractInsnNode insn) {
         return (insn.getType() == AbstractInsnNode.METHOD_INSN) && isJavaBoxCall((MethodInsnNode) insn);
     }

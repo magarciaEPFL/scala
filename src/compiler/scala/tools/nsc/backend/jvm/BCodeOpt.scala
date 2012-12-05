@@ -1413,16 +1413,21 @@ abstract class BCodeOpt extends BCodeTypes {
       //------------------------------
       leaf.hiOs foreach { hiO =>
 
-        val hasNonNullReceiver = isReceiverKnownNonNull(tfaFrameAt(hiO.callsite), hiO.callsite)
+        val callsiteTypeFlow: asm.tree.analysis.Frame[TFValue] = tfaFrameAt(hiO.callsite)
 
-        inlineClosures(
+        val success = inlineClosures(
           leaf.hostOwner,
           leaf.host,
           hiO.callsite,
+          callsiteTypeFlow,
           hiO.callee,
-          hiO.owner,
-          hasNonNullReceiver
+          hiO.owner
         )
+
+        if(success) {
+          val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
+          logSuccessfulInlining(leaf.hostOwner.name, leaf.host, hiO.callsite, hasNonNullReceiver)
+        }
 
       }
       leaf.hiOs = Nil
@@ -1442,8 +1447,7 @@ abstract class BCodeOpt extends BCodeTypes {
         case Opcodes.INVOKEVIRTUAL   |
              Opcodes.INVOKESPECIAL   |
              Opcodes.INVOKEINTERFACE =>
-          val args: Int     = BType.getArgumentTypes(callsite.desc).length
-          var rcv:  TFValue = frame.peekDown(args)
+          var rcv:  TFValue = frame.getReceiver(callsite)
           assert(rcv.lca.hasObjectSort)
           rcv.isNonNull
       }
@@ -1480,17 +1484,17 @@ abstract class BCodeOpt extends BCodeTypes {
      *
      * In terms of bytecode, two code sections are relevant: instantiation of AC (the "Anonymous Closure") and passing it as argument to Hi-O:
      *
-     *   NEW AC
-     *   DUP
-     *   // load of closure-state args, the first of which is THIS
-     *   INVOKESPECIAL < init >
+     *     NEW AC
+     *     DUP
+     *     // load of closure-state args, the first of which is THIS
+     *     INVOKESPECIAL < init >
      *
      * The above in turn prepares the i-th argument as part of this code section:
      *
-     *   // instructions that load (i-1) args
-     *   // here goes the snippet above (whose instructions load the closure instance we want to elide)
-     *   // more args get loaded
-     *   INVOKE Hi-O
+     *     // instructions that load (i-1) args
+     *     // here goes the snippet above (whose instructions load the closure instance we want to elide)
+     *     // more args get loaded
+     *     INVOKE Hi-O
      *
      * In order to inline Hi-O, the closure-argument shouldn't escape from it. A stronger condition is easier to check:
      * all LOADs of the closure-arg in that method are consumed by invocations of apply(). We don't check the body of the apply() itself,
@@ -1505,7 +1509,6 @@ abstract class BCodeOpt extends BCodeTypes {
      * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
      * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
      * @param hiOOwner  the Classnode where callee was declared.
-     * @param hasNonNullReceiver used to emit a warning whenever an intra-method analysis can't rule out the possibility that the receiver might be null.
      *
      * @return true iff inlining was actually performed.
      *
@@ -1513,11 +1516,14 @@ abstract class BCodeOpt extends BCodeTypes {
     private def inlineClosures(hostOwner: ClassNode,
                                host:      MethodNode,
                                callsite:  MethodInsnNode,
+                               callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
                                hiO:       MethodNode,
-                               hiOOwner:  ClassNode,
-                               hasNonNullReceiver: Boolean): Boolean = {
+                               hiOOwner:  ClassNode): Boolean = {
 
-      println("hiO to be inlined:\n" + Util.textify(hiO)) // debug
+      // println("hiO to be inlined:\n" + Util.textify(hiO)) // debug
+
+      val actuals: Array[_ <: asm.tree.analysis.Value] = callsiteTypeFlow.getActualArguments(callsite)
+      assert(actuals.length == BType.getArgumentTypes(callsite.desc).length)
 
       /*
        * Filter 1 of 3: Pre-requisites on host method
@@ -1528,15 +1534,13 @@ abstract class BCodeOpt extends BCodeTypes {
        * Of those, we're interested in those producers for formals expecting a closure.
        * The pre-requisites below are necessary conditions for stack-allocating a closure.
        * For a given closure-expecting formal:
-       *   - there's a single producer, and the value it produces reaches only the actual for the formal in question
+       *   - there's a single producer, and the value it produces is the only actual for the formal in question
        *   - the type of the actual fulfills Tracked.isClosure.
        *      Being that the case, the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
        */
       val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
       cpHost.analyze(hostOwner.name, host)
       val hostFrames: Array[asm.tree.analysis.Frame[SourceValue]] = cpHost.getFrames()
-
-      logSuccessfulInlining(hostOwner.name, host, callsite, hasNonNullReceiver)
 
       false // TODO
     }
