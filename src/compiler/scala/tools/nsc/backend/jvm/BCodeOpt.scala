@@ -1413,13 +1413,15 @@ abstract class BCodeOpt extends BCodeTypes {
       //------------------------------
       leaf.hiOs foreach { hiO =>
 
+        val hasNonNullReceiver = isReceiverKnownNonNull(tfaFrameAt(hiO.callsite), hiO.callsite)
+
         inlineClosures(
           leaf.hostOwner,
           leaf.host,
           hiO.callsite,
-          tfaFrameAt(hiO.callsite),
           hiO.callee,
-          hiO.owner
+          hiO.owner,
+          hasNonNullReceiver
         )
 
       }
@@ -1501,9 +1503,9 @@ abstract class BCodeOpt extends BCodeTypes {
      * @param hostOwner the class declaring the host method
      * @param host      the method containing a callsite for which inlining has been requested
      * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
-     * @param frame     frame at callsite
      * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
      * @param hiOOwner  the Classnode where callee was declared.
+     * @param hasNonNullReceiver used to emit a warning whenever an intra-method analysis can't rule out the possibility that the receiver might be null.
      *
      * @return true iff inlining was actually performed.
      *
@@ -1511,18 +1513,30 @@ abstract class BCodeOpt extends BCodeTypes {
     private def inlineClosures(hostOwner: ClassNode,
                                host:      MethodNode,
                                callsite:  MethodInsnNode,
-                               frame:     asm.tree.analysis.Frame[TFValue],
                                hiO:       MethodNode,
-                               hiOOwner:  ClassNode): Boolean = {
+                               hiOOwner:  ClassNode,
+                               hasNonNullReceiver: Boolean): Boolean = {
 
-      // val cp = asm.optimiz.ProdConsAnalyzer.create()
-      // Frame<SourceValue>[] frames = cp.analyze(owner, mnode)
+      println("hiO to be inlined:\n" + Util.textify(hiO)) // debug
 
-      // TODO: closure-inlining
+      /*
+       * Filter 1 of 3: Pre-requisites on host method
+       *
+       * Given a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
+       * we're interested in the instructions producing values that are consumed as actual arguments by the hiO callsite.
+       *
+       * Of those, we're interested in those producers for formals expecting a closure.
+       * The pre-requisites below are necessary conditions for stack-allocating a closure.
+       * For a given closure-expecting formal:
+       *   - there's a single producer, and the value it produces reaches only the actual for the formal in question
+       *   - the type of the actual fulfills Tracked.isClosure.
+       *      Being that the case, the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
+       */
+      val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
+      cpHost.analyze(hostOwner.name, host)
+      val hostFrames: Array[asm.tree.analysis.Frame[SourceValue]] = cpHost.getFrames()
 
-      println("hiO to be inlined:\n" + Util.textify(hiO))
-
-      logSuccessfulInlining(hostOwner.name, host, callsite, isReceiverKnownNonNull(frame, callsite))
+      logSuccessfulInlining(hostOwner.name, host, callsite, hasNonNullReceiver)
 
       false // TODO
     }

@@ -48,7 +48,7 @@ public class UnBoxAnalyzer extends ProdConsAnalyzer {
     }
 
     /**
-     *  Serves the purpose of "materializing" the source of:
+     *  Serves the purpose of "materializing" the sources of:
      *    (a) local-vars standing for params (as well as THIS) and
      *    (b) the exceptions caught by exception handlers
      *
