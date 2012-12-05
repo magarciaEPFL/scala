@@ -1414,7 +1414,7 @@ abstract class BCodeOpt extends BCodeTypes {
       leaf.hiOs foreach { hiO =>
 
         inlineClosures(
-          leaf.hostOwner.name,
+          leaf.hostOwner,
           leaf.host,
           hiO.callsite,
           tfaFrameAt(hiO.callsite),
@@ -1481,7 +1481,7 @@ abstract class BCodeOpt extends BCodeTypes {
      *   NEW AC
      *   DUP
      *   // load of closure-state args, the first of which is THIS
-     *   INVOKESPECIAL <init>
+     *   INVOKESPECIAL < init >
      *
      * The above in turn prepares the i-th argument as part of this code section:
      *
@@ -1498,29 +1498,31 @@ abstract class BCodeOpt extends BCodeTypes {
      *
      * TODO documentation
      *
-     * @param hostOwner   the internal name of the class declaring the host method
-     * @param host        the method containing a callsite for which inlining has been requested
-     * @param callsite    the invocation whose inlining is requested.
-     * @param frame       frame at callsite
-     * @param callee      the actual method-implementation that will be dispatched at runtime
-     * @param calleeOwner the Classnode where callee was declared.
+     * @param hostOwner the class declaring the host method
+     * @param host      the method containing a callsite for which inlining has been requested
+     * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
+     * @param frame     frame at callsite
+     * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
+     * @param hiOOwner  the Classnode where callee was declared.
      *
      * @return true iff inlining was actually performed.
      *
      */
-    private def inlineClosures(hostOwner:   String,
-                               host:        MethodNode,
-                               callsite:    MethodInsnNode,
-                               frame:       asm.tree.analysis.Frame[TFValue],
-                               callee:      MethodNode,
-                               calleeOwner: ClassNode): Boolean = {
+    private def inlineClosures(hostOwner: ClassNode,
+                               host:      MethodNode,
+                               callsite:  MethodInsnNode,
+                               frame:     asm.tree.analysis.Frame[TFValue],
+                               hiO:       MethodNode,
+                               hiOOwner:  ClassNode): Boolean = {
 
       // val cp = asm.optimiz.ProdConsAnalyzer.create()
       // Frame<SourceValue>[] frames = cp.analyze(owner, mnode)
 
       // TODO: closure-inlining
 
-      logSuccessfulInlining(hostOwner, host, callsite, isReceiverKnownNonNull(frame, callsite))
+      println("hiO to be inlined:\n" + Util.textify(hiO))
+
+      logSuccessfulInlining(hostOwner.name, host, callsite, isReceiverKnownNonNull(frame, callsite))
 
       false // TODO
     }
