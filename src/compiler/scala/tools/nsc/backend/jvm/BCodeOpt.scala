@@ -1426,7 +1426,7 @@ abstract class BCodeOpt extends BCodeTypes {
 
         if(success) {
           val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
-          logSuccessfulInlining(leaf.hostOwner.name, leaf.host, hiO.callsite, hasNonNullReceiver)
+          logSuccessfulInlining(leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true, hasNonNullReceiver)
         }
 
       }
@@ -1451,98 +1451,6 @@ abstract class BCodeOpt extends BCodeTypes {
           assert(rcv.lca.hasObjectSort)
           rcv.isNonNull
       }
-    }
-
-    /**
-     * This method inlines the invocation of a higher-order method, stack-allocating the anonymous closures it receives as arguments.
-     *
-     * "Stack-allocating" in the sense of "scalar replacement of aggregates" (see also "object fusion").
-     * This can always be done for closures converted in UnCurry by `closureConversionMethodHandle()`
-     * a conversion that has the added benefit of lower pointer-chasing (heap navigation).
-     *
-     * -----------
-     * Terminology
-     * -----------
-     *
-     * hi-O method:     the "higher-order" method taking one or more closure instances as argument. For example, Range.foreach()
-     *
-     * closure-state:   the values of fields of an anonymous-closure-class, all of them final.
-     *                  In particular an $outer field is present whenever the closure "contains" inner classes (in particular, closures).
-     *
-     * closure-methods: apply() which possibly forwards to a specialized variant after unboxing some of its arguments.
-     *                  For a closure converted in UnCurry:
-     *                    - via `closureConversionMethodHandle()` there are no additional closure-methods.
-     *                    - via `closureConversionTraditional()`  those methods that were local to the source-level apply()
-     *                      also become closure-methods after lambda-lifting.
-     *
-     * closure-constructor: a sequence of assignments to initialize the (from then on immutable) closure-state by copying arguments' values.
-     *                      The first such argument is always the THIS of the invoker, which becomes the $outer value from the perspective of the closure-class.
-     *
-     * -----------------
-     * Closure lifecycle
-     * -----------------
-     *
-     * In terms of bytecode, two code sections are relevant: instantiation of AC (the "Anonymous Closure") and passing it as argument to Hi-O:
-     *
-     *     NEW AC
-     *     DUP
-     *     // load of closure-state args, the first of which is THIS
-     *     INVOKESPECIAL < init >
-     *
-     * The above in turn prepares the i-th argument as part of this code section:
-     *
-     *     // instructions that load (i-1) args
-     *     // here goes the snippet above (whose instructions load the closure instance we want to elide)
-     *     // more args get loaded
-     *     INVOKE Hi-O
-     *
-     * In order to inline Hi-O, the closure-argument shouldn't escape from it. A stronger condition is easier to check:
-     * all LOADs of the closure-arg in that method are consumed by invocations of apply(). We don't check the body of the apply() itself,
-     * confident that by construction it never lets its THIS escape.
-     *
-     * The condition above can be checked only if the type-flow analysis determines the method implementation dispatched at runtime by "INVOKE Hi-O".
-     *
-     * TODO documentation
-     *
-     * @param hostOwner the class declaring the host method
-     * @param host      the method containing a callsite for which inlining has been requested
-     * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
-     * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
-     * @param hiOOwner  the Classnode where callee was declared.
-     *
-     * @return true iff inlining was actually performed.
-     *
-     */
-    private def inlineClosures(hostOwner: ClassNode,
-                               host:      MethodNode,
-                               callsite:  MethodInsnNode,
-                               callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
-                               hiO:       MethodNode,
-                               hiOOwner:  ClassNode): Boolean = {
-
-      // println("hiO to be inlined:\n" + Util.textify(hiO)) // debug
-
-      val actuals: Array[_ <: asm.tree.analysis.Value] = callsiteTypeFlow.getActualArguments(callsite)
-      assert(actuals.length == BType.getArgumentTypes(callsite.desc).length)
-
-      /*
-       * Filter 1 of 3: Pre-requisites on host method
-       *
-       * Given a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
-       * we're interested in the instructions producing values that are consumed as actual arguments by the hiO callsite.
-       *
-       * Of those, we're interested in those producers for formals expecting a closure.
-       * The pre-requisites below are necessary conditions for stack-allocating a closure.
-       * For a given closure-expecting formal:
-       *   - there's a single producer, and the value it produces is the only actual for the formal in question
-       *   - the type of the actual fulfills Tracked.isClosure.
-       *      Being that the case, the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
-       */
-      val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
-      cpHost.analyze(hostOwner.name, host)
-      val hostFrames: Array[asm.tree.analysis.Frame[SourceValue]] = cpHost.getFrames()
-
-      false // TODO
     }
 
     /**
@@ -1729,7 +1637,7 @@ abstract class BCodeOpt extends BCodeTypes {
       Util.computeMaxLocalsMaxStack(host)
       assert(host.maxLocals >= nxtLocalIdx) // TODO why not == ?
 
-      logSuccessfulInlining(hostOwner, host, callsite, isReceiverKnownNonNull(frame, callsite))
+      logSuccessfulInlining(hostOwner, host, callsite, isHiO = false, isReceiverKnownNonNull(frame, callsite))
 
       true
 
@@ -1738,12 +1646,15 @@ abstract class BCodeOpt extends BCodeTypes {
     def logSuccessfulInlining(hostOwner: String,
                               host:      MethodNode,
                               callsite:  MethodInsnNode,
+                              isHiO:     Boolean,
                               isReceiverKnownNonNull: Boolean) {
       val remark =
         if(isReceiverKnownNonNull) ""
         else " (albeit null receiver couldn't be ruled out)"
 
-      log("Successful @inline" + remark +
+      val kind = if(isHiO) "closure-inlining" else "method-inlining"
+
+      log("Successful " + kind + remark +
           ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
           " , occurring in method " + hostOwner + "::" + host.name + "." + host.desc)
     }
@@ -1893,6 +1804,127 @@ abstract class BCodeOpt extends BCodeTypes {
    */
   case class MethodNodeAndOwner(mnode: MethodNode, owner: ClassNode) {
     assert(owner.methods.contains(mnode))
+  }
+
+  /**
+   * This method inlines the invocation of a higher-order method, stack-allocating the anonymous closures it receives as arguments.
+   *
+   * "Stack-allocating" in the sense of "scalar replacement of aggregates" (see also "object fusion").
+   * This can always be done for closures converted in UnCurry by `closureConversionMethodHandle()`
+   * a conversion that has the added benefit of lower pointer-chasing (heap navigation).
+   *
+   * -----------
+   * Terminology
+   * -----------
+   *
+   * hi-O method:     the "higher-order" method taking one or more closure instances as argument. For example, Range.foreach()
+   *
+   * closure-state:   the values of fields of an anonymous-closure-class, all of them final.
+   *                  In particular an $outer field is present whenever the closure "contains" inner classes (in particular, closures).
+   *
+   * closure-methods: apply() which possibly forwards to a specialized variant after unboxing some of its arguments.
+   *                  For a closure converted in UnCurry:
+   *                    - via `closureConversionMethodHandle()` there are no additional closure-methods.
+   *                    - via `closureConversionTraditional()`  those methods that were local to the source-level apply()
+   *                      also become closure-methods after lambda-lifting.
+   *
+   * closure-constructor: a sequence of assignments to initialize the (from then on immutable) closure-state by copying arguments' values.
+   *                      The first such argument is always the THIS of the invoker, which becomes the $outer value from the perspective of the closure-class.
+   *
+   * -----------------
+   * Closure lifecycle
+   * -----------------
+   *
+   * In terms of bytecode, two code sections are relevant: instantiation of AC (the "Anonymous Closure") and passing it as argument to Hi-O:
+   *
+   *     NEW AC
+   *     DUP
+   *     // load of closure-state args, the first of which is THIS
+   *     INVOKESPECIAL < init >
+   *
+   * The above in turn prepares the i-th argument as part of this code section:
+   *
+   *     // instructions that load (i-1) args
+   *     // here goes the snippet above (whose instructions load the closure instance we want to elide)
+   *     // more args get loaded
+   *     INVOKE Hi-O
+   *
+   * In order to inline Hi-O, the closure-argument shouldn't escape from it. A stronger condition is easier to check:
+   * all LOADs of the closure-arg in that method are consumed by invocations of apply(). We don't check the body of the apply() itself,
+   * confident that by construction it never lets its THIS escape.
+   *
+   * The condition above can be checked only if the type-flow analysis determines the method implementation dispatched at runtime by "INVOKE Hi-O".
+   *
+   * TODO documentation
+   *
+   * @param hostOwner the class declaring the host method
+   * @param host      the method containing a callsite for which inlining has been requested
+   * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
+   * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
+   * @param hiOOwner  the Classnode where callee was declared.
+   *
+   * @return true iff inlining was actually performed.
+   *
+   */
+  private def inlineClosures(hostOwner: ClassNode,
+                             host:      MethodNode,
+                             callsite:  MethodInsnNode,
+                             callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
+                             hiO:       MethodNode,
+                             hiOOwner:  ClassNode): Boolean = {
+
+    // val txtHost = Util.textify(host) // debug
+    // val txtHiO  = Util.textify(hiO)  // debug
+
+    // which params of the hiO method receive closure-typed arguments, and what are those types?
+    // param-indexes are zero-based, the receiver (for instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
+    val closureTypedArgs: Map[Int, BType] = {
+
+      val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
+      assert(actualsTypeFlow.length == BType.getArgumentTypes(callsite.desc).length)
+
+      for(
+        Pair(tf, idx) <- actualsTypeFlow.zipWithIndex.toMap;
+        if tf.lca.isClosureClass
+      ) yield Pair(idx, tf.lca)
+    }
+
+    if(closureTypedArgs.isEmpty) {
+      // TODO do sthg about it (like, inlineMethod). For example, the global.log invocation in the following snippet will have empty closureTypedArgs: def log(msg: => AnyRef) { global.log(msg) }
+      return false
+    }
+
+    /*
+     * Filter 1 of 3: Pre-requisites on host method
+     *
+     * Given a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
+     * we're interested in the instructions producing closures, closures that are consumed as arguments by the hiO callsite.
+     *
+     * The pre-requisites below are necessary conditions for stack-allocating a closure.
+     * For a given closure-expecting formal:
+     *   - there's a single producer, and the value it produces is the only actual for the formal in question
+     *   - the type of the actual fulfills Tracked.isClosureClass
+     *     Being that the case, the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
+     */
+    val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
+    cpHost.analyze(hostOwner.name, host)
+    val callsiteCP = cpHost.frameAt(callsite)
+    val prodsPerFormal: Map[Int, ClassNode] = {
+      for(
+        (prods, idx) <- callsiteCP.getActualArguments(callsite).zipWithIndex.toMap;
+        if (prods.insns.size() == 1) && closureTypedArgs.contains(idx);
+        singleProducer = prods.insns.iterator().next();
+        if(singleProducer.getOpcode == Opcodes.NEW);
+        closureBT = lookupRefBType(singleProducer.asInstanceOf[TypeInsnNode].desc)
+      ) yield (idx, codeRepo.classes.get(closureBT))
+    }
+
+    if(prodsPerFormal.isEmpty) {
+      // TODO warn.
+      return false
+    }
+
+    false // TODO
   }
 
 } // end of class BCodeOpt

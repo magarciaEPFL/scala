@@ -551,6 +551,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      **/
     def isWideType = (getSize == 2)
 
+    def isClosureClass: Boolean = {
+      val tr = exemplars.get(this); (tr != null && tr.isClosureClass)
+    }
+
     /*
      * Element vs. Component type of an array:
      * Quoting from the JVMS, Sec. 2.4 "Reference Types and Values"
@@ -1025,7 +1029,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isDeprecated = hasFlags(ACC_DEPRECATED)
     def isInnerClass = { innersChain != null }
     def isClosureClass = {
-      isInnerClass && isFinal && isFunctionType(c) && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString))
+      isInnerClass && isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
     }
 
     /** can-multi-thread */
