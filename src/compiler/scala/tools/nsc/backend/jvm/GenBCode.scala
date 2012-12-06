@@ -102,7 +102,7 @@ import collection.immutable.HashMap
  *  @version 1.0
  *
  */
-abstract class GenBCode extends BCodeOpt {
+abstract class GenBCode extends BCodeOptInter {
   import global._
   import icodes._
   import icodes.opcodes._
