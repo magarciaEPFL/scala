@@ -396,7 +396,7 @@ public class Util {
     }
 
     // ------------------------------------------------------------------------
-    // miscellaneous
+    // method descriptors and their formal params
     // ------------------------------------------------------------------------
 
     /**
@@ -429,6 +429,10 @@ public class Util {
         return (isInstanceMethod(mnode) ? 1 : 0) + formals;
     }
 
+    // ------------------------------------------------------------------------
+    // maxLocals and maxStack
+    // ------------------------------------------------------------------------
+
     /**
      * In order to run Analyzer.analyze() on a method, its `maxLocals` should have been computed.
      */
@@ -447,6 +451,10 @@ public class Util {
         mnode.maxLocals = mw.getMaxLocals();
         mnode.maxStack  = mw.getMaxStack();
     }
+
+    // ------------------------------------------------------------------------
+    // miscellaneous
+    // ------------------------------------------------------------------------
 
     // ------------------------------------------------------------------------
     // Textification

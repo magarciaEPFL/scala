@@ -475,6 +475,38 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       BType.getType(resPos + 1)
     }
 
+    /**
+     *  Given a zero-based formal-param-position, return its corresponding local-var-index,
+     *  taking into account the JVM-type-sizes of preceding formal params.
+     */
+    def convertFormalParamPosToLocalVarIdx(paramPos: Int, isInstanceMethod: Boolean): Int = {
+      assert(sort == asm.Type.METHOD)
+      val paramTypes = getArgumentTypes
+      var local = 0
+      (0 until paramPos) foreach { argPos => local += paramTypes(argPos).getSize }
+
+      local + (if(isInstanceMethod) 1 else 0)
+    }
+
+    /**
+     *  Given a local-var-index, return its corresponding zero-based formal-param-position,
+     *  taking into account the JVM-type-sizes of preceding formal params.
+     */
+    def convertLocalVarIdxToFormalParamPos(localIdx: Int, isInstanceMethod: Boolean): Int = {
+      assert(sort == asm.Type.METHOD)
+      val paramTypes = getArgumentTypes
+      var remaining  = (if(isInstanceMethod) (localIdx - 1) else localIdx)
+      assert(remaining >= 0)
+      var result     = 0
+      while(remaining > 0) {
+        remaining -= paramTypes(result).getSize
+        result    += 1
+      }
+      assert(remaining == 0)
+
+      result
+    }
+
     // ------------------------------------------------------------------------
     // Inspector methods
     // ------------------------------------------------------------------------

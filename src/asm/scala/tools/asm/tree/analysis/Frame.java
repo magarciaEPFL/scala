@@ -258,7 +258,9 @@ public class Frame<V extends Value> {
     public V[] getActualArguments(MethodInsnNode callsite) {
         int args = Type.getArgumentTypes(callsite.desc).length;
         int onePastLast = getLocals() + getStackSize();
-        return java.util.Arrays.copyOfRange(values, onePastLast - args, onePastLast);
+        V[] result = java.util.Arrays.copyOfRange(values, onePastLast - args, onePastLast);
+        assert result.length == args;
+        return result;
     }
 
     public V[] getArgumentsInclReceiver(MethodInsnNode callsite) {

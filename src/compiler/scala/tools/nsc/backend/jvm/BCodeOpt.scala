@@ -1839,17 +1839,15 @@ abstract class BCodeOpt extends BCodeTypes {
      *     // more args get loaded
      *     INVOKE Hi-O
      *
-     * In order to inline Hi-O, the closure-argument shouldn't escape from it. A stronger condition is easier to check:
-     * all LOADs of the closure-arg in that method are consumed by invocations of apply(). We don't check the body of the apply() itself,
-     * confident that by construction it never lets its THIS escape.
+     * In order to inline Hi-O, the closure-argument shouldn't escape from it. There's in fact a whole cascade of prerequisites
+     * to check, desribed in detail in the helper methods used for that purpose (see method body).
      *
-     * The condition above can be checked only if the type-flow analysis determines the method implementation dispatched at runtime by "INVOKE Hi-O".
-     *
-     * TODO documentation
+     * TODO documentation about the bytecode-rewriting.
      *
      * @param hostOwner the class declaring the host method
      * @param host      the method containing a callsite for which inlining has been requested
      * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
+     * @param callsiteTypeFlow the type-stack reaching the callsite. Useful to know which args are closure-typed.
      * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
      * @param hiOOwner  the Classnode where callee was declared.
      *
@@ -1867,22 +1865,26 @@ abstract class BCodeOpt extends BCodeTypes {
       // val txtHiO  = Util.textify(hiO)  // debug
 
             /**
-             *  Which params of the hiO method receive closure-typed arguments, of which types?
+             *  Which params of the hiO method receive closure-typed arguments?
              *  Param-positions are zero-based.
              *  The receiver (in the case of instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
              *  There's a difference between formal-param-positions (as returned by this method) and local-var-indexes (as used in a moment).
-             *  The latter take into account the JVM-primitive-size of previous locals.
+             *  The latter take into account the JVM-type-size of previous locals.
              */
-            def survivors1(): Map[Int, BType] = {
+            def survivors1(): List[Int] = {
 
               val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
-              assert(actualsTypeFlow.length == BType.getArgumentTypes(callsite.desc).length)
+              var idx = 0
+              var survivors: List[Int] = Nil
+              while(idx < actualsTypeFlow.length) {
+                val tf = actualsTypeFlow(idx)
+                if(tf.lca.isClosureClass) {
+                  survivors ::= idx
+                }
+                idx += 1
+              }
 
-              for(
-                Pair(tf, idx) <- actualsTypeFlow.zipWithIndex.toMap;
-                if tf.lca.isClosureClass
-              ) yield Pair(idx, tf.lca)
-
+              survivors
             }
       val closureTypedArgs = survivors1()
       if(closureTypedArgs.isEmpty) {
@@ -1893,11 +1895,16 @@ abstract class BCodeOpt extends BCodeTypes {
           /**
            * Pre-requisites on host method
            *
-           * Given a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
-           * check an additional pre-requisite for stack-allocating a closure.
+           * Given
+           *   (1) a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
+           *   (2) the previous subset of params (ie those receiving a closure-typed formal)
+           * determine those params that receive a unique closure.
            *
-           * For a given closure-expecting formal-param, there should be a single producer,
-           * and the value it produces is the only actual for the formal in question
+           * Nota Bene: Assuming the standard transforms performed by the compiler, `survivors2()` isn't strictly necessary.
+           * However it protects against any non-standard transforms that mess up with preconds required for correctness.
+           *
+           * `survivors2()` goes over the formals in `survivors1()`, picking those that have a single producer,
+           * such that the value thus produced is the only actual for the formal in question.
            *
            * Given that the type of the actual fulfills Tracked.isClosureClass,
            * the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
@@ -1910,7 +1917,8 @@ abstract class BCodeOpt extends BCodeTypes {
 
             for(
               (prods, idx) <- callsiteCP.getActualArguments(callsite).zipWithIndex.toMap;
-              if (prods.insns.size() == 1) && closureTypedArgs.contains(idx);
+              if closureTypedArgs.contains(idx);
+              if (prods.insns.size() == 1);
               singleProducer = prods.insns.iterator().next();
               if(singleProducer.getOpcode == Opcodes.NEW);
               closureBT = lookupRefBType(singleProducer.asInstanceOf[TypeInsnNode].desc)
@@ -1928,7 +1936,7 @@ abstract class BCodeOpt extends BCodeTypes {
            *
            */
           def survivors3(): List[ClosureUsages] = {
-            null
+            Nil
           }
 
       val closureUsages = survivors3()
