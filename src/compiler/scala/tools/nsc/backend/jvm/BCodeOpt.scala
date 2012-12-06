@@ -1876,50 +1876,73 @@ abstract class BCodeOpt extends BCodeTypes {
     // val txtHost = Util.textify(host) // debug
     // val txtHiO  = Util.textify(hiO)  // debug
 
-    // which params of the hiO method receive closure-typed arguments, and what are those types?
-    // param-indexes are zero-based, the receiver (for instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
-    val closureTypedArgs: Map[Int, BType] = {
+          /**
+           *  Which params of the hiO method receive closure-typed arguments, of which types?
+           *  Param-positions are zero-based.
+           *  The receiver (in the case of instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
+           *  There's a difference between formal-param-positions (as returned by this method) and local-var-indexes (as used in a moment).
+           *  The latter take into account the JVM-primitive-size of previous locals.
+           */
+          def survivors1(): Map[Int, BType] = {
 
-      val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
-      assert(actualsTypeFlow.length == BType.getArgumentTypes(callsite.desc).length)
+            val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
+            assert(actualsTypeFlow.length == BType.getArgumentTypes(callsite.desc).length)
 
-      for(
-        Pair(tf, idx) <- actualsTypeFlow.zipWithIndex.toMap;
-        if tf.lca.isClosureClass
-      ) yield Pair(idx, tf.lca)
-    }
+            for(
+              Pair(tf, idx) <- actualsTypeFlow.zipWithIndex.toMap;
+              if tf.lca.isClosureClass
+            ) yield Pair(idx, tf.lca)
 
+          }
+    val closureTypedArgs = survivors1()
     if(closureTypedArgs.isEmpty) {
-      // TODO do sthg about it (like, inlineMethod). For example, the global.log invocation in the following snippet will have empty closureTypedArgs: def log(msg: => AnyRef) { global.log(msg) }
+      // TODO inlineMethod. Example, `global.log` in `def log(msg: => AnyRef) { global.log(msg) }` will have empty closureTypedArgs
       return false
     }
 
-    /*
-     * Filter 1 of 3: Pre-requisites on host method
-     *
-     * Given a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
-     * we're interested in the instructions producing closures, closures that are consumed as arguments by the hiO callsite.
-     *
-     * The pre-requisites below are necessary conditions for stack-allocating a closure.
-     * For a given closure-expecting formal:
-     *   - there's a single producer, and the value it produces is the only actual for the formal in question
-     *   - the type of the actual fulfills Tracked.isClosureClass
-     *     Being that the case, the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
-     */
-    val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
-    cpHost.analyze(hostOwner.name, host)
-    val callsiteCP = cpHost.frameAt(callsite)
-    val prodsPerFormal: Map[Int, ClassNode] = {
-      for(
-        (prods, idx) <- callsiteCP.getActualArguments(callsite).zipWithIndex.toMap;
-        if (prods.insns.size() == 1) && closureTypedArgs.contains(idx);
-        singleProducer = prods.insns.iterator().next();
-        if(singleProducer.getOpcode == Opcodes.NEW);
-        closureBT = lookupRefBType(singleProducer.asInstanceOf[TypeInsnNode].desc)
-      ) yield (idx, codeRepo.classes.get(closureBT))
+        /**
+         * Pre-requisites on host method
+         *
+         * Given a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
+         * we're interested in the instructions producing closures, closures that are consumed as arguments by the hiO callsite.
+         *
+         * The pre-requisites below are necessary conditions for stack-allocating a closure.
+         * For a given closure-expecting formal:
+         *   - there's a single producer, and the value it produces is the only actual for the formal in question
+         *   - the type of the actual fulfills Tracked.isClosureClass
+         *     Being that the case, the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
+         */
+        def survivors2(): Map[Int, ClassNode] = {
+
+          val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create() // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+          cpHost.analyze(hostOwner.name, host)
+          val callsiteCP = cpHost.frameAt(callsite)
+
+          for(
+            (prods, idx) <- callsiteCP.getActualArguments(callsite).zipWithIndex.toMap;
+            if (prods.insns.size() == 1) && closureTypedArgs.contains(idx);
+            singleProducer = prods.insns.iterator().next();
+            if(singleProducer.getOpcode == Opcodes.NEW);
+            closureBT = lookupRefBType(singleProducer.asInstanceOf[TypeInsnNode].desc)
+          ) yield (idx, codeRepo.classes.get(closureBT))
+        }
+
+    val closureClassesPerFormal = survivors2()
+    if(closureClassesPerFormal.isEmpty) {
+      // TODO warn.
+      return false
     }
 
-    if(prodsPerFormal.isEmpty) {
+        /**
+         * Pre-requisites on hiO method
+         *
+         */
+        def survivors3(): List[ClosureUsages] = {
+
+        }
+
+    val closureUsages = survivors3()
+    if(closureUsages.isEmpty) {
       // TODO warn.
       return false
     }
