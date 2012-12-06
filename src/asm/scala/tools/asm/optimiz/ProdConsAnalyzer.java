@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.Iterator;
 import java.util.Queue;
 import java.util.LinkedList;
+import java.util.HashSet;
 
 import scala.tools.asm.tree.*;
 
@@ -72,7 +73,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
     }
 
     @Override
-    public Frame<SourceValue> frameAt(AbstractInsnNode insn) {
+    public Frame<SourceValue> frameAt(final AbstractInsnNode insn) {
         int idx = mnode.instructions.indexOf(insn);
         return frames[idx];
     }
@@ -92,6 +93,24 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
     }
 
     /**
+     *  returns the instructions that may consume the value(s) that the local-var given by `idx` gets throughout the method.
+     * */
+    public Set<AbstractInsnNode> consumersOfLocalVar(final int idx) {
+        Set<AbstractInsnNode> result = new HashSet<AbstractInsnNode>();
+        Iterator<AbstractInsnNode> iter = mnode.instructions.iterator();
+        while (iter.hasNext()) {
+            AbstractInsnNode insn = iter.next();
+            if(Util.isLOAD(insn)) {
+                VarInsnNode v = (VarInsnNode)insn;
+                if(v.var == idx) {
+                    result.addAll(consumers(v));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
      *  This method checks whether a multiplexer connects producers to consumer,
      *  ie whether `consumer` is the only concentrator for values `producers` deliver.
      *
@@ -100,7 +119,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *    (b) `consumer` may receive values from any instruction listed in `producers` and no others.
      *
      */
-    public boolean isMux(Set<AbstractInsnNode> producers, AbstractInsnNode consumer) {
+    public boolean isMux(final Set<AbstractInsnNode> producers, final AbstractInsnNode consumer) {
         assert !producers.isEmpty();
         // condition (b)
         if(!producers(consumer).equals(producers)) {
@@ -126,7 +145,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *    (b) each of the `consumers` may receive a value from the `producer` and no other.
      *
      */
-    public boolean isDemux(AbstractInsnNode producer, Set<AbstractInsnNode> consumers) {
+    public boolean isDemux(final AbstractInsnNode producer, final Set<AbstractInsnNode> consumers) {
         assert !consumers.isEmpty();
         // condition (a)
         if(!consumers(producer).equals(consumers)) {
@@ -147,7 +166,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *  Does the value `producer` deliver invariably end up in `consumer`? (ie no other recipient is possible)
      *  Please notice `consumer` may receive values from sources other than `producer`.
      */
-    public boolean hasUniqueImage(AbstractInsnNode producer, AbstractInsnNode consumer) {
+    public boolean hasUniqueImage(final AbstractInsnNode producer, final AbstractInsnNode consumer) {
         return isSingleton(consumers(producer), consumer);
     }
 
@@ -155,7 +174,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *  Does the value `consumer` receives invariably originate in `producer`? (ie no other source is possible)
      *  Please notice `producer` may deliver values to sinks other than `consumer`.
      */
-    public boolean hasUniquePreimage(AbstractInsnNode producer, AbstractInsnNode consumer) {
+    public boolean hasUniquePreimage(final AbstractInsnNode producer, final AbstractInsnNode consumer) {
         return isSingleton(producers(consumer), producer);
     }
 
@@ -163,7 +182,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *  Does the value `consumer` receives invariably originate in `producer`, and moreover
      *  is `consumer` the only sink for `producer`?
      */
-    public boolean isPointToPoint(AbstractInsnNode producer, AbstractInsnNode consumer) {
+    public boolean isPointToPoint(final AbstractInsnNode producer, final AbstractInsnNode consumer) {
         return hasUniqueImage(producer, consumer) && hasUniquePreimage(producer, consumer);
     }
 
@@ -171,7 +190,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *  Is `insns` a singleton set whose only element is given by `elem`?
      *  (object identity test between `elem` and the singleton's element)
      */
-    public boolean isSingleton(Set<AbstractInsnNode> insns, AbstractInsnNode elem) {
+    public boolean isSingleton(final Set<AbstractInsnNode> insns, final AbstractInsnNode elem) {
         return (insns.size() == 1) && (insns.iterator().next() == elem);
     }
 
@@ -184,7 +203,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
      *  and so on until a fixpoint is reached. End results are returned in `allProducers` and `allConsumers`.
      *
      * */
-    public void fixpointGivenConsumer(AbstractInsnNode consumer, Set<AbstractInsnNode> allProducers, Set<AbstractInsnNode> allConsumers) {
+    public void fixpointGivenConsumer(final AbstractInsnNode consumer, final Set<AbstractInsnNode> allProducers, final Set<AbstractInsnNode> allConsumers) {
 
         Queue<AbstractInsnNode> cq = new LinkedList<AbstractInsnNode>();
         Queue<AbstractInsnNode> pq = new LinkedList<AbstractInsnNode>();
@@ -228,7 +247,7 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
 
     }
 
-    public void fixpointGivenProducer(AbstractInsnNode producer, Set<AbstractInsnNode> allProducers, Set<AbstractInsnNode> allConsumers) {
+    public void fixpointGivenProducer(final AbstractInsnNode producer, final Set<AbstractInsnNode> allProducers, final Set<AbstractInsnNode> allConsumers) {
         AbstractInsnNode bootstrapConsumer = consumers(producer).iterator().next();
         fixpointGivenConsumer(bootstrapConsumer, allProducers, allConsumers);
     }

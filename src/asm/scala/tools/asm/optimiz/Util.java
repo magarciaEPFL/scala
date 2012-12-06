@@ -302,7 +302,7 @@ public class Util {
     // cloning
     // ------------------------------------------------------------------------
 
-    public static Map<LabelNode, LabelNode> clonedLabels(MethodNode mnode) {
+    public static Map<LabelNode, LabelNode> clonedLabels(final MethodNode mnode) {
         ListIterator<AbstractInsnNode> iter   = mnode.instructions.iterator();
         Map<LabelNode, LabelNode>      result = new HashMap<LabelNode, LabelNode>();
         while(iter.hasNext()) {
@@ -328,9 +328,9 @@ public class Util {
      * a Map provided by the caller which is populated in this method.
      */
     public static InsnList clonedInsns(
-            InsnList                                input,
-            Map<LabelNode, LabelNode>               labelMap,
-            Map<AbstractInsnNode, AbstractInsnNode> insnMap
+            final InsnList                                input,
+            final Map<LabelNode, LabelNode>               labelMap,
+            final Map<AbstractInsnNode, AbstractInsnNode> insnMap
     ) {
         assert insnMap.isEmpty();
         ListIterator<AbstractInsnNode> iter = input.iterator();
@@ -351,7 +351,7 @@ public class Util {
      * @param prefix at the new usage point, pasting cloned names of local vars as-is might lead to duplicates,
      *               in particular for `this`. Thus a prefix (e.g., the callee's name) may be provided by the invoker.
      */
-    public static List<LocalVariableNode> cloneLocalVariableNodes(MethodNode mnode, Map<LabelNode, LabelNode> labelMap, String prefix) {
+    public static List<LocalVariableNode> cloneLocalVariableNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
         Iterator<LocalVariableNode> iter   = mnode.localVariables.iterator();
         List<LocalVariableNode>     output = new LinkedList<LocalVariableNode>();
         while(iter.hasNext()) {
@@ -362,7 +362,7 @@ public class Util {
         return output;
     }
 
-    public static LocalVariableNode cloneLocalVariableNode(LocalVariableNode old, Map<LabelNode, LabelNode> labelMap, String prefix) {
+    public static LocalVariableNode cloneLocalVariableNode(final LocalVariableNode old, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
         LocalVariableNode result = new LocalVariableNode(
             prefix + old.name,
             old.desc,
@@ -374,7 +374,7 @@ public class Util {
         return result;
     }
 
-    public static List<TryCatchBlockNode> cloneTryCatchBlockNodes(MethodNode mnode, Map<LabelNode, LabelNode> labelMap) {
+    public static List<TryCatchBlockNode> cloneTryCatchBlockNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap) {
         Iterator<TryCatchBlockNode> iter    = mnode.tryCatchBlocks.iterator();
         List<TryCatchBlockNode>     output  = new LinkedList<TryCatchBlockNode>();
         while(iter.hasNext()) {
@@ -385,7 +385,7 @@ public class Util {
         return output;
     }
 
-    public static TryCatchBlockNode cloneTryCatchBlockNode(TryCatchBlockNode old, Map<LabelNode, LabelNode> labelMap) {
+    public static TryCatchBlockNode cloneTryCatchBlockNode(final TryCatchBlockNode old, final Map<LabelNode, LabelNode> labelMap) {
         TryCatchBlockNode result = new TryCatchBlockNode(
             labelMap.get(old.start),
             labelMap.get(old.end),
@@ -403,7 +403,7 @@ public class Util {
      *  @return the number of arguments the callsite expects on the operand stack,
      *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
      */
-    public static int expectedArgs(MethodInsnNode callsite) {
+    public static int expectedArgs(final MethodInsnNode callsite) {
         int result = Type.getArgumentTypes(callsite.desc).length;
         switch (callsite.getOpcode()) {
             case Opcodes.INVOKEVIRTUAL:
@@ -424,7 +424,7 @@ public class Util {
      *  @return the number of arguments the callsite expects on the operand stack,
      *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
      */
-    public static int expectedArgs(MethodNode mnode) {
+    public static int expectedArgs(final MethodNode mnode) {
         int formals = Type.getArgumentTypes(mnode.desc).length;
         return (isInstanceMethod(mnode) ? 1 : 0) + formals;
     }
@@ -432,14 +432,14 @@ public class Util {
     /**
      * In order to run Analyzer.analyze() on a method, its `maxLocals` should have been computed.
      */
-    public static boolean isReadyForAnalyzer(scala.tools.asm.tree.MethodNode mnode) {
+    public static boolean isReadyForAnalyzer(final MethodNode mnode) {
       return mnode.maxLocals != 0 || mnode.maxStack != 0;
     }
 
     /**
      * In order to run Analyzer.analyze() on a method, its `maxLocals` should have been computed.
      */
-    public static void computeMaxLocalsMaxStack(scala.tools.asm.tree.MethodNode mnode) {
+    public static void computeMaxLocalsMaxStack(final MethodNode mnode) {
         ClassWriter cw  = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         String[] excs   = mnode.exceptions.toArray(new String[0]);
         MethodWriter mw = (MethodWriter)cw.visitMethod(mnode.access, mnode.name, mnode.desc, mnode.signature, excs);
@@ -455,7 +455,7 @@ public class Util {
     /**
      * Returns a human-readable representation of the code in the mnode MethodNode.
      */
-    public static String textify(MethodNode mnode) {
+    public static String textify(final MethodNode mnode) {
       scala.tools.asm.util.TraceClassVisitor trace = new scala.tools.asm.util.TraceClassVisitor(new java.io.PrintWriter(new java.io.StringWriter()));
       mnode.accept(trace);
       java.io.StringWriter sw = new java.io.StringWriter();
