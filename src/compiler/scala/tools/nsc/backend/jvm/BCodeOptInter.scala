@@ -930,7 +930,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * Rationale
      * ---------
      *
-     * Closure inlining results in faster code, by specializing a higher-order method
+     * Closure inlining results in faster code by specializing a higher-order method
      * to the particular anonymous closures given as arguments at a particular callsite
      * (at the cost of code duplication, namely of the Hi-O method, but only for that code).
      *
@@ -945,7 +945,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * Hi-O and closures to inline (not all closures might be amenable to inlining, details below).
      * In that method, closure-apply() invocations are inlined, thus cancelling out:
      *   - any redundant box-unbox pairs when passing arguments to closure-apply(); as well as
-     *   - any unbox-box pair for its return value).
+     *   - any unbox-box pair for its return value.
      *
      *
      * Terminology
