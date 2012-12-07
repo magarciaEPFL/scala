@@ -1042,8 +1042,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             cpHost.analyze(hostOwner.name, host)
 
             val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
-            val actualsProducers: Map[SourceValue, Int] = callsiteCP.getActualArguments(callsite).zipWithIndex.toMap
-            val closureProducers = actualsProducers filter { case (prods, idx) => closureTypedArgs.contains(idx) }
+            val actualsProducers: Array[SourceValue] = callsiteCP.getActualArguments(callsite) map (_.asInstanceOf[SourceValue])
+            val closureProducers: Map[SourceValue, Int] = closureTypedArgs.map(idx => (actualsProducers(idx) -> idx)).toMap
 
             for(
               (prods, idx) <- closureProducers;
