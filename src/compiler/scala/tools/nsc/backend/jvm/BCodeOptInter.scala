@@ -919,14 +919,35 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method allAccessesLegal()
 
     /**
-     * This method inlines the invocation of a higher-order method and
+     * This method inlines the invocation of a "higher-order method" and
      * stack-allocates the anonymous closures received as arguments.
      *
      * "Stack-allocating" in the sense of "scalar replacement of aggregates" (see also "object fusion").
      * This can always be done for closures converted in UnCurry via `closureConversionMethodHandle()`
      * a conversion that has the added benefit of minimizing pointer-chasing (heap navigation).
      *
-     * -----------
+     *
+     * Rationale
+     * ---------
+     *
+     * Closure inlining results in faster code, by specializing a higher-order method
+     * to the particular anonymous closures given as arguments at a particular callsite
+     * (at the cost of code duplication, namely of the Hi-O method, but only for that code).
+     *
+     * The "Hi-O" method usually applies the closure inside a loop (e.g., map and filter fit this description)
+     * that's why a Hi-O callsite can be regarded for most practical purposes as a loop-header.
+     * "Regarded as a loop header" because we'd like the JIT to pick that code section for compilation.
+     * If actually a loop-header, and the instructions for the Hi-O method were inlined,
+     * then upon OnStackReplacement the whole method containing the Hi-O invocation would have to be compiled
+     * (which might well not be hot code itself).
+     *
+     * To minimize that wasted effort, `inlineClosures()` creates a dedicated (static, synthetic) method for a given combination of
+     * Hi-O and closures to inline (not all closures might be amenable to inlining, details below).
+     * In that method, closure-apply() invocations are inlined, thus cancelling out:
+     *   - any redundant box-unbox pairs when passing arguments to closure-apply(); as well as
+     *   - any unbox-box pair for its return value).
+     *
+     *
      * Terminology
      * -----------
      *
@@ -945,7 +966,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *                      The first such argument is always the THIS of the invoker,
      *                      which becomes the $outer value from the perspective of the closure-class.
      *
-     * -----------------
+     *
      * Closure lifecycle
      * -----------------
      *
