@@ -293,7 +293,8 @@ abstract class UnCurry extends InfoTransform
       }
     }
 
-    /** Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
+    /**
+     *  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
      *
      *  {
      *    def hoistedMethodDef(x_1: T_1, ..., x_N: T_n): R = body
@@ -321,6 +322,11 @@ abstract class UnCurry extends InfoTransform
      *    https://wikis.oracle.com/display/HotSpotInternals/EscapeAnalysis
      *    http://dl.acm.org/citation.cfm?id=945892
      *
+     *  Under the new scheme, loading anon-closure-classes is faster because there's less code to verify.
+     *  It's true however that a "closures-via-invokedynamic" approach would further reduce that overhead
+     *  (because materializing the inner class is delayed until runtime, see java/lang/invoke/LambdaMetafactory).
+     *  Another tradeoff, under a "closures-as-method-handles" approach: classloading-time vs methodhandle-initialization-time.
+     *
      *
      *  Long version of how it works
      *  ----------------------------
@@ -338,7 +344,7 @@ abstract class UnCurry extends InfoTransform
      *
      *   (a.2) whenever non-captured values from scopes enclosing the closure are accessed by the closure body,
      *         one or more pointer-chasing via `$$$outer()` invocations or `$outer` field-reads takes place
-      *        (given that these values are found as field of outer-instances)
+     *         (given that these values are found as field of outer-instances)
      *         In contrast, these values are also available as method-params under (b)
      *
      *  As a result, (b) sprinkles the code emitted for the closure-body with dot-navigation that assumes object identity is available for closures,
@@ -349,7 +355,8 @@ abstract class UnCurry extends InfoTransform
      *
      *  TODO SI-6666 , SI-6727 (pos/z1730) . Also: not a bug but beware: SI-6730
      *
-     *  TODO In case the closure-body captures nothing, it need not be hoisted out of the closure.
+     *  TODO In case the closure-body captures nothing AND accesses nothing from outer instances,
+     *       it need not be hoisted out of the closure and `inlineClosures()` could still stack-allocate it.
      *
      *  TODO Related approach: https://github.com/retronym/scala/compare/topic/closure-sharing
      *       Why not constrain isSafeToUseConstantFunction to just Function whose apply()'s body has constant type?
