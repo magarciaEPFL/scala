@@ -1017,6 +1017,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
              *  The receiver (in the case of instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
              *  There's a difference between formal-param-positions (as returned by this method) and local-var-indexes (as used in a moment).
              *  The latter take into account the JVM-type-size of previous locals, while param-positions are numbered consecutively.
+             *
+             *  @return a set of those hiO method-params taking a closure-typed actual argument.
              */
             def survivors1(): collection.Set[Int] = {
 
@@ -1034,8 +1036,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               survivors
             }
 
-      val closureTypedArgs = survivors1()
-      if(closureTypedArgs.isEmpty) {
+      val closureTypedHiOArgs = survivors1()
+      if(closureTypedHiOArgs.isEmpty) {
         // TODO inlineMethod. Example, `global.log` in `def log(msg: => AnyRef) { global.log(msg) }` will have empty closureTypedArgs
         return false
       }
@@ -1056,6 +1058,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            *
            * Given that the type of the actual fulfills Tracked.isClosureClass,
            * the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
+           *
+           * @return a map listing for each hiO method-param that takes a closure, the class of that closure.
            */
           def survivors2(): Map[Int, ClassNode] = {
 
@@ -1064,7 +1068,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
             val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
             val actualsProducers: Array[SourceValue] = callsiteCP.getActualArguments(callsite) map (_.asInstanceOf[SourceValue])
-            val closureProducers: Map[SourceValue, Int] = closureTypedArgs.map(idx => (actualsProducers(idx) -> idx)).toMap
+            val closureProducers: Map[SourceValue, Int] = closureTypedHiOArgs.map(idx => (actualsProducers(idx) -> idx)).toMap
 
             for(
               (prods, idx) <- closureProducers;
@@ -1075,8 +1079,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             ) yield (idx, codeRepo.classes.get(closureBT))
           }
 
-      val closureClassPerFormal = survivors2()
-      if(closureClassPerFormal.isEmpty) {
+      val closureClassPerHiOFormal = survivors2()
+      if(closureClassPerHiOFormal.isEmpty) {
         // TODO warn.
         return false
       }
@@ -1084,8 +1088,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           /**
            * Pre-requisites on hiO method
            *
+           * A closure `f` used in hiO method can be stack-allocated provided all usages are of the form `f.apply(...)`
+           * This is checked bytecode-level by looking up all usages of hiO's method-param conveying `f`
+           * and checking whether they're of the form shown above.
+           *
            */
           def survivors3(): List[ClosureUsages] = {
+
+            val cpHiO: UnBoxAnalyzer = UnBoxAnalyzer.create() // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+            cpHiO.analyze(hiOOwner.name, hiO)
+
             Nil
           }
 
@@ -1098,12 +1110,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       false // TODO
     }
 
+    /**
+     *  For a given pair (hiO method, closure-argument) an instance of ClosureUsages
+     *  records the apply() invocations for that closure-argument.
+     *
+     *  @param formalParamPosHiO zero-based position in the formal-params-list of hiO method
+     *  @param localVarIdxHiO    corresponding index into the locals-array of hiO method
+     *                           (this index in general differs from formalParamPosHiO due to JVM-type-sizes)
+     *  @param closureClass
+     *  @param applyMethod
+     *  @param usages
+     */
     case class ClosureUsages(
-      formalParamPos: Int,
-      localVarIdx:    Int,
-      closureClass:   ClassNode,
-      applyMethod:    MethodNode,
-      usages:         List[MethodInsnNode]
+      formalParamPosHiO: Int,
+      localVarIdxHiO:    Int,
+      closureClass:      ClassNode,
+      applyMethod:       MethodNode,
+      usages:            List[MethodInsnNode]
     ) {
       assert(usages.forall(usage => usage.owner == closureClass.name), "the target of each apply invocation should be owned by closureClass")
       assert(usages.forall(usage => isApplyName(usage.name)),          "not a closure-apply invocation")
