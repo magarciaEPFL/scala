@@ -10,13 +10,14 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.{UnBoxAnalyzer, Util}
+import asm.optimiz.{UnBoxAnalyzer, ProdConsAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree._
 
 import scala.collection.{ mutable, immutable }
 import scala.Some
 import collection.convert.Wrappers.JListWrapper
+import collection.convert.Wrappers.JSetWrapper
 
 /**
  *  Optimize and tidy-up bytecode before it's serialized for good.
@@ -1093,12 +1094,35 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            * and checking whether they're of the form shown above.
            *
            */
-          def survivors3(): List[ClosureUsages] = {
+          def survivors3(): Iterable[ClosureUsages] = {
 
-            val cpHiO: UnBoxAnalyzer = UnBoxAnalyzer.create() // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+            val cpHiO: ProdConsAnalyzer = ProdConsAnalyzer.create()
             cpHiO.analyze(hiOOwner.name, hiO)
 
-            Nil
+            val mtHiO = BType.getMethodType(hiO.desc)
+            val isInstanceMethod = Util.isInstanceMethod(hiO)
+
+                /**
+                 *  Checks whether all closure-usages (in hiO) are of the form `closure.apply(...)`
+                 *  and if so return the MethodNode for that apply(), null otherwise.
+                 */
+                def areAllApplyCalls(closureArgUsages: collection.Set[AbstractInsnNode]): MethodNode = {
+                  null
+                }
+
+            for (
+              (formalParamPosHiO, closureClass) <- closureClassPerHiOFormal;
+              localVarIdxHiO = mtHiO.convertFormalParamPosToLocalVarIdx(formalParamPosHiO, isInstanceMethod);
+              closureArgUsages: Set[AbstractInsnNode] = JSetWrapper(cpHiO.consumersOfLocalVar(localVarIdxHiO)).toSet;
+              applyMethod = areAllApplyCalls(closureArgUsages);
+              if applyMethod != null
+            ) yield ClosureUsages(
+              formalParamPosHiO,
+              localVarIdxHiO,
+              closureClass,
+              applyMethod,
+              closureArgUsages map (_.asInstanceOf[MethodInsnNode])
+            )
           }
 
       val closureUsages = survivors3()
@@ -1116,7 +1140,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      *  @param formalParamPosHiO zero-based position in the formal-params-list of hiO method
      *  @param localVarIdxHiO    corresponding index into the locals-array of hiO method
-     *                           (this index in general differs from formalParamPosHiO due to JVM-type-sizes)
+     *                           (in general different from formalParamPosHiO due to JVM-type-sizes)
      *  @param closureClass
      *  @param applyMethod
      *  @param usages
@@ -1126,7 +1150,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       localVarIdxHiO:    Int,
       closureClass:      ClassNode,
       applyMethod:       MethodNode,
-      usages:            List[MethodInsnNode]
+      usages:            Set[MethodInsnNode]
     ) {
       assert(usages.forall(usage => usage.owner == closureClass.name), "the target of each apply invocation should be owned by closureClass")
       assert(usages.forall(usage => isApplyName(usage.name)),          "not a closure-apply invocation")
