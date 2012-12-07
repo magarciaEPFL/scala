@@ -919,11 +919,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method allAccessesLegal()
 
     /**
-     * This method inlines the invocation of a higher-order method, stack-allocating the anonymous closures it receives as arguments.
+     * This method inlines the invocation of a higher-order method and
+     * stack-allocates the anonymous closures received as arguments.
      *
      * "Stack-allocating" in the sense of "scalar replacement of aggregates" (see also "object fusion").
-     * This can always be done for closures converted in UnCurry by `closureConversionMethodHandle()`
-     * a conversion that has the added benefit of lower pointer-chasing (heap navigation).
+     * This can always be done for closures converted in UnCurry via `closureConversionMethodHandle()`
+     * a conversion that has the added benefit of minimizing pointer-chasing (heap navigation).
      *
      * -----------
      * Terminology
@@ -938,10 +939,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *                  For a closure converted in UnCurry:
      *                    - via `closureConversionMethodHandle()` there are no additional closure-methods.
      *                    - via `closureConversionTraditional()`  those methods that were local to the source-level apply()
-     *                      also become closure-methods after lambda-lifting.
+     *                      also become closure-methods after lambdalift.
      *
      * closure-constructor: a sequence of assignments to initialize the (from then on immutable) closure-state by copying arguments' values.
-     *                      The first such argument is always the THIS of the invoker, which becomes the $outer value from the perspective of the closure-class.
+     *                      The first such argument is always the THIS of the invoker,
+     *                      which becomes the $outer value from the perspective of the closure-class.
      *
      * -----------------
      * Closure lifecycle
@@ -961,15 +963,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *     // more args get loaded
      *     INVOKE Hi-O
      *
-     * In order to inline Hi-O, the closure-argument shouldn't escape from it. There's in fact a whole cascade of prerequisites
-     * to check, desribed in detail in the helper methods used for that purpose (see method body).
+     * In order to stack-allocate a particular closure passed to Hi-O, the closure in question shouldn't escape from Hi-O.
+     * There's in fact a whole cascade of prerequisites to check,
+     * desribed in detail in the helper methods used for that purpose (see method body).
      *
      * TODO documentation about the bytecode-rewriting.
      *
      * @param hostOwner the class declaring the host method
      * @param host      the method containing a callsite for which inlining has been requested
      * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
-     * @param callsiteTypeFlow the type-stack reaching the callsite. Useful to know which args are closure-typed.
+     * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
      * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
      * @param hiOOwner  the Classnode where callee was declared.
      *
@@ -988,26 +991,28 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
             /**
              *  Which params of the hiO method receive closure-typed arguments?
+             *
              *  Param-positions are zero-based.
              *  The receiver (in the case of instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
              *  There's a difference between formal-param-positions (as returned by this method) and local-var-indexes (as used in a moment).
-             *  The latter take into account the JVM-type-size of previous locals.
+             *  The latter take into account the JVM-type-size of previous locals, while param-positions are numbered consecutively.
              */
-            def survivors1(): List[Int] = {
+            def survivors1(): collection.Set[Int] = {
 
               val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
               var idx = 0
-              var survivors: List[Int] = Nil
+              var survivors = mutable.LinkedHashSet[Int]()
               while(idx < actualsTypeFlow.length) {
                 val tf = actualsTypeFlow(idx)
                 if(tf.lca.isClosureClass) {
-                  survivors ::= idx
+                  survivors += idx
                 }
                 idx += 1
               }
 
               survivors
             }
+
       val closureTypedArgs = survivors1()
       if(closureTypedArgs.isEmpty) {
         // TODO inlineMethod. Example, `global.log` in `def log(msg: => AnyRef) { global.log(msg) }` will have empty closureTypedArgs
@@ -1019,10 +1024,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            *
            * Given
            *   (1) a copy-propagating, params-aware, Consumers-Producers analysis of the host method,
-           *   (2) the previous subset of params (ie those receiving a closure-typed formal)
-           * determine those params that receive a unique closure.
+           *   (2) the previous subset of params (ie those receiving closure-typed actual arguments)
+           * determine those params that receive a unique closure, and look up the ClassNode for the closures in question.
            *
-           * Nota Bene: Assuming the standard transforms performed by the compiler, `survivors2()` isn't strictly necessary.
+           * N.B.: Assuming the standard compiler transforms as of this writing, `survivors2()` isn't strictly necessary.
            * However it protects against any non-standard transforms that mess up with preconds required for correctness.
            *
            * `survivors2()` goes over the formals in `survivors1()`, picking those that have a single producer,
@@ -1035,11 +1040,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
             val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create() // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
             cpHost.analyze(hostOwner.name, host)
-            val callsiteCP = cpHost.frameAt(callsite)
+
+            val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
+            val actualsProducers: Map[SourceValue, Int] = callsiteCP.getActualArguments(callsite).zipWithIndex.toMap
+            val closureProducers = actualsProducers filter { case (prods, idx) => closureTypedArgs.contains(idx) }
 
             for(
-              (prods, idx) <- callsiteCP.getActualArguments(callsite).zipWithIndex.toMap;
-              if closureTypedArgs.contains(idx);
+              (prods, idx) <- closureProducers;
               if (prods.insns.size() == 1);
               singleProducer = prods.insns.iterator().next();
               if(singleProducer.getOpcode == Opcodes.NEW);
@@ -1072,12 +1079,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     case class ClosureUsages(
       formalParamPos: Int,
+      localVarIdx:    Int,
       closureClass:   ClassNode,
       applyMethod:    MethodNode,
       usages:         List[MethodInsnNode]
     ) {
       assert(usages.forall(usage => usage.owner == closureClass.name), "the target of each apply invocation should be owned by closureClass")
-      assert(usages.forall(usage => isApplyName(usage.name)),           "not a closure-apply invocation")
+      assert(usages.forall(usage => isApplyName(usage.name)),          "not a closure-apply invocation")
     }
 
     def isApplyName(methodName: String): Boolean = {
