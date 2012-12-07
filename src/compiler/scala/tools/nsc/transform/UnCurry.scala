@@ -222,6 +222,16 @@ abstract class UnCurry extends InfoTransform
     }
 
 
+    /**
+     *  Performs closure conversion according to one of three approaches:
+     *    (a) if `settings.XoldPatmat.value`, synthesizes AbstractPartialFunction subclasses (see synthPartialFunction).
+     *    (b) otherwise hoisting the closure body,
+     *    (c) unless
+     *          - the closure is a constructor-argument; or
+     *          - a compiler setting dictates varargs methods should be eta-expanded to T* rather than Seq[T].
+     *
+     *  The documentation of `closureConversionMethodHandle()` compares the pros and cons of both closure conversion approaches.
+     */
     def transformFunction(fun: Function): Tree = {
       deEta(fun) match {
         // nullary or parameterless
@@ -240,15 +250,14 @@ abstract class UnCurry extends InfoTransform
       }
     }
 
-    /**  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
+    /** Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
      *
      *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
      *      def apply(x_1: T_1, ..., x_N: T_n): R = body
      *    }
      *    new $anon()
      *
-     * If `settings.XoldPatmat.value`, also synthesized AbstractPartialFunction subclasses (see synthPartialFunction).
-     *
+     *  The documentation of `closureConversionMethodHandle()` compares the pros and cons of both closure conversion approaches.
      */
     def closureConversionTraditional(fun: Function): Tree = {
       val parents = (
@@ -296,13 +305,49 @@ abstract class UnCurry extends InfoTransform
      *    new $anon()
      *  }
      *
+     *
+     *  Short version of how it works
+     *  -----------------------------
+     *
      *  By 'hoisting' the closure-body out of the anon-closure-class, lambdalift and explicitouter
      *  are prompted to add formal-params to convey values captured from the lexical environment.
      *  This amounts to 'scalar replacement of aggregates' that cuts down on heap-hops over outer() methods.
      *
-     *  TODO SI-6666 , SI-6727 (pos/z1730) . Also: not a bug but beware: SI-6730
+     *  After lambdalift the hoisted method (now declared in a class `H`) can access H's fields directly (thus avoiding an $outer indirection).
+     *  Similarly for values from outer instances.
      *
-     *  If `settings.XoldPatmat.value`, also synthesized AbstractPartialFunction subclasses (see synthPartialFunction).
+     *  On the other hand, both closure conversion approaches
+     *  require IntRef and similar for captured-locals, but the Escape Analysis in the VM can stack-allocate them on its own:
+     *    https://wikis.oracle.com/display/HotSpotInternals/EscapeAnalysis
+     *    http://dl.acm.org/citation.cfm?id=945892
+     *
+     *
+     *  Long version of how it works
+     *  ----------------------------
+     *
+     *  In more detail, both closure conversion approaches
+     *    (a) `closureConversionTraditional()` and
+     *    (b) `closureConversionMethodHandle()`
+     *  produce inner classes, with the difference that the code for (a) will contain in general more levels of indirection,
+     *  also being more difficult to stack-allocate (that optimization is performed by `inlineClosures()` in class `BCodeOptInter`)
+     *
+     *  The extra levels of indirection under (a) result from lambdalift handling anon-closure-classes as any other inner classes:
+     *
+     *   (a.1) whenever the closure captures locals, the closure body accesses their values from final fields in the anon-closure-class.
+     *         In contrast, these amount to method-param accesses under (b)
+     *
+     *   (a.2) whenever non-captured values from scopes enclosing the closure are accessed by the closure body,
+     *         one or more pointer-chasing via `$$$outer()` invocations or `$outer` field-reads takes place
+      *        (given that these values are found as field of outer-instances)
+     *         In contrast, these values are also available as method-params under (b)
+     *
+     *  As a result, (b) sprinkles the code emitted for the closure-body with dot-navigation that assumes object identity is available for closures,
+     *  an assumption that does not hold anymore after stack-allocating the closure-state.
+     *
+     *  For comparison, a discussion of the difficulties when attempting to stack-allocate closures after (a) has been performed can be found at:
+     *    https://groups.google.com/d/topic/scala-internals/Hnftko0MzDM/discussion
+     *
+     *  TODO SI-6666 , SI-6727 (pos/z1730) . Also: not a bug but beware: SI-6730
      *
      *  TODO In case the closure-body captures nothing, it need not be hoisted out of the closure.
      *
@@ -310,7 +355,9 @@ abstract class UnCurry extends InfoTransform
      *       Why not constrain isSafeToUseConstantFunction to just Function whose apply()'s body has constant type?
      *       Useful e.g. with assert(cond, msg) when msg is string literal
      *       (otherwise, the anon-closure-class refers to the enclosing method, which refers to inner classes chain, not to mention the ConstantPool grows, etc.)
-      *
+     *
+     *  TODO Compiling the compiler with `closureConversionMethodHandle()` active results in weird Infer.scala behavior unless the following workaround is used:
+     *       https://github.com/magarciaEPFL/scala/commit/3e7a3519d13d006bd34016c130b94605d5ea441f
      */
     def closureConversionMethodHandle(fun: Function): Tree = {
       val parents = (
