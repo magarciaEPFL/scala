@@ -1105,16 +1105,79 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 /**
                  *  Checks whether all closure-usages (in hiO) are of the form `closure.apply(...)`
                  *  and if so return the MethodNode for that apply(), null otherwise.
+                 *
+                 *  @param closureClass     class realizing the closure of interest
+                 *  @param localVarIdxHiO   local-var in hiO (a formal param) whose value is the closure of interest
+                 *  @param closureArgUsages instructions where the closure is used as input
                  */
-                def areAllApplyCalls(closureArgUsages: collection.Set[AbstractInsnNode]): MethodNode = {
-                  null
+                def areAllApplyCalls(closureClass: ClassNode, localVarIdxHiO: Int, closureArgUsages: collection.Set[AbstractInsnNode]): MethodNode = {
+
+                  // (1) all usages are invocations
+                  if(closureArgUsages.exists(insn => insn.getType != AbstractInsnNode.METHOD_INSN)) {
+                    return null // TODO warn
+                  }
+
+                  // (2) moreover invocations of one and the same method
+                  var iter: Iterator[AbstractInsnNode] = closureArgUsages.iterator
+                  val fst = iter.next().asInstanceOf[MethodInsnNode]
+                  while(iter.hasNext) {
+                    val nxt = iter.next().asInstanceOf[MethodInsnNode]
+                    if(
+                      fst.getOpcode != nxt.getOpcode ||
+                      fst.owner     != nxt.owner     ||
+                      fst.name      != nxt.name      ||
+                      fst.desc      != nxt.desc
+                    ) {
+                      return null // TODO warn
+                    }
+                  }
+
+                  // (3) each invocation takes the closure instance as receiver, and only as receiver (ie not as argument)
+                  iter = closureArgUsages.iterator
+                  while(iter.hasNext) {
+
+                        def isClosureLoad(sv: SourceValue) = {
+                          (sv.insns.size() == 1) && {
+                            sv.insns.iterator().next() match {
+                              case lv: VarInsnNode => lv.`var` == localVarIdxHiO
+                              case _ => false
+                            }
+                          }
+                        }
+
+                    val nxt = iter.next().asInstanceOf[MethodInsnNode]
+                    val frame = cpHiO.frameAt(nxt)
+                    val isDispatchedOnClosure = isClosureLoad(frame.getReceiver(nxt))
+                    val passesClosureAsArgument = {
+                      frame.getActualArguments(nxt).exists(v => isClosureLoad(v.asInstanceOf[SourceValue]))
+                    }
+
+                    if(!isDispatchedOnClosure || passesClosureAsArgument) {
+                      return null // TODO warn
+                    }
+                  }
+
+                  // (4) whether it's actually an apply or specialized-apply invocation
+                  val arity = BType.getMethodType(fst.desc).getArgumentCount
+                  if(arity > definitions.MaxFunctionArity) {
+                    return null // TODO warn
+                  }
+
+                  // all checks passed, look up applyMethod
+                  val closureClassBType = lookupRefBType(closureClass.name)
+                  val tentative = codeRepo.getMethodOrNull(closureClassBType, fst.name, fst.desc)
+                  val applyMethod =
+                    if(tentative == null) { null }
+                    else { tentative.mnode }
+
+                  applyMethod
                 }
 
             for (
               (formalParamPosHiO, closureClass) <- closureClassPerHiOFormal;
               localVarIdxHiO = mtHiO.convertFormalParamPosToLocalVarIdx(formalParamPosHiO, isInstanceMethod);
               closureArgUsages: Set[AbstractInsnNode] = JSetWrapper(cpHiO.consumersOfLocalVar(localVarIdxHiO)).toSet;
-              applyMethod = areAllApplyCalls(closureArgUsages);
+              applyMethod = areAllApplyCalls(closureClass, localVarIdxHiO, closureArgUsages);
               if applyMethod != null
             ) yield ClosureUsages(
               formalParamPosHiO,
@@ -1151,14 +1214,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       closureClass:      ClassNode,
       applyMethod:       MethodNode,
       usages:            Set[MethodInsnNode]
-    ) {
-      assert(usages.forall(usage => usage.owner == closureClass.name), "the target of each apply invocation should be owned by closureClass")
-      assert(usages.forall(usage => isApplyName(usage.name)),          "not a closure-apply invocation")
-    }
-
-    def isApplyName(methodName: String): Boolean = {
-      true // TODO
-    }
+    )
 
   } // end of class WholeProgramAnalysis
 
