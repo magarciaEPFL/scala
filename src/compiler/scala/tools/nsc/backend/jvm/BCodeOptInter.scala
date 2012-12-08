@@ -1011,6 +1011,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // val txtHost = Util.textify(host) // debug
       // val txtHiO  = Util.textify(hiO)  // debug
 
+      codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions)
+
+      if(!allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))) {
+        // TODO warning()
+        return false
+      }
+
             /**
              *  Which params of the hiO method receive closure-typed arguments?
              *
