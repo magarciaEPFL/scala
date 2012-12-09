@@ -43,9 +43,7 @@ trait JavaPlatform extends Platform {
     else List(dependencyAnalysis)
 
   private def classEmitPhase =
-    if     (settings.mustUseGenJVM) genJVM
-    else if(settings.mustUseGenASM) genASM
-    else if(settings.canUseBCode)   genBCode
+    if (settings.canUseBCode) genBCode
     else genASM
 
   def platformPhases = List(
