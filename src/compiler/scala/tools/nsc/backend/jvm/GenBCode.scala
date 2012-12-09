@@ -2671,7 +2671,7 @@ abstract class GenBCode extends BCodeOptInter {
             genCZJUMP(success, failure, EQ, ObjectReference)
           } else {
             // l == r -> if (l eq null) r eq null else l.equals(r)
-            val eqEqTempLocal = makeLocal(AnyRefReference, nme.EQEQ_LOCAL_VAR)
+            val eqEqTempLocal = makeLocal(AnyRefReference, nme.EQEQ_LOCAL_VAR.toString)
             val lNull    = new asm.Label
             val lNonNull = new asm.Label
 
