@@ -477,7 +477,8 @@ abstract class GenBCode extends BCodeOptInter {
 
       /* ---------------- caches to avoid asking the same questions over and over to typer ---------------- */
 
-      // TODO Do we need the same global/seen/private classification in mirror-class-builder and bean-info-builder ?
+      /*
+
       private def trackMentionedInners(tk: BType) {
         (tk.sort: @switch) match {
           case asm.Type.OBJECT =>
@@ -497,6 +498,7 @@ abstract class GenBCode extends BCodeOptInter {
       private def trackMentionedInners(lst: List[BType]) {
         var rest = lst; while(rest.nonEmpty) { trackMentionedInners(rest.head); rest = rest.tail }
       }
+      */
 
       def paramTKs(app: Apply): List[BType] = {
         val Apply(fun, _)  = app
@@ -1018,30 +1020,6 @@ abstract class GenBCode extends BCodeOptInter {
           // the tail-calls xform results in symbols shared btw method-params and labelDef-params, thus the guard above.
           makeLocal(ldp.symbol)
         }
-
-              def emitBodyOfStaticAccessor(staticfield: Symbol) {
-                // in companion object accessors to @static fields, we access the static field directly
-                // see https://github.com/scala/scala/commit/892ee3df93a10ffe24fb11b37ad7c3a9cb93d5de
-                val hostClass   = methSymbol.owner.companionClass
-                val fieldName   = methSymbol.accessed.javaSimpleName.toString
-                val fieldDescr  = symInfoTK(staticfield).getDescriptor
-                val opc =
-                  if (methSymbol.isGetter) asm.Opcodes.GETSTATIC
-                  else asm.Opcodes.PUTSTATIC
-                val insn = new asm.tree.FieldInsnNode(opc, internalName(hostClass), fieldName, fieldDescr)
-
-                if (opc == asm.Opcodes.GETSTATIC) {
-                  emit(insn) // GETSTATIC `hostClass`.`accessed`
-                } else {
-                  assert(methSymbol.isSetter,
-                         "neither getter nor setter found when emitting (GET/PUT)-STATIC, during emitBodyOfStaticAccessor().")
-                  load(params.head.symbol) // push setter's argument
-                  emit(insn) // PUTSTATIC `hostClass`.`accessed`
-                }
-                // RETURN `returnType`
-                bc emitRETURN returnType
-              } // end of emitBodyOfStaticAccessor()
-
 
         if (!isAbstractMethod && !isNative) {
 

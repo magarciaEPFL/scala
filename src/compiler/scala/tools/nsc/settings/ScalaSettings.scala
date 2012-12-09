@@ -198,6 +198,11 @@ trait ScalaSettings extends AbsScalaSettings
   val optimise      = BooleanSetting("-optimise", "Generates faster bytecode by applying optimisations to the program") withAbbreviation "-optimize" enabling optimiseSettings
   val Xexperimental = BooleanSetting("-Xexperimental", "Enable experimental extensions.") enabling experimentalSettings
 
+  /**
+   * Settings motivated by GenBCode's optimizer
+   */
+  val keepUnusedPrivateClassMembers = BooleanSetting("-YkeepUnusedPrivateClassMembers", "Class members that are private and lacking usages are left in place")
+
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
 
@@ -222,9 +227,8 @@ trait ScalaSettings extends AbsScalaSettings
   def isScaladoc = false
 
   /** Test whether GenBCode will run instead of GenASM */
-  def isBCodeActive = !mustUseGenJVM && !mustUseGenASM && canUseBCode
+  def isBCodeActive = !mustUseGenASM && canUseBCode
 
-  def canUseBCode   = !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
-  def mustUseGenJVM = (target.value == "jvm-1.5-fjbg")
+  def canUseBCode   = false && !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
   def mustUseGenASM = (target.value == "jvm-1.5-asm") || (target.value == "jvm-1.6-asm")
 }

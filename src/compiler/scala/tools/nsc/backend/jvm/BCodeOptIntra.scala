@@ -125,6 +125,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val constantFolder      = new asm.optimiz.ConstantFolder
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
+    val unusedPrivateElider = new asm.optimiz.UnusedPrivateElider()
 
     cleanseClass();
 
@@ -186,6 +187,11 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
           runTypeFlowAnalysis(cName, mnode) // debug
         }
+      }
+
+      val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
+      if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSubtypeOf(jioSerializableReference)) {
+        unusedPrivateElider.transform(cnode)
       }
     }
 
