@@ -8,7 +8,6 @@ Bundle-ClassPath:
  .,
  bin,
  lib/jline.jar,
- lib/msil.jar
 Export-Package: 
  scala.tools.nsc,
  scala.tools.nsc.ast,
@@ -46,9 +45,6 @@ Export-Package:
  scala.reflect.runtime,
  scala.reflect.internal.transform,
  scala.reflect.api,
- ch.epfl.lamp.compiler.msil,
- ch.epfl.lamp.compiler.msil.emit,
- ch.epfl.lamp.compiler.msil.util,
 Require-Bundle: 
  org.apache.ant,
  org.scala-ide.scala.library
