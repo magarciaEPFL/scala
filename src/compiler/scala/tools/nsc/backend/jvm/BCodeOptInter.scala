@@ -1400,3 +1400,27 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   }
 
 } // end of class BCodeOptInter
+
+
+/*
+ * TODO After method-inlining, some IntRef, VolatileIntRef, etc. may not escape anymore and can be converted back to local-vars.
+ *
+ *  In particular after inlining:
+ *    (a) what used to be local-method; or
+ *    (b) the delegate invoked by a closure converted via "closureConversionMethodHandle()"
+ *
+ *  In addition to not escaping, there should be no doubt as to what Ref value is being manipulated
+ *  (e.g., merging two Refs prevents from "un-wrapping" it). This can be checked
+ *  with a copy-propagating, param-aware, consumers-producers analysis, as follows.
+ *  First, find all Ref instantiations, and for each:
+ *    (1) check all consumers form a DEMUX,
+ *        where each consumer instruction is either a GETFIELD or PUTFIELD of the "elem" field.
+ *  Transformation proper:
+ *    (2) for each survivor,
+ *        (2.a) NEW, DUP, < init > becomes STORE
+ *        (2.b) getter: LOAD ref, GETFIELD elem ----> LOAD  var
+ *        (2.b) setter: LOAD ref, PUTFIELD elem ----> STORE var
+ *  Shifting of local-vars:
+ *    A local-var holding a ref holds a category-1 value. After "unwrapping" L or D the local-var will hold a category-2 value.
+ *
+ **/
