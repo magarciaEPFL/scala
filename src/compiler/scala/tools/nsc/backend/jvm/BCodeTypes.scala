@@ -838,6 +838,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   // scala.FunctionX and scala.PartialFunction
   var PartialFunctionReference: BType   = null
   var FunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
+  var AbstractPartialFunctionReference: BType = null
 
   /**
    * must-single-thread
@@ -919,6 +920,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     for(idx <- 0 until definitions.MaxFunctionArity) {
       FunctionReference(idx) = exemplar(FunctionClass(idx))
     }
+    AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
 
     initBCodeOpt()
   }
@@ -1566,8 +1568,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
-   *  Whether the argument is a subtype of scala.PartialFunction.
-   *  For example, this method returns true for scala.runtime.AbstractPartialFunction
+   *  Whether the argument is a subtype of
+   *    scala.PartialFunction[-A, +B] extends (A => B)
+   *  N.B.: this method returns true for a scala.runtime.AbstractPartialFunction
    *
    *  can-multi-thread
    */
@@ -1576,8 +1579,17 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
-   *  Whether the argument is a subtype of scala.PartialFunction.
-   *  For example, this method returns true for scala.runtime.AbstractPartialFunction
+   *  Whether the argument is a subtype of
+   *    scala.runtime.AbstractPartialFunction[-T1, +R] extends Function1[T1, R] with PartialFunction[T1, R]
+   *
+   *  can-multi-thread
+   */
+  def isAbstractPartialFunctionType(t: BType): Boolean = {
+    (t.hasObjectSort) && exemplars.get(t).isSubtypeOf(AbstractPartialFunctionReference)
+  }
+
+  /**
+   *  Whether the argument is a subtype of scala.FunctionX where 0 <= X <= definitions.MaxFunctionArity
    *
    *  can-multi-thread
    */

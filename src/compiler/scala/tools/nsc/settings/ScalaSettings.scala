@@ -229,6 +229,6 @@ trait ScalaSettings extends AbsScalaSettings
   /** Test whether GenBCode will run instead of GenASM */
   def isBCodeActive = !mustUseGenASM && canUseBCode
 
-  def canUseBCode   = false && !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
+  def canUseBCode   = !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
   def mustUseGenASM = (target.value == "jvm-1.5-asm") || (target.value == "jvm-1.6-asm")
 }

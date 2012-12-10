@@ -194,6 +194,17 @@ public class ProdConsAnalyzer extends Analyzer<SourceValue> {
         return (insns.size() == 1) && (insns.iterator().next() == elem);
     }
 
+    /**
+     *  @return In case `insns` is a singleton set, its only element. Null otherwise.
+     */
+    public AbstractInsnNode getSingleton(final Set<AbstractInsnNode> insns) {
+        if(insns.size() == 1) {
+            return insns.iterator().next();
+        } else {
+            return null;
+        }
+    }
+
         // ------------------------------------------------------------------------
         // functionality used by UnBoxElider
         // ------------------------------------------------------------------------

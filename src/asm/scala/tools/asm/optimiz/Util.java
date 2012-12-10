@@ -18,6 +18,7 @@ import scala.tools.asm.tree.LdcInsnNode;
 import scala.tools.asm.tree.LabelNode;
 import scala.tools.asm.tree.MethodInsnNode;
 import scala.tools.asm.tree.MethodNode;
+import scala.tools.asm.tree.FieldNode;
 import scala.tools.asm.tree.VarInsnNode;
 import scala.tools.asm.tree.InsnList;
 import scala.tools.asm.tree.LocalVariableNode;
@@ -233,6 +234,10 @@ public class Util {
 
     public static boolean isInstanceMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_STATIC) == 0;
+    }
+
+    public static boolean isInstanceField(final FieldNode f) {
+        return (f.access & Opcodes.ACC_STATIC) == 0;
     }
 
     /**

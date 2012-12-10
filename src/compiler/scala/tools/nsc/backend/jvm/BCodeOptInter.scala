@@ -1089,6 +1089,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               singleProducer = prods.insns.iterator().next();
               if(singleProducer.getOpcode == Opcodes.NEW);
               closureBT = lookupRefBType(singleProducer.asInstanceOf[TypeInsnNode].desc)
+              if(!isPartialFunctionType(closureBT))
             ) yield (idx, codeRepo.classes.get(closureBT))
           }
 
@@ -1211,6 +1212,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
+      closureUsages foreach { cu => ClosureClassUtil(cu.closureClass) } // debug
+
       false // TODO
     }
 
@@ -1232,6 +1235,145 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       applyMethod:       MethodNode,
       usages:            Set[MethodInsnNode]
     )
+
+    /**
+     *  Query methods that dig out information hidden in the structure of a closure-class.
+     */
+    case class ClosureClassUtil(closureClass: ClassNode) {
+
+      val constructor: MethodNode = {
+        var result: MethodNode = null
+        val iter = closureClass.methods.iterator()
+        while(iter.hasNext) {
+          val nxt = iter.next()
+          if(nxt.name == "<init>") {
+            assert(result == null, "duplicate <init> method found in closure-class: " + closureClass.name)
+            result = nxt
+          }
+        }
+        Util.computeMaxLocalsMaxStack(result)
+
+        result
+      }
+
+      /**
+       *  The constructor of a closure-class has params for (a) the outer-instance; and (b) captured-locals.
+       *  Those values are stored in final-fields of the closure-class (the so called "closure state")
+       *  to serve later as actual arguments in a "delegate-invoking apply()".
+       *
+       *  From the perspective of `host` (which invokes `hiO`) the closure-state aliases the actuals
+       *  to the closure instantiation. When the time comes to inline that apply
+       *  (containing usages of closure-state fields) their correspondence with the values they alias is needed because:
+       *    (a) `host` knowns only what actuals go to which closure-constructor-param-positions; and
+       *    (b) there's no guarantee that those values appear in the same order in both
+       *        - closure instantiation, and
+       *        - delegate-invoking apply invocation.
+       *
+       *  This map tracks the aliasing of closure-state values, before and after the closure was instantiated.
+       */
+      val stateField2constrParam: Map[String, Int] = {
+
+        val cpConstructor: ProdConsAnalyzer = ProdConsAnalyzer.create()
+        cpConstructor.analyze(closureClass.name, constructor)
+
+        /*
+         * for each constructor-param-position:
+         *   obtain its local-var index
+         *   find the single consumer of a LOAD of that local-var (should be a PUTFIELD)
+         *   add pair to map.
+         **/
+        val constructorBT = BType.getMethodType(constructor.desc)
+
+        val result =
+          for(
+            paramPos <- 0 until constructorBT.getArgumentCount
+          ) yield {
+            val localVarIdx = constructorBT.convertFormalParamPosToLocalVarIdx(paramPos, isInstanceMethod = true)
+            val fieldName: String = {
+              val consumers = cpConstructor.consumersOfLocalVar(localVarIdx)
+              if(localVarIdx == 1) {
+                // for outer-param, don't count IFNULL instruction as consumer
+                val consumerIter = consumers.iterator()
+                var stop = false
+                while(consumerIter.hasNext && !stop) {
+                  val cnext = consumerIter.next
+                  if(cnext.getOpcode == Opcodes.IFNULL) {
+                    consumers.remove(cnext)
+                    stop = true
+                  }
+                }
+              }
+              val consumer: AbstractInsnNode = cpConstructor.getSingleton(consumers)
+              consumer match {
+                case null =>
+                  null
+                case fi: FieldInsnNode
+                  if (fi.getOpcode == Opcodes.PUTFIELD) && (fi.owner == closureClass.name)
+                => fi.name
+                case _ =>
+                  null
+              }
+            }
+
+            (fieldName -> paramPos)
+          }
+
+        result.filter( p => p._1 != null ).toMap
+      }
+
+      def isRepOK: Boolean = {
+        /*
+         * number of closure-state fields should be one less than number of fields in closure-class
+         * (static field SerialVersionUID isn't part of closure-state).
+         */
+        (stateField2constrParam.size == (closureClass.fields.size() - 1))
+
+        // TODO all apply methods have been accounted for, there are no additional methods
+
+      }
+
+      def getClosureState(fieldName: String): FieldNode = {
+        val fIter = closureClass.fields.iterator()
+        while(fIter.hasNext) {
+          val f = fIter.next()
+          if(Util.isInstanceField(f) && f.name.equals(fieldName)) {
+            return f
+          }
+        }
+
+        null
+      }
+
+      /**
+       *  A "delegate-invoking apply()" is the apply method
+       *  (of a closureClass converted by `closureConversionMethodHandle()`)
+       *  in charge of invoking the hoisted method that encapsulates the original closure body.
+       *
+       *  Example:
+       *        < specialized > def apply$mcVI$sp(v1: Int): Unit = $outer.C$$dlgt1$1(v1);
+       */
+      def isDelegateInvokingApply(mnode: MethodNode): Boolean = {
+        false // TODO
+      }
+
+      /**
+       *  Example 1 of "forwarding apply()"
+       *
+       *        final def apply(x$1: Int): Unit = apply$mcVI$sp(x$1);
+       *
+       *  Example 2 of "forwarding apply()"
+       *
+       *        final < bridge > < artifact > def apply(v1: Object): Object = {
+       *          apply(scala.Int.unbox(v1));
+       *          scala.runtime.BoxedUnit.UNIT
+       *        };
+       *
+       */
+      def isForwardingApply(mnode: MethodNode): Boolean = {
+        false // TODO
+      }
+
+    }
 
   } // end of class WholeProgramAnalysis
 
