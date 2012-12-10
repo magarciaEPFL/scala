@@ -54,13 +54,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * The callsites in question constitute "requests for inlining". An attempt will be made to fulfill them,
    * after breaking any inlining cycles. Moreover a request may prove unfeasible afterwards too,
    * e.g. due to the callsite program point having a deeper operand-stack than the arguments the callee expects,
-   * and the callee contains exception handlers).
+   * and the callee contains exception handlers.
    *
    * A description of the workflow for method-inlining and closure-inlining can be found in `WholeProgramAnalysis.inlining()`.
    *
    * @param hostOwner the JVM-level class defining method host
-   *
-   * @param host the method were inlining has been requested
+   * @param host      the method were inlining has been requested
    *
    */
   final class CallGraphNode(val hostOwner: ClassNode, val host: MethodNode) {
@@ -230,7 +229,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  A few analyses (e.g., Type-Flow Analysis) require `exemplars` to contain entries for all classes the analysis encounters.
-     *  A class that's being compiled in this is already associated to a Tracked instance (GenBCode took care of that).
+     *  A class that is being compiled is already associated to a Tracked instance (GenBCode took care of that).
      *  For a class `bt` mentioned in external bytecode, this method takes care of creating the necessary entry in `exemplars`.
      *
      *  After this method has run the following two post-conditions hold:
@@ -244,8 +243,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  must-single-thread
      */
     def parseClassAndEnterExemplar(bt: BType): ClassNode = {
-      assert(bt.isNonSpecial, "The `exemplars` map is supposed to hold ''normal'' classes only, not " + bt.getInternalName)
-      assert(!containsKey(bt),   "codeRepo already contains " + bt.getInternalName)
+      assert(bt.isNonSpecial,  "The `exemplars` map is supposed to hold ''normal'' classes only, not " + bt.getInternalName)
+      assert(!containsKey(bt), "codeRepo already contains " + bt.getInternalName)
 
           /** must-single-thread */
           def parseClass(): asm.tree.ClassNode = {
@@ -406,8 +405,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   } // end of object codeRepo
 
   /**
-   * Whole-program analyses can be performed right after classfiles are in q2,
-   * but before letting the intra-method optimizations loose on them we do the inter-procedural ones.
+   * Whole-program analyses can be performed right after classfiles are in q2.
+   * Before letting the intra-method optimizations loose on those classfiles
+   * we do the inter-procedural optimizations.
    */
   class WholeProgramAnalysis {
 
@@ -570,7 +570,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         case Opcodes.INVOKEVIRTUAL   |
              Opcodes.INVOKESPECIAL   |
              Opcodes.INVOKEINTERFACE =>
-          var rcv:  TFValue = frame.getReceiver(callsite)
+          val rcv:  TFValue = frame.getReceiver(callsite)
           assert(rcv.lca.hasObjectSort)
           rcv.isNonNull
       }
@@ -646,13 +646,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val bodyInsns = body.toArray
 
       /*
-       * In case the callee has been parsed from bytecode, its instructions may refer to type descriptors and internal names
+       * In case the callee has been parsed from bytecode,
+       * its instructions may refer to type descriptors and internal names
        * that as of yet lack a corresponding TypeName in Names.chrs
        * (the GenBCode infrastructure standardizes on TypeNames for lookups.
        * The utility below takes care of creating TypeNames for those descriptors and internal names.
        * Even if inlining proves unfeasible, those TypeNames won't cause any harm.
        *
-       * TODO why weren't those TypeNames entered as part of parsing callee from bytecode? After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
+       * TODO why weren't those TypeNames entered as part of parsing callee from bytecode?
+       *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
       codeRepo.enterExemplarsForUnseenTypeNames(body)
 
@@ -933,17 +935,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * Closure inlining results in faster code by specializing a higher-order method
      * to the particular anonymous closures given as arguments at a particular callsite
-     * (at the cost of code duplication, namely of the Hi-O method, but only for that code).
+     * (at the cost of code duplication, namely of the Hi-O method, no other code gets duplicated).
      *
      * The "Hi-O" method usually applies the closure inside a loop (e.g., map and filter fit this description)
-     * that's why a Hi-O callsite can be regarded for most practical purposes as a loop-header.
+     * that's why a hi-O callsite can be regarded for most practical purposes as a loop-header.
      * "Regarded as a loop header" because we'd like the JIT to pick that code section for compilation.
-     * If actually a loop-header, and the instructions for the Hi-O method were inlined,
-     * then upon OnStackReplacement the whole method containing the Hi-O invocation would have to be compiled
+     * If actually a loop-header, and the instructions for the hi-O method were inlined,
+     * then upon OnStackReplacement the whole method containing the hi-O invocation would have to be compiled
      * (which might well not be hot code itself).
      *
-     * To minimize that wasted effort, `inlineClosures()` creates a dedicated (static, synthetic) method for a given combination of
-     * Hi-O and closures to inline (not all closures might be amenable to inlining, details below).
+     * To minimize that wasted effort, `inlineClosures()` creates a dedicated (static, synthetic) method
+     * for a given combination of hi-O and closures to inline
+     * (not all closures might be amenable to inlining, details below).
      * In that method, closure-apply() invocations are inlined, thus cancelling out:
      *   - any redundant box-unbox pairs when passing arguments to closure-apply(); as well as
      *   - any unbox-box pair for its return value.
@@ -1022,11 +1025,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
              *  Which params of the hiO method receive closure-typed arguments?
              *
              *  Param-positions are zero-based.
-             *  The receiver (in the case of instance methods) is ignored: "params" refers to those listed in a JVM-level method descriptor.
+             *  The receiver (of an instance method) is ignored: "params" refers to those listed in a JVM-level method descriptor.
              *  There's a difference between formal-param-positions (as returned by this method) and local-var-indexes (as used in a moment).
              *  The latter take into account the JVM-type-size of previous locals, while param-positions are numbered consecutively.
              *
-             *  @return a set of those hiO method-params taking a closure-typed actual argument.
+             *  @return the positions of those hiO method-params taking a closure-typed actual argument.
              */
             def survivors1(): collection.Set[Int] = {
 
@@ -1067,11 +1070,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            * Given that the type of the actual fulfills Tracked.isClosureClass,
            * the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
            *
-           * @return a map listing for each hiO method-param that takes a closure, the class of that closure.
+           * @return a map with an entry for each hiO method-param that takes a closure,
+           *         where an entry maps the position of the method-param to a closure class.
            */
           def survivors2(): Map[Int, ClassNode] = {
 
-            val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create() // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+            // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+            val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
             cpHost.analyze(hostOwner.name, host)
 
             val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
@@ -1096,9 +1101,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           /**
            * Pre-requisites on hiO method
            *
-           * A closure `f` used in hiO method can be stack-allocated provided all usages are of the form `f.apply(...)`
+           * A closure `f` used in hiO method can be stack-allocated provided
+           * all usages are of the form `f.apply(...)`, and only of that form.
+           *
            * This is checked bytecode-level by looking up all usages of hiO's method-param conveying `f`
            * and checking whether they're of the form shown above.
+           *
+           * @return for each closure-conveying param in method hiO,
+           *         information about that closure and its usages (see `ClosureUsages`).
            *
            */
           def survivors3(): Iterable[ClosureUsages] = {
