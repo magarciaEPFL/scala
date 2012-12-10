@@ -1212,7 +1212,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
-      closureUsages foreach { cu => ClosureClassUtil(cu.closureClass) } // debug
+      closureUsages foreach { cu =>
+        val ccu = ClosureClassUtil(cu.closureClass)
+        assert(ccu.isRepOK)
+      } // debug
 
       false // TODO
     }
@@ -1284,12 +1287,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          **/
         val constructorBT = BType.getMethodType(constructor.desc)
 
-        val result =
-          for(
-            paramPos <- 0 until constructorBT.getArgumentCount
-          ) yield {
-            val localVarIdx = constructorBT.convertFormalParamPosToLocalVarIdx(paramPos, isInstanceMethod = true)
-            val fieldName: String = {
+            def findClosureStateField(localVarIdx: Int): String = {
               val consumers = cpConstructor.consumersOfLocalVar(localVarIdx)
               if(localVarIdx == 1) {
                 // for outer-param, don't count IFNULL instruction as consumer
@@ -1305,34 +1303,27 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               }
               val consumer: AbstractInsnNode = cpConstructor.getSingleton(consumers)
               consumer match {
-                case null =>
-                  null
+                case null => null
                 case fi: FieldInsnNode
-                  if (fi.getOpcode == Opcodes.PUTFIELD) && (fi.owner == closureClass.name)
-                => fi.name
-                case _ =>
-                  null
+                  if (fi.getOpcode == Opcodes.PUTFIELD ) &&
+                     (fi.owner     == closureClass.name)
+                          => fi.name
+                case _    => null
               }
             }
 
-            (fieldName -> paramPos)
-          }
+        val result =
+          for(
+            paramPos <- 0 until constructorBT.getArgumentCount;
+            localVarIdx = constructorBT.convertFormalParamPosToLocalVarIdx(paramPos, isInstanceMethod = true);
+            fieldName   = findClosureStateField(localVarIdx);
+            if fieldName != null
+          ) yield (fieldName -> paramPos)
 
-        result.filter( p => p._1 != null ).toMap
+        result.toMap
       }
 
-      def isRepOK: Boolean = {
-        /*
-         * number of closure-state fields should be one less than number of fields in closure-class
-         * (static field SerialVersionUID isn't part of closure-state).
-         */
-        (stateField2constrParam.size == (closureClass.fields.size() - 1))
-
-        // TODO all apply methods have been accounted for, there are no additional methods
-
-      }
-
-      def getClosureState(fieldName: String): FieldNode = {
+      private def getClosureState(fieldName: String): FieldNode = {
         val fIter = closureClass.fields.iterator()
         while(fIter.hasNext) {
           val f = fIter.next()
@@ -1342,6 +1333,29 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
         null
+      }
+
+      val field: Map[String, FieldNode] = {
+        val result =
+          for(
+            (fieldName, _) <- stateField2constrParam;
+            fn = getClosureState(fieldName);
+            if fn != null
+          ) yield (fieldName -> fn)
+
+        result.toMap
+      }
+
+      def isRepOK: Boolean = {
+        /*
+         * number of closure-state fields should be one less than number of fields in closure-class
+         * (static field SerialVersionUID isn't part of closure-state).
+         */
+        (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
+        (stateField2constrParam.size == field.size)
+
+        // TODO all apply methods have been accounted for, there are no additional methods
+
       }
 
       /**
@@ -1373,7 +1387,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         false // TODO
       }
 
-    }
+    } // end of class ClosureClassUtil
 
   } // end of class WholeProgramAnalysis
 
