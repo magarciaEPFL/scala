@@ -1206,16 +1206,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             )
           }
 
-      val closureUsages = survivors3()
-      if(closureUsages.isEmpty) {
+      val closureUtils =
+        for (
+          cu <- survivors3();
+          ccu = ClosureUtil(cu);
+          if ccu.isRepOK
+        ) yield ccu
+
+      if(closureUtils.isEmpty) {
         // TODO warn.
         return false
       }
-
-      closureUsages foreach { cu =>
-        val ccu = ClosureClassUtil(cu.closureClass)
-        assert(ccu.isRepOK)
-      } // debug
 
       false // TODO
     }
@@ -1242,7 +1243,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  Query methods that dig out information hidden in the structure of a closure-class.
      */
-    case class ClosureClassUtil(closureClass: ClassNode) {
+    case class ClosureUtil(closureUsages: ClosureUsages) {
+
+      def closureClass: ClassNode = closureUsages.closureClass
 
       val constructor: MethodNode = {
         var result: MethodNode = null
@@ -1258,6 +1261,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         result
       }
+
+      val constructorMethodType = BType.getMethodType(constructor.desc)
 
       /**
        *  The constructor of a closure-class has params for (a) the outer-instance; and (b) captured-locals.
@@ -1388,6 +1393,56 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
     } // end of class ClosureClassUtil
+
+    /**
+     *  Query methods that help derive a "static hiO method" given a "hiO method".
+     */
+    case class StaticHiOUtil(hiO: MethodNode, closureUtils: Iterable[ClosureUtil]) {
+
+      /**
+       *  The "slack of a closure-receiving method-param of hiO" has to do with the rewriting
+       *  by which a staticHiO method is derived from a hiO method.
+       *
+       *  As part of that rewriting, those params receiving closures that are to be stack-allocated
+       *  are replaced with params that receive the closure's state values.
+       *  Usages of locals in the rewritten method will in general require shifting.
+       *
+       *  As a first step, the following map informs for each closure-receiving-param
+       *  the accumulated sizes of closure-state params added so far (including those for that closure), minus 1
+       *  (accounting for the fact the closure-param will be elided along with the closure-instance.).
+       *
+       *  In the map, an entry has the form:
+       *    (original-local-var-idx -> accumulated-sizes-inluding-constructorParams-for-this-closure)
+       */
+      val closureParamSlack: Array[Tuple2[Int, Int]] = {
+        var acc = 0
+        val result =
+          for(cu <- closureUtils.toArray)
+          yield {
+            val constrParams: Array[BType] = cu.constructorMethodType.getArgumentTypes
+            constrParams foreach { constrParamBT => acc += constrParamBT.getSize }
+            acc -= 1
+
+            (cu.closureUsages.localVarIdxHiO -> acc)
+          }
+
+        result.sortBy(_._1)
+      }
+
+      /**
+       *  Not applicable to closure-receiving params themselves (they simply go away), but to all others.
+       */
+      def shiftedLocalIdx(original: Int): Int = {
+        val accOpt = closureParamSlack.find(_._1 >= original)
+        if(accOpt.isEmpty) original
+        else {
+          val Pair(paramIdx, acc) = accOpt.get
+          assert(paramIdx != original)
+          original + acc
+        }
+      }
+
+    } // end of class StaticHiOUtil
 
   } // end of class WholeProgramAnalysis
 
