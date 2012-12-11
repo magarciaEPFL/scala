@@ -20,6 +20,8 @@ import java.util.*;
  *  the consumer is a DROP and the producer has its value consumed only by the DROP in question.
  *  (More general cases are possible, but the above covers the inlining scenario).
  *
+ *  TODO SI-6193 dead case field accessor call should be eliminated
+ *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  *
