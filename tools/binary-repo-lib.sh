@@ -3,10 +3,13 @@
 # Library to push and pull binary artifacts from a remote repository using CURL.
 
 
-remote_urlbase="http://typesafe.artifactoryonline.com/typesafe/scala-sha-bootstrap/org/scala-lang/bootstrap"
+remote_urlget="http://repo.typesafe.com/typesafe/scala-sha-bootstrap/org/scala-lang/bootstrap"
+remote_urlpush="http://typesafe.artifactoryonline.com/typesafe/scala-sha-bootstrap/org/scala-lang/bootstrap"
 libraryJar="$(pwd)/lib/scala-library.jar"
 desired_ext=".desired.sha1"
 push_jar="$(pwd)/tools/push.jar"
+# Cache dir has .sbt in it to line up with SBT build.
+cache_dir="${HOME}/.sbt/cache/scala"
 
 # Checks whether or not curl is installed and issues a warning on failure.
 checkCurl() {
@@ -32,8 +35,8 @@ curlUpload() {
   local data=$2
   local user=$3
   local password=$4
-  local url="${remote_urlbase}/${remote_location}"
-  java -jar $push_jar "$data" "$remote_location" "$user" "$password"
+  local url="${remote_urlpush}/${remote_location}"
+  java -jar $push_jar "$data" "$url" "$user" "$password"
   if (( $? != 0 )); then
     echo "Error uploading $data to $url"
     echo "$url"
@@ -75,9 +78,9 @@ pushJarFile() {
   local jar_sha1=$(shasum -p $jar_name)
   local version=${jar_sha1% ?$jar_name}
   local remote_uri=${version}${jar#$basedir}
-  echo "  Pushing to ${remote_urlbase}/${remote_uri} ..."
+  echo "  Pushing to ${remote_urlpush}/${remote_uri} ..."
   echo "	$curl"
-  local curl=$(curlUpload $remote_uri $jar_name $user $pw)
+  curlUpload $remote_uri $jar_name $user $pw
   echo "  Making new sha1 file ...."
   echo "$jar_sha1" > "${jar_name}${desired_ext}"
   popd >/dev/null
@@ -111,15 +114,45 @@ pushJarFiles() {
   local user=$2
   local password=$3
   # TODO - ignore target/ and build/
-  local jarFiles=$(find ${basedir} -name "*.jar")
+  local jarFiles="$(find ${basedir}/lib -name "*.jar") $(find ${basedir}/test/files -name "*.jar") $(find ${basedir}/tools -name "*.jar")"
+  local changed="no"
   for jar in $jarFiles; do
     local valid=$(isJarFileValid $jar)
     if [[ "$valid" != "OK" ]]; then
       echo "$jar has changed, pushing changes...."
+      changed="yes"
       pushJarFile $jar $basedir $user $password
     fi
   done
-  echo "Binary changes have been pushed.  You may now submit the new *${desired_ext} files to git."
+  if test "$changed" == "no"; then
+    echo "No jars have been changed."
+  else
+    echo "Binary changes have been pushed.  You may now submit the new *${desired_ext} files to git."
+  fi
+} 
+
+# Pulls a single binary artifact from a remote repository.
+# Argument 1 - The uri to the file that should be downloaded.
+# Argument 2 - SHA of the file...
+# Returns: Cache location.
+pullJarFileToCache() {
+  local uri=$1
+  local sha=$2
+  local cache_loc=$cache_dir/$uri
+  local cdir=$(dirname $cache_loc)
+  if [[ ! -d $cdir ]]; then
+    mkdir -p $cdir
+  fi
+  if [[ ! -f "$cache_loc" ]]; then
+    # Note: After we follow up with JFrog, we should check the more stable raw file server first
+    # before hitting the more flaky artifactory.
+    curlDownload $cache_loc ${remote_urlpush}/${uri}
+    if test "$(checkJarSha "$cache_loc" "$sha")" != "OK"; then
+      echo "Trouble downloading $uri.  Please try pull-binary-libs again when your internet connection is stable."
+      exit 2
+    fi
+  fi
+  echo "$cache_loc"
 }
 
 # Pulls a single binary artifact from a remote repository.
@@ -133,20 +166,20 @@ pullJarFile() {
   local jar_name=${jar#$jar_dir/}
   local version=${sha1% ?$jar_name}
   local remote_uri=${version}/${jar#$basedir/}
-  echo "Downloading from ${remote_urlbase}/${remote_uri}"
-  curlDownload $jar ${remote_urlbase}/${remote_uri}
+  echo "Resolving [${remote_uri}]"
+  local cached_file=$(pullJarFileToCache $remote_uri $version)
+  cp $cached_file $jar
 }
 
 # Pulls binary artifacts from the remote repository.
 # Argument 1 - The directory to search for *.desired.sha1 files that need to be retrieved.
 pullJarFiles() {
   local basedir=$1
-  local desiredFiles=$(find ${basedir} -name "*${desired_ext}")
+  local desiredFiles="$(find ${basedir}/lib -name *${desired_ext}) $(find ${basedir}/test/files -name *${desired_ext}) $(find ${basedir}/tools -name *${desired_ext})"
   for sha in $desiredFiles; do
     jar=${sha%$desired_ext}
     local valid=$(isJarFileValid $jar)
     if [[ "$valid" != "OK" ]]; then
-      echo "Obtaining [$jar] from binary repository..."
       pullJarFile $jar $basedir
     fi
   done

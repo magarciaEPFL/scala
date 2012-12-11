@@ -10,6 +10,9 @@ import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.util.{SourceFile, Position, WorkScheduler}
 import scala.tools.nsc.symtab._
 import scala.tools.nsc.ast._
+import scala.tools.nsc.util.FailedInterrupt
+import scala.tools.nsc.util.EmptyAction
+import scala.tools.nsc.util.InterruptReq
 
 /** Interface of interactive compiler to a client such as an IDE
  *  The model the presentation compiler consists of the following parts:
@@ -48,7 +51,7 @@ trait CompilerControl { self: Global =>
   /** The scheduler by which client and compiler communicate
    *  Must be initialized before starting compilerRunner
    */
-  protected[interactive] val scheduler = new WorkScheduler
+  @volatile protected[interactive] var scheduler = new WorkScheduler
 
   /** Return the compilation unit attached to a source file, or None
    *  if source is not loaded.
@@ -206,6 +209,22 @@ trait CompilerControl { self: Global =>
   def askParsedEntered(source: SourceFile, keepLoaded: Boolean, response: Response[Tree]) =
     postWorkItem(new AskParsedEnteredItem(source, keepLoaded, response))
 
+  /** Set sync var `response` to a pair consisting of
+   *                  - the fully qualified name of the first top-level object definition in the file.
+   *                    or "" if there are no object definitions.
+   *                  - the text of the instrumented program which, when run,
+   *                    prints its output and all defined values in a comment column.
+   *
+   *  @param source       The source file to be analyzed
+   *  @param keepLoaded   If set to `true`, source file will be kept as a loaded unit afterwards.
+   *                      If keepLoaded is `false` the operation is run at low priority, only after
+   *                      everything is brought up to date in a regular type checker run.
+   *  @param response     The response.
+   */
+  @deprecated("SI-6458: Instrumentation logic will be moved out of the compiler.","2.10.0")
+  def askInstrumented(source: SourceFile, line: Int, response: Response[(String, Array[Char])]) =
+    postWorkItem(new AskInstrumentedItem(source, line, response))
+
   /** Cancels current compiler run and start a fresh one where everything will be re-typechecked
    *  (but not re-loaded).
    */
@@ -233,6 +252,25 @@ trait CompilerControl { self: Global =>
 
   /** Asks for a computation to be done quickly on the presentation compiler thread */
   def ask[A](op: () => A): A = if (self.onCompilerThread) op() else scheduler doQuickly op
+
+  /** Asks for a computation to be done on presentation compiler thread, returning
+   *  a response with the result or an exception
+   */
+  def askForResponse[A](op: () => A): Response[A] = {
+    val r = new Response[A]
+    if (self.onCompilerThread) {
+      try   { r set op() }
+      catch { case exc: Throwable => r raise exc }
+      r
+    } else {
+      val ir = scheduler askDoQuickly op
+      ir onComplete {
+        case Left(result) => r set result
+        case Right(exc)   => r raise exc
+      }
+      r
+    }
+  }
 
   def onCompilerThread = Thread.currentThread == compileRunner
 
@@ -349,6 +387,44 @@ trait CompilerControl { self: Global =>
 
     def raiseMissing() =
       response raise new MissingResponse
+  }
+
+  @deprecated("SI-6458: Instrumentation logic will be moved out of the compiler.","2.10.0")
+  case class AskInstrumentedItem(val source: SourceFile, line: Int, response: Response[(String, Array[Char])]) extends WorkItem {
+    def apply() = self.getInstrumented(source, line, response)
+    override def toString = "getInstrumented "+source
+
+    def raiseMissing() =
+      response raise new MissingResponse
+  }
+
+  /** A do-nothing work scheduler that responds immediately with MissingResponse.
+   *
+   *  Used during compiler shutdown.
+   */
+  class NoWorkScheduler extends WorkScheduler {
+
+    override def postWorkItem(action: Action) = synchronized {
+      action match {
+        case w: WorkItem => w.raiseMissing()
+        case e: EmptyAction => // do nothing
+        case _ => println("don't know what to do with this " + action.getClass)
+      }
+    }
+
+    override def doQuickly[A](op: () => A): A = {
+      throw new FailedInterrupt(new Exception("Posted a work item to a compiler that's shutting down"))
+    }
+
+    override def askDoQuickly[A](op: () => A): InterruptReq { type R = A } = {
+      val ir = new InterruptReq {
+        type R = A
+        val todo = () => throw new MissingResponse
+      }
+      ir.execute()
+      ir
+    }
+
   }
 
 }

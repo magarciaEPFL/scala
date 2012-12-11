@@ -526,14 +526,14 @@ class MutableSettings(val errorFn: String => Unit) extends AbsSettings with Scal
       Some(rest)
     }
     override def tryToSetColon(args: List[String]) = tryToSet(args)
-    override def tryToSetFromPropertyValue(s: String) = tryToSet(s.trim.split(" +").toList)
+    override def tryToSetFromPropertyValue(s: String) = tryToSet(s.trim.split(',').toList)
     def unparse: List[String] = value map { name + ":" + _ }
 
     withHelpSyntax(name + ":<" + arg + ">")
   }
 
-  /** A setting represented by a string in a given set of <code>choices</code>,
-   *  (<code>default</code> unless set).
+  /** A setting represented by a string in a given set of `choices`,
+   *  (`default` unless set).
    */
   class ChoiceSetting private[nsc](
     name: String,
@@ -567,7 +567,7 @@ class MutableSettings(val errorFn: String => Unit) extends AbsSettings with Scal
 
   /** A setting represented by a list of strings which should be prefixes of
    *  phase names. This is not checked here, however.  Alternatively the string
-   *  "all" can be used to represent all phases.
+   *  `"all"` can be used to represent all phases.
    *  (the empty list, unless set)
    */
   class PhasesSetting private[nsc](

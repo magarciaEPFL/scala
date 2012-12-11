@@ -30,6 +30,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
      with RangePositions
      with ContextTrees
      with RichCompilationUnits
+     with ScratchPadMaker
      with Picklers {
 
   import definitions._
@@ -204,7 +205,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
 
   protected[interactive] var minRunId = 1
 
-  private var interruptsEnabled = true
+  private[interactive] var interruptsEnabled = true
 
   private val NoResponse: Response[_] = new Response[Any]
 
@@ -352,12 +353,17 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
               case item: WorkItem => Some(item.raiseMissing())
               case _ => Some(())
             }
+
+            // don't forget to service interrupt requests
+            scheduler.dequeueAllInterrupts(_.execute())
+
             debugLog("ShutdownReq: cleaning work queue (%d items)".format(units.size))
             debugLog("Cleanup up responses (%d loadedType pending, %d parsedEntered pending)"
                 .format(waitLoadedTypeResponses.size, getParsedEnteredResponses.size))
             checkNoResponsesOutstanding()
 
             log.flush();
+            scheduler = new NoWorkScheduler
             throw ShutdownReq
           }
 
@@ -610,6 +616,15 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
         }
         response raise ex
         throw ex
+
+      case ex @ ShutdownReq =>
+        if (debugIDE) {
+          println("ShutdownReq thrown during response")
+          ex.printStackTrace()
+        }
+        response raise ex
+        throw ex
+
       case ex =>
         if (debugIDE) {
           println("exception thrown during response: "+ex)
@@ -704,7 +719,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
   }
 
   /** A fully attributed tree corresponding to the entire compilation unit  */
-  private def typedTree(source: SourceFile, forceReload: Boolean): Tree = {
+  private[interactive] def typedTree(source: SourceFile, forceReload: Boolean): Tree = {
     informIDE("typedTree " + source + " forceReload: " + forceReload)
     val unit = getOrCreateUnitOf(source)
     if (forceReload) reset(unit)
@@ -732,13 +747,23 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
       val originalTypeParams = sym.owner.typeParams
       parseAndEnter(unit)
       val pre = adaptToNewRunMap(ThisType(sym.owner))
-      val newsym = pre.typeSymbol.info.decl(sym.name) filter { alt =>
+      val rawsym = pre.typeSymbol.info.decl(sym.name)
+      val newsym = rawsym filter { alt =>
         sym.isType || {
           try {
             val tp1 = pre.memberType(alt) onTypeError NoType
             val tp2 = adaptToNewRunMap(sym.tpe) substSym (originalTypeParams, sym.owner.typeParams)
-            matchesType(tp1, tp2, false)
-          } catch {
+            matchesType(tp1, tp2, false) || {
+              debugLog("getLinkPos matchesType(" + tp1 + ", " + tp2 + ") failed")
+              val tp3 = adaptToNewRunMap(sym.tpe) substSym (originalTypeParams, alt.owner.typeParams)
+              matchesType(tp1, tp3, false) || {
+                debugLog("getLinkPos fallback matchesType(" + tp1 + ", " + tp3 + ") failed")
+                false
+              }
+            }
+          }
+          catch {
+            case ex: ControlThrowable => throw ex
             case ex: Throwable =>
               println("error in hyperlinking: " + ex)
               ex.printStackTrace()
@@ -747,8 +772,11 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
         }
       }
       if (newsym == NoSymbol) {
-        debugLog("link not found " + sym + " " + source + " " + pre)
-        NoPosition
+        if (rawsym.exists && !rawsym.isOverloaded) rawsym.pos
+        else {
+          debugLog("link not found " + sym + " " + source + " " + pre)
+          NoPosition
+        }
       } else if (newsym.isOverloaded) {
         settings.uniqid.value = true
         debugLog("link ambiguous " + sym + " " + source + " " + pre + " " + newsym.alternatives)
@@ -914,7 +942,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
       val implicitlyAdded = viaView != NoSymbol
       members.add(sym, pre, implicitlyAdded) { (s, st) =>
         new TypeMember(s, st,
-          context.isAccessible(s, pre, superAccess && !implicitlyAdded),
+          context.isAccessible(if (s.hasGetter) s.getter(s.owner) else s, pre, superAccess && !implicitlyAdded),
           inherited,
           viaView)
       }
@@ -1011,6 +1039,17 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
     }
   }
 
+  @deprecated("SI-6458: Instrumentation logic will be moved out of the compiler.","2.10.0")
+  def getInstrumented(source: SourceFile, line: Int, response: Response[(String, Array[Char])]) =
+    try {
+      interruptsEnabled = false
+      respond(response) {
+        instrument(source, line)
+      }
+    } finally {
+      interruptsEnabled = true
+    }
+
   // ---------------- Helper classes ---------------------------
 
   /** A transformer that replaces tree `from` with tree `to` in a given tree */
@@ -1047,6 +1086,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
 
   def newTyperRun() {
     currentTyperRun = new TyperRun
+    perRunCaches.clearAll()
   }
 
   class TyperResult(val tree: Tree) extends ControlThrowable

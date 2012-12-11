@@ -78,7 +78,7 @@ self =>
 
   protected[this] override def parCombiner = ParSet.newCombiner[A]
 
-  /** Overridden for efficiency. */
+  /* Overridden for efficiency. */
   override def toSeq: Seq[A] = toBuffer[A]
   override def toBuffer[A1 >: A]: mutable.Buffer[A1] = {
     val result = new mutable.ArrayBuffer[A1](size)
@@ -89,7 +89,7 @@ self =>
   // note: this is only overridden here to add the migration annotation,
   // which I hope to turn into an Xlint style warning as the migration aspect
   // is not central to its importance.
-  @migration(2, 8, "Set.map now returns a Set, so it will discard duplicate values.")
+  @migration("Set.map now returns a Set, so it will discard duplicate values.", "2.8.0")
   override def map[B, That](f: A => B)(implicit bf: CanBuildFrom[This, B, That]): That = super.map(f)(bf)
 
   /** Tests if some element is contained in this set.

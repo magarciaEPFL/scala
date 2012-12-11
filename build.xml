@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project name="sabbus" default="build">
+<project name="sabbus" default="build" xmlns:artifact="urn:maven-artifact-ant">
   <description>
 SuperSabbus for Scala core, builds the scala library and compiler. It can also package it as a simple distribution, tests it for stable bootstrapping and against the Scala test suite.
   </description>
@@ -154,6 +154,8 @@ PROPERTIES
 
   <!-- Loads custom properties definitions -->
   <property file="${basedir}/build.properties"/>
+  <!-- Generating version number -->
+  <property file="${basedir}/build.number"/>
 
   <!-- Additional command line arguments for scalac. They are added to all build targets -->
   <property name="scalac.args" value=""/>
@@ -201,13 +203,90 @@ PROPERTIES
 INITIALISATION
 ============================================================================ -->
 
-  <target name="init">
+  <condition property="starr.absent">
+    <not><available file="${lib.dir}/scala-library.jar"/></not>
+  </condition>
+
+  <target name="init.starr" if="starr.absent">
+    <echo level="warn" message="Downloading bootstrap libs.  (To do this by hand, run ./pull-binary-libs.sh)"/>
+    <exec osfamily="unix" vmlauncher="false" executable="./pull-binary-libs.sh" failifexecutionfails="true" />
+    <exec osfamily="windows" vmlauncher="false" executable="pull-binary-libs.sh" failifexecutionfails="true" />
+  </target>
+
+  <!-- Add our maven ant tasks -->
+  <target name="init.maven.tasks" depends="init.starr">
+    <path id="maven-ant-tasks.classpath" path="${lib.dir}/ant/maven-ant-tasks-2.1.1.jar" />
+    <typedef resource="org/apache/maven/artifact/ant/antlib.xml" uri="urn:maven-artifact-ant" classpathref="maven-ant-tasks.classpath" />
+  </target>
+
+  <!-- Resolve maven dependencies -->
+  <target name="init.maven.jars" depends="init.maven.tasks">
+  </target>
+
+  <!-- Determines OSGi string + maven extension. -->
+  <target name="init.hasbuildnum">
+    <condition property="version.hasbuildnum">
+      <not><equals arg1="${version.bnum}" arg2="0"/></not>
+    </condition>
+  </target>
+  <target name="init.build.snapshot" unless="build.release">
+    <property name="maven.version.suffix" value="-SNAPSHOT"/>
+  </target>
+  <target name="init.build.release" if="build.release" depends="init.hasbuildnum, init.build.snapshot">
+    <property name="maven.version.suffix" value=""/>
+  </target>
+  <target name="init.build.nopatch.release" unless="version.hasbuildnum" depends="init.hasbuildnum">
+    <property name="version.suffix" value=""/>
+  </target>
+  <!-- funny thing, ant is.  Can only specify *one* property in if check.  Guaranteed that both are true here,
+       since properties are immutable.  -->
+  <target name="init.build.patch.release" if="version.hasbuildnum" depends="init.build.nopatch.release">
+    <property name="version.suffix" value="-${version.bnum}"/>
+  </target>
+
+  <target name="init.build.suffix.done" depends="init.build.release, init.build.patch.release"/>
+
+  <target name="init.version.git" depends="init.build.suffix.done">
+    <!-- Find out whether we are running on Windows -->
+    <condition property="os.win">
+      <os family="windows"/>
+    </condition>
+    
+    <exec osfamily="unix" executable="tools/get-scala-commit-sha" outputproperty="git.commit.sha" failifexecutionfails="false" />
+    <exec osfamily="unix" executable="tools/get-scala-commit-date" outputproperty="git.commit.date" failifexecutionfails="false" />
+    <!-- some default in case something went wrong getting the revision -->
+    <property name="git.commit.sha" value="unknown"/>
+    <property name="git.commit.date" value="unknown"/>
+
+    <!-- We use the git describe to determine the OSGi modifier for our build. -->
+    <property
+      name="maven.version.number"
+      value="${version.major}.${version.minor}.${version.patch}${version.suffix}${maven.version.suffix}"/>
+    <property
+      name="osgi.version.number"
+      value="${version.major}.${version.minor}.${version.patch}.v${git.commit.date}${version.suffix}-${git.commit.sha}"/>
+  </target>
+
+  <target name="init.version.snapshot" unless="build.release" depends="init.version.git">
+     <property
+      name="version.number"
+      value="${version.major}.${version.minor}.${version.patch}${version.suffix}-${git.commit.date}-${git.commit.sha}"/>
+  </target>
+
+  <target name="init.version.release" if="build.release" depends="init.version.git">
+     <property
+      name="version.number"
+      value="${maven.version.number}"/>
+  </target>
+
+  <target name="init.version.done" depends="init.version.release, init.version.snapshot"/>
+
+  <target name="init" depends="init.starr, init.version.done, init.maven.jars">
   <!-- scalac.args.optimise is selectively overridden in certain antcall tasks. -->
     <property name="scalac.args.optimise" value=""/>
   <!-- scalac.args.quickonly are added to quick.* targets but not others (particularly, locker.)
        This is to facilitate testing new command line options which do not yet exist in starr. -->
-	  <property name="scalac.args.quickonly" value=""/>
-	
+  <property name="scalac.args.quickonly" value=""/>
     <property name="scalac.args.all" value="${scalac.args} ${scalac.args.optimise}"/>
 	  <property name="scalac.args.quick" value="${scalac.args.all} ${scalac.args.quickonly}"/>
     <!-- Setting-up Ant contrib tasks -->
@@ -217,26 +296,10 @@ INITIALISATION
       <format property="human" pattern="d MMMM yyyy, HH:mm:ss"/>
       <format property="short" pattern="yyyyMMddHHmmss"/>
     </tstamp>
-    <!-- Find out whether we are running on Windows -->
-    <condition property="os.win">
-      <os family="windows"/>
-    </condition>
-    
-    <exec osfamily="unix" executable="tools/get-scala-revision" outputproperty="svn.number" failifexecutionfails="false" />
-    <!-- some default in case something went wrong getting the revision -->
-    <property name="svn.number" value="0"/>
 
     <property name="init.avail" value="yes"/>
 
-    <!-- Generating version number -->
-    <property file="${basedir}/build.number"/>
-    <property
-      name="version.number"
-      value="${version.major}.${version.minor}.${version.patch}.r${svn.number}-b${time.short}"/>
-    <!-- And print-out what we are building -->
-    <echo level="info" message="Build number is '${version.number}'"/>
-    <echo level="info" message="Built ${time.human} from revision ${svn.number} with ${java.vm.name} ${java.version}"/>
-  
+
     <!-- Local libs (developer use.) -->
     <mkdir dir="${lib-extra.dir}"/>
     
@@ -259,7 +322,19 @@ INITIALISATION
       <path refid="lib.extra"/>
     </path>
 
-    <!-- Define tasks that can be run with Starr -->
+    <!-- And print-out what we are building -->
+    <echo message="       build time: ${time.human}" />
+    <echo message="     java version: ${java.vm.name} ${java.version}" />
+    <echo message="        java args: ${env.ANT_OPTS} ${jvm.opts}" />
+    <echo message="       javac args: ${javac.args}" />
+    <echo message="      scalac args: ${scalac.args}" />
+    <echo message="         git date: ${git.commit.date}" />
+    <echo message="         git hash: ${git.commit.sha}" />
+    <echo message="    maven version: ${maven.version.number}"/>
+    <echo message="     OSGi version: ${osgi.version.number}" />
+    <echo message="canonical version: ${version.number}" />
+
+  <!-- Define tasks that can be run with Starr -->
     <path id="starr.classpath">
       <pathelement location="${lib.starr.jar}"/>
       <pathelement location="${comp.starr.jar}"/>
@@ -324,6 +399,8 @@ LOCAL REFERENCE BUILD (LOCKER)
     </scalacfork>
     <propertyfile file="${build-locker.dir}/classes/library/library.properties">
       <entry key="version.number" value="${version.number}"/>
+      <entry key="maven.version.number" value="${maven.version.number}"/>
+      <entry key="osgi.version.number" value="${osgi.version.number}"/>
       <entry key="copyright.string" value="${copyright.string}"/>
     </propertyfile>
     <copy todir="${build-locker.dir}/classes/library">
@@ -363,6 +440,8 @@ LOCAL REFERENCE BUILD (LOCKER)
     </scalacfork>
     <propertyfile file="${build-locker.dir}/classes/compiler/compiler.properties">
       <entry key="version.number" value="${version.number}"/>
+      <entry key="maven.version.number" value="${maven.version.number}"/>
+      <entry key="osgi.version.number" value="${osgi.version.number}"/>
       <entry key="copyright.string" value="${copyright.string}"/>
     </propertyfile>
     <copy todir="${build-locker.dir}/classes/compiler">
@@ -519,6 +598,8 @@ QUICK BUILD (QUICK)
     </scalacfork>
     <propertyfile file="${build-quick.dir}/classes/library/library.properties">
       <entry key="version.number" value="${version.number}"/>
+      <entry key="maven.version.number" value="${maven.version.number}"/>
+      <entry key="osgi.version.number" value="${osgi.version.number}"/>
       <entry key="copyright.string" value="${copyright.string}"/>
     </propertyfile>
     <copy todir="${build-quick.dir}/classes/library">
@@ -578,6 +659,8 @@ QUICK BUILD (QUICK)
     </scalacfork>
     <propertyfile file="${build-quick.dir}/classes/compiler/compiler.properties">
       <entry key="version.number" value="${version.number}"/>
+      <entry key="maven.version.number" value="${maven.version.number}"/>
+      <entry key="osgi.version.number" value="${osgi.version.number}"/>
       <entry key="copyright.string" value="${copyright.string}"/>
     </propertyfile>
     <copy todir="${build-quick.dir}/classes/compiler">
@@ -591,6 +674,7 @@ QUICK BUILD (QUICK)
         <include name="**/*.swf"/>
         <include name="**/*.png"/>
         <include name="**/*.gif"/>        
+        <include name="**/*.txt"/>        
       </fileset>
     </copy>
     <touch file="${build-quick.dir}/compiler.complete" verbose="no"/>
@@ -1051,6 +1135,8 @@ BOOTSTRAPPING BUILD (STRAP)
     </scalacfork>
     <propertyfile file="${build-strap.dir}/classes/library/library.properties">
       <entry key="version.number" value="${version.number}"/>
+      <entry key="maven.version.number" value="${maven.version.number}"/>
+      <entry key="osgi.version.number" value="${osgi.version.number}"/>
       <entry key="copyright.string" value="${copyright.string}"/>
     </propertyfile>
     <copy todir="${build-strap.dir}/classes/library">
@@ -1090,6 +1176,8 @@ BOOTSTRAPPING BUILD (STRAP)
     </scalacfork>
     <propertyfile file="${build-strap.dir}/classes/compiler/compiler.properties">
       <entry key="version.number" value="${version.number}"/>
+      <entry key="maven.version.number" value="${maven.version.number}"/>
+      <entry key="osgi.version.number" value="${osgi.version.number}"/>
       <entry key="copyright.string" value="${copyright.string}"/>
     </propertyfile>
     <copy todir="${build-strap.dir}/classes/compiler">
@@ -1102,7 +1190,8 @@ BOOTSTRAPPING BUILD (STRAP)
         <include name="**/*.properties"/>
         <include name="**/*.swf"/>
         <include name="**/*.png"/>
-        <include name="**/*.gif"/>        
+        <include name="**/*.gif"/>   
+        <include name="**/*.txt"/>     
        </fileset>
     </copy>
     <touch file="${build-strap.dir}/compiler.complete" verbose="no"/>
@@ -1389,30 +1478,60 @@ LIBRARIES (MSIL, FJBG maybe later)
 DOCUMENTATION
 ============================================================================ -->
   
-  <target name="docs.start" depends="pack.done"/>
+  <target name="docs.start" depends="pack.done">
+    <macrodef name="doc-uptodate-check">
+      <attribute name="name" />
+      <attribute name="srcdir" />
+      <element name="source-includes" optional="yes" />
+      <sequential>
+        <uptodate property="docs.@{name}.available" targetfile="${build-docs.dir}/@{name}.complete">
+          <srcfiles dir="@{srcdir}">
+            <source-includes/>
+          </srcfiles>
+        </uptodate>
+      </sequential>
+    </macrodef>
+
+    <!-- Set the github commit scaladoc sources point to -->
+    <!-- For releases, look for the tag with the same name as the maven version -->
+    <condition property="scaladoc.git.commit" value="v${maven.version.number}">
+      <isset property="build.release"/>
+    </condition>
+    <!-- For snapshots, if we know the commit, point scaladoc to that particular commit instead of master -->
+    <condition property="scaladoc.git.commit" value="${git.commit.sha}">
+      <not><equals arg1="${git.commit.sha}" arg2="unknown"/></not>
+    </condition>
+    <!-- Fallback: point scaladoc to master -->
+    <property name="scaladoc.git.commit" value="master"/>
+    <!-- Compute the URL and show it -->
+    <property name="scaladoc.url" value="https://github.com/scala/scala/tree/${scaladoc.git.commit}/src"/>
+    <echo message="Scaladoc will point to ${scaladoc.url} for source files."/>
+  </target>
   
   <target name="docs.pre-lib" depends="docs.start">
-    <uptodate property="docs.lib.available" targetfile="${build-docs.dir}/library.complete">
-      <srcfiles dir="${src.dir}">
+    <doc-uptodate-check name="library" srcdir="${src.dir}">
+      <source-includes>
         <include name="library/**"/>
         <include name="dbc/**"/>
         <include name="actors/**"/>
         <include name="swing/**"/>
-      </srcfiles>
-    </uptodate>
+      </source-includes>
+    </doc-uptodate-check>
   </target>
 
-  <target name="docs.lib" depends="docs.pre-lib" unless="docs.lib.available">
+  <target name="docs.lib" depends="docs.pre-lib" unless="docs.library.available">
     <stopwatch name="docs.lib.timer"/>
     <mkdir dir="${build-docs.dir}/library"/>
     <scaladoc
       destdir="${build-docs.dir}/library"
       doctitle="Scala Standard Library"
       docversion="${version.number}"
-      docsourceurl="https://lampsvn.epfl.ch/trac/scala/browser/scala/branches/2.9.x/src/€{FILE_PATH}.scala#L1"
+      docfooter="epfl" 
+      docsourceurl="${scaladoc.url}€{FILE_PATH}.scala#L1"
       docUncompilable="${src.dir}/library-aux"
       sourcepath="${src.dir}"
-      classpathref="pack.classpath">
+      classpathref="pack.classpath"
+      docRootContent="${build-docs.dir}/library/lib/rootdoc.txt"> 
       <src>
         <files includes="${src.dir}/actors"/>
         <files includes="${src.dir}/library/scala"/>
@@ -1435,12 +1554,10 @@ DOCUMENTATION
   </target>
 
   <target name="docs.pre-man" depends="docs.lib">
-    <uptodate property="docs.man.available" targetfile="${build-docs.dir}/manual.complete">
-      <srcfiles dir="${src.dir}/manual"/>
-    </uptodate>
+    <doc-uptodate-check name="manual" srcdir="${src.dir}/manual"/>
   </target>
 
-  <target name="docs.manmaker" depends="docs.pre-man" unless="docs.man.available">
+  <target name="docs.manmaker" depends="docs.pre-man" unless="docs.manual.available">
     <mkdir dir="${build.dir}/manmaker/classes"/>
     <scalac
       destdir="${build.dir}/manmaker/classes"
@@ -1454,14 +1571,14 @@ DOCUMENTATION
     </path>
   </target>
 
-  <target name="docs.man" depends="docs.manmaker" unless="docs.man.available">
+  <target name="docs.man" depends="docs.manmaker" unless="docs.manual.available">
     <mkdir dir="${build-docs.dir}/manual/man/man1"/>
     <mkdir dir="${build-docs.dir}/manual/html"/>
     <mkdir dir="${build-docs.dir}/manual/genman/man1"/>
     <taskdef name="genman"
              classname="scala.tools.docutil.ManMaker"
              classpathref="manual.classpath"/>
-    <genman command="fsc, sbaz, scala, scalac, scaladoc, scalap"
+    <genman command="fsc, scala, scalac, scaladoc, scalap"
             htmlout="${build-docs.dir}/manual/html"
             manout="${build-docs.dir}/manual/genman"/>
     <!-- On Windows source and target files can't be the same ! -->
@@ -1481,19 +1598,17 @@ DOCUMENTATION
   </target>
 
   <target name="docs.pre-comp" depends="docs.man">
-    <uptodate property="docs.comp.available" targetfile="${build-docs.dir}/compiler.complete">
-      <srcfiles dir="${src.dir}/compiler"/>
-    </uptodate>
+    <doc-uptodate-check name="compiler" srcdir="${src.dir}/compiler"/>
   </target>
 
-  <target name="docs.comp" depends="docs.pre-comp" unless="docs.comp.available">
+  <target name="docs.comp" depends="docs.pre-comp" unless="docs.compiler.available">
     <stopwatch name="docs.comp.timer"/>
     <mkdir dir="${build-docs.dir}/compiler"/>
     <scaladoc
       destdir="${build-docs.dir}/compiler"
       doctitle="Scala Compiler"
       docversion="${version.number}"
-      docsourceurl="https://lampsvn.epfl.ch/trac/scala/browser/scala/branches/2.9.x/src/€{FILE_PATH}.scala#L1"
+      docsourceurl="${scaladoc.url}€{FILE_PATH}.scala#L1"
       sourcepath="${src.dir}"
       classpathref="pack.classpath"
       srcdir="${src.dir}/compiler">
@@ -1503,7 +1618,91 @@ DOCUMENTATION
     <stopwatch name="docs.comp.timer" action="total"/>
   </target>
 
+  <target name="docs.pre-jline" depends="docs.start">
+    <doc-uptodate-check name="jline" srcdir="${src.dir}/jline/src/main/java" />
+  </target>
+
+  <target name="docs.jline" depends="docs.pre-jline" unless="docs.jline.available">
+    <stopwatch name="docs.jline.timer"/>
+    <mkdir dir="${build-docs.dir}/jline"/>
+    <scaladoc
+      destdir="${build-docs.dir}/jline"
+      doctitle="Scala JLine"
+      docversion="${version.number}"
+      sourcepath="${src.dir}"
+      classpathref="pack.classpath"
+      srcdir="${src.dir}/jline/src/main/java"> 
+      <include name="**/*.scala"/>
+      <include name="**/*.java"/>
+    </scaladoc>
+    <touch file="${build-docs.dir}/jline.complete" verbose="no"/>
+    <stopwatch name="docs.jline.timer" action="total"/>
+  </target>
+
+  <target name="docs.pre-scalap" depends="docs.start">
+    <doc-uptodate-check name="scalap" srcdir="${src.dir}/scalap" />
+  </target>
+
+  <target name="docs.scalap" depends="docs.pre-scalap" unless="docs.scalap.available">
+    <stopwatch name="docs.scalap.timer"/>
+    <mkdir dir="${build-docs.dir}/scalap"/>
+    <scaladoc
+      destdir="${build-docs.dir}/scalap"
+      doctitle="Scalap"
+      docversion="${version.number}"
+      docsourceurl="${scaladoc.url}€{FILE_PATH}.scala#L1"
+      sourcepath="${src.dir}"
+      classpathref="pack.classpath"
+      srcdir="${src.dir}/scalap"> 
+      <include name="**/*.scala"/>
+    </scaladoc>
+    <touch file="${build-docs.dir}/scalap.complete" verbose="no"/>
+    <stopwatch name="docs.scalap.timer" action="total"/>
+  </target>
+
+  <target name="docs.pre-partest" depends="docs.start">
+    <doc-uptodate-check name="partest" srcdir="${src.dir}/partest" />
+  </target>
+
+  <target name="docs.partest" depends="docs.pre-partest" unless="docs.partest.available">
+    <stopwatch name="docs.partest.timer"/>
+    <mkdir dir="${build-docs.dir}/scala-partest"/>
+    <scaladoc
+      destdir="${build-docs.dir}/scala-partest"
+      doctitle="Scala Parallel Testing Framework"
+      docversion="${version.number}"
+      sourcepath="${src.dir}"
+      classpathref="pack.classpath"
+      srcdir="${src.dir}/partest"> 
+      <include name="**/*.scala"/>
+    </scaladoc>
+    <touch file="${build-docs.dir}/partest.complete" verbose="no"/>
+    <stopwatch name="docs.partest.timer" action="total"/>
+  </target>
+
+  <target name="docs.pre-continuations-plugin" depends="docs.start">
+    <doc-uptodate-check name="continuations-plugin" srcdir="${src.dir}/continuations/plugin" />
+  </target>
+
+  <target name="docs.continuations-plugin" depends="docs.pre-continuations-plugin" unless="docs.continuations-plugin.available">
+    <stopwatch name="docs.continuations-plugin.timer"/>
+    <mkdir dir="${build-docs.dir}/continuations-plugin"/>
+    <scaladoc
+      destdir="${build-docs.dir}/continuations-plugin"
+      doctitle="Delimited Continuations Compiler Plugin"
+      docversion="${version.number}"
+      sourcepath="${src.dir}"
+      classpathref="pack.classpath"
+      srcdir="${src.dir}/continuations/plugin"> 
+      <include name="**/*.scala"/>
+    </scaladoc>
+    <touch file="${build-docs.dir}/continuations-plugin.complete" verbose="no"/>
+    <stopwatch name="docs.continuations-plugin.timer" action="total"/>
+  </target>
+
   <target name="docs.done" depends="docs.man"/>
+
+  <target name="docs.all" depends="docs.jline, docs.comp, docs.man, docs.lib, docs.scalap, docs.partest, docs.continuations-plugin"/>
 
   <target name="docs.clean">
     <delete dir="${build-docs.dir}" includeemptydirs="yes" quiet="yes" failonerror="no"/>
@@ -1603,7 +1802,7 @@ BOOTRAPING TEST AND TEST SUITE
     </partest>
   </target>
 
-  <target name="test.done" depends="test.suite, test.continuations.suite, test.scaladoc, test.stability"/>
+  <target name="test.done" depends="test.suite, test.continuations.suite, test.scaladoc, test.stability, bc.run"/>
 
 <!-- ===========================================================================
 DISTRIBUTION
@@ -1774,8 +1973,12 @@ STABLE REFERENCE (STARR)
 FORWARDED TARGETS FOR PACKAGING
 ============================================================================ -->
   
-  <target name="distpack" depends="dist.done">
+  <target name="distpack" depends="dist.done, docs.all">
     <ant antfile="${src.dir}/build/pack.xml" target="pack-all.done" inheritall="yes" inheritrefs="yes"/>
+  </target>
+
+  <target name="distpack-maven" depends="dist.done, docs.all">
+    <ant antfile="${src.dir}/build/pack.xml" target="pack-maven.done" inheritall="yes" inheritrefs="yes"/>
   </target>
 
   <target name="distpack-opt"
@@ -1785,6 +1988,13 @@ FORWARDED TARGETS FOR PACKAGING
     </antcall>
   </target>
   
+  <target name="distpack-maven-opt"
+    description="Builds an optimised maven distribution.">
+    <antcall target="distpack-maven">
+      <param name="scalac.args.optimise" value="-optimise"/>
+    </antcall>
+  </target>
+
   <!-- Used by the scala-installer script -->
   <target name="allallclean" depends="all.clean"/>
 
@@ -1798,7 +2008,7 @@ FORWARDED TARGETS FOR NIGHTLY BUILDS
     </antcall>
   </target>
 
-  <target name="nightly-nopt" depends="all.done">
+  <target name="nightly-nopt" depends="all.done, docs.all">
     <!-- cannot antcall all.done, the properties defined in there (dist.dir) are not returned. need depends. -->
     <ant antfile="${src.dir}/build/pack.xml" target="pack-all.done" inheritall="yes" inheritrefs="yes"/>
   </target>
@@ -1896,6 +2106,38 @@ POSITIONS
         </dirset>
       </path>
     </foreach>
+  </target>
+
+<!-- ===========================================================================
+Binary compatibility testing
+============================================================================ -->
+
+  <target name="bc.init" depends="init">
+    <property name="bc-build.dir" value="${build.dir}/bc"/>
+    <!-- Obtain mima -->
+    <mkdir dir="${bc-build.dir}"/>
+    <!-- Pull down MIMA -->
+    <artifact:dependencies pathId="mima.classpath">
+      <dependency groupId="com.typesafe" artifactId="mima-reporter_2.9.1" version="0.1.3"/>
+    </artifact:dependencies>
+    <artifact:dependencies pathId="old.bc.classpath">
+      <dependency groupId="org.scala-lang" artifactId="scala-library" version="2.9.0"/>
+    </artifact:dependencies>
+  </target>
+
+  <target name="bc.run" depends="bc.init, pack.lib">
+    <java 
+       fork="true"
+       failonerror="true"
+       classname="com.typesafe.tools.mima.cli.Main">
+         <arg value="--prev"/>
+         <arg value="${org.scala-lang:scala-library:jar}"/>
+         <arg value="--curr"/>
+         <arg value="${build-pack.dir}/lib/scala-library.jar"/>
+         <classpath>
+           <path refid="mima.classpath"/>
+         </classpath>
+     </java>
   </target>
   
 <!-- ===========================================================================

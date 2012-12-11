@@ -497,7 +497,7 @@ trait Typers extends Modes {
           // fails to notice exhaustiveness and to generate good code when
           // List extractors are mixed with :: patterns. See Test5 in lists.scala.
           def dealias(sym: Symbol) =
-            ({ val t = gen.mkAttributedRef(sym) ; t.setPos(tree.pos) ; t }, sym.owner.thisType)
+            (atPos(tree.pos.makeTransparent) {gen.mkAttributedRef(sym)} setPos tree.pos, sym.owner.thisType)
           sym.name match {
             case nme.List => return dealias(ListModule)
             case nme.Seq => return dealias(SeqModule)
@@ -871,7 +871,7 @@ trait Typers extends Modes {
             case other =>
               other
           }
-          typed(atPos(tree.pos)(Select(qual, nme.apply)), mode, pt)
+          typed(atPos(tree.pos)(Select(qual setPos tree.pos.makeTransparent, nme.apply)), mode, pt)
         } else if (!context.undetparams.isEmpty && !inPolyMode(mode)) { // (9)
           assert(!inHKMode(mode)) //@M
           instantiate(tree, mode, pt)
@@ -950,7 +950,7 @@ trait Typers extends Modes {
                   //
                   //   val x: T forSome { ts } = expr
                   //
-                  // would typecheck. Or one can simply leave out the type of the `val':
+                  // would typecheck. Or one can simply leave out the type of the `val`:
                   //
                   //   val x = expr
                   context.unit.warning(tree.pos, "recovering from existential Skolem type error in tree \n"+tree+"\nwith type "+tree.tpe+"\n expected type = "+pt+"\n context = "+context.tree)
@@ -3181,7 +3181,7 @@ trait Typers extends Modes {
             errorTree(tree, enclMethod.owner + " has return statement; needs result type")
           else {
             context.enclMethod.returnsSeen = true
-            val expr1: Tree = typed(expr, EXPRmode | BYVALmode, restpt.tpe)
+            val expr1: Tree = typed(expr, EXPRmode | BYVALmode | RETmode, restpt.tpe)
             // Warn about returning a value if no value can be returned.
             if (restpt.tpe.typeSymbol == UnitClass) {
               // The typing in expr1 says expr is Unit (it has already been coerced if
@@ -3190,7 +3190,8 @@ trait Typers extends Modes {
               if (typed(expr).tpe.typeSymbol != UnitClass)
                 unit.warning(tree.pos, "enclosing method " + name + " has result type Unit: return value discarded")
             }
-            treeCopy.Return(tree, checkDead(expr1)) setSymbol enclMethod.owner setType NothingClass.tpe
+            treeCopy.Return(tree, checkDead(expr1)).setSymbol(enclMethod.owner)
+                                                   .setType(adaptTypeOfReturn(expr1, restpt.tpe, NothingClass.tpe))
           }
         }
       }

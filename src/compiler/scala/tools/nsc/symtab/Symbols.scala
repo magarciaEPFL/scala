@@ -40,7 +40,7 @@ trait Symbols extends reflect.generic.Symbols { self: SymbolTable =>
   /** The original owner of a class. Used by the backend to generate
    *  EnclosingMethod attributes.
    */
-  val originalOwner = mutable.HashMap[Symbol, Symbol]()
+  val originalOwner = perRunCaches.newMap[Symbol, Symbol]()
 
   /** The class for all symbols */
   abstract class Symbol(initOwner: Symbol, initPos: Position, initName: Name) extends AbsSymbol {
@@ -381,6 +381,7 @@ trait Symbols extends reflect.generic.Symbols { self: SymbolTable =>
     final def isPredefModule      = this == PredefModule
     final def isScalaPackage      = (this == ScalaPackage) || (isPackageObject && owner == ScalaPackageClass)
     final def isScalaPackageClass = skipPackageObject == ScalaPackageClass
+    def inDefaultNamespace        = owner.isPredefModule || owner.isScalaPackageClass
 
     /** If this is a package object or package object class, its owner: otherwise this.
      */
@@ -424,7 +425,9 @@ trait Symbols extends reflect.generic.Symbols { self: SymbolTable =>
     // prevents someone from writing a @migration annotation with a calculated
     // string.  So this needs attention.  For now the fact that migration is
     // private[scala] ought to provide enough protection.
-    def migrationMessage    = getAnnotation(MigrationAnnotationClass) flatMap { _.stringArg(2) }
+    def hasMigrationAnnotation = hasAnnotation(MigrationAnnotationClass)
+    def migrationMessage    = getAnnotation(MigrationAnnotationClass) flatMap { _.stringArg(0) }
+    def migrationVersion    = getAnnotation(MigrationAnnotationClass) flatMap { _.stringArg(1) }
     def elisionLevel        = getAnnotation(ElidableMethodClass) flatMap { _.intArg(0) }
     def implicitNotFoundMsg = getAnnotation(ImplicitNotFoundClass) flatMap { _.stringArg(0) }
 
@@ -1918,7 +1921,7 @@ trait Symbols extends reflect.generic.Symbols { self: SymbolTable =>
      *
      * If typeParams is nonEmpty, calling tpe may hide errors or
      * introduce spurious ones. (For example, when deriving a type from
-     * the symbol of a type argument that must be higher-kinded.) As far
+     * the symbol of a type argument that may be higher-kinded.) As far
      * as I can tell, it only makes sense to call tpe in conjunction
      * with a substitution that replaces the generated dummy type
      * arguments by their actual types.

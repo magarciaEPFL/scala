@@ -154,9 +154,38 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
     val emitLines  = debugLevel >= 2
     val emitVars   = debugLevel >= 3
 
+    /** For given symbol return a symbol corresponding to a class that should be declared as inner class.
+     *
+     *  For example:
+     *  class A {
+     *    class B
+     *    object C
+     *  }
+     *
+     *  then method will return NoSymbol for A, the same symbol for A.B (corresponding to A$B class) and A$C$ symbol
+     *  for A.C.
+     */
+    private def innerClassSymbolFor(s: Symbol): Symbol =
+      if (s.isClass) s else if (s.isModule) s.moduleClass else NoSymbol
+
     override def javaName(sym: Symbol): String = {
-      if (sym.isClass && !sym.rawowner.isPackageClass && !sym.isModuleClass)
-        innerClassBuffer += sym
+      /**
+       * Checks if given symbol corresponds to inner class/object and add it to innerClassBuffer
+       *
+       * Note: This method is called recursively thus making sure that we add complete chain
+       * of inner class all until root class.
+       */
+      def collectInnerClass(s: Symbol): Unit = {
+        // TODO: something atPhase(currentRun.flattenPhase.prev) which accounts for
+        // being nested in parameterized classes (if we're going to selectively flatten.)
+        val x = innerClassSymbolFor(s)
+        val isInner = x.isClass && !x.rawowner.isPackageClass
+        if (isInner) {
+          innerClassBuffer += x
+          collectInnerClass(x.rawowner)
+        }
+      }
+      collectInnerClass(sym)
 
       super.javaName(sym)
     }
@@ -219,6 +248,18 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
 
     private val innerClassBuffer = new mutable.ListBuffer[Symbol]
 
+    /** Drop redundant interfaces (ones which are implemented by some
+     *  other parent) from the immediate parents.  This is important on
+     *  android because there is otherwise an interface explosion.
+     */
+    private def minimizeInterfaces(interfaces: List[Symbol]): List[Symbol] = (
+      interfaces filterNot (int1 =>
+        interfaces exists (int2 =>
+          (int1 ne int2) && (int2 isSubClass int1)
+        )
+      )
+    )
+
     def genClass(c: IClass) {
       clasz = c
       innerClassBuffer.clear()
@@ -249,7 +290,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       parents = parents.distinct
 
       if (parents.tail.nonEmpty)
-        ifaces = mkArray(parents drop 1 map (x => javaName(x.typeSymbol)))
+        ifaces = mkArray(minimizeInterfaces(parents drop 1 map (_.typeSymbol)) map javaName)
 
       jclass = fjbgContext.JClass(javaFlags(c.symbol),
                                   name,
@@ -671,16 +712,15 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
           else outerName
         }
       }
-
       def innerName(innerSym: Symbol): String =
         if (innerSym.isAnonymousClass || innerSym.isAnonymousFunction)
           null
         else
-          innerSym.rawname.toString
+          innerSym.rawname + moduleSuffix(innerSym)
 
       // add inner classes which might not have been referenced yet
       atPhase(currentRun.erasurePhase.next) {
-        for (sym <- List(clasz.symbol, clasz.symbol.linkedClassOfClass) ; m <- sym.info.decls ; if m.isClass)
+        for (sym <- List(clasz.symbol, clasz.symbol.linkedClassOfClass); m <- sym.info.decls.map(innerClassSymbolFor) if m.isClass)
           innerClassBuffer += m
       }
 
@@ -716,8 +756,9 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       }
 
       var flags = javaFlags(f.symbol)
-      if (!f.symbol.isMutable)
-        flags |= ACC_FINAL
+      // Make sure ACC_FINAL is only on eager vals.
+      if (f.symbol.isMutable) flags &= ~ACC_FINAL
+      else flags |= ACC_FINAL
 
       val jfield =
         jclass.addNewField(flags | attributes,
@@ -1253,7 +1294,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
                 jcode.emitINVOKEINTERFACE("java.dyn.Dynamic", jname, jtype)
 
               case Dynamic =>
-                if (needsInterfaceCall(method.owner))
+                if (needsInterfaceCall(method.owner) && (method.owner ne ObjectClass))
                   jcode.emitINVOKEINTERFACE(owner, jname, jtype)
                 else
                   jcode.emitINVOKEVIRTUAL(dynamicOwner, jname, jtype)
@@ -1860,7 +1901,7 @@ abstract class GenJVM extends SubComponent with GenJVMUtil with GenAndroid with 
       if (sym.isInterface) ACC_INTERFACE else 0,
       if (sym.isFinal && !sym.enclClass.isInterface && !sym.isClassConstructor) ACC_FINAL else 0,
       if (sym.isStaticMember) ACC_STATIC else 0,
-      if (sym.isBridge || sym.hasFlag(Flags.MIXEDIN) && sym.isMethod) ACC_BRIDGE else 0,
+      if (sym.isBridge) ACC_BRIDGE | ACC_SYNTHETIC else 0,
       if (sym.isClass && !sym.isInterface) ACC_SUPER else 0,
       if (sym.isVarargsMethod) ACC_VARARGS else 0
     )
