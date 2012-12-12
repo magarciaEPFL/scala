@@ -1078,7 +1078,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
             val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
             cpHost.analyze(hostOwner.name, host)
-
             val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
             val actualsProducers: Array[SourceValue] = callsiteCP.getActualArguments(callsite) map (_.asInstanceOf[SourceValue])
             val closureProducers: Map[SourceValue, Int] = closureTypedHiOArgs.map(idx => (actualsProducers(idx) -> idx)).toMap
@@ -1206,21 +1205,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             )
           }
 
-      val closureUtils =
+      val closureClassUtils =
         for (
           cu <- survivors3();
-          ccu = ClosureUtil(cu);
+          ccu = ClosureClassUtil(cu);
           if ccu.isRepOK
         ) yield ccu
 
-      if(closureUtils.isEmpty) {
+      if(closureClassUtils.isEmpty) {
         // TODO warn.
         return false
       }
 
       // By now it's a done deal closure-inlining will be performed. There's no going back.
 
-      val shio = StaticHiOUtil(hiO, closureUtils)
+      val shio = StaticHiOUtil(hiO, closureClassUtils)
+      shio.rewriteHost(hostOwner, host, callsite)
 
       false // TODO
     }
@@ -1247,7 +1247,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  Query methods that dig out information hidden in the structure of a closure-class.
      */
-    case class ClosureUtil(closureUsages: ClosureUsages) {
+    case class ClosureClassUtil(closureUsages: ClosureUsages) {
 
       def closureClass: ClassNode = closureUsages.closureClass
 
@@ -1401,7 +1401,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  Query methods that help derive a "static hiO method" given a "hiO method".
      */
-    case class StaticHiOUtil(hiO: MethodNode, closureUtils: Iterable[ClosureUtil]) {
+    case class StaticHiOUtil(hiO: MethodNode, closureClassUtils: Iterable[ClosureClassUtil]) {
+
+      val howMany = closureClassUtils.size
 
       /**
        *  The "slack of a closure-receiving method-param of hiO" has to do with the rewriting
@@ -1421,7 +1423,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val closureParamSlack: Array[Tuple2[Int, Int]] = {
         var acc = 0
         val result =
-          for(cu <- closureUtils.toArray)
+          for(cu <- closureClassUtils.toArray)
           yield {
             val constrParams: Array[BType] = cu.constructorMethodType.getArgumentTypes
             constrParams foreach { constrParamBT => acc += constrParamBT.getSize }
@@ -1445,6 +1447,60 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           assert(paramIdx != original)
           original + acc
         }
+      }
+
+      /**
+       * @param hostOwner the class declaring the host method
+       * @param host      the method containing a callsite for which inlining has been requested
+       * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested
+       */
+      def rewriteHost(hostOwner: ClassNode, host: MethodNode, callsite: MethodInsnNode) {
+
+        /*
+         * `host` is patched to:
+         *   (1) convey closure-constructor-args instead of an instantiated closure; and
+         *   (2) target `staticHiO` rather than `hiO`
+         *
+         * The first step above amounts to removing NEW, DUP, and < init > instructions for closure instantiations.
+         */
+        val cpHost = ProdConsAnalyzer.create()
+        cpHost.analyze(hostOwner.name, host)
+        val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
+        val actualsProducers: Array[SourceValue] = callsiteCP.getActualArguments(callsite) map (_.asInstanceOf[SourceValue])
+
+        val newInsns: Iterable[AbstractInsnNode] =
+          for(
+            ccu <- closureClassUtils;
+            closureParamPos = ccu.closureUsages.formalParamPosHiO;
+            newInsnSV       = actualsProducers(closureParamPos)
+          ) yield {
+            assert(newInsnSV.insns.size() == 1)
+            newInsnSV.insns.iterator().next()
+          }
+
+        val dupInsns: Iterable[InsnNode] =
+          for(newInsn <- newInsns)
+          yield {
+            val newConsumers = (JSetWrapper(cpHost.consumers(newInsn)) filter (_ ne callsite))
+            assert(newConsumers.size == 1)
+            val dupInsn = newConsumers.iterator.next().asInstanceOf[InsnNode]
+            assert(dupInsn.getOpcode == Opcodes.DUP)
+
+            dupInsn
+          }
+
+        val initInsns: Iterable[MethodInsnNode] =
+          for(dupInsn <- dupInsns)
+          yield {
+            val initInsn = cpHost.consumers(dupInsn).iterator.next().asInstanceOf[MethodInsnNode]
+            assert(initInsn.getOpcode == Opcodes.INVOKESPECIAL && initInsn.name  == "<init>")
+
+            initInsn
+          }
+
+        assert(newInsns.size  == howMany)
+        assert(dupInsns.size  == howMany)
+        assert(initInsns.size == howMany)
       }
 
     } // end of class StaticHiOUtil
