@@ -1220,7 +1220,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // By now it's a done deal closure-inlining will be performed. There's no going back.
 
       val shio = StaticHiOUtil(hiO, closureClassUtils)
-      shio.rewriteHost(hostOwner, host, callsite)
+      val staticHiO: MethodNode = shio.buildStaticHiO()
+      // hostOwner.methods.add(staticHiO)
+      shio.rewriteHost(hostOwner, host, callsite, staticHiO)
 
       false // TODO
     }
@@ -1449,20 +1451,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
+      def buildStaticHiO(): MethodNode = {
+        null // TODO
+      }
+
       /**
+       * `host` is patched to:
+       *   (1) convey closure-constructor-args instead of an instantiated closure; and
+       *   (2) target `staticHiO` rather than `hiO`
+       *
+       * The first step above amounts to removing NEW, DUP, and < init > instructions for closure instantiations.
+       *
        * @param hostOwner the class declaring the host method
        * @param host      the method containing a callsite for which inlining has been requested
        * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested
+       * @param staticHiO a static method added to hostOwner, specializes hiO by inlining the closures hiO used to be invoked with
        */
-      def rewriteHost(hostOwner: ClassNode, host: MethodNode, callsite: MethodInsnNode) {
+      def rewriteHost(hostOwner: ClassNode, host: MethodNode, callsite: MethodInsnNode, staticHiO: MethodNode) {
 
-        /*
-         * `host` is patched to:
-         *   (1) convey closure-constructor-args instead of an instantiated closure; and
-         *   (2) target `staticHiO` rather than `hiO`
-         *
-         * The first step above amounts to removing NEW, DUP, and < init > instructions for closure instantiations.
-         */
         val cpHost = ProdConsAnalyzer.create()
         cpHost.analyze(hostOwner.name, host)
         val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
@@ -1501,6 +1507,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         assert(newInsns.size  == howMany)
         assert(dupInsns.size  == howMany)
         assert(initInsns.size == howMany)
+
+        // TODO remove the instructions above, re-wire `callsite` to target `staticHiO` instead.
       }
 
     } // end of class StaticHiOUtil
