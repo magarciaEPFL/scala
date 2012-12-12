@@ -1221,10 +1221,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO()
-      // hostOwner.methods.add(staticHiO)
-      shio.rewriteHost(hostOwner, host, callsite, staticHiO)
+      val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
+      if(wasInlined) {
+        // TODO hostOwner.methods.add(staticHiO)
+      }
 
-      false // TODO
+      wasInlined
     }
 
     /**
@@ -1466,8 +1468,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * @param host      the method containing a callsite for which inlining has been requested
        * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested
        * @param staticHiO a static method added to hostOwner, specializes hiO by inlining the closures hiO used to be invoked with
+       *
+       * @return whether closure-inlining was actually performed (should always be the case unless wrong input bytecode).
        */
-      def rewriteHost(hostOwner: ClassNode, host: MethodNode, callsite: MethodInsnNode, staticHiO: MethodNode) {
+      def rewriteHost(hostOwner: ClassNode, host: MethodNode, callsite: MethodInsnNode, staticHiO: MethodNode): Boolean = {
 
         val cpHost = ProdConsAnalyzer.create()
         cpHost.analyze(hostOwner.name, host)
@@ -1504,12 +1508,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             initInsn
           }
 
-        assert(newInsns.size  == howMany)
-        assert(dupInsns.size  == howMany)
-        assert(initInsns.size == howMany)
+        if ((newInsns.size != howMany) || (dupInsns.size != howMany) || (initInsns.size != howMany)) {
+          // TODO warn
+          return false
+        }
 
-        // TODO remove the instructions above, re-wire `callsite` to target `staticHiO` instead.
-      }
+        // TODO remove the instructions above
+
+        val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
+        // TODO host.instructions.set(callsite, rewiredInvocation)
+
+        true
+      } // end of method rewriteHost()
 
     } // end of class StaticHiOUtil
 
