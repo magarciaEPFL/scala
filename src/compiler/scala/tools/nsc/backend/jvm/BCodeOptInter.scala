@@ -1207,7 +1207,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val closureClassUtils =
         for (
-          cu <- survivors3();
+          cu <- survivors3().toArray;
           ccu = ClosureClassUtil(cu);
           if ccu.isRepOK
         ) yield ccu
@@ -1220,7 +1220,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // By now it's a done deal closure-inlining will be performed. There's no going back.
 
       val shio = StaticHiOUtil(hiO, closureClassUtils)
-      val staticHiO: MethodNode = shio.buildStaticHiO()
+      val staticHiO: MethodNode = shio.buildStaticHiO(hiOOwner, callsite)
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
       if(wasInlined) {
         // TODO hostOwner.methods.add(staticHiO)
@@ -1340,7 +1340,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val fIter = closureClass.fields.iterator()
         while(fIter.hasNext) {
           val f = fIter.next()
-          if(Util.isInstanceField(f) && f.name.equals(fieldName)) {
+          if(Util.isInstanceField(f) && (f.name == fieldName)) {
             return f
           }
         }
@@ -1405,9 +1405,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  Query methods that help derive a "static hiO method" given a "hiO method".
      */
-    case class StaticHiOUtil(hiO: MethodNode, closureClassUtils: Iterable[ClosureClassUtil]) {
+    case class StaticHiOUtil(hiO: MethodNode, closureClassUtils: Array[ClosureClassUtil]) {
 
       val howMany = closureClassUtils.size
+
+      /**
+       *  Which (zero-based) param-positions in hiO correspond to closures to be inlined.
+       */
+      val isInlined: Set[Int] = {
+        closureClassUtils.map( ccu => ccu.closureUsages.formalParamPosHiO ).toSet
+      }
 
       /**
        *  The "slack of a closure-receiving method-param of hiO" has to do with the rewriting
@@ -1427,7 +1434,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val closureParamSlack: Array[Tuple2[Int, Int]] = {
         var acc = 0
         val result =
-          for(cu <- closureClassUtils.toArray)
+          for(cu <- closureClassUtils)
           yield {
             val constrParams: Array[BType] = cu.constructorMethodType.getArgumentTypes
             constrParams foreach { constrParamBT => acc += constrParamBT.getSize }
@@ -1453,7 +1460,60 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
-      def buildStaticHiO(): MethodNode = {
+      def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
+        // (1) method name
+        val name = {
+          var attempt = 1
+          var candidate: String = null
+          var duplicate = false
+          do {
+            candidate = "shio$" + attempt + "$" + hiO.name
+            duplicate = JListWrapper(hostOwner.methods) exists { mn => mn.name == candidate }
+            attempt += 1
+          } while(duplicate)
+
+          candidate
+        }
+
+        // (2) method descriptor, computing initial value of staticHiO's maxLocals (will be updated again once stubs are pasted)
+        var formals: List[BType] = Nil
+        if(Util.isInstanceMethod(hiO)) {
+          formals ::= lookupRefBType(callsite.owner)
+        }
+        val hiOMethodType = BType.getMethodType(hiO.desc)
+        var maxLocals = hiO.maxLocals
+        foreachWithIndex(hiOMethodType.getArgumentTypes.toList) {
+          (hiOParamType, hiOParamPos) =>
+            if(isInlined(hiOParamPos)) {
+              // splice-in the closure's constructor's params, the original closure-receiving param goes away.
+              maxLocals -= 1
+              for(constrParamType <- closureClassUtils(hiOParamPos).constructorMethodType.getArgumentTypes) {
+                formals ::= constrParamType
+                maxLocals += constrParamType.getSize
+              }
+            } else {
+              formals ::= hiOParamType
+            }
+        }
+
+        // (3) clone InsnList, get Label map
+
+        // (4) Util.clone TryCatchNodes
+
+        // (5) Util.clone LocalVarNodes, shift as per-oracle
+
+        // (6) put together the pieces above into a MethodNode
+
+        // (7) find by-position the counterpart to hiO's usages
+
+        // (8) Shit LOADs and STOREs: (a) remove all isInlined LOADs; (b) shift as per oracle
+        //     (There are no usages of spliced-in params yet)
+
+        // (9) rewrite usages (closure-apply invocations)
+        //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
+
+        // (10) upadte maxStack, run TFA for debug purposes
+
         null // TODO
       }
 
