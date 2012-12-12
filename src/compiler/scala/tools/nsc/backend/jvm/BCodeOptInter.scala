@@ -1218,6 +1218,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
+      // By now it's a done deal closure-inlining will be performed. There's no going back.
+
+      val shio = StaticHiOUtil(hiO, closureUtils)
+
       false // TODO
     }
 
@@ -1409,7 +1413,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *
        *  As a first step, the following map informs for each closure-receiving-param
        *  the accumulated sizes of closure-state params added so far (including those for that closure), minus 1
-       *  (accounting for the fact the closure-param will be elided along with the closure-instance.).
+       *  (accounting for the fact the closure-param will be elided along with the closure-instance).
        *
        *  In the map, an entry has the form:
        *    (original-local-var-idx -> accumulated-sizes-inluding-constructorParams-for-this-closure)
@@ -1422,6 +1426,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val constrParams: Array[BType] = cu.constructorMethodType.getArgumentTypes
             constrParams foreach { constrParamBT => acc += constrParamBT.getSize }
             acc -= 1
+            // assert(acc >= -1). In other words, not every closure-constructor has at least an outer instance param.
 
             (cu.closureUsages.localVarIdxHiO -> acc)
           }
