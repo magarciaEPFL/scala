@@ -1575,7 +1575,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // TODO remove the instructions above
 
-        val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
+        // val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
         // TODO host.instructions.set(callsite, rewiredInvocation)
 
         true
