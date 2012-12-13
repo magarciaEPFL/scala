@@ -1412,8 +1412,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       /**
        *  Which (zero-based) param-positions in hiO correspond to closures to be inlined.
        */
-      val isInlined: Set[Int] = {
+      val isInlinedParamPos: Set[Int] = {
         closureClassUtils.map( ccu => ccu.closureUsages.formalParamPosHiO ).toSet
+      }
+
+      /**
+       *  Form param-positions in hiO corresponding to closures to be inlined, their local-variable index.
+       */
+      val isInlinedLocalIdx: Set[Int] = {
+        closureClassUtils.map( ccu => ccu.closureUsages.localVarIdxHiO).toSet
       }
 
       /**
@@ -1461,6 +1468,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
+
         // (1) method name
         val name = {
           var attempt = 1
@@ -1484,7 +1492,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         var maxLocals = hiO.maxLocals
         foreachWithIndex(hiOMethodType.getArgumentTypes.toList) {
           (hiOParamType, hiOParamPos) =>
-            if(isInlined(hiOParamPos)) {
+            if(isInlinedParamPos(hiOParamPos)) {
               // splice-in the closure's constructor's params, the original closure-receiving param goes away.
               maxLocals -= 1
               for(constrParamType <- closureClassUtils(hiOParamPos).constructorMethodType.getArgumentTypes) {
@@ -1497,22 +1505,47 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
         // (3) clone InsnList, get Label map
+        val labelMap = Util.clonedLabels(hiO)
+        val insnMap  = new java.util.HashMap[AbstractInsnNode, AbstractInsnNode]()
+        val body     = Util.clonedInsns(hiO.instructions, labelMap, insnMap)
 
         // (4) Util.clone TryCatchNodes
+        val tcns: java.util.List[TryCatchBlockNode] = Util.cloneTryCatchBlockNodes(hiO, labelMap)
 
         // (5) Util.clone LocalVarNodes, shift as per-oracle
+        val lvns: java.util.List[LocalVariableNode] = Util.cloneLocalVariableNodes(hiO, labelMap, "")
+        val lvnIter = lvns.iterator()
+        while(lvnIter.hasNext) {
+          val lvn: LocalVariableNode = lvnIter.next()
+          if(isInlinedLocalIdx(lvn.index)) {
+            lvnIter.remove()
+          } else {
+            lvn.index = shiftedLocalIdx(lvn.index)
+          }
+        }
 
         // (6) put together the pieces above into a MethodNode
 
-        // (7) find by-position the counterpart to hiO's usages
-
-        // (8) Shit LOADs and STOREs: (a) remove all isInlined LOADs; (b) shift as per oracle
+        // (7) Shift LOADs and STOREs: (a) remove all isInlined LOADs; (b) shift as per oracle
         //     (There are no usages of spliced-in params yet)
+        val bodyIter = body.iterator()
+        while(bodyIter.hasNext) {
+          val insn = bodyIter.next
+          if(insn.getType == AbstractInsnNode.VAR_INSN) {
+            val vi = insn.asInstanceOf[VarInsnNode]
+            assert(vi.getOpcode != Opcodes.RET)
+            if(isInlinedLocalIdx(vi.`var`)) {
+              bodyIter.remove()
+            } else {
+              vi.`var` = shiftedLocalIdx(vi.`var`)
+            }
+          }
+        }
 
-        // (9) rewrite usages (closure-apply invocations)
+        // (8) rewrite usages (closure-apply invocations)
         //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
 
-        // (10) upadte maxStack, run TFA for debug purposes
+        // (9) update maxStack, run TFA for debug purposes
 
         null // TODO
       }
