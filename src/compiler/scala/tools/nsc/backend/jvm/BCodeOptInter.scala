@@ -1217,14 +1217,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
-      /*
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO(hiOOwner, callsite)
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
       if(wasInlined) {
         // TODO hostOwner.methods.add(staticHiO)
       }
-      */
 
       false
     }
@@ -1495,7 +1493,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             if(isInlinedParamPos(hiOParamPos)) {
               // splice-in the closure's constructor's params, the original closure-receiving param goes away.
               maxLocals -= 1
-              for(constrParamType <- closureClassUtils(hiOParamPos).constructorMethodType.getArgumentTypes) {
+              val ccu = closureClassUtils.find(_.closureUsages.formalParamPosHiO == hiOParamPos).get
+              for(constrParamType <- ccu.constructorMethodType.getArgumentTypes) {
                 formals ::= constrParamType
                 maxLocals += constrParamType.getSize
               }
@@ -1571,7 +1570,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
         val actualsProducers: Array[SourceValue] = callsiteCP.getActualArguments(callsite) map (_.asInstanceOf[SourceValue])
 
-        val newInsns: Iterable[AbstractInsnNode] =
+        val newInsns: Array[AbstractInsnNode] =
           for(
             ccu <- closureClassUtils;
             closureParamPos = ccu.closureUsages.formalParamPosHiO;
@@ -1581,7 +1580,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             newInsnSV.insns.iterator().next()
           }
 
-        val dupInsns: Iterable[InsnNode] =
+        val dupInsns: Array[InsnNode] =
           for(newInsn <- newInsns)
           yield {
             val newConsumers = (JSetWrapper(cpHost.consumers(newInsn)) filter (_ ne callsite))
@@ -1592,7 +1591,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             dupInsn
           }
 
-        val initInsns: Iterable[MethodInsnNode] =
+        val initInsns: Array[MethodInsnNode] =
           for(dupInsn <- dupInsns)
           yield {
             val initInsn = cpHost.consumers(dupInsn).iterator.next().asInstanceOf[MethodInsnNode]
@@ -1601,7 +1600,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             initInsn
           }
 
-        if ((newInsns.size != howMany) || (dupInsns.size != howMany) || (initInsns.size != howMany)) {
+        if ((newInsns.length != howMany) || (dupInsns.length != howMany) || (initInsns.length != howMany)) {
           // TODO warn
           return false
         }
