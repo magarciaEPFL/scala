@@ -188,9 +188,24 @@ abstract class GenBCode extends BCodeOptInter {
         }
       }
 
+      val caseInsensitively = mutable.Map.empty[String, Symbol]
+
       def visit(item: Item1) {
         val Item1(arrivalPos, cd, cunit) = item
         val claszSymbol = cd.symbol
+
+        // https://github.com/scala/scala/commit/e4d1d930693ac75d8eb64c2c3c69f2fc22bec739
+        val lowercaseJavaClassName = claszSymbol.javaClassName.toLowerCase
+        caseInsensitively.get(lowercaseJavaClassName) match {
+          case None =>
+            caseInsensitively.put(lowercaseJavaClassName, claszSymbol)
+          case Some(dupClassSym) =>
+            item.cunit.warning(
+              claszSymbol.pos,
+              s"Class ${claszSymbol.javaClassName} differs only in case from ${dupClassSym.javaClassName}. " +
+              "Such classes will overwrite one another on case-insensitive filesystems."
+            )
+        }
 
         // -------------- mirror class, if needed --------------
         var mirrorC: SubItem2NonPlain = null
