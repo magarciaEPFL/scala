@@ -194,7 +194,7 @@ abstract class GenBCode extends BCodeOptInter {
         val Item1(arrivalPos, cd, cunit) = item
         val claszSymbol = cd.symbol
 
-        // https://github.com/scala/scala/commit/e4d1d930693ac75d8eb64c2c3c69f2fc22bec739
+        // GenASM checks this before classfiles are emitted, https://github.com/scala/scala/commit/e4d1d930693ac75d8eb64c2c3c69f2fc22bec739
         val lowercaseJavaClassName = claszSymbol.javaClassName.toLowerCase
         caseInsensitively.get(lowercaseJavaClassName) match {
           case None =>
