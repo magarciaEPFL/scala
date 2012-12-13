@@ -3323,7 +3323,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val ExcludedForwarderFlags = {
       import symtab.Flags._
       // Should include DEFERRED but this breaks findMember.
-      ( CASE | SPECIALIZED | LIFTED | PROTECTED | STATIC | EXPANDEDNAME | BridgeAndPrivateFlags )
+      ( CASE | SPECIALIZED | LIFTED | PROTECTED | STATIC | EXPANDEDNAME | BridgeAndPrivateFlags | MACRO )
     }
 
     /** Adds a @remote annotation, actual use unknown.

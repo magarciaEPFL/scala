@@ -1217,16 +1217,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
-      // By now it's a done deal closure-inlining will be performed. There's no going back.
-
+      /*
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO(hiOOwner, callsite)
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
       if(wasInlined) {
         // TODO hostOwner.methods.add(staticHiO)
       }
+      */
 
-      wasInlined
+      false
     }
 
     /**
