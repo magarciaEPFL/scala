@@ -1386,18 +1386,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         result.toMap
       }
 
-      def isRepOK: Boolean = {
-        /*
-         * number of closure-state fields should be one less than number of fields in closure-class
-         * (static field SerialVersionUID isn't part of closure-state).
-         */
-        (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
-        (stateField2constrParam.size == field.size)
-
-        // TODO all apply methods have been accounted for, there are no additional methods
-
-      }
-
       /**
        *  As part of building staticHiO, closure-usages in hiO are replaced by either:
        *    (a) self-contained code snippets; or
@@ -1441,7 +1429,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *         we collapse it with the current method being visited (as expected,
        *         collapsing a drilled-down method means inlining it into a clone of the current method).
        */
-      def stub0(): MethodNode = {
+      private def helperStubTemplate(): MethodNode = {
 
           def escapingThis(mnodeOwner: String, mnode: MethodNode): collection.Set[AbstractInsnNode] = {
 
@@ -1465,6 +1453,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val closureClassBType = lookupRefBType(closureClass.name)
 
             def getInnermostForwardee(current: MethodNode, visited0: Set[MethodNode]): MethodNode = {
+              if(!current.tryCatchBlocks.isEmpty) {
+                // the instructions of the resulting MethodNode will serve as template to replace closure-usages
+                // and we can't rule out the possibility of an exception-handlers-table making such replacement non-well-formed.
+                return null
+              }
               val escaping = escapingThis(closureClassName, current)
               if(escaping.isEmpty) {
                 return current
@@ -1474,7 +1467,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                   case forwarder: MethodInsnNode if forwarder.owner == closureClassName =>
                     val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
                     val visited   = visited0 + current
-                    if(visited.contains(forwardee)) {
+                    if(visited.exists(v => v eq forwardee)) {
                       return null // recursive invocation chain was detected, involving one or more closure-methods
                     }
                     val rewritten = getInnermostForwardee(forwardee, visited)
@@ -1511,12 +1504,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         quickOptimizer.basicIntraMethodOpt(closureClassName, result)
 
         if(escapingThis(closureClassName, result).nonEmpty) {
-          // in spite of our best efforts, the closure's THIS is used for something we can't reduce
+          // in spite of our best efforts, the closure's THIS is used for something that can't be reduced later.
           return null
         }
 
         result
-      } // end of method stub0()
+      } // end of method helperStubTemplate()
+
+      val stubTemplate: MethodNode = helperStubTemplate()
+
+      def isRepOK: Boolean = {
+        /*
+         * number of closure-state fields should be one less than number of fields in closure-class
+         * (static field SerialVersionUID isn't part of closure-state).
+         */
+        (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
+        (stateField2constrParam.size == field.size) &&
+        (stubTemplate != null)
+      }
 
     } // end of class ClosureClassUtil
 
@@ -1674,9 +1679,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // (8) rewrite usages (closure-apply invocations)
         //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
-        for(ccu <- closureClassUtils) {
-          ccu.stub0()
-        }
+
 
         // (9) update maxStack, run TFA for debug purposes
 
