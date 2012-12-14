@@ -1219,6 +1219,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO(hiOOwner, callsite)
+      if(staticHiO == null) { return false }
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
       if(wasInlined) {
         // TODO hostOwner.methods.add(staticHiO)
@@ -1465,6 +1466,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
+      /**
+       *  @return staticHiO if preconditions met, null otherwise
+       */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
 
         // (1) method name
@@ -1502,6 +1506,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               formals ::= hiOParamType
             }
         }
+        val staticHiOMethodType = BType.getMethodType(hiOMethodType.getReturnType, formals.reverse.toArray)
 
         // (3) clone InsnList, get Label map
         val labelMap = Util.clonedLabels(hiO)
