@@ -356,18 +356,18 @@ public class Util {
      * @param prefix at the new usage point, pasting cloned names of local vars as-is might lead to duplicates,
      *               in particular for `this`. Thus a prefix (e.g., the callee's name) may be provided by the invoker.
      */
-    public static List<LocalVariableNode> cloneLocalVariableNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
+    public static List<LocalVariableNode> clonedLocalVariableNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
         Iterator<LocalVariableNode> iter   = mnode.localVariables.iterator();
         List<LocalVariableNode>     output = new LinkedList<LocalVariableNode>();
         while(iter.hasNext()) {
             LocalVariableNode oldLVN = iter.next();
-            LocalVariableNode newLVN = cloneLocalVariableNode(oldLVN, labelMap, prefix);
+            LocalVariableNode newLVN = clonedLocalVariableNode(oldLVN, labelMap, prefix);
             output.add(newLVN);
         }
         return output;
     }
 
-    public static LocalVariableNode cloneLocalVariableNode(final LocalVariableNode old, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
+    public static LocalVariableNode clonedLocalVariableNode(final LocalVariableNode old, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
         LocalVariableNode result = new LocalVariableNode(
             prefix + old.name,
             old.desc,
@@ -379,18 +379,18 @@ public class Util {
         return result;
     }
 
-    public static List<TryCatchBlockNode> cloneTryCatchBlockNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap) {
+    public static List<TryCatchBlockNode> clonedTryCatchBlockNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap) {
         Iterator<TryCatchBlockNode> iter    = mnode.tryCatchBlocks.iterator();
         List<TryCatchBlockNode>     output  = new LinkedList<TryCatchBlockNode>();
         while(iter.hasNext()) {
             TryCatchBlockNode oldTCB = iter.next();
-            TryCatchBlockNode newTCB = cloneTryCatchBlockNode(oldTCB, labelMap);
+            TryCatchBlockNode newTCB = clonedTryCatchBlockNode(oldTCB, labelMap);
             output.add(newTCB);
         }
         return output;
     }
 
-    public static TryCatchBlockNode cloneTryCatchBlockNode(final TryCatchBlockNode old, final Map<LabelNode, LabelNode> labelMap) {
+    public static TryCatchBlockNode clonedTryCatchBlockNode(final TryCatchBlockNode old, final Map<LabelNode, LabelNode> labelMap) {
         TryCatchBlockNode result = new TryCatchBlockNode(
             labelMap.get(old.start),
             labelMap.get(old.end),

@@ -761,8 +761,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       host.instructions.remove(callsite)
 
       // let the host know about the debug info of the callee
-      host.localVariables.addAll(Util.cloneLocalVariableNodes(callee, labelMap, callee.name + "_"))
-      host.tryCatchBlocks.addAll(Util.cloneTryCatchBlockNodes(callee, labelMap))
+      host.localVariables.addAll(Util.clonedLocalVariableNodes(callee, labelMap, callee.name + "_"))
+      host.tryCatchBlocks.addAll(Util.clonedTryCatchBlockNodes(callee, labelMap))
 
       // the host's local-var space grows by the local-var space of the callee, plus another local-var in case hasReturnValue
       Util.computeMaxLocalsMaxStack(host)
@@ -1591,14 +1591,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val body     = Util.clonedInsns(hiO.instructions, labelMap, insnMap)
 
         // (4) Util.clone TryCatchNodes
-        val tcns: java.util.List[TryCatchBlockNode] = Util.cloneTryCatchBlockNodes(hiO, labelMap)
+        val tcns: java.util.List[TryCatchBlockNode] = Util.clonedTryCatchBlockNodes(hiO, labelMap)
         val here = lookupRefBType(hostOwner.name)
         if(!allExceptionsAccessible(tcns, here)) {
           return null
         }
 
         // (5) Util.clone LocalVarNodes, shift as per-oracle
-        val lvns: java.util.List[LocalVariableNode] = Util.cloneLocalVariableNodes(hiO, labelMap, "")
+        val lvns: java.util.List[LocalVariableNode] = Util.clonedLocalVariableNodes(hiO, labelMap, "")
         val lvnIter = lvns.iterator()
         while(lvnIter.hasNext) {
           val lvn: LocalVariableNode = lvnIter.next()
