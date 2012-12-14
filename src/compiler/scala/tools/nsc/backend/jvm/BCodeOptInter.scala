@@ -1395,6 +1395,55 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /**
+       *  helper method TODO
+       */
+      def stub0(): MethodNode = {
+
+          def escapingThis(mnodeOwner: String, mnode: MethodNode): collection.Set[AbstractInsnNode] = {
+
+                def isClosureStateAccess(insn: AbstractInsnNode) = {
+                  insn.getOpcode == Opcodes.GETFIELD && {
+                    val fi = insn.asInstanceOf[FieldInsnNode]
+                    stateField2constrParam.contains(fi.name)
+                  }
+                }
+
+            Util.computeMaxLocalsMaxStack(mnode)
+            val cpHiO: ProdConsAnalyzer = ProdConsAnalyzer.create()
+            cpHiO.analyze(mnodeOwner, mnode)
+            for(
+              consumer <- JSetWrapper(cpHiO.consumersOfLocalVar(0))
+              if !isClosureStateAccess(consumer)
+            ) yield consumer
+          }
+
+        val closureClassName  = closureUsages.closureClass.name
+        val closureClassBType = lookupRefBType(closureClass.name)
+
+            def getInnermostForwardee(current: MethodNode): MethodNode = {
+              val escaping0 = escapingThis(closureClassName, current)
+              if(escaping0.isEmpty) {
+                return current
+              }
+              if(escaping0.size == 1) {
+                escaping0.iterator.next() match {
+                  case forwarder: MethodInsnNode if forwarder.owner == closureClassName =>
+                    val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
+                    val rewritten = getInnermostForwardee(forwardee)
+                    if(rewritten != null) {
+                      return null // TODO inlined
+                    }
+                  case _ => ()
+                }
+              }
+              null
+            }
+
+        getInnermostForwardee(closureUsages.applyMethod)
+
+      } // end of method stub0()
+
+      /**
        *  A "delegate-invoking apply()" is the apply method
        *  (of a closureClass converted by `closureConversionMethodHandle()`)
        *  in charge of invoking the hoisted method that encapsulates the original closure body.
@@ -1579,6 +1628,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // (8) rewrite usages (closure-apply invocations)
         //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
+        for(ccu <- closureClassUtils) {
+          ccu.stub0()
+        }
 
         // (9) update maxStack, run TFA for debug purposes
 
