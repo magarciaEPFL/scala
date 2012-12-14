@@ -1399,7 +1399,47 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /**
-       *  helper method TODO
+       *  As part of building staticHiO, closure-usages in hiO are replaced by either:
+       *    (a) self-contained code snippets; or
+       *    (b) invocation to the delegate created during `closureConversionMethodHandle()`
+       *
+       *  In both cases the snippet of instructions to paste (let's call it "stub") should:
+       *    (c) avoid using the closure's THIS; and
+       *    (d) consume from the operand-stack what the `applyMethod` invocation used to consume, and
+       *        leave on exit what `applyMethod()` used to return.
+       *
+       *  In order to implement the above, it's way easier if `staticHiO` doesn't have to
+       *  chase invocation chains like:
+       *
+       *    (1) First into "bridge-style apply()"
+       *
+       *          final < bridge > < artifact > def apply(v1: Object): Object = {
+       *            apply(scala.Int.unbox(v1));
+       *            scala.runtime.BoxedUnit.UNIT
+       *          };
+       *
+       *    (2) Which in turn invokes a "forwarding apply()"
+       *
+       *          final def apply(x$1: Int): Unit = apply$mcVI$sp(x$1);
+       *
+       *    (3) Which finally invokes a "delegate-invoking apply()"
+       *
+       *          < specialized > def apply$mcVI$sp(v1: Int): Unit = $outer.C$$dlgt1$1(v1);
+       *
+       *  This utility method returns a fabricated MethodNode, where invocation chains as above have been
+       *  collapsed into a self-contained method. In case this is not possible, this method returns null.
+       *
+       *  For example, this method returns `null` for a closure converted by `closureConversionTraditional()`
+       *  where the original closure-body contained local-methods that lambdalift turned into
+       *  closure-methods. In general it's not always possible to "un-do" all the dependencies on the closure's THIS,
+       *  and in the example we don't even try.
+       *
+       *  Starting from the known `applyMethod`, collapsing involves:
+       *    (i)  checking whether THIS doesn't escape. If so, the current method is fine as is.
+       *    (ii) in case THIS escapes only as receiver of a (non-recursive) invocation on this closure,
+       *         then drill-down into the target. If that target can itself be collapsed,
+       *         we collapse it with the current method being visited (as expected,
+       *         collapsing a drilled-down method means inlining it into a clone of the current method).
        */
       def stub0(): MethodNode = {
 
@@ -1424,7 +1464,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val closureClassName  = closureUsages.closureClass.name
         val closureClassBType = lookupRefBType(closureClass.name)
 
-            def getInnermostForwardee(current: MethodNode): MethodNode = {
+            def getInnermostForwardee(current: MethodNode, visited0: Set[MethodNode]): MethodNode = {
               val escaping = escapingThis(closureClassName, current)
               if(escaping.isEmpty) {
                 return current
@@ -1433,7 +1473,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 escaping.iterator.next() match {
                   case forwarder: MethodInsnNode if forwarder.owner == closureClassName =>
                     val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
-                    val rewritten = getInnermostForwardee(forwardee)
+                    val visited   = visited0 + current
+                    if(visited.contains(forwardee)) {
+                      return null // recursive invocation chain was detected, involving one or more closure-methods
+                    }
+                    val rewritten = getInnermostForwardee(forwardee, visited)
                     if(rewritten != null) {
                       val cm: Util.ClonedMethod = Util.clonedMethodNode(current)
                       val clonedCurrent = cm.mnode
@@ -1458,49 +1502,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               null
             }
 
-        val result = getInnermostForwardee(closureUsages.applyMethod)
+        val result = getInnermostForwardee(closureUsages.applyMethod, Set.empty)
         if(result == null) {
-          return result
+          return null
         }
 
         val quickOptimizer = new BCodeCleanser(closureClass)
         quickOptimizer.basicIntraMethodOpt(closureClassName, result)
 
-        val txt = Util.textify(result)
-        val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
-        tfaDebug.analyze(closureClassName, result)
+        if(escapingThis(closureClassName, result).nonEmpty) {
+          // in spite of our best efforts, the closure's THIS is used for something we can't reduce
+          return null
+        }
 
         result
       } // end of method stub0()
-
-      /**
-       *  A "delegate-invoking apply()" is the apply method
-       *  (of a closureClass converted by `closureConversionMethodHandle()`)
-       *  in charge of invoking the hoisted method that encapsulates the original closure body.
-       *
-       *  Example:
-       *        < specialized > def apply$mcVI$sp(v1: Int): Unit = $outer.C$$dlgt1$1(v1);
-       */
-      def isDelegateInvokingApply(mnode: MethodNode): Boolean = {
-        false // TODO
-      }
-
-      /**
-       *  Example 1 of "forwarding apply()"
-       *
-       *        final def apply(x$1: Int): Unit = apply$mcVI$sp(x$1);
-       *
-       *  Example 2 of "forwarding apply()"
-       *
-       *        final < bridge > < artifact > def apply(v1: Object): Object = {
-       *          apply(scala.Int.unbox(v1));
-       *          scala.runtime.BoxedUnit.UNIT
-       *        };
-       *
-       */
-      def isForwardingApply(mnode: MethodNode): Boolean = {
-        false // TODO
-      }
 
     } // end of class ClosureClassUtil
 
