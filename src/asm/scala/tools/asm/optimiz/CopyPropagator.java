@@ -44,7 +44,7 @@ public class CopyPropagator {
 
     public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
 
-        Analyzer<SourceValue> propag = new Analyzer<SourceValue>(new SourceCopyInterpreter());
+        UnBoxAnalyzer propag = UnBoxAnalyzer.create();
         propag.analyze(owner, mnode);
 
         Frame<SourceValue>[] frames = propag.getFrames();

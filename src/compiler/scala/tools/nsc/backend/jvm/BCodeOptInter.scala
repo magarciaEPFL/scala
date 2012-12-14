@@ -1439,11 +1439,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       val clonedCurrent = cm.mnode
                       val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
                       tfa.analyze(closureClassName, current)
-                      val frame   = tfa.frameAt(cm.insnMap.get(forwarder)).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
+                      val clonedForwarder = cm.insnMap.get(forwarder).asInstanceOf[MethodInsnNode]
+                      val frame   = tfa.frameAt(clonedForwarder).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
                       val success = inlineMethod(
                         closureClassName,
                         clonedCurrent,
-                        forwarder,
+                        clonedForwarder,
                         frame,
                         rewritten
                       )
@@ -1457,8 +1458,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               null
             }
 
-        getInnermostForwardee(closureUsages.applyMethod)
+        val result = getInnermostForwardee(closureUsages.applyMethod)
+        if(result == null) {
+          return result
+        }
 
+        val quickOptimizer = new BCodeCleanser(closureClass)
+        quickOptimizer.basicIntraMethodOpt(closureClassName, result)
+
+        val txt = Util.textify(result)
+        val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
+        tfaDebug.analyze(closureClassName, result)
+
+        result
       } // end of method stub0()
 
       /**

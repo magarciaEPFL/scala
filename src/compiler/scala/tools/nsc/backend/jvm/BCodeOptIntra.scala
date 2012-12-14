@@ -161,20 +161,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
         if(isConcrete) {
           val cName = cnode.name
 
-          var keepGoing = false
-          do {
-            keepGoing = false
-
-            keepGoing |= cleanseMethod(cName, mnode)
-            keepGoing |= elimRedundantCode(cName, mnode)
-
-            nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
-            keepGoing |= nullnessPropagator.changed
-
-            constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
-            keepGoing |= constantFolder.changed
-
-          } while(keepGoing)
+          basicIntraMethodOpt(cName, mnode)
 
           cacheRepeatableReads(cName, mnode)
 
@@ -301,6 +288,23 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       addInnerClassesASM(cnode, refedInnerClasses)
 
+    }
+
+    def basicIntraMethodOpt(cName: String, mnode: asm.tree.MethodNode) {
+      var keepGoing = false
+      do {
+        keepGoing = false
+
+        keepGoing |= cleanseMethod(cName, mnode)
+        keepGoing |= elimRedundantCode(cName, mnode)
+
+        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+        keepGoing |= nullnessPropagator.changed
+
+        constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
+        keepGoing |= constantFolder.changed
+
+      } while(keepGoing)
     }
 
     //--------------------------------------------------------------------
