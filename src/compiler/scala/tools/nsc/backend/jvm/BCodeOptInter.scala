@@ -520,13 +520,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       //-----------------------------
       leaf.procs foreach { proc =>
 
-        inlineMethod(
-          leaf.hostOwner.name,
+        val hostOwner = leaf.hostOwner.name
+        val frame     = tfaFrameAt(proc.callsite)
+
+        val success = inlineMethod(
+          hostOwner,
           leaf.host,
           proc.callsite,
-          tfaFrameAt(proc.callsite),
+          frame,
           proc.callee
         )
+        if(success) {
+          logSuccessfulInlining(hostOwner, leaf.host, proc.callsite, isHiO = false, isReceiverKnownNonNull(frame, proc.callsite))
+        }
 
       }
       leaf.procs = Nil
@@ -761,8 +767,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // the host's local-var space grows by the local-var space of the callee, plus another local-var in case hasReturnValue
       Util.computeMaxLocalsMaxStack(host)
       assert(host.maxLocals >= nxtLocalIdx) // TODO why not == ?
-
-      logSuccessfulInlining(hostOwner, host, callsite, isHiO = false, isReceiverKnownNonNull(frame, callsite))
 
       true
 
@@ -1421,12 +1425,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val closureClassBType = lookupRefBType(closureClass.name)
 
             def getInnermostForwardee(current: MethodNode): MethodNode = {
-              val escaping0 = escapingThis(closureClassName, current)
-              if(escaping0.isEmpty) {
+              val escaping = escapingThis(closureClassName, current)
+              if(escaping.isEmpty) {
                 return current
               }
-              if(escaping0.size == 1) {
-                escaping0.iterator.next() match {
+              if(escaping.size == 1) {
+                escaping.iterator.next() match {
                   case forwarder: MethodInsnNode if forwarder.owner == closureClassName =>
                     val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
                     val rewritten = getInnermostForwardee(forwardee)
