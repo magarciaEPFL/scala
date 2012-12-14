@@ -818,16 +818,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *              class from which accesses given by `body` will take place.
      *
      */
-    private def allAccessesLegal(body: InsnList, here: BType): Boolean = {
-
-          def isAccessible(there: BType): Boolean = {
-            if(!there.isNonSpecial) true
-            else if (there.isArray) isAccessible(there.getElementType)
-            else {
-              assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
-              (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
-            }
-          }
+    def allAccessesLegal(body: InsnList, here: BType): Boolean = {
 
           /**
            * @return whether the first argument is a subtype of the second, or both are the same BType.
@@ -882,7 +873,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val insn    = iter.next()
         val isLegal = insn match {
 
-          case ti: TypeInsnNode  => isAccessible(lookupRefBType(ti.desc))
+          case ti: TypeInsnNode  => isAccessible(lookupRefBType(ti.desc), here)
 
           case fi: FieldInsnNode =>
             val fowner: BType = lookupRefBType(fi.owner)
@@ -902,13 +893,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           case ci: LdcInsnNode =>
             ci.cst match {
-              case t: asm.Type => isAccessible(lookupRefBType(t.getInternalName))
+              case t: asm.Type => isAccessible(lookupRefBType(t.getInternalName), here)
               case _           => true
             }
 
           case ma: MultiANewArrayInsnNode =>
             val et = descrToBType(ma.desc).getElementType
-            if(et.hasObjectSort) isAccessible(et)
+            if(et.hasObjectSort) isAccessible(et, here)
             else true
 
           case _ => true
@@ -920,6 +911,39 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       true
     } // end of method allAccessesLegal()
+
+
+    /**
+     * See also method `allAccessesLegal()`
+     *
+     * Quoting from the JVMS (our terminology: `there` stands for `C`; `here` for `D`):
+     *
+     *  5.4.4 Access Control
+     *
+     *  A class or interface C is accessible to a class or interface D if and only if either of the following conditions is true:
+     *    (cond A1) C is public.
+     *    (cond A2) C and D are members of the same runtime package (Sec 5.3).
+     */
+    def isAccessible(there: BType, here: BType): Boolean = {
+      if(!there.isNonSpecial) true
+      else if (there.isArray) isAccessible(there.getElementType, here)
+      else {
+        assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
+        (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
+      }
+    }
+
+    def allExceptionsAccessible(tcns: java.util.List[TryCatchBlockNode], here: BType): Boolean = {
+      JListWrapper(tcns).forall( tcn => (tcn.`type` == null) || isAccessible(lookupRefBType(tcn.`type`), here) )
+    }
+
+    def allLocalVarTypesAccessible(lvns: java.util.List[LocalVariableNode], here: BType): Boolean = {
+      JListWrapper(lvns).forall( lvn => {
+        val there = descrToBType(lvn.desc)
+
+        there.isValueType || isAccessible(there, here)
+      } )
+    }
 
     /**
      * This method inlines the invocation of a "higher-order method" and
@@ -1515,6 +1539,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // (4) Util.clone TryCatchNodes
         val tcns: java.util.List[TryCatchBlockNode] = Util.cloneTryCatchBlockNodes(hiO, labelMap)
+        val here = lookupRefBType(hostOwner.name)
+        if(!allExceptionsAccessible(tcns, here)) {
+          return null
+        }
 
         // (5) Util.clone LocalVarNodes, shift as per-oracle
         val lvns: java.util.List[LocalVariableNode] = Util.cloneLocalVariableNodes(hiO, labelMap, "")
@@ -1526,6 +1554,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           } else {
             lvn.index = shiftedLocalIdx(lvn.index)
           }
+        }
+        if(!allLocalVarTypesAccessible(lvns, here)) {
+          return null
         }
 
         // (6) put together the pieces above into a MethodNode
@@ -1552,7 +1583,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         // (9) update maxStack, run TFA for debug purposes
 
         null // TODO
-      }
+      } // end of method buildStaticHiO()
 
       /**
        * `host` is patched to:
