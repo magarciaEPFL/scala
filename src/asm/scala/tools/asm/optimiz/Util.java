@@ -400,6 +400,37 @@ public class Util {
         return result;
     }
 
+    /**
+     *
+     * Warning: none of
+     *   visibleAnnotations nor invisibleAnnotations nor attrs nor annotationDefault nor
+     *   visibleParameterAnnotations nor invisibleParameterAnnotations
+     * are copied over from `orig` to the copy. That's responsibility of the invoker.
+     *
+     * */
+    public static ClonedMethod clonedMethodNode(final MethodNode orig) {
+
+        MethodNode dup =
+                new MethodNode(
+                        Opcodes.ASM4,
+                        orig.access, orig.name,
+                        orig.desc,   orig.signature,
+                        (orig.exceptions.toArray(new String[orig.exceptions.size()]))
+                );
+
+        Map<LabelNode, LabelNode> labelMap = Util.clonedLabels(orig);
+        Map<AbstractInsnNode, AbstractInsnNode> insnMap = new java.util.HashMap<AbstractInsnNode, AbstractInsnNode>();
+        dup.instructions = Util.clonedInsns(orig.instructions, labelMap, insnMap);
+
+        dup.tryCatchBlocks = Util.clonedTryCatchBlockNodes(orig, labelMap);
+        dup.localVariables = Util.clonedLocalVariableNodes(orig, labelMap, "");
+
+        dup.maxLocals = orig.maxLocals;
+        dup.maxStack  = orig.maxStack;
+
+        return new ClonedMethod(dup, labelMap, insnMap);
+    }
+
     // ------------------------------------------------------------------------
     // method descriptors and their formal params
     // ------------------------------------------------------------------------
@@ -476,5 +507,22 @@ public class Util {
       trace.p.print(pw);
       return sw.toString();
     }
+
+    public static class ClonedMethod {
+
+        public final MethodNode mnode;
+        public final Map<LabelNode, LabelNode> labelMap;
+        public final Map<AbstractInsnNode, AbstractInsnNode> insnMap;
+
+        public ClonedMethod(
+                final MethodNode mnode,
+                final Map<LabelNode, LabelNode> labelMap,
+                final Map<AbstractInsnNode, AbstractInsnNode> insnMap) {
+            this.mnode    = mnode;
+            this.labelMap = labelMap;
+            this.insnMap  = insnMap;
+        }
+
+    } // end of class ClonedMethod
 
 }

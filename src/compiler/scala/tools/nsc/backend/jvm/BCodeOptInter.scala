@@ -1435,7 +1435,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                     val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
                     val rewritten = getInnermostForwardee(forwardee)
                     if(rewritten != null) {
-                      return null // TODO inlined
+                      val cm: Util.ClonedMethod = Util.clonedMethodNode(current)
+                      val clonedCurrent = cm.mnode
+                      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+                      tfa.analyze(closureClassName, current)
+                      val frame   = tfa.frameAt(cm.insnMap.get(forwarder)).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
+                      val success = inlineMethod(
+                        closureClassName,
+                        clonedCurrent,
+                        forwarder,
+                        frame,
+                        rewritten
+                      )
+                      if(success) {
+                        return clonedCurrent
+                      }
                     }
                   case _ => ()
                 }
