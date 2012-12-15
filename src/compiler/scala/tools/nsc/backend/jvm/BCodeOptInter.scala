@@ -1630,7 +1630,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               formals ::= hiOParamType
             }
         }
-        val staticHiOMethodType = BType.getMethodType(hiOMethodType.getReturnType, formals.reverse.toArray)
+        val shiOMethodType = BType.getMethodType(hiOMethodType.getReturnType, formals.reverse.toArray)
 
         // (3) clone InsnList, get Label map
         val labelMap = Util.clonedLabels(hiO)
@@ -1659,9 +1659,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           return null
         }
 
-        // (6) put together the pieces above into a MethodNode
-
-        // (7) Shift LOADs and STOREs: (a) remove all isInlined LOADs; (b) shift as per oracle
+        // (6) Shift LOADs and STOREs: (a) remove all isInlined LOADs; (b) shift as per oracle
         //     (There are no usages of spliced-in params yet)
         val bodyIter = body.iterator()
         while(bodyIter.hasNext) {
@@ -1677,13 +1675,40 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
         }
 
-        // (8) rewrite usages (closure-apply invocations)
+        // (7) rewrite usages (closure-apply invocations)
         //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
+        for(ccu <- closureClassUtils) {
+          val stubsIter = getStubsIterator(ccu)
+          for(usage0 <- ccu.closureUsages.usages) {
+            val usage = insnMap.get(usage0)
+            assert(body.contains(usage))
+            assert(stubsIter.hasNext)
+            body.insert(usage, stubsIter.next())
+            body.remove(usage)
+          }
+          assert(!stubsIter.hasNext)
+        }
 
+        // (8) put together the pieces above into a MethodNode
+        val shio: MethodNode =
+          new MethodNode(
+            Opcodes.ASM4,
+            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC, // TODO what if hiO ACC_SYNCHRONIZED
+            name,
+            shiOMethodType.getDescriptor,
+            null,
+            null
+          )
+        shio.instructions   = body
+        shio.tryCatchBlocks = tcns
+        shio.localVariables = lvns
 
         // (9) update maxStack, run TFA for debug purposes
+        Util.computeMaxLocalsMaxStack(shio)
+        val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
+        tfaDebug.analyze(hostOwner.name, shio)
 
-        null // TODO
+        shio
       } // end of method buildStaticHiO()
 
       /**
@@ -1749,6 +1774,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         true
       } // end of method rewriteHost()
+
+      private def getStubsIterator(ccu: ClosureClassUtil): Iterator[InsnList] = {
+        null // TODO
+      }
 
     } // end of class StaticHiOUtil
 
