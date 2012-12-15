@@ -1675,21 +1675,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
         }
 
-        // (7) rewrite usages (closure-apply invocations)
-        //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
-        for(ccu <- closureClassUtils) {
-          val stubsIter = getStubsIterator(ccu)
-          for(usage0 <- ccu.closureUsages.usages) {
-            val usage = insnMap.get(usage0)
-            assert(body.contains(usage))
-            assert(stubsIter.hasNext)
-            body.insert(usage, stubsIter.next())
-            body.remove(usage)
-          }
-          assert(!stubsIter.hasNext)
-        }
-
-        // (8) put together the pieces above into a MethodNode
+        // (7) put together the pieces above into a MethodNode
         val shio: MethodNode =
           new MethodNode(
             Opcodes.ASM4,
@@ -1702,6 +1688,20 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         shio.instructions   = body
         shio.tryCatchBlocks = tcns
         shio.localVariables = lvns
+
+        // (8) rewrite usages (closure-apply invocations)
+        //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
+        for(ccu <- closureClassUtils) {
+          val stubsIter = getStubsIterator(ccu, shio)
+          for(usage0 <- ccu.closureUsages.usages) {
+            val usage = insnMap.get(usage0)
+            assert(body.contains(usage))
+            assert(stubsIter.hasNext)
+            body.insert(usage, stubsIter.next())
+            body.remove(usage)
+          }
+          assert(!stubsIter.hasNext)
+        }
 
         // (9) update maxStack, run TFA for debug purposes
         Util.computeMaxLocalsMaxStack(shio)
@@ -1775,7 +1775,28 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         true
       } // end of method rewriteHost()
 
-      private def getStubsIterator(ccu: ClosureClassUtil): Iterator[InsnList] = {
+      /**
+       *  All of the usages of a closure in hiO are of the same shape: invocation of `applyMethod`
+       *  whose receiver is LOAD of a closure-param.
+       *
+       *  The invoker of this method, `buildStaticHiO()`, will have an easier time if it just can replace
+       *  those invocations without touching the instructions producing actual arguments for it.
+       *
+       *  To make that possible, this method returns copies (as many as closure usages) of an instruction stub.
+       *  The stub takes as starting point `stubTemplate` (a MethodNode where chains of apply-invocations
+       *  have been collapsed into a self-contained method).
+       *
+       *  The stub is obtained by:
+       *    (1) prefixing STORE instructions (whose locals are added here too) to consume the actual arguments
+       *        the closure-usage used to consume.
+       *    (2) reformulating GETFIELDs on closure-state, to use instead the spliced-in params in staticHiO
+       *        (these params receive the values that used to go to the closure's constructor)
+       *    (3) properly shifting locals so that the resulting stub makes sense.
+       */
+      private def getStubsIterator(ccu: ClosureClassUtil, shio: MethodNode): Iterator[InsnList] = {
+        assert(ccu.stubTemplate != null)
+
+
         null // TODO
       }
 
