@@ -1358,7 +1358,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             localVarIdx = constructorBT.convertFormalParamPosToLocalVarIdx(paramPos, isInstanceMethod = true);
             fieldName   = findClosureStateField(localVarIdx);
             if fieldName != null
-          ) yield (fieldName -> paramPos)
+          ) yield (fieldName -> (localVarIdx - 1))
 
         result.toMap
       }
@@ -1502,11 +1502,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         val quickOptimizer = new BCodeCleanser(closureClass)
         quickOptimizer.basicIntraMethodOpt(closureClassName, result)
+        Util.computeMaxLocalsMaxStack(result)
 
         if(escapingThis(closureClassName, result).nonEmpty) {
           // in spite of our best efforts, the closure's THIS is used for something that can't be reduced later.
           return null
         }
+        assert(result.desc == closureUsages.applyMethod.desc)
 
         result
       } // end of method helperStubTemplate()
@@ -1578,14 +1580,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /**
-       *  Not applicable to closure-receiving params themselves (they simply go away), but to all others.
+       *  Given a locaVarIdx valid in hiO, returns the localVarIdx (for the same value) in staticHiO.
+       *
+       *  Actually, this method isn't applicable to closure-receiving params themselves (they simply go away),
+       *  but for uniformity behaves as identity function in that case.
        */
       def shiftedLocalIdx(original: Int): Int = {
         val accOpt = closureParamSlack.find(_._1 >= original)
         if(accOpt.isEmpty) original
         else {
           val Pair(paramIdx, acc) = accOpt.get
-          assert(paramIdx != original)
           original + acc
         }
       }
@@ -1794,8 +1798,59 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *    (3) properly shifting locals so that the resulting stub makes sense.
        */
       private def getStubsIterator(ccu: ClosureClassUtil, shio: MethodNode): Iterator[InsnList] = {
-        assert(ccu.stubTemplate != null)
+        val cm: Util.ClonedMethod = Util.clonedMethodNode(ccu.stubTemplate)
+        val stub: InsnList = cm.mnode.instructions
 
+        val oldMaxLocals = ccu.stubTemplate.maxLocals
+        val stores = new InsnList
+        var accArgSizes = 0
+        for(argT <- BType.getMethodType(ccu.stubTemplate.desc).getArgumentTypes) {
+          val opcode = argT.getOpcode(Opcodes.ISTORE)
+          stores.insert(new VarInsnNode(opcode, oldMaxLocals + accArgSizes))
+          accArgSizes += argT.getSize
+        }
+        ccu.stubTemplate.maxLocals += accArgSizes
+
+        val insnIter = stub.iterator()
+        while(insnIter.hasNext) {
+          val insn = insnIter.next()
+
+          if(insn.getOpcode == Opcodes.ALOAD) {
+            val load = insn.asInstanceOf[VarInsnNode]
+            if(load.`var` == 0) {
+              /*
+               * case A: remove all `LOAD 0` instructions. THIS was to be consumed by a GETFIELD we'll also rewrite.
+               */
+              insnIter.remove()
+            } else if(load.`var` < accArgSizes) {
+              /*
+               * case B: rewrite LOADs for params of applyMethod.
+               *         Past-maxLocals vars are fabricated (they are also used in the STOREs at the very beginning of the stub).
+               *         Each `LOAD i` with 1 <= i < accArgSizes is shifted
+               */
+              load.`var` = (load.`var` - 1 + oldMaxLocals)
+            } else {
+              abort("bad rewriting")
+            }
+          }
+
+          if(insn.getOpcode == Opcodes.GETFIELD) {
+            /*
+             * Given a GETFIELD in applyMethod, its localVarIdx in staticHiO is given by:
+             *   shifted-localvaridx-of-closure-param + localvaridx-of-corresponding-constructor-param
+             */
+            val fa   = insn.asInstanceOf[FieldInsnNode]
+            val base = shiftedLocalIdx(ccu.closureUsages.localVarIdxHiO)
+            val dx   = ccu.stateField2constrParam(fa.name)
+            val ft   = descrToBType(ccu.field(fa.name).desc)
+            val opc  = ft.getOpcode(Opcodes.ILOAD)
+            val load = new VarInsnNode(opc, base + dx)
+            stub.set(insn, load)
+          }
+
+        }
+
+        val txt = Util.textify(cm.mnode) // TODO look for xRETURN
 
         null // TODO
       }
