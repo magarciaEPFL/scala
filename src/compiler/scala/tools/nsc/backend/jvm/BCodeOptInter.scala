@@ -1250,10 +1250,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       if(staticHiO == null) { return false }
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
       if(wasInlined) {
-        // TODO hostOwner.methods.add(staticHiO)
+        hostOwner.methods.add(staticHiO)
       }
 
-      false
+      true
     }
 
     /**
@@ -1806,10 +1806,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           return false
         }
 
-        // TODO remove the instructions above
+            def removeAll(ai: Array[_ <: AbstractInsnNode]) {
+              ai foreach {i => host.instructions.remove(i) }
+            }
 
-        // val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
-        // TODO host.instructions.set(callsite, rewiredInvocation)
+        removeAll(newInsns)
+        removeAll(dupInsns)
+        removeAll(initInsns)
+
+        val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
+        host.instructions.set(callsite, rewiredInvocation)
 
         true
       } // end of method rewriteHost()
