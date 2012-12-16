@@ -1246,7 +1246,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       val shio = StaticHiOUtil(hiO, closureClassUtils)
-      val staticHiO: MethodNode = shio.buildStaticHiO(hiOOwner, callsite)
+      val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite)
       if(staticHiO == null) { return false }
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
       if(wasInlined) {
@@ -1508,6 +1508,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           // in spite of our best efforts, the closure's THIS is used for something that can't be reduced later.
           return null
         }
+
+            def hasMultipleRETURNs: Boolean = {
+              var returnSeen = false
+              val iter = result.instructions.iterator
+              while(iter.hasNext) {
+                if(Util.isRETURN(iter.next())) {
+                  if (returnSeen) { return true; }
+                  returnSeen = true
+                }
+              }
+
+              false
+            }
+
+        if(hasMultipleRETURNs) {
+          return null
+        }
+
         assert(result.desc == closureUsages.applyMethod.desc)
 
         result
@@ -1561,7 +1579,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *  (accounting for the fact the closure-param will be elided along with the closure-instance).
        *
        *  In the map, an entry has the form:
-       *    (original-local-var-idx -> accumulated-sizes-inluding-constructorParams-for-this-closure)
+       *    (original-local-var-idx-in-HiO -> accumulated-sizes-inluding-constructorParams-for-this-closure)
        */
       val closureParamSlack: Array[Tuple2[Int, Int]] = {
         var acc = 0
@@ -1583,21 +1601,31 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *  Given a locaVarIdx valid in hiO, returns the localVarIdx (for the same value) in staticHiO.
        *
        *  Actually, this method isn't applicable to closure-receiving params themselves (they simply go away),
-       *  but for uniformity behaves as identity function in that case.
+       *  but for uniformity gives the local-var-idx in staticHiO of the param holding the first constructor-param.
        */
       def shiftedLocalIdx(original: Int): Int = {
-        val accOpt = closureParamSlack.find(_._1 >= original)
-        if(accOpt.isEmpty) original
-        else {
-          val Pair(paramIdx, acc) = accOpt.get
-          original + acc
+        assert(original >= 0)
+        var i = (closureParamSlack.length - 1)
+        while (i >= 0) {
+          val Pair(localVarIdx, acc) = closureParamSlack(i)
+          if(localVarIdx < original) {
+            val result = original + acc
+            assert(result >= 0)
+
+            return result
+          }
+          i -= 1
         }
+
+        original
       }
 
       /**
-       *  @return staticHiO if preconditions met, null otherwise
+       *  @return staticHiO if preconditions are satisfied, null otherwise
        */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
+
+        val txtHiOBefore = Util.textify(hiO)
 
         // (1) method name
         val name = {
@@ -1692,11 +1720,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         shio.instructions   = body
         shio.tryCatchBlocks = tcns
         shio.localVariables = lvns
+        shio.maxStack  = hiO.maxStack // will be updated in due time (not before stubs have been pasted)
+        shio.maxLocals = maxLocals
 
         // (8) rewrite usages (closure-apply invocations)
         //     For each usage obtain the stub (it's the same stub for all usages of the same closure), clone and paste.
         for(ccu <- closureClassUtils) {
           val stubsIter = getStubsIterator(ccu, shio)
+          assert(ccu.closureUsages.usages.nonEmpty)
           for(usage0 <- ccu.closureUsages.usages) {
             val usage = insnMap.get(usage0)
             assert(body.contains(usage))
@@ -1709,6 +1740,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // (9) update maxStack, run TFA for debug purposes
         Util.computeMaxLocalsMaxStack(shio)
+        val quickOptimizer = new BCodeCleanser(hostOwner)
+        quickOptimizer.basicIntraMethodOpt(hostOwner.name, shio)
+        Util.computeMaxLocalsMaxStack(shio)
+        val txtShioAfter = Util.textify(shio)
         val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
         tfaDebug.analyze(hostOwner.name, shio)
 
@@ -1722,8 +1757,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *
        * The first step above amounts to removing NEW, DUP, and < init > instructions for closure instantiations.
        *
-       * @param hostOwner the class declaring the host method
-       * @param host      the method containing a callsite for which inlining has been requested
+       * @param hostOwner class declaring the host method
+       * @param host      method containing a callsite for which inlining has been requested
        * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested
        * @param staticHiO a static method added to hostOwner, specializes hiO by inlining the closures hiO used to be invoked with
        *
@@ -1784,9 +1819,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *  whose receiver is LOAD of a closure-param.
        *
        *  The invoker of this method, `buildStaticHiO()`, will have an easier time if it just can replace
-       *  those invocations without touching the instructions producing actual arguments for it.
+       *  those invocations without touching the instructions surrounding them.
        *
-       *  To make that possible, this method returns copies (as many as closure usages) of an instruction stub.
+       *  To make that possible, this method returns copies (as many as closure usages) of a stub of instructions.
        *  The stub takes as starting point `stubTemplate` (a MethodNode where chains of apply-invocations
        *  have been collapsed into a self-contained method).
        *
@@ -1794,14 +1829,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *    (1) prefixing STORE instructions (whose locals are added here too) to consume the actual arguments
        *        the closure-usage used to consume.
        *    (2) reformulating GETFIELDs on closure-state, to use instead the spliced-in params in staticHiO
-       *        (these params receive the values that used to go to the closure's constructor)
+       *        (these params receive values that used to go to the closure's constructor)
        *    (3) properly shifting locals so that the resulting stub makes sense.
        */
       private def getStubsIterator(ccu: ClosureClassUtil, shio: MethodNode): Iterator[InsnList] = {
         val cm: Util.ClonedMethod = Util.clonedMethodNode(ccu.stubTemplate)
-        val stub: InsnList = cm.mnode.instructions
+        val stub = new InsnList
 
-        val oldMaxLocals = ccu.stubTemplate.maxLocals
+        val txtBefore = Util.textify(cm.mnode) // debug
+
+        val oldMaxLocals = shio.maxLocals
         val stores = new InsnList
         var accArgSizes = 0
         for(argT <- BType.getMethodType(ccu.stubTemplate.desc).getArgumentTypes) {
@@ -1809,50 +1846,61 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           stores.insert(new VarInsnNode(opcode, oldMaxLocals + accArgSizes))
           accArgSizes += argT.getSize
         }
-        ccu.stubTemplate.maxLocals += accArgSizes
+        shio.maxLocals += ccu.stubTemplate.maxLocals
 
-        val insnIter = stub.iterator()
+        val insnIter = cm.mnode.instructions.iterator()
         while(insnIter.hasNext) {
           val insn = insnIter.next()
 
-          if(insn.getOpcode == Opcodes.ALOAD) {
-            val load = insn.asInstanceOf[VarInsnNode]
-            if(load.`var` == 0) {
+          if(Util.isRETURN(insn)) {
+            // elide
+          } else if(insn.getType == AbstractInsnNode.VAR_INSN) {
+            val vi = insn.asInstanceOf[VarInsnNode]
+            if(vi.`var` == 0) {
+              assert(vi.getOpcode == Opcodes.ALOAD)
               /*
                * case A: remove all `LOAD 0` instructions. THIS was to be consumed by a GETFIELD we'll also rewrite.
                */
-              insnIter.remove()
-            } else if(load.`var` < accArgSizes) {
+            } else {
               /*
                * case B: rewrite LOADs for params of applyMethod.
                *         Past-maxLocals vars are fabricated (they are also used in the STOREs at the very beginning of the stub).
-               *         Each `LOAD i` with 1 <= i < accArgSizes is shifted
+               *         Each `LOAD i` with 1 <= i is shifted
                */
-              load.`var` = (load.`var` - 1 + oldMaxLocals)
-            } else {
-              abort("bad rewriting")
+              val updatedIdx = vi.`var` - 1 + oldMaxLocals
+              assert(updatedIdx >= 0)
+              vi.`var` = (updatedIdx)
+              stub.add(insn)
             }
-          }
-
-          if(insn.getOpcode == Opcodes.GETFIELD) {
+          } else if(insn.getOpcode == Opcodes.GETFIELD) {
             /*
-             * Given a GETFIELD in applyMethod, its localVarIdx in staticHiO is given by:
-             *   shifted-localvaridx-of-closure-param + localvaridx-of-corresponding-constructor-param
+             * case C: Given a GETFIELD in applyMethod, its localVarIdx in staticHiO is given by:
+             *         shifted-localvaridx-of-closure-param + localvaridx-of-corresponding-constructor-param
              */
             val fa   = insn.asInstanceOf[FieldInsnNode]
             val base = shiftedLocalIdx(ccu.closureUsages.localVarIdxHiO)
             val dx   = ccu.stateField2constrParam(fa.name)
             val ft   = descrToBType(ccu.field(fa.name).desc)
             val opc  = ft.getOpcode(Opcodes.ILOAD)
+            assert(base + dx >= 0)
             val load = new VarInsnNode(opc, base + dx)
-            stub.set(insn, load)
+            stub.add(load)
+          } else {
+            stub.add(insn)
           }
 
         }
 
-        val txt = Util.textify(cm.mnode) // TODO look for xRETURN
+        stub.insert(stores)
+        cm.mnode.instructions = stub
+        val txtAfter = Util.textify(cm.mnode) // debug
 
-        null // TODO
+        var stubCopies: List[InsnList] = cm.mnode.instructions :: Nil
+        for(i <- 2 to ccu.closureUsages.usages.size) {
+          stubCopies ::= Util.clonedMethodNode(cm.mnode).mnode.instructions
+        }
+
+        stubCopies.iterator
       }
 
     } // end of class StaticHiOUtil

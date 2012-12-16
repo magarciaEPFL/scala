@@ -44,6 +44,11 @@ public class Util {
         return (opc >= Opcodes.ILOAD  && opc <= Opcodes.ALOAD);
     }
 
+    public static boolean isRETURN(final AbstractInsnNode insn) {
+        final int opc = insn.getOpcode();
+        return (opc >= Opcodes.IRETURN && opc <= Opcodes.RETURN);
+    }
+
     public static boolean isPrimitiveConstant(final AbstractInsnNode insn) {
         final int opc = insn.getOpcode();
         boolean result = (opc >= Opcodes.ACONST_NULL && opc <= Opcodes.SIPUSH);

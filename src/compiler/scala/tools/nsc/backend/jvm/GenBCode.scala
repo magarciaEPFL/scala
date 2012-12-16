@@ -286,7 +286,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         // -------------- "plain" class --------------
         if(isIntraMethodOptimizOn) {
-          new BCodeCleanser(plain.cnode)
+          (new BCodeCleanser(plain.cnode)).cleanseClass()
         }
         val cw = new CClassWriter(extraProc)
         plain.cnode.accept(cw)

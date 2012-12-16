@@ -127,8 +127,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
     val unusedPrivateElider = new asm.optimiz.UnusedPrivateElider()
 
-    cleanseClass();
-
     /**
      *  The (intra-method) optimizations below are performed until a fixpoint is reached.
      *  They are grouped somewhat arbitrarily into:
