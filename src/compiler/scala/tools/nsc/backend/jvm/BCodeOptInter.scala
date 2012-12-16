@@ -1816,6 +1816,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
         host.instructions.set(callsite, rewiredInvocation)
+        Util.computeMaxLocalsMaxStack(host)
 
         true
       } // end of method rewriteHost()
