@@ -530,9 +530,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           frame,
           proc.callee
         )
-        if(success) {
-          logSuccessfulInlining(hostOwner, leaf.host, proc.callsite, isHiO = false, isReceiverKnownNonNull(frame, proc.callsite))
-        }
+
+        logInlining(success, hostOwner, leaf.host, proc.callsite, isHiO = false, isReceiverKnownNonNull(frame, proc.callsite))
 
       }
       leaf.procs = Nil
@@ -553,10 +552,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           hiO.owner
         )
 
-        if(success) {
-          val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
-          logSuccessfulInlining(leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true, hasNonNullReceiver)
-        }
+        val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
+        logInlining(success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true, hasNonNullReceiver)
 
       }
       leaf.hiOs = Nil
@@ -772,18 +769,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method inlineMethod()
 
-    def logSuccessfulInlining(hostOwner: String,
-                              host:      MethodNode,
-                              callsite:  MethodInsnNode,
-                              isHiO:     Boolean,
-                              isReceiverKnownNonNull: Boolean) {
+    def logInlining(success:   Boolean,
+                    hostOwner: String,
+                    host:      MethodNode,
+                    callsite:  MethodInsnNode,
+                    isHiO:     Boolean,
+                    isReceiverKnownNonNull: Boolean) {
       val remark =
         if(isReceiverKnownNonNull) ""
         else " (albeit null receiver couldn't be ruled out)"
 
       val kind = if(isHiO) "closure-inlining" else "method-inlining"
 
-      log("Successful " + kind + remark +
+      val leading = (
+        if(success) "Successful " + kind + remark
+        else        "Failed "     + kind )
+      log(leading +
           ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
           " , occurring in method " + hostOwner + "::" + host.name + "." + host.desc)
     }
