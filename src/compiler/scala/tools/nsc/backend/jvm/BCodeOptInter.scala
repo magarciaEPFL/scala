@@ -70,20 +70,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def isEmpty    = (hiOs.isEmpty && procs.isEmpty)
     def candidates = (hiOs ::: procs).sorted(inlineTargetOrdering)
 
-    /** can-multi-thread, provided each callsite.owner has been entered as TypeName in Names */
+    /**
+     * Initially the invocation instructions (one for each InlineTarget)
+     * haven't been resolved to the MethodNodes they target.
+     * This method takes care of that, setting `InlineTarget.callee` and `InlineTarget.owner` as a side-effect.
+     *
+     * can-multi-thread, provided each callsite.owner has been entered as TypeName in Names.
+     * */
     def populate() {
       if(!Util.isReadyForAnalyzer(host)) {
         Util.computeMaxLocalsMaxStack(host)
       }
       for(c <- candidates) {
-        val callsite = c.callsite
-        val ownerBT = lookupRefBType(callsite.owner)
-        // `null` usually indicates classfile wasn't found and thus couldn't be parsed. TODO warning?
-        val mnAndOwner = codeRepo.getMethodOrNull(ownerBT, callsite.name, callsite.desc)
-        c.setMethodAndOwner(mnAndOwner)
-        if(c.callee != null && !Util.isReadyForAnalyzer(c.callee)) {
-          Util.computeMaxLocalsMaxStack(c.callee)
-        }
+        c.populate()
       }
       hiOs  = hiOs  filter { it => it.callee != null }
       procs = procs filter { it => it.callee != null }
@@ -109,16 +108,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     var callee: MethodNode = null
     var owner:  ClassNode  = null
 
-    def setMethodAndOwner(mnAndOwner: MethodNodeAndOwner) {
-      if(mnAndOwner == null) {
-        callee = null
-        owner  = null
-      }
-      else {
+    def populate() {
+      val ownerBT = lookupRefBType(callsite.owner)
+      // `null` usually indicates classfile wasn't found and thus couldn't be parsed. TODO warning?
+      val mnAndOwner = codeRepo.getMethodOrNull(ownerBT, callsite.name, callsite.desc)
+      if(mnAndOwner != null) {
         callee = mnAndOwner.mnode
         owner  = mnAndOwner.owner
+        if(!Util.isReadyForAnalyzer(callee)) {
+          Util.computeMaxLocalsMaxStack(callee)
+        }
       }
     }
+
   }
 
   object inlineTargetOrdering extends scala.math.Ordering[InlineTarget] {
@@ -127,16 +129,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
   }
 
+  /**
+   *  Single-access point for requests to parse bytecode for inlining purposes.
+   *  Given the BType of a class with internal name,
+   *  `codeRepo` allows obtaining its bytecode-level representation (ClassNode).
+   *  It's possible to find out whether a ClassNode was compiled in this run, or parsed from an external library.
+   * */
   object codeRepo {
 
     val parsed  = new java.util.concurrent.ConcurrentHashMap[BType, asm.tree.ClassNode]
     val classes = new java.util.concurrent.ConcurrentHashMap[BType, asm.tree.ClassNode]
 
-    def containsKey(bt: BType): Boolean = {
-      val res = (classes.containsKey(bt) || parsed.containsKey(bt))
-
-      res
-    }
+    def containsKey(bt: BType): Boolean = { (classes.containsKey(bt) || parsed.containsKey(bt)) }
 
     def getFieldOrNull(bt: BType, name: String, desc: String): FieldNode = {
       try { getField(bt, name, desc) }
@@ -202,9 +206,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /** must-single-thread */
-    def getClassNode(owner: String): asm.tree.ClassNode = {
-      getClassNode(brefType(owner))
-    }
+    def getClassNode(owner: String): asm.tree.ClassNode = { getClassNode(brefType(owner)) }
 
     /**
      *  Returns the ASM ClassNode for a class that's being compiled or that's going to be parsed from external bytecode.
@@ -497,7 +499,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method inlining()
 
     /**
-     *
+     *  After a DAG has been computed to avoid inlining cycles,
+     *  this method is invoked to perform inlinings in a single method (given by `CallGraphNode.host`).
      */
     private def inlineCallees(leaf: CallGraphNode) {
 
@@ -917,7 +920,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       true
     } // end of method allAccessesLegal()
 
-
     /**
      * See also method `allAccessesLegal()`
      *
@@ -1255,7 +1257,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       true
-    }
+    } // end of method inlineClosures
 
     /**
      *  For a given pair (hiO method, closure-argument) an instance of ClosureUsages
@@ -1455,8 +1457,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
             def getInnermostForwardee(current: MethodNode, visited0: Set[MethodNode]): MethodNode = {
               if(!current.tryCatchBlocks.isEmpty) {
-                // the instructions of the resulting MethodNode will serve as template to replace closure-usages
-                // and we can't rule out the possibility of an exception-handlers-table making such replacement non-well-formed.
+                // The instructions of the resulting MethodNode will serve as template to replace closure-usages.
+                // TODO warn We can't rule out the possibility of an exception-handlers-table making such replacement non-well-formed.
                 return null
               }
               val escaping = escapingThis(closureClassName, current)
@@ -1469,7 +1471,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                     val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
                     val visited   = visited0 + current
                     if(visited.exists(v => v eq forwardee)) {
-                      return null // recursive invocation chain was detected, involving one or more closure-methods
+                      return null // TODO warn recursive invocation chain was detected, involving one or more closure-methods
                     }
                     val rewritten = getInnermostForwardee(forwardee, visited)
                     if(rewritten != null) {
@@ -1493,7 +1495,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                   case _ => ()
                 }
               }
-              null
+              null // TODO warn The closure's THIS value escapes `current` method.
             }
 
         val result = getInnermostForwardee(closureUsages.applyMethod, Set.empty)
@@ -1506,7 +1508,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         Util.computeMaxLocalsMaxStack(result)
 
         if(escapingThis(closureClassName, result).nonEmpty) {
-          // in spite of our best efforts, the closure's THIS is used for something that can't be reduced later.
+          // TODO warn in spite of our best efforts, the closure's THIS is used for something that can't be reduced later.
           return null
         }
 
@@ -1524,7 +1526,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
 
         if(hasMultipleRETURNs) {
-          return null
+          return null // TODO warn
         }
 
         assert(result.desc == closureUsages.applyMethod.desc)
@@ -1909,7 +1911,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
         stubCopies.iterator
-      }
+      } // end of method getStubsIterator()
 
     } // end of class StaticHiOUtil
 
