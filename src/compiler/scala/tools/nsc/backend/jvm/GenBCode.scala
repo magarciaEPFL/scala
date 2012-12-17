@@ -223,7 +223,7 @@ abstract class GenBCode extends BCodeOptInter {
         pcb.genPlainClass(cd)
         val plainC: SubItem2Plain = {
           val label = "" + cd.symbol.name
-          val outF = getOutFile(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
+          val outF = getOutFolder(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
           assert(pcb.thisName == pcb.cnode.name)
           SubItem2Plain(label, pcb.cnode, outF)
         }
@@ -404,8 +404,9 @@ abstract class GenBCode extends BCodeOptInter {
 
           def sendToDisk(cfr: SubItem3) {
             if(cfr != null){
-              val SubItem3(label, jclassName, jclassBytes, outF) = cfr
-              bytecodeWriter.writeClass(label, jclassName, jclassBytes, outF)
+              val SubItem3(label, jclassName, jclassBytes, outFolder) = cfr
+              val outFile = getFileForClassfile(outFolder, jclassName, ".class")
+              bytecodeWriter.writeClass(label, jclassName, jclassBytes, outFile)
             }
           }
 

@@ -317,36 +317,28 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   /**
    * must-single-thread
    **/
-  private def outputDirectory(sym: Symbol): AbstractFile = {
-    settings.outputDirs outputDirFor enteringFlatten(sym.sourceFile)
-  }
-
-  /**
-   * must-single-thread
-   **/
-  private def getFile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
-    var dir = base
-    val pathParts = clsName.split("[./]").toList
-    for (part <- pathParts.init) {
-      dir = dir.subdirectoryNamed(part)
+  def getFileForClassfile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
+    try {
+      var dir = base
+      val pathParts = clsName.split("[./]").toList
+      for (part <- pathParts.init) {
+        dir = dir.subdirectoryNamed(part)
+      }
+      dir.fileNamed(pathParts.last + suffix)
+    } catch {
+      case ex: Throwable =>
+        error("Couldn't create file for class " + clsName + "\n" + ex.getMessage)
+        null
     }
-    dir.fileNamed(pathParts.last + suffix)
   }
 
   /**
    * must-single-thread
    **/
-  def getFile(sym: Symbol, clsName: String, suffix: String): AbstractFile = {
-    getFile(outputDirectory(sym), clsName, suffix)
-  }
-
-  /**
-   * must-single-thread
-   **/
-  def getOutFile(needsOutfileForSymbol: Boolean, csym: Symbol, cName: String, cunit: CompilationUnit): _root_.scala.tools.nsc.io.AbstractFile = {
+  def getOutFolder(needsOutfileForSymbol: Boolean, csym: Symbol, cName: String, cunit: CompilationUnit): _root_.scala.tools.nsc.io.AbstractFile = {
     if(needsOutfileForSymbol) {
       try {
-        getFile(csym, cName, ".class")
+        settings.outputDirs outputDirFor enteringFlatten(csym.sourceFile)
       } catch {
         case ex: Throwable =>
           cunit.error(cunit.body.pos, "Couldn't create file for class " + cName + "\n" + ex.getMessage)
@@ -3613,7 +3605,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       mirrorClass.visitEnd()
       // leaving for later on purpose invoking `toByteArray()` on mirrorClass (pipeline-2 will do that).
-      val outF = getOutFile(needsOutfileForSymbol, modsym, mirrorName, cunit)
+      val outF = getOutFolder(needsOutfileForSymbol, modsym, mirrorName, cunit)
       SubItem2NonPlain("" + modsym.name, mirrorName, mirrorClass, outF)
     }
 
@@ -3731,7 +3723,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       beanInfoClass.visitEnd()
       // leaving for later on purpose (to be done by pipeline-2): invoking `visitEnd()` and `toByteArray()` on beanInfoClass.
 
-      val outF = getOutFile(needsOutfileForSymbol, cls, beanInfoName, cunit)
+      val outF = getOutFolder(needsOutfileForSymbol, cls, beanInfoName, cunit)
       SubItem2NonPlain("BeanInfo ", beanInfoName, beanInfoClass, outF)
     }
 
