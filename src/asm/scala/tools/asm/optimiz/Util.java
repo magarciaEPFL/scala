@@ -313,7 +313,11 @@ public class Util {
     // ------------------------------------------------------------------------
 
     public static Map<LabelNode, LabelNode> clonedLabels(final MethodNode mnode) {
-        ListIterator<AbstractInsnNode> iter   = mnode.instructions.iterator();
+        return clonedLabels(mnode.instructions);
+    }
+
+    public static Map<LabelNode, LabelNode> clonedLabels(final InsnList is) {
+        ListIterator<AbstractInsnNode> iter   = is.iterator();
         Map<LabelNode, LabelNode>      result = new HashMap<LabelNode, LabelNode>();
         while(iter.hasNext()) {
             AbstractInsnNode insn = iter.next();

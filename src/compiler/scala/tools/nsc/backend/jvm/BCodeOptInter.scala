@@ -545,7 +545,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       //------------------------------
       leaf.hiOs foreach { hiO =>
 
-        val callsiteTypeFlow: asm.tree.analysis.Frame[TFValue] = tfaFrameAt(hiO.callsite)
+        val callsiteTypeFlow = tfaFrameAt(hiO.callsite)
 
         val success = inlineClosures(
           leaf.hostOwner,
@@ -1081,8 +1081,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val closureTypedHiOArgs = survivors1()
       if(closureTypedHiOArgs.isEmpty) {
-        // TODO inlineMethod. Example, `global.log` in `def log(msg: => AnyRef) { global.log(msg) }` will have empty closureTypedArgs
-        return false
+        // Example, `global.log` in `def log(msg: => AnyRef) { global.log(msg) }` will have empty closureTypedArgs
+        //          because it receives a Function0, not a closure-class
+
+        val asMethodInline =
+          inlineMethod(
+            hostOwner.name,
+            host,
+            callsite,
+            callsiteTypeFlow,
+            hiO
+          )
+        val quickOptimizer = new BCodeCleanser(hostOwner)
+        quickOptimizer.basicIntraMethodOpt(hostOwner.name, host)
+        Util.computeMaxLocalsMaxStack(host)
+
+        return asMethodInline
       }
 
           /**
@@ -1848,10 +1862,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *    (3) properly shifting locals so that the resulting stub makes sense.
        */
       private def getStubsIterator(ccu: ClosureClassUtil, shio: MethodNode): Iterator[InsnList] = {
-        val cm: Util.ClonedMethod = Util.clonedMethodNode(ccu.stubTemplate)
+        val labelMap = Util.clonedLabels(ccu.stubTemplate)
         val stub = new InsnList
-
-        val txtBefore = Util.textify(cm.mnode) // debug
 
         val oldMaxLocals = shio.maxLocals
         val stores = new InsnList
@@ -1863,7 +1875,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
         shio.maxLocals += ccu.stubTemplate.maxLocals
 
-        val insnIter = cm.mnode.instructions.iterator()
+        val insnIter = ccu.stubTemplate.instructions.iterator()
         while(insnIter.hasNext) {
           val insn = insnIter.next()
 
@@ -1884,8 +1896,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                */
               val updatedIdx = vi.`var` - 1 + oldMaxLocals
               assert(updatedIdx >= 0)
-              vi.`var` = (updatedIdx)
-              stub.add(insn)
+              val cloned = new VarInsnNode(vi.getOpcode, updatedIdx)
+              stub.add(cloned)
             }
           } else if(insn.getOpcode == Opcodes.GETFIELD) {
             /*
@@ -1901,18 +1913,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val load = new VarInsnNode(opc, base + dx)
             stub.add(load)
           } else {
-            stub.add(insn)
+            stub.add(insn.clone(labelMap))
           }
 
         }
 
         stub.insert(stores)
-        cm.mnode.instructions = stub
-        val txtAfter = Util.textify(cm.mnode) // debug
 
-        var stubCopies: List[InsnList] = cm.mnode.instructions :: Nil
+        var stubCopies: List[InsnList] = stub :: Nil
         for(i <- 2 to ccu.closureUsages.usages.size) {
-          stubCopies ::= Util.clonedMethodNode(cm.mnode).mnode.instructions
+          stubCopies ::=
+            Util.clonedInsns(
+              stub,
+              Util.clonedLabels(stub),
+              new java.util.HashMap[AbstractInsnNode, AbstractInsnNode]
+            )
         }
 
         stubCopies.iterator
