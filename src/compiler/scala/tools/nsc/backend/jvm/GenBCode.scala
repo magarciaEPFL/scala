@@ -405,7 +405,9 @@ abstract class GenBCode extends BCodeOptInter {
           def sendToDisk(cfr: SubItem3) {
             if(cfr != null){
               val SubItem3(label, jclassName, jclassBytes, outFolder) = cfr
-              val outFile = getFileForClassfile(outFolder, jclassName, ".class")
+              val outFile =
+                if(outFolder == null) null
+                else getFileForClassfile(outFolder, jclassName, ".class")
               bytecodeWriter.writeClass(label, jclassName, jclassBytes, outFile)
             }
           }
