@@ -1628,7 +1628,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
 
-        val txtHiOBefore = Util.textify(hiO)
+        // val txtHiOBefore = Util.textify(hiO)
 
         // (1) method name
         val name = {
@@ -1746,9 +1746,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val quickOptimizer = new BCodeCleanser(hostOwner)
         quickOptimizer.basicIntraMethodOpt(hostOwner.name, shio)
         Util.computeMaxLocalsMaxStack(shio)
-        val txtShioAfter = Util.textify(shio)
-        val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
-        tfaDebug.analyze(hostOwner.name, shio)
+        // val txtShioAfter = Util.textify(shio)
+        // val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
+        // tfaDebug.analyze(hostOwner.name, shio)
 
         shio
       } // end of method buildStaticHiO()

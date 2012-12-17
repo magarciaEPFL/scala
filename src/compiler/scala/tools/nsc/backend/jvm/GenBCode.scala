@@ -223,7 +223,8 @@ abstract class GenBCode extends BCodeOptInter {
         val plainC: SubItem2Plain = {
           val label = "" + cd.symbol.name
           val outF = getOutFile(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
-          SubItem2Plain(label, pcb.thisName, pcb.cnode, outF)
+          assert(pcb.thisName == pcb.cnode.name)
+          SubItem2Plain(label, pcb.cnode, outF)
         }
 
         // -------------- bean info class, if needed --------------
@@ -269,7 +270,7 @@ abstract class GenBCode extends BCodeOptInter {
             catch {
               case ex: Throwable =>
                 ex.printStackTrace()
-                error("Error while emitting " + item.plain.jclassName +  "\n"  + ex.getMessage)
+                error("Error while emitting " + item.plain.cnode.name +  "\n"  + ex.getMessage)
             }
           }
         }
@@ -291,7 +292,7 @@ abstract class GenBCode extends BCodeOptInter {
         val cw = new CClassWriter(extraProc)
         plain.cnode.accept(cw)
         val plainC =
-          SubItem3(plain.label, plain.jclassName, cw.toByteArray, plain.outF)
+          SubItem3(plain.label, plain.cnode.name, cw.toByteArray, plain.outF)
 
         // -------------- bean info class, if needed --------------
         val beanC: SubItem3 =
@@ -355,7 +356,7 @@ abstract class GenBCode extends BCodeOptInter {
       w1.run()
 
       val wp = new WholeProgramAnalysis()
-      val start = System.currentTimeMillis
+      // val start = System.currentTimeMillis
       wp.inlining()
       // println("Inlining took " + (System.currentTimeMillis - start) + " ms.")
 

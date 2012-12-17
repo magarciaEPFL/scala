@@ -267,7 +267,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   // when compiling the Scala library, some assertions don't hold (e.g., scala.Boolean has null superClass although it's not an interface)
   val isCompilingStdLib = !(settings.sourcepath.isDefault)
 
-  // an item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains two of these (for mirror and bean classes).
+  /**
+   *  An item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains two of these
+   *  (one for mirror class and another for bean class).
+   *  The third value an item of queue-2 contains is for the plain class, see `SubItem2Plain`.
+   *
+   *  @param label      used in log messages
+   *  @param jclassName internal name of the class
+   *  @param jclass     bytecode emitted for the (mirror or bean) class SubItem2NonPlain represents
+   *  @param outF       file on disk the bytes of cnode will be serialized to
+   * */
   case class SubItem2NonPlain(
     label:      String,
     jclassName: String,
@@ -275,16 +284,35 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     outF:       _root_.scala.tools.nsc.io.AbstractFile
   )
 
-  // an item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains one of these.
+  /**
+   *  An item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains
+   *  a value of this class for the plain-class denoted by that item.
+   *
+   *  @param label used in log messages
+   *  @param cnode bytecode emitted for the plain-class SubItem2Plain represents
+   *  @param outF  file on disk the bytes of cnode will be serialized to
+   * */
   case class SubItem2Plain(
     label:      String,
-    jclassName: String,
     cnode:      asm.tree.ClassNode,
     outF:       _root_.scala.tools.nsc.io.AbstractFile
   )
 
-  // an item of queue-3 (the last queue before serializing to disk) contains three of these (one for each of mirror, plain, and bean classes).
-  case class SubItem3(label: String, jclassName: String, jclassBytes: Array[Byte], outF: _root_.scala.tools.nsc.io.AbstractFile)
+  /**
+   *  An item of queue-3 (the last queue before serializing to disk) contains three of these
+   *  (one for each of mirror, plain, and bean classes).
+   *
+   *  @param label       used in log messages
+   *  @param jclassName  internal name of the class
+   *  @param jclassBytes bytecode emitted for the class SubItem3 represents
+   *  @param outF        file on disk the bytes of cnode will be serialized to
+   * */
+  case class SubItem3(
+    label:       String,
+    jclassName:  String,
+    jclassBytes: Array[Byte],
+    outF:        _root_.scala.tools.nsc.io.AbstractFile
+  )
 
   /**
    * must-single-thread
