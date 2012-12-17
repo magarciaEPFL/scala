@@ -42,6 +42,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
   val knownLacksInline = mutable.Set.empty[Symbol] // cache to avoid multiple inliner.hasInline() calls.
   val knownHasInline   = mutable.Set.empty[Symbol] // as above. Motivated by the need to warn on "inliner failures".
 
+  val elidedClasses = mutable.Set.empty[BType]
+
   def hasInline(sym: Symbol) = {
     if     (knownLacksInline(sym)) false
     else if(knownHasInline(sym))   true
@@ -225,7 +227,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
             if (bt.isArray) {
               bt = bt.getElementType
             }
-            if(bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime)) {
+            if(bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !elidedClasses(bt)) {
               if(exemplars.get(bt).isInnerClass) {
                 refedInnerClasses += bt
               }

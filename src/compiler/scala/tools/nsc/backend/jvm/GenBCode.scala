@@ -151,7 +151,8 @@ abstract class GenBCode extends BCodeOptInter {
 
     // q3
     case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
-      def isPoison = { arrivalPos == Int.MaxValue }
+      def isPoison  = { arrivalPos == Int.MaxValue }
+      def wasElided = { plain == null }
     }
     private val i3comparator = new _root_.java.util.Comparator[Item3] {
       override def compare(a: Item3, b: Item3) = {
@@ -278,6 +279,11 @@ abstract class GenBCode extends BCodeOptInter {
 
       def visit(item: Item2) {
         val Item2(arrivalPos, mirror, plain, bean) = item
+
+        if(elidedClasses.contains(lookupRefBType(plain.cnode.name))) {
+          q3 put Item3(arrivalPos, null, null, null)
+          return
+        }
 
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
@@ -424,9 +430,11 @@ abstract class GenBCode extends BCodeOptInter {
         )
         while(!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
-          sendToDisk(item.mirror)
-          sendToDisk(item.plain); assert(item.plain != null, "One plain class per Item3, that's the rule.")
-          sendToDisk(item.bean)
+          if(!item.wasElided) {
+            sendToDisk(item.mirror)
+            sendToDisk(item.plain)
+            sendToDisk(item.bean)
+          }
           expected += 1
         }
       }

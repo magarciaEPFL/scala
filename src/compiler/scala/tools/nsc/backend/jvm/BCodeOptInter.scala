@@ -40,6 +40,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     super.clearBCodeOpt()
     cgns.clear()
     codeRepo.clear()
+    elidedClasses.clear()
   }
 
   //--------------------------------------------------------
@@ -1813,9 +1814,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               ai foreach {i => host.instructions.remove(i) }
             }
 
+        // This is the point of no return. Starting here, all closure-inlinings in `host` must succeed.
+
         removeAll(newInsns)
         removeAll(dupInsns)
         removeAll(initInsns)
+
+        elidedClasses ++= (closureClassUtils map { ccu => lookupRefBType(ccu.closureClass.name) })
 
         val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
         host.instructions.set(callsite, rewiredInvocation)

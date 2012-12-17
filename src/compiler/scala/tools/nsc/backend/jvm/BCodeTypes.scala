@@ -293,9 +293,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  @param outF  file on disk the bytes of cnode will be serialized to
    * */
   case class SubItem2Plain(
-    label:      String,
-    cnode:      asm.tree.ClassNode,
-    outF:       _root_.scala.tools.nsc.io.AbstractFile
+    label: String,
+    cnode: asm.tree.ClassNode,
+    outF:  _root_.scala.tools.nsc.io.AbstractFile
   )
 
   /**
