@@ -112,7 +112,7 @@ extends scala.collection.AbstractSeq[Int]
       fail()
   }
 
-  def validateRangeBoundaries(f: Int => Any): Boolean = {
+  @inline final def validateRangeBoundaries[@specialized(Unit) U](f: Int => U): Boolean = {
     validateMaxLength()
 
     start != Int.MinValue || end != Int.MinValue || {
