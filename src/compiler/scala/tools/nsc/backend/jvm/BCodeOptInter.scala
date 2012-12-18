@@ -1004,22 +1004,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *                      which becomes the $outer value from the perspective of the closure-class.
      *
      *
-     * Closure lifecycle
-     * -----------------
-     *
-     * In terms of bytecode, two code sections are relevant: instantiation of AC (the "Anonymous Closure") and passing it as argument to Hi-O:
-     *
-     *     NEW AC
-     *     DUP
-     *     // load of closure-state args, the first of which is THIS
-     *     INVOKESPECIAL < init >
-     *
-     * The above in turn prepares the i-th argument as part of this code section:
-     *
-     *     // instructions that load (i-1) args
-     *     // here goes the snippet above (whose instructions load the closure instance we want to elide)
-     *     // more args get loaded
-     *     INVOKE Hi-O
+     * Preconditions
+     * -------------
      *
      * In order to stack-allocate a particular closure passed to Hi-O,
      * the closure in question should not escape from Hi-O (a necessary condition).
@@ -1574,6 +1560,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  Query methods that help derive a "static hiO method" given a "hiO method".
+     *  Most of the rewriting needed to realize closure-inlining is done in this class,
+     *  as described in methods `buildStaticHiO()` and `rewriteHost()`.
+     *
+     *  @param hiO higher-order method for which the closures given by `closureClassUtils`
+     *             (closures that `hiO` receives as arguments) are to be stack-allocated.
+     *  @param closureClassUtils a subset of the closures that `hiO` expects,
+     *                           ie the subset that has survived a plethora of checks about pre-conditions for inlining.
      */
     case class StaticHiOUtil(hiO: MethodNode, closureClassUtils: Array[ClosureClassUtil]) {
 
@@ -1782,7 +1775,31 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *   (1) convey closure-constructor-args instead of an instantiated closure; and
        *   (2) target `staticHiO` rather than `hiO`
        *
-       * The first step above amounts to removing NEW, DUP, and < init > instructions for closure instantiations.
+       * How `host` looks before rewriting
+       * ---------------------------------
+       *
+       * In terms of bytecode, two code sections are relevant:
+       *   - instantiation of AC (the "Anonymous Closure"); and
+       *   - passing it as argument to Hi-O:
+       *
+       *     NEW AC
+       *     DUP
+       *     // load of closure-state args, the first of which is THIS
+       *     INVOKESPECIAL < init >
+       *
+       * The above in turn prepares the i-th argument as part of this code section:
+       *
+       *     // instructions that load (i-1) args
+       *     // here goes the snippet above (whose instructions load the closure instance we want to elide)
+       *     // more args get loaded
+       *     INVOKE Hi-O
+       *
+       * How `host` looks after rewriting
+       * --------------------------------
+       *
+       *   (a) The NEW, DUP, and < init > instructions for closure instantiation have been removed.
+       *   (b) INVOKE Hi-O has been replaced by INVOKE shio,
+       *       which expects on the operand stack not closures but their closure-state instead.
        *
        * @param hostOwner class declaring the host method
        * @param host      method containing a callsite for which inlining has been requested
