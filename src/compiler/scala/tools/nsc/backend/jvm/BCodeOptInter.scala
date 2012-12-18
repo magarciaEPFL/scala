@@ -1641,6 +1641,40 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /**
+       * Quoting from `inlineClosures()`:
+       *
+       *     Closure inlining results in faster code by specializing a higher-order method
+       *     to the particular anonymous closures given as arguments at a particular callsite
+       *     (at the cost of code duplication, namely of the Hi-O method, no other code gets duplicated).
+       *
+       *  The MethodNode built by `buildStaticHiO()` is the "specialized code" referred to above.
+       *  The main difficulty is properly shifting local-var-indexes, so that they keep denoting the same values.
+       *  Shifting is needed because:
+       *    - some formal params have been removed (those for closure-instances), while
+       *    - others (zero or more closure-state values) have taken their place, and also because
+       *    - the code snippets pasted to replace closure-invocations use local-vars of their own.
+       *
+       *  The steps to build staticHiO are:
+       *
+       *    (1) pick unique method name
+       *
+       *    (2) visit hiO formal params,
+       *        discarding those for stack-allocated closures, and
+       *        splicing-in params for closure-state.
+       *        Along the way staticHiO's maxLocals is updated. Its initial value was hiO's maxLocals.
+       *
+       *    (3) now comes putting together the body of staticHiO.
+       *        The starting point is a verbatim copy of hiO's InsnList,
+       *        ie source-line information will be present (if any).
+       *        The exception-handlers table can be copied without changes,
+       *        while the entries about visibility ranges of local-vars need shifting.
+       *
+       *    (4) Those closure-applications still present in the method body can't remain forever.
+       *        The contract with `getStubsIterator()` is:
+       *            for each closure to inline, give me an iterator of code snippets,
+       *            where each code snippet has to be able to cope with the arguments (save for the receiver)
+       *            of a usage of that closure (ie of a closure-application).
+       *
        *  @return staticHiO if preconditions are satisfied, null otherwise
        */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
@@ -1800,6 +1834,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *   (a) The NEW, DUP, and < init > instructions for closure instantiation have been removed.
        *   (b) INVOKE Hi-O has been replaced by INVOKE shio,
        *       which expects on the operand stack not closures but their closure-state instead.
+       *       The closure-state of a closure may consist of zero, one, or more arguments
+       *       (usually an outer instance is part of the closure-state, but empty closure state is also possible).
        *
        * @param hostOwner class declaring the host method
        * @param host      method containing a callsite for which inlining has been requested
