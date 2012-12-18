@@ -408,16 +408,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   } // end of object codeRepo
 
   /**
-   * Whole-program analyses can be performed right after classfiles are in q2.
-   * Before letting the intra-method optimizations loose on those classfiles
-   * we do the inter-procedural optimizations.
+   * Whole-program analyses can be performed right after classfiles are in queue q2.
+   * Before letting the intra-method optimizations loose on those classfiles,
+   * inter-procedural optimizations are performed by invoking `inlining()` on an instance of `WholeProgramAnalysis`.
    */
   class WholeProgramAnalysis {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
     /**
-     *  Performs closure-inlining and method-inlining, by first breaking any cycles over the "inlined-into" relation (see `object dagset`).
+     *  Performs closure-inlining and method-inlining, by first breaking any cycles
+     *  over the "inlined-into" relation (see `object dagset`).
      *  Afterwards, `inlineMethod(...)` takes care of method-inlining, and `inlineClosures(..)` of closure-inlining.
      */
     def inlining() {
@@ -971,7 +972,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * The "Hi-O" method usually applies the closure inside a loop (e.g., map and filter fit this description)
      * that's why a hi-O callsite can be regarded for most practical purposes as a loop-header.
-     * "Regarded as a loop header" because we'd like the JIT to pick that code section for compilation.
+     * "Regarded as a loop header" because we'd like the JIT compiler to pick that code section for compilation.
      * If actually a loop-header, and the instructions for the hi-O method were inlined,
      * then upon OnStackReplacement the whole method containing the hi-O invocation would have to be compiled
      * (which might well not be hot code itself).
@@ -1020,11 +1021,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *     // more args get loaded
      *     INVOKE Hi-O
      *
-     * In order to stack-allocate a particular closure passed to Hi-O, the closure in question shouldn't escape from Hi-O.
+     * In order to stack-allocate a particular closure passed to Hi-O,
+     * the closure in question should not escape from Hi-O (a necessary condition).
      * There's in fact a whole cascade of prerequisites to check,
-     * desribed in detail in the helper methods used for that purpose (see method body).
+     * desribed in detail in helper methods `survivors1()` to `survivors3()`,
+     * with some yet more pre-conditions being check in `ClosureClassUtil.isRepOK()`.
      *
-     * TODO documentation about the bytecode-rewriting.
+     * Rewriting mechanics
+     * -------------------
+     *
+     * Provided all pre-conditions have been satisfied, `StaticHiOUtil.buildStaticHiO()` is tasked with
+     * preparing a MethodNode that will be invoked instead of hi-O. That method is the last one to have veto power.
+     * If successful, it only remains for `StaticHiOUtil.rewriteHost()` to patch `host` to changed the target of
+     * the original callsite invocation, as well as adapt its arguments.
      *
      * @param hostOwner the class declaring the host method
      * @param host      the method containing a callsite for which inlining has been requested
