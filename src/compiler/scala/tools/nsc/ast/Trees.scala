@@ -111,7 +111,7 @@ trait Trees extends scala.reflect.internal.Trees { self: Global =>
         rhs = EmptyTree
       )
     }
-    val lvdefs = evdefs collect { case vdef: ValDef => copyValDef(vdef)(mods = Modifiers(PRESUPER)) }
+    val lvdefs = evdefs collect { case vdef: ValDef => copyValDef(vdef)(mods = vdef.mods | PRESUPER) }
 
     val constrs = {
       if (constrMods hasFlag TRAIT) {
@@ -343,9 +343,7 @@ trait Trees extends scala.reflect.internal.Trees { self: Global =>
                 if (tpt.original != null)
                   transform(tpt.original)
                 else if (tpt.tpe != null && (tpt.wasEmpty || (tpt.tpe exists (tp => locals contains tp.typeSymbol)))) {
-                  val dupl = tpt.duplicate
-                  dupl.tpe = null
-                  dupl
+                  tpt.duplicate.clearType()
                 }
                 else tree
               case TypeApply(fn, args) if args map transform exists (_.isEmpty) =>
@@ -356,8 +354,7 @@ trait Trees extends scala.reflect.internal.Trees { self: Global =>
                 val dupl = tree.duplicate
                 if (tree.hasSymbolField && (!localOnly || (locals contains tree.symbol)) && !(keepLabels && tree.symbol.isLabel))
                   dupl.symbol = NoSymbol
-                dupl.tpe = null
-                dupl
+                dupl.clearType()
             }
           }
       }
