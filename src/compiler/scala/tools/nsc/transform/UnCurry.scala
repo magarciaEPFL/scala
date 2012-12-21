@@ -254,7 +254,10 @@ abstract class UnCurry extends InfoTransform
 
       val applyMethodDef = {
         val methSym = anonClass.newMethod(nme.apply, fun.pos, FINAL)
-        methSym setInfoAndEnter MethodType(methSym newSyntheticValueParams formals, restpe)
+        val paramSyms = map2(formals, fun.vparams) {
+          (tp, param) => methSym.newSyntheticValueParam(tp, param.name)
+        }
+        methSym setInfoAndEnter MethodType(paramSyms, restpe)
 
         fun.vparams foreach  (_.symbol.owner =  methSym)
         fun.body changeOwner (fun.symbol     -> methSym)
@@ -361,7 +364,10 @@ abstract class UnCurry extends InfoTransform
       val hoistedMethodDef: DefDef = {
         val hoistedName  = unit.freshTermName("dlgt")
         val hoistmethSym = closureOwner.newMethod(hoistedName, fun.pos, inConstructorFlag | FINAL)
-        hoistmethSym setInfo MethodType(hoistmethSym newSyntheticValueParams formals, restpe)
+        val paramSyms = map2(formals, fun.vparams) {
+          (tp, param) => hoistmethSym.newSyntheticValueParam(tp, param.name)
+        }
+        hoistmethSym setInfo MethodType(paramSyms, restpe)
 
         fun.vparams foreach  (_.symbol.owner =  hoistmethSym)
         fun.body changeOwner (fun.symbol     -> hoistmethSym)
@@ -380,7 +386,9 @@ abstract class UnCurry extends InfoTransform
 
       val applyMethodDef: DefDef = {
         val appmethSym  = anonClass.newMethod(nme.apply, fun.pos, FINAL)
-        val appvparamsS = appmethSym newSyntheticValueParams formals
+        val appvparamsS = map2(formals, fun.vparams) {
+          (tp, param) => appmethSym.newSyntheticValueParam(tp, param.name)
+        }
         appmethSym setInfoAndEnter MethodType(appvparamsS, restpe)
 
         val appbody     = Apply(hoistedMethodDef.symbol, (appvparamsS map Ident): _*)
