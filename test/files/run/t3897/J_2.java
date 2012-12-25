@@ -14,6 +14,7 @@ public class J_2 {
     for (int i = 0 ; i < methods.length; i++) {
       String name = methods[i].getName();
       if (name.length() >= 7 && name.substring(0, 7).equals("bitmap$")) { }
+      else if(name.contains("dlgt$") || name.contains("shio$")) {} 
       else System.out.println("(" + name + "," + methods[i].getGenericReturnType() + ")");
     }    
   }

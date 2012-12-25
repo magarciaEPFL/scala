@@ -8,6 +8,8 @@ object Test {
   def f2(clazz: Class[_]) = (
     clazz.getDeclaredMethods.toList 
      . filterNot (_.getName contains "bitmap$")
+     . filterNot (_.getName contains "dlgt$")
+     . filterNot (_.getName contains "shio$")
      . map (f => (f.getName, f.getGenericReturnType))
      . foreach (println)
   )
