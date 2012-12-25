@@ -408,9 +408,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   } // end of object codeRepo
 
   /**
-   * Whole-program analyses can be performed right after classfiles are in queue q2.
-   * Before letting the intra-method optimizations loose on those classfiles,
-   * inter-procedural optimizations are performed by invoking `inlining()` on an instance of `WholeProgramAnalysis`.
+   * WholeProgramAnalysis needs ClassNodes to be available for all classes being compiled
+   * (preparing those ClassNodes is the job of GenBCode's Worker1, with queue q2 being filled as a result).
+   * However, `WholeProgramAnalysis.inlining()` does not consume ClassNodes from q2
+   * but from a queue of CallGraphNodes (BCodeOptInter.cgns) that is populated during PlainClassBuilder's genDefDef().
    */
   class WholeProgramAnalysis {
 
@@ -483,8 +484,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       /**
        *  It only remains to visit the elements of `cgns` in an order that ensures
-       *  a CallGraphNode has stabilitzed (ie all inlinings have been performed inside it, with stable calees)
-       *  by the time it's inlined into a host method.
+       *  a CallGraphNode has stabilitzed by the time it's inlined into a host method.
+       *  "A CallGraphNode has stabilized" means all inlinings have been performed inside it,
+       *  where those inlinings were based on callees that were themselves already stabilized.
        */
       val remaining = mutable.Set.empty[CallGraphNode]
       remaining ++= cgns.toList

@@ -352,7 +352,9 @@ abstract class GenBCode extends BCodeOptInter {
     }
 
     /**
-     *  We need to have all classfiles built in-memory for inlining to act on them, before doing anything else.
+     *  The workflow of this method comprises:
+     *    - getting all ClassNodes built (Worker1 takes care of this)
+     *    - let loose the whole-program analysis on them.
      *  Afterwards, as soon as all intra-method work for any given class is over, that class can be written to disk.
      *  In other words, pipeline-2 and pipeline-3 run in parallel (granted, once inter-procedural optimizations are over, which run sequential).
      */
