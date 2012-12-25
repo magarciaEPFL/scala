@@ -137,10 +137,12 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *    - nullness propagation
      *    - constant folding
      *
-     *  After the fixpoint has been reached, two more optimizations are performed just once
+     *  After the fixpoint has been reached, four more optimizations are performed just once
      *  (further applications wouldn't reduce any further):
+     *    - caching repeatable reads of stable values
      *    - eliding box/unbox pairs
-     *    - eliding redundant local vars.
+     *    - eliding redundant local vars
+     *    - refresh the InnerClass JVM attribute
      *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
@@ -161,18 +163,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
         if(isConcrete) {
           val cName = cnode.name
 
-          basicIntraMethodOpt(cName, mnode)
+          basicIntraMethodOpt(cName, mnode)     // intra-method optimizations performed until a fixpoint is reached
 
-          cacheRepeatableReads(cName, mnode)
-
+          cacheRepeatableReads(cName, mnode)    // caching repeatable reads of stable values
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
+          refreshInnerClasses(cnode)            // refresh the InnerClass JVM attribute
 
-          // val before = text(cnode.innerClasses)
-          refreshInnerClasses(cnode)
-          // val after  = text(cnode.innerClasses)
-
-          runTypeFlowAnalysis(cName, mnode) // debug
+          runTypeFlowAnalysis(cName, mnode)     // debug
         }
       }
 
@@ -180,19 +178,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
       if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSubtypeOf(jioSerializableReference)) {
         unusedPrivateElider.transform(cnode)
       }
-    }
-
-    /* TODO for debug only */
-    def text(ics: java.util.List[InnerClassNode]): String = {
-      if(ics == null) { return null }
-      val res = new StringBuilder()
-      val iter = ics.iterator()
-      while(iter.hasNext) {
-        val n: InnerClassNode = iter.next()
-        val line = "(name: " + n.name + " outerName " + n.outerName + " innerName " + n.innerName + " " + n.access + ")"
-        res.append(line + "\n")
-      }
-      res.toString
     }
 
     /**
