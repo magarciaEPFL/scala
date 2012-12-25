@@ -275,6 +275,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     }
 
+    /**
+     *  Intra-method optimizations performed until a fixpoint is reached.
+     */
     def basicIntraMethodOpt(cName: String, mnode: asm.tree.MethodNode) {
       var keepGoing = false
       do {
@@ -441,8 +444,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       import asm.tree.analysis.Frame
 
-      val insnCountOnEntry = mnode.instructions.size() // debug
-
       // ---------------------- Step (1) ----------------------
 
       val sci = new StableChainInterpreter(mnode)
@@ -510,16 +511,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
       ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
       deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
       lvCompacter.transform(mnode)           // compact local vars, remove dangling LocalVariableNodes.
-
-      val insnCountOnExit = mnode.instructions.size() // debug
-
-      /*
-      if(insnCountOnExit > insnCountOnEntry) {
-        println("Added " + (insnCountOnExit - insnCountOnEntry) + " in class " + cName + " , method " + mnode.name + mnode.desc)
-      } else if(insnCountOnExit < insnCountOnEntry) {
-        println("Subtracted " + (insnCountOnEntry - insnCountOnExit) + " in class " + cName + " , method " + mnode.name + mnode.desc)
-      }
-      */
 
     }
 
