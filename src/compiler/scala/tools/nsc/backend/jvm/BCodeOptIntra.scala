@@ -130,19 +130,22 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val unusedPrivateElider = new asm.optimiz.UnusedPrivateElider()
 
     /**
-     *  The (intra-method) optimizations below are performed until a fixpoint is reached.
+     *  The intra-method optimizations below are performed until a fixpoint is reached.
      *  They are grouped somewhat arbitrarily into:
      *    - those performed by `cleanseMethod()`
      *    - those performed by `elimRedundandtCode()`
      *    - nullness propagation
      *    - constant folding
      *
-     *  After the fixpoint has been reached, four more optimizations are performed just once
+     *  After the fixpoint has been reached, three more optimizations are performed just once for each method
      *  (further applications wouldn't reduce any further):
      *    - caching repeatable reads of stable values
      *    - eliding box/unbox pairs
      *    - eliding redundant local vars
-     *    - refresh the InnerClass JVM attribute
+     *
+     *  Afterwards, two intra-class optimizations are performed:
+     *    - those private members of a class for which no usages are found are elided
+     *    - refresh the InnerClasses JVM attribute
      *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
@@ -154,6 +157,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       val mwIter = cw.getMethodWriters().iterator
       val mnIter = cnode.methods.iterator()
+
+      // ---------------- intra-method optimizations ----------------
 
       while(mnIter.hasNext) {
         val mnode = mnIter.next()
@@ -168,26 +173,30 @@ abstract class BCodeOptIntra extends BCodeTypes {
           cacheRepeatableReads(cName, mnode)    // caching repeatable reads of stable values
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
-          refreshInnerClasses(cnode)            // refresh the InnerClass JVM attribute
 
           runTypeFlowAnalysis(cName, mnode)     // debug
         }
       }
 
+      // ---------------- intra-class optimizations ----------------
+
+      refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
+
       val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
       if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSubtypeOf(jioSerializableReference)) {
         unusedPrivateElider.transform(cnode)
       }
-    }
+
+    } // end of method cleanseClass()
 
     /**
      * One of the intra-method optimizations (dead-code elimination)
      * and a few of the inter-procedural ones (inlining)
-     * may have caused the InnerClass JVM attribute to become stale
+     * may have caused the InnerClasses JVM attribute to become stale
      * (e.g. some inner classes that were mentioned aren't anymore,
      * or inlining added instructions referring to inner classes not yet accounted for)
      *
-     * This method takes care of SI-6546 Optimizer leaves references to classes that have been eliminated by inlining
+     * This method takes care of SI-6546 "Optimizer leaves references to classes that have been eliminated by inlining"
      *
      * TODO SI-6759 Seek clarification about necessary and sufficient conditions to be listed in InnerClasses JVM attribute (GenASM).
      * The JVM spec states in Sec. 4.7.6 that
