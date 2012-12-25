@@ -137,14 +137,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *    - nullness propagation
      *    - constant folding
      *
-     *  After the fixpoint has been reached, three more optimizations are performed just once for each method
+     *  After the fixpoint has been reached, three more intra-method optimizations are performed just once
      *  (further applications wouldn't reduce any further):
      *    - caching repeatable reads of stable values
      *    - eliding box/unbox pairs
      *    - eliding redundant local vars
      *
      *  Afterwards, two intra-class optimizations are performed:
-     *    - those private members of a class for which no usages are found are elided
+     *    - those private members of a class which see no use are elided
      *    - refresh the InnerClasses JVM attribute
      *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
@@ -180,12 +180,12 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       // ---------------- intra-class optimizations ----------------
 
-      refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
-
       val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
       if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSubtypeOf(jioSerializableReference)) {
         unusedPrivateElider.transform(cnode)
       }
+
+      refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
     } // end of method cleanseClass()
 
