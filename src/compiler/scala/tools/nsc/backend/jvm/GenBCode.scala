@@ -246,7 +246,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     /**
      *  Pipeline that takes ClassNodes from queue-2 and:
-     *    - performs intra-method optimizations on them,
+     *    - performs intra-method and intra-class optimizations on them,
      *    - lowers them into byte array classfiles,
      *    - placing them on the queue where they wait to be written to disk.
      *

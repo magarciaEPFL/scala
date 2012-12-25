@@ -20,7 +20,10 @@ import collection.convert.Wrappers.JListWrapper
 
 /**
  *  Optimize and tidy-up bytecode before it's serialized for good.
- *  This class focuses on intra-method optimizations and optimization infrastructure.
+ *  This class focuses on
+ *    - intra-method optimizations,
+ *    - intra-class  optimizations, and
+ *    - utilities for the above and for inter-procedural optimizations as well.
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
