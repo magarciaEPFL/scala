@@ -1562,8 +1562,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  Query methods that help derive a "static hiO method" given a "hiO method".
-     *  Most of the rewriting needed to realize closure-inlining is done in this class,
-     *  as described in methods `buildStaticHiO()` and `rewriteHost()`.
+     *  Most of the rewriting needed to realize closure-inlining is done by `buildStaticHiO()` and `rewriteHost()`.
      *
      *  @param hiO higher-order method for which the closures given by `closureClassUtils`
      *             (closures that `hiO` receives as arguments) are to be stack-allocated.
@@ -1622,8 +1621,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       /**
        *  Given a locaVarIdx valid in hiO, returns the localVarIdx (for the same value) in staticHiO.
        *
-       *  Actually, this method isn't applicable to closure-receiving params themselves (they simply go away),
-       *  but for uniformity gives the local-var-idx in staticHiO of the param holding the first constructor-param.
+       *  In principle, this method isn't applicable to closure-receiving params themselves (they simply go away),
+       *  but for uniformity in that case returns
+       *  the local-var-idx in staticHiO of the param holding the first constructor-param.
        */
       def shiftedLocalIdx(original: Int): Int = {
         assert(original >= 0)
@@ -1656,11 +1656,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *    - others (zero or more closure-state values) have taken their place, and also because
        *    - the code snippets pasted to replace closure-invocations use local-vars of their own.
        *
-       *  The steps to build staticHiO are:
+       *  The steps to build `staticHiO` are:
        *
        *    (1) pick unique method name
        *
-       *    (2) visit hiO formal params,
+       *    (2) visit `hiO` formal params,
        *        discarding those for stack-allocated closures, and
        *        splicing-in params for closure-state.
        *        Along the way staticHiO's maxLocals is updated. Its initial value was hiO's maxLocals.
@@ -1677,7 +1677,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *            where each code snippet has to be able to cope with the arguments (save for the receiver)
        *            of a usage of that closure (ie of a closure-application).
        *
-       *  @return staticHiO if preconditions are satisfied, null otherwise
+       *  @return `staticHiO` if preconditions are satisfied, null otherwise
        */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
 
