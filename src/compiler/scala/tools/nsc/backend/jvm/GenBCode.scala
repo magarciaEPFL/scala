@@ -653,7 +653,7 @@ abstract class GenBCode extends BCodeOptInter {
        *    (b) as code reached upon early-return from an enclosed return statement.
        *        The only difference between (a) and (b) is their next program-point:
        *          the former must continue with fall-through while
-       *          the latter must continue to the next early-return cleanup (if any, otherwise return from the method)..
+       *          the latter must continue to the next early-return cleanup (if any, otherwise return from the method).
        *        Otherwise they are identical.
        *    (c) as exception-handler, reached via exceptional control flow,
        *        which rethrows the caught exception once it's done with the cleanup code.

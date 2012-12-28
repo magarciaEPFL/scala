@@ -71,6 +71,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def isEmpty    = (hiOs.isEmpty && procs.isEmpty)
     def candidates = (hiOs ::: procs).sorted(inlineTargetOrdering)
 
+    def directCallees: Set[MethodNode] = {
+      hiOs.map(_.callee).toSet ++ procs.map(_.callee)
+    }
+
     /**
      * Initially the invocation instructions (one for each InlineTarget)
      * haven't been resolved to the MethodNodes they target.
@@ -419,8 +423,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  Performs closure-inlining and method-inlining, by first breaking any cycles
-     *  over the "inlined-into" relation (see `object dagset`).
-     *  Afterwards, `inlineMethod(...)` takes care of method-inlining, and `inlineClosures(..)` of closure-inlining.
+     *  over the "inlined-into" relation (see local method `isReachable()`).
+     *  Afterwards,
+     *    - `WholeProgramAnalysis.inlineMethod()`   takes care of method-inlining, and
+     *    - `WholeProgramAnalysis.inlineClosures()` of closure-inlining.
      */
     def inlining() {
 
@@ -436,50 +442,32 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         assert(cgn.isRepOK)
         mn2cgn += (cgn.host -> cgn)
       }
+
       /**
-       *  Terminology:
-       *    - host:   a method containing callsites for inlining
-       *    - target: the method given by a callsite for inlining
-       *
-       *  `dagset` represents a set of DAGs with edges (target -> host)
-       *  resulting from:
-       *    (1) visiting all (host, targets) pairs collected during `GenBCode` in `BCodeOpt.cgns`,
-       *    (2) adding to `dagset` a (target -> host) link unless doing so would establish a cycle.
-       *
-       *  Failure to add a link in (2) implies that `target` can't be inlined in `host`,
-       *  thus the corresponding `InlineTarget` is removed from the `CallGraphNode` under consideration.
-       *
-       */
-      object dagset extends mutable.HashMap[MethodNode, mutable.Set[MethodNode]] {
+       * @return true iff there's a chain of inline-requests starting at `start` that contains `goal`
+       * */
+      def isReachable(start: MethodNode, goal: MethodNode, visited: Set[MethodNode]): Boolean = {
+        (start eq goal) ||
+        (visited contains goal) || {
 
-        /** true iff a link (target -> host) was added, false otherwise. */
-        def linkUnlessCycle(target: MethodNode, host: MethodNode): Boolean = {
-          val createsCycle = (this.contains(target) && isReachableFrom(target, host))
-          val okToAdd = !createsCycle
-          if(okToAdd) {
-            val hosts = this.getOrElseUpdate(target, mutable.Set.empty)
-            hosts += host
+          val directCallees: Set[MethodNode] = {
+            mn2cgn.get(start) match {
+              case Some(startCGN) => startCGN.directCallees
+              case _              => Set.empty
+            }
+          }
+          (directCallees contains goal) || {
+            val visited2 = (visited ++ directCallees)
+
+            directCallees exists { d => isReachable(d, goal, visited2) }
           }
 
-          okToAdd
         }
-
-        /** whether the first argument is reachable following zero or more links starting at the second argument. */
-        def isReachableFrom(fst: MethodNode, snd: MethodNode): Boolean = {
-          if(fst == snd) {
-            return true
-          }
-          this.get(snd) match {
-            case Some(nodes) => nodes exists { n => isReachableFrom(fst, n) } // there are no cycles, thus this terminates.
-            case None        => false
-          }
-        }
-
-      } // end of object dagset
+      }
 
       for(cgn <- cgns) {
-        cgn.hiOs  = cgn.hiOs  filter { it: InlineTarget => dagset.linkUnlessCycle(it.callee, cgn.host) }
-        cgn.procs = cgn.procs filter { it: InlineTarget => dagset.linkUnlessCycle(it.callee, cgn.host) }
+        cgn.hiOs  = cgn.hiOs  filterNot { it: InlineTarget => isReachable(it.callee, cgn.host, Set.empty) }
+        cgn.procs = cgn.procs filterNot { it: InlineTarget => isReachable(it.callee, cgn.host, Set.empty) }
       }
 
       /**
@@ -503,7 +491,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method inlining()
 
     /**
-     *  After a DAG has been computed to avoid inlining cycles,
+     *  After avoiding attempts at inlining cycles,
      *  this method is invoked to perform inlinings in a single method (given by `CallGraphNode.host`).
      */
     private def inlineCallees(leaf: CallGraphNode) {
@@ -776,7 +764,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method inlineMethod()
 
-    def logInlining(success:   Boolean,
+    private def logInlining(success:   Boolean,
                     hostOwner: String,
                     host:      MethodNode,
                     callsite:  MethodInsnNode,
@@ -830,7 +818,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *              class from which accesses given by `body` will take place.
      *
      */
-    def allAccessesLegal(body: InsnList, here: BType): Boolean = {
+    private def allAccessesLegal(body: InsnList, here: BType): Boolean = {
 
           /**
            * @return whether the first argument is a subtype of the second, or both are the same BType.
@@ -935,7 +923,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *    (cond A1) C is public.
      *    (cond A2) C and D are members of the same runtime package (Sec 5.3).
      */
-    def isAccessible(there: BType, here: BType): Boolean = {
+    private def isAccessible(there: BType, here: BType): Boolean = {
       if(!there.isNonSpecial) true
       else if (there.isArray) isAccessible(there.getElementType, here)
       else {
@@ -944,11 +932,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
-    def allExceptionsAccessible(tcns: java.util.List[TryCatchBlockNode], here: BType): Boolean = {
+    private def allExceptionsAccessible(tcns: java.util.List[TryCatchBlockNode], here: BType): Boolean = {
       JListWrapper(tcns).forall( tcn => (tcn.`type` == null) || isAccessible(lookupRefBType(tcn.`type`), here) )
     }
 
-    def allLocalVarTypesAccessible(lvns: java.util.List[LocalVariableNode], here: BType): Boolean = {
+    private def allLocalVarTypesAccessible(lvns: java.util.List[LocalVariableNode], here: BType): Boolean = {
       JListWrapper(lvns).forall( lvn => {
         val there = descrToBType(lvn.desc)
 
