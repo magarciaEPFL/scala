@@ -243,6 +243,10 @@ public class Util {
         return (m.access & Opcodes.ACC_STATIC) == 0;
     }
 
+    public static boolean isSynchronizedMethod(final MethodNode m) {
+        return (m.access & Opcodes.ACC_SYNCHRONIZED) != 0;
+    }
+
     public static boolean isInstanceField(final FieldNode f) {
         return (f.access & Opcodes.ACC_STATIC) == 0;
     }

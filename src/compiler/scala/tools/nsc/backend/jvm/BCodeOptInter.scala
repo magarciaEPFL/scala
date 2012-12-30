@@ -541,7 +541,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         logInlining(
           success, hostOwner, leaf.host, proc.callsite, isHiO = false,
           isReceiverKnownNonNull(frame, proc.callsite),
-          proc.callee
+          proc.callee, proc.owner
         )
 
       }
@@ -565,7 +565,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         logInlining(
           success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true,
           hasNonNullReceiver,
-          hiO.callee
+          hiO.callee, hiO.owner
         )
 
       }
@@ -789,7 +789,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                             callsite:  MethodInsnNode,
                             isHiO:     Boolean,
                             isReceiverKnownNonNull: Boolean,
-                            hiO:       MethodNode) {
+                            hiO:       MethodNode,
+                            hiOOwner:  ClassNode) {
       val remark =
         if(isReceiverKnownNonNull) ""
         else " (albeit null receiver couldn't be ruled out)"
@@ -805,7 +806,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         " , occurring in method " + hostOwner + "::" + host.name + host.desc
       )
 
-      debuglog("Bytecode of callee:\n" + Util.textify(hiO))
+      debuglog(s"Bytecode of callee, declared by ${hiOOwner.name} \n" + Util.textify(hiO))
 
     } // end of method logInlining()
 
@@ -1212,9 +1213,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                         )
                       }
 
+                  val hiOId = hiOOwner.name + "." + hiO.name + hiO.desc
+
                   // (1) all usages are invocations
                   if(closureArgUsages.exists(insn => insn.getType != AbstractInsnNode.METHOD_INSN)) {
-                    warn("not all of its usages in the callee are invocations of its apply() method.")
+                    warn(s"not all of its usages in $hiOId are invocations of the closure's apply() method.")
                     return null
                   }
 
@@ -1229,7 +1232,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       fst.name      != nxt.name      ||
                       fst.desc      != nxt.desc
                     ) {
-                      warn("one or more methods other than apply() are called on it in the callee.")
+                      warn(s"one or more methods other than apply() are called on it in $hiOId .")
                       return null
                     }
                   }
@@ -1254,12 +1257,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       frame.getActualArguments(nxt).exists(v => isClosureLoad(v.asInstanceOf[SourceValue]))
                     }
 
-                    if(!isDispatchedOnClosure) {
-                      warn("the callee invokes the closure's apply() on a receiver other than the closure.")
+                    if(passesClosureAsArgument) {
+                      warn(s"$hiOId passes the closure as argument, thus letting it escape (to a method not marked @inline).")
                       return null
                     }
-                    if(passesClosureAsArgument) {
-                      warn("the callee passes the closure as argument, thus letting it escape (to a method not marked @inline).")
+                    if(!isDispatchedOnClosure) {
+                      warn(s"$hiOId contains a closure usage other than as receiver of apply().")
                       return null
                     }
                   }
@@ -1861,10 +1864,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
         // (7) put together the pieces above into a MethodNode
+        val shioFlags = {
+          Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC |
+          (hiO.access & Opcodes.ACC_SYNCHRONIZED)
+        }
         val shio: MethodNode =
           new MethodNode(
             Opcodes.ASM4,
-            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC, // TODO what if hiO ACC_SYNCHRONIZED
+            shioFlags,
             name,
             shiOMethodType.getDescriptor,
             null,
