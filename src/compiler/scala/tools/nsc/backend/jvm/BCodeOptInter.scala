@@ -1126,26 +1126,31 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          *   callsite `global.log`
          *   in `def log(msg: => AnyRef) { global.log(msg) }`
          * will have empty closureTypedArgs because it receives a Function0, not a closure-class.
-         * We try to overcome that by method-inlining (not closure-inlining)
-         * the callsite at `host` receiving a FunctionX.
-         * Doing so unblocks closure-inlining of the closure(s) passed to `host` (itself a higher-order method).
+         * We try to overcome that by method-inlining (not closure-inlining) that callsite.
+         * Doing so may unblock closure-inlining of the closure(s) passed to `host` (itself a higher-order method).
          *
          */
         val asMethodInlineOutcome =
           inlineMethod(
-            hostOwner.name,
-            host,
-            callsite,
-            callsiteTypeFlow,
+            hostOwner.name, host,
+            callsite, callsiteTypeFlow,
             hiO, hiOOwner
           )
-        val quickOptimizer = new BCodeCleanser(hostOwner)
-        quickOptimizer.basicIntraMethodOpt(hostOwner.name, host)
-        Util.computeMaxLocalsMaxStack(host)
 
-        asMethodInlineOutcome foreach inlineTarget.warn
+        asMethodInlineOutcome match {
 
-        return asMethodInlineOutcome.isEmpty
+          case Some(diagnostics) =>
+            inlineTarget.warn(diagnostics)
+            return false
+
+          case None =>
+            val quickOptimizer = new BCodeCleanser(hostOwner)
+            quickOptimizer.basicIntraMethodOpt(hostOwner.name, host)
+            Util.computeMaxLocalsMaxStack(host)
+            return true // not really "successful closure-inlining" (see comment above) but the closest we can get.
+
+        }
+
       }
 
           /**
