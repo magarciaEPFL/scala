@@ -1094,9 +1094,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val closureTypedHiOArgs = survivors1()
       if(closureTypedHiOArgs.isEmpty) {
-        // Example, `global.log` in `def log(msg: => AnyRef) { global.log(msg) }` will have empty closureTypedArgs
-        //          because it receives a Function0, not a closure-class
-
+        /*
+         * Example,
+         *   callsite `global.log`
+         *   in `def log(msg: => AnyRef) { global.log(msg) }`
+         * will have empty closureTypedArgs because it receives a Function0, not a closure-class.
+         * We try to overcome that by method-inlining (not closure-inlining)
+         * the callsite at `host` receiving a FunctionX.
+         * Doing so unblocks closure-inlining of the closure(s) passed to `host` (itself a higher-order method).
+         *
+         */
         val asMethodInline =
           inlineMethod(
             hostOwner.name,
@@ -1484,7 +1491,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *         we collapse it with the current method being visited (as expected,
        *         collapsing a drilled-down method means inlining it into a clone of the current method).
        */
-      private def helperStubTemplate(): MethodNode = {
+      private def helperStubTemplate(): Either[String, MethodNode] = {
 
           def escapingThis(mnodeOwner: String, mnode: MethodNode): collection.Set[AbstractInsnNode] = {
 
@@ -1507,61 +1514,82 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val closureClassName  = closureUsages.closureClass.name
         val closureClassBType = lookupRefBType(closureClass.name)
 
-            def getInnermostForwardee(current: MethodNode, visited0: Set[MethodNode]): MethodNode = {
+            /**
+             *  @return Right[MethodNode] fabricated stub for use when building staticHiO
+             *          Left[String]      diagnostics message why a stub can't be fabricated
+             * */
+            def getInnermostForwardee(current: MethodNode, visited0: Set[MethodNode]): Either[String, MethodNode] = {
+
+              val currentId = closureClass.name + "." + current.name + current.desc
+
               if(!current.tryCatchBlocks.isEmpty) {
                 // The instructions of the resulting MethodNode will serve as template to replace closure-usages.
                 // TODO warn We can't rule out the possibility of an exception-handlers-table making such replacement non-well-formed.
-                return null
+                return Left(
+                  s"Method $currentId contains excepion-handlers. Once inlined, " +
+                   " the operand stack may contain more values at that program point than consumed by the closure-usage."
+                )
               }
               val escaping = escapingThis(closureClassName, current)
               if(escaping.isEmpty) {
-                return current
+                return Right(current)
               }
               if(escaping.size == 1) {
                 escaping.iterator.next() match {
+
                   case forwarder: MethodInsnNode if forwarder.owner == closureClassName =>
                     val forwardee = codeRepo.getMethod(closureClassBType, forwarder.name, forwarder.desc).mnode
                     val visited   = visited0 + current
                     if(visited.exists(v => v eq forwardee)) {
                       return null // TODO warn recursive invocation chain was detected, involving one or more closure-methods
                     }
-                    val rewritten = getInnermostForwardee(forwardee, visited)
-                    if(rewritten != null) {
-                      val cm: Util.ClonedMethod = Util.clonedMethodNode(current)
-                      val clonedCurrent = cm.mnode
-                      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
-                      tfa.analyze(closureClassName, current)
-                      val clonedForwarder = cm.insnMap.get(forwarder).asInstanceOf[MethodInsnNode]
-                      val frame   = tfa.frameAt(clonedForwarder).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
-                      val success = inlineMethod(
-                        closureClassName,
-                        clonedCurrent,
-                        clonedForwarder,
-                        frame,
-                        rewritten
-                      )
-                      if(success) {
-                        return clonedCurrent
-                      }
+                    getInnermostForwardee(forwardee, visited) match {
+
+                      case Right(rewritten) =>
+                        val cm: Util.ClonedMethod = Util.clonedMethodNode(current)
+                        val clonedCurrent = cm.mnode
+                        val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+                        tfa.analyze(closureClassName, current)
+                        val clonedForwarder = cm.insnMap.get(forwarder).asInstanceOf[MethodInsnNode]
+                        val frame   = tfa.frameAt(clonedForwarder).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
+                        val success = inlineMethod(
+                          closureClassName,
+                          clonedCurrent,
+                          clonedForwarder,
+                          frame,
+                          rewritten
+                        )
+                        if(success) {
+                          return Right(clonedCurrent)
+                        } // TODO else return Left(...)
+
+                      case diagnostics =>
+                        return diagnostics
                     }
+
                   case _ => ()
                 }
               }
-              null // TODO warn The closure's THIS value escapes `current` method.
-            }
 
-        val result = getInnermostForwardee(closureUsages.applyMethod, Set.empty)
-        if(result == null) {
-          return null
-        }
+              Left(s"The closure's THIS value escapes $currentId method")
+
+            } // end of method getInnermostForwardee()
+
+        val result: MethodNode =
+          getInnermostForwardee(closureUsages.applyMethod, Set.empty) match {
+            case Right(mn)   => mn
+            case diagnostics => return diagnostics
+          }
 
         val quickOptimizer = new BCodeCleanser(closureClass)
         quickOptimizer.basicIntraMethodOpt(closureClassName, result)
         Util.computeMaxLocalsMaxStack(result)
 
         if(escapingThis(closureClassName, result).nonEmpty) {
-          // TODO warn in spite of our best efforts, the closure's THIS is used for something that can't be reduced later.
-          return null
+          return Left(
+             "In spite of our best efforts, the closure's THIS is used for something that can't be reduced later." +
+            s"In other words, it escapes the methods in class $closureClassName ."
+          )
         }
 
             def hasMultipleRETURNs: Boolean = {
@@ -1578,15 +1606,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
 
         if(hasMultipleRETURNs) {
-          return null // TODO warn
+          return Left(s"The stub computed for class $closureClassName has multiple returns.")
         }
 
         assert(result.desc == closureUsages.applyMethod.desc)
 
-        result
+        Right(result)
       } // end of method helperStubTemplate()
 
-      val stubTemplate: MethodNode = helperStubTemplate()
+      private val stubCreatorOutcome = helperStubTemplate()
+      def stubTemplate: MethodNode   = stubCreatorOutcome.right.get
 
       def isRepOK: Boolean = {
         /*
@@ -1595,7 +1624,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          */
         (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
         (stateField2constrParam.size == field.size) &&
-        (stubTemplate != null)
+        (stubCreatorOutcome.isRight)
       }
 
     } // end of class ClosureClassUtil
