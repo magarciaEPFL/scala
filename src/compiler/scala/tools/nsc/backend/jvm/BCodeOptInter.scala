@@ -109,9 +109,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
   }
 
-  final class InlineTarget(val callsite: MethodInsnNode) {
-    var callee: MethodNode = null
-    var owner:  ClassNode  = null
+  /**
+   *  An inlining request, given by a callsite and items for error reporting.
+   *
+   *  @param callsite for which inlining has been requested
+   *  @param cunit    for error reporting
+   *  @param pos      for error reporting
+   *
+   * */
+  final class InlineTarget(val callsite: MethodInsnNode, val cunit: CompilationUnit, val pos: Position) {
+
+    var callee: MethodNode = null // the concrete callee denoted by the callsite
+    var owner:  ClassNode  = null // the class declaring the callee
 
     def populate() {
       val ownerBT = lookupRefBType(callsite.owner)
@@ -125,6 +134,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
     }
+
+    def warn(msg: String) = cunit.inlinerWarning(pos, msg)
 
   }
 
@@ -526,7 +537,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           proc.callee
         )
 
-        logInlining(success, hostOwner, leaf.host, proc.callsite, isHiO = false, isReceiverKnownNonNull(frame, proc.callsite))
+        logInlining(
+          success, hostOwner, leaf.host, proc.callsite, isHiO = false,
+          isReceiverKnownNonNull(frame, proc.callsite),
+          proc.callee
+        )
 
       }
       leaf.procs = Nil
@@ -541,14 +556,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val success = inlineClosures(
           leaf.hostOwner,
           leaf.host,
-          hiO.callsite,
           callsiteTypeFlow,
-          hiO.callee,
-          hiO.owner
+          hiO
         )
 
         val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
-        logInlining(success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true, hasNonNullReceiver)
+        logInlining(
+          success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true,
+          hasNonNullReceiver,
+          hiO.callee
+        )
 
       }
       leaf.hiOs = Nil
@@ -765,11 +782,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method inlineMethod()
 
     private def logInlining(success:   Boolean,
-                    hostOwner: String,
-                    host:      MethodNode,
-                    callsite:  MethodInsnNode,
-                    isHiO:     Boolean,
-                    isReceiverKnownNonNull: Boolean) {
+                            hostOwner: String,
+                            host:      MethodNode,
+                            callsite:  MethodInsnNode,
+                            isHiO:     Boolean,
+                            isReceiverKnownNonNull: Boolean,
+                            hiO:       MethodNode) {
       val remark =
         if(isReceiverKnownNonNull) ""
         else " (albeit null receiver couldn't be ruled out)"
@@ -779,10 +797,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val leading = (
         if(success) "Successful " + kind + remark
         else        "Failed "     + kind )
-      log(leading +
-          ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
-          " , occurring in method " + hostOwner + "::" + host.name + "." + host.desc)
-    }
+
+      log(
+        leading + ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
+        " , occurring in method " + hostOwner + "::" + host.name + "." + host.desc
+      )
+
+      debuglog("Bytecode of callee:\n" + Util.textify(hiO))
+
+    } // end of method logInlining()
 
     /**
      * The second situation (a.2) under which method-inlining is unfeasible:
@@ -1013,20 +1036,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * @param hostOwner the class declaring the host method
      * @param host      the method containing a callsite for which inlining has been requested
-     * @param callsite  invocation of a higher-order method (taking one or more closures) whose inlining is requested.
      * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
-     * @param hiO       the actual implementation of the higher-order method that will be dispatched at runtime
-     * @param hiOOwner  the Classnode where callee was declared.
+     * @param inlineTarget inlining request (includes: callsite, callee, callee's owner, and error reporting)
      *
      * @return true iff inlining was actually performed.
      *
      */
-    private def inlineClosures(hostOwner: ClassNode,
-                               host:      MethodNode,
-                               callsite:  MethodInsnNode,
+    private def inlineClosures(hostOwner:        ClassNode,
+                               host:             MethodNode,
                                callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
-                               hiO:       MethodNode,
-                               hiOOwner:  ClassNode): Boolean = {
+                               inlineTarget:     InlineTarget): Boolean = {
+
+      // invocation of a higher-order method (taking one or more closures) whose inlining is requested.
+      val callsite: MethodInsnNode = inlineTarget.callsite
+      // the actual implementation of the higher-order method that will be dispatched at runtime
+      val hiO:      MethodNode     = inlineTarget.callee
+      // the Classnode where callee is declared.
+      val hiOOwner: ClassNode      = inlineTarget.owner
 
       // val txtHost = Util.textify(host) // debug
       // val txtHiO  = Util.textify(hiO)  // debug
@@ -1034,7 +1060,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions)
 
       if(!allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))) {
-        // TODO warning()
+        inlineTarget.warn(
+          "Closure-inlining failed because not all accesses performed by the callee " +
+          "are legal from the class containing the call to the closure-receiving method.")
         return false
       }
 
@@ -1081,6 +1109,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         quickOptimizer.basicIntraMethodOpt(hostOwner.name, host)
         Util.computeMaxLocalsMaxStack(host)
 
+        // TODO warn
+
         return asMethodInline
       }
 
@@ -1106,7 +1136,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            */
           def survivors2(): Map[Int, ClassNode] = {
 
-            // TODO if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+            // if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
             val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
             cpHost.analyze(hostOwner.name, host)
             val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
@@ -1125,7 +1155,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val closureClassPerHiOFormal = survivors2()
       if(closureClassPerHiOFormal.isEmpty) {
-        // TODO warn.
+        inlineTarget.warn("Can't perform closure-inlining because the caller may pass different closures in the same argument position.")
         return false
       }
 
@@ -1158,11 +1188,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                  *  @param localVarIdxHiO   local-var in hiO (a formal param) whose value is the closure of interest
                  *  @param closureArgUsages instructions where the closure is used as input
                  */
-                def areAllApplyCalls(closureClass: ClassNode, localVarIdxHiO: Int, closureArgUsages: collection.Set[AbstractInsnNode]): MethodNode = {
+                def areAllApplyCalls(closureClass:      ClassNode,
+                                     localVarIdxHiO:    Int,
+                                     closureArgUsages:  collection.Set[AbstractInsnNode],
+                                     formalParamPosHiO: Int): MethodNode = {
+
+                      def warn(reason: String) {
+                        inlineTarget.warn(
+                          "Can't stack-allocate the closure passed at argument position " + formalParamPosHiO +
+                          " because " + reason
+                        )
+                      }
 
                   // (1) all usages are invocations
                   if(closureArgUsages.exists(insn => insn.getType != AbstractInsnNode.METHOD_INSN)) {
-                    return null // TODO warn
+                    warn("not all of its usages in the callee are invocations of its apply() method.")
+                    return null
                   }
 
                   // (2) moreover invocations of one and the same method
@@ -1176,7 +1217,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       fst.name      != nxt.name      ||
                       fst.desc      != nxt.desc
                     ) {
-                      return null // TODO warn
+                      warn("one or more methods other than apply() are called on it in the callee.")
+                      return null
                     }
                   }
 
@@ -1200,15 +1242,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       frame.getActualArguments(nxt).exists(v => isClosureLoad(v.asInstanceOf[SourceValue]))
                     }
 
-                    if(!isDispatchedOnClosure || passesClosureAsArgument) {
-                      return null // TODO warn
+                    if(!isDispatchedOnClosure) {
+                      warn("the callee invokes the closure's apply() on a receiver other than the closure.")
+                      return null
+                    }
+                    if(passesClosureAsArgument) {
+                      warn("the callee passes the closure as argument, thus letting it escape (to a method not marked @inline).")
+                      return null
                     }
                   }
 
                   // (4) whether it's actually an apply or specialized-apply invocation
                   val arity = BType.getMethodType(fst.desc).getArgumentCount
                   if(arity > definitions.MaxFunctionArity) {
-                    return null // TODO warn
+                    warn("the callee invokes apply() on the closure with more than " + definitions.MaxFunctionArity + " arguments.")
+                    return null
                   }
 
                   // all checks passed, look up applyMethod
@@ -1218,6 +1266,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                     if(tentative == null) { null }
                     else { tentative.mnode }
 
+                  if(applyMethod == null) {
+                    warn("the callee invokes apply() on the closure, but the bytecode for that method couldn't be found.")
+                  }
+
                   applyMethod
                 }
 
@@ -1225,7 +1277,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               (formalParamPosHiO, closureClass) <- closureClassPerHiOFormal;
               localVarIdxHiO = mtHiO.convertFormalParamPosToLocalVarIdx(formalParamPosHiO, isInstanceMethod);
               closureArgUsages: Set[AbstractInsnNode] = JSetWrapper(cpHiO.consumersOfLocalVar(localVarIdxHiO)).toSet;
-              applyMethod = areAllApplyCalls(closureClass, localVarIdxHiO, closureArgUsages);
+              applyMethod = areAllApplyCalls(closureClass, localVarIdxHiO, closureArgUsages, formalParamPosHiO);
               if applyMethod != null
             ) yield ClosureUsages(
               formalParamPosHiO,
@@ -1244,14 +1296,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         ) yield ccu
 
       if(closureClassUtils.isEmpty) {
-        // TODO warn.
         return false
       }
 
       val shio = StaticHiOUtil(hiO, closureClassUtils)
-      val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite)
+      val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite, inlineTarget)
       if(staticHiO == null) { return false }
-      val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO)
+      val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)
       if(wasInlined) {
         hostOwner.methods.add(staticHiO)
       }
@@ -1261,14 +1312,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  For a given pair (hiO method, closure-argument) an instance of ClosureUsages
-     *  records the apply() invocations for that closure-argument.
+     *  records the apply() invocations inside hiO for a particular closure-argument.
      *
      *  @param formalParamPosHiO zero-based position in the formal-params-list of hiO method
      *  @param localVarIdxHiO    corresponding index into the locals-array of hiO method
      *                           (in general different from formalParamPosHiO due to JVM-type-sizes)
-     *  @param closureClass
-     *  @param applyMethod
-     *  @param usages
+     *  @param closureClass      final class of the closure (ie not e.g. Function1 but an anon-closure-class)
+     *  @param applyMethod       the apply method invoked inside hiO (which in turn may invoke another).
+     *  @param usages            invocations in hiO of closureClass' applyMethod.
+     *                           Allows finding out the instruction producing receiver and arguments.
      */
     case class ClosureUsages(
       formalParamPosHiO: Int,
@@ -1667,7 +1719,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *
        *  @return `staticHiO` if preconditions are satisfied, null otherwise
        */
-      def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode): MethodNode = {
+      def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode, inlineTarget: InlineTarget): MethodNode = {
 
         // val txtHiOBefore = Util.textify(hiO)
 
@@ -1717,6 +1769,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val tcns: java.util.List[TryCatchBlockNode] = Util.clonedTryCatchBlockNodes(hiO, labelMap)
         val here = lookupRefBType(hostOwner.name)
         if(!allExceptionsAccessible(tcns, here)) {
+          inlineTarget.warn(
+            "Couldn't perform closure-inlining because not all exceptions " +
+            "declared by the callee are accessible from the class containing the caller."
+          )
           return null
         }
 
@@ -1732,6 +1788,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
         }
         if(!allLocalVarTypesAccessible(lvns, here)) {
+          inlineTarget.warn(
+            "Couldn't perform closure-inlining because not all LocalVariableNode types " +
+            "declared by the callee are accessible from the class containing the caller."
+          )
           return null
         }
 
@@ -1834,7 +1894,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *
        * @return whether closure-inlining was actually performed (should always be the case unless wrong input bytecode).
        */
-      def rewriteHost(hostOwner: ClassNode, host: MethodNode, callsite: MethodInsnNode, staticHiO: MethodNode): Boolean = {
+      def rewriteHost(hostOwner:    ClassNode,
+                      host:         MethodNode,
+                      callsite:     MethodInsnNode,
+                      staticHiO:    MethodNode,
+                      inlineTarget: InlineTarget): Boolean = {
 
         val cpHost = ProdConsAnalyzer.create()
         cpHost.analyze(hostOwner.name, host)
@@ -1872,7 +1936,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
 
         if ((newInsns.length != howMany) || (dupInsns.length != howMany) || (initInsns.length != howMany)) {
-          // TODO warn
+          inlineTarget.warn(
+            "Couldn't perform closure-inlining because one or more closure instantiations couldn't be rewritten."
+          )
           return false
         }
 

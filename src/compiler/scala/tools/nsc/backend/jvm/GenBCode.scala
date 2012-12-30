@@ -1946,7 +1946,7 @@ abstract class GenBCode extends BCodeOptInter {
             // if (fun.symbol.isConstructor) Static(true) else SuperCall(mix);
             mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
             genLoadArguments(args, paramTKs(app))
-            genCallMethod(fun.symbol, invokeStyle)
+            genCallMethod(fun.symbol, invokeStyle, pos = app.pos)
             generatedType = asmMethodType(fun.symbol).getReturnType
 
           // 'new' constructor call: Note: since constructors are
@@ -2058,7 +2058,7 @@ abstract class GenBCode extends BCodeOptInter {
                       bc.invokevirtual(target, "clone", "()Ljava/lang/Object;")
                     }
                     else {
-                      genCallMethod(sym, invokeStyle, hostClass)
+                      genCallMethod(sym, invokeStyle, hostClass, app.pos)
                     }
 
                     asmMethodType(sym).getReturnType
@@ -2311,7 +2311,7 @@ abstract class GenBCode extends BCodeOptInter {
         StringReference
       }
 
-      def genCallMethod(method: Symbol, style: InvokeStyle, hostClass0: Symbol = null) {
+      def genCallMethod(method: Symbol, style: InvokeStyle, hostClass0: Symbol = null, pos: Position = NoPosition) {
 
         val siteSymbol = claszSymbol
         val hostSymbol = if(hostClass0 == null) method.owner else hostClass0;
@@ -2457,7 +2457,7 @@ abstract class GenBCode extends BCodeOptInter {
             if(cannotBeOverridden) {
               val isHiO = isHigherOrderMethod(bmType)
               // the callsite may be INVOKEVIRTUAL (but not INVOKEINTERFACE) in addition to INVOKESTATIC or INVOKESPECIAL.
-              val inlnTarget = new InlineTarget(callsite)
+              val inlnTarget = new InlineTarget(callsite, cunit, pos)
               if(isHiO) { cgn.hiOs  ::= inlnTarget }
               else      { cgn.procs ::= inlnTarget }
             }
