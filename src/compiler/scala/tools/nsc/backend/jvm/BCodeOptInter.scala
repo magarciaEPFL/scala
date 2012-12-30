@@ -192,7 +192,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
-      MissingRequirementError.notFound("Could not find FieldNode: " + bt.getInternalName + "." + name + ": " + desc)
+      MissingRequirementError.notFound(s"Could not find FieldNode: ${bt.getInternalName}.$name: ${desc}")
     }
 
     /**
@@ -220,7 +220,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         current = if(cn.superName == null) null else lookupRefBType(cn.superName)
       }
 
-      MissingRequirementError.notFound("Could not find MethodNode: " + bt.getInternalName + "." + name + desc)
+      MissingRequirementError.notFound(s"Could not find MethodNode: ${bt.getInternalName}.${name}${desc}")
     }
 
     /** must-single-thread */
@@ -263,8 +263,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  must-single-thread
      */
     def parseClassAndEnterExemplar(bt: BType): ClassNode = {
-      assert(bt.isNonSpecial,  "The `exemplars` map is supposed to hold ''normal'' classes only, not " + bt.getInternalName)
-      assert(!containsKey(bt), "codeRepo already contains " + bt.getInternalName)
+      assert(bt.isNonSpecial,  s"The `exemplars` map is supposed to hold ''normal'' classes only, not ${bt.getInternalName}")
+      assert(!containsKey(bt), s"codeRepo already contains ${bt.getInternalName}")
 
           /** must-single-thread */
           def parseClass(): asm.tree.ClassNode = {
@@ -278,7 +278,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 cr.accept(cn, asm.ClassReader.SKIP_FRAMES)
                 parsed.put(bt, cn)
                 cn
-              case _ => MissingRequirementError.notFound("Could not find bytecode for " + dotName)
+              case _ => MissingRequirementError.notFound(s"Could not find bytecode for $dotName")
             }
           }
 
@@ -689,7 +689,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val illegalAccessInsn = allAccessesLegal(body, lookupRefBType(hostOwner))
       if(illegalAccessInsn != null) {
         return Some(
-          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)} which would cause IllegalAccessError from class $hostOwner ."
+          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)} which would cause IllegalAccessError from class $hostOwner"
         )
       }
 
@@ -1088,7 +1088,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       if(illegalAccessInsn != null) {
         inlineTarget.warn(
           s"Closure-inlining failed because ${inlineTarget.calleeId} contains instruction \n${Util.textify(illegalAccessInsn)}" +
-          s"which would cause IllegalAccessError from class ${hostOwner.name} ."
+          s"which would cause IllegalAccessError from class ${hostOwner.name}"
         )
         return false
       }
@@ -1236,8 +1236,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
                       def warn(reason: String) {
                         inlineTarget.warn(
-                          "Can't stack-allocate the closure passed at argument position " + formalParamPosHiO +
-                          " because " + reason
+                          s"Can't stack-allocate the closure passed at argument position $formalParamPosHiO because $reason"
                         )
                       }
 
@@ -1258,7 +1257,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       fst.name      != nxt.name      ||
                       fst.desc      != nxt.desc
                     ) {
-                      warn(s"one or more methods other than apply() are called on it in ${inlineTarget.calleeId} .")
+                      warn(s"one or more methods other than apply() are called on it in ${inlineTarget.calleeId}")
                       return null
                     }
                   }
@@ -1382,7 +1381,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         while(iter.hasNext) {
           val nxt = iter.next()
           if(nxt.name == "<init>") {
-            assert(result == null, "duplicate <init> method found in closure-class: " + closureClass.name)
+            assert(result == null, s"duplicate <init> method found in closure-class: ${closureClass.name}")
             result = nxt
           }
         }
@@ -1620,8 +1619,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         if(escapingThis(closureClassName, result).nonEmpty) {
           return Left(
-             "In spite of our best efforts, the closure's THIS is used for something that can't be reduced later." +
-            s"In other words, it escapes the methods in class $closureClassName ."
+             "In spite of our best efforts, the closure's THIS is used for something that can't be reduced later. " +
+            s"In other words, it escapes the methods in class $closureClassName"
           )
         }
 
