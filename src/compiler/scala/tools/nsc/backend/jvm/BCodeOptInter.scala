@@ -1295,12 +1295,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             )
           }
 
-      val closureClassUtils =
-        for (
-          cu <- survivors3().toArray;
-          ccu = ClosureClassUtil(cu);
-          if ccu.isRepOK
-        ) yield ccu
+      val (closureClassUtils, failedAttempts) =
+        (survivors3().toArray.map { cu => ClosureClassUtil(cu) }) partition { ccu => ccu.isRepOK }
+
+      for(fa <- failedAttempts) { inlineTarget.warn(fa.diagnostics) }
 
       if(closureClassUtils.isEmpty) {
         return false
@@ -1614,17 +1612,34 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         Right(result)
       } // end of method helperStubTemplate()
 
-      private val stubCreatorOutcome = helperStubTemplate()
-      def stubTemplate: MethodNode   = stubCreatorOutcome.right.get
+      val stubCreatorOutcome: Either[String, MethodNode] = helperStubTemplate()
+
+      def stubTemplate: MethodNode = stubCreatorOutcome.right.get
+
+      def diagnostics: String = {
+        var diags: List[String] = Nil
+        if(!areAllFiledsAccountedFor) {
+          diags ::= s"Number of closure-state fields should be one less than number of fields in ${closureClass.name}" +
+                     "(static field SerialVersionUID isn't part of closure-state)"
+        }
+        if(stubCreatorOutcome.isLeft) {
+          diags ::= stubCreatorOutcome.left.get
+        }
+
+        diags.mkString(",\n")
+      }
+
+      /**
+       * Number of closure-state fields should be one less than number of fields in closure-class
+       * (static field SerialVersionUID isn't part of closure-state).
+       */
+      def areAllFiledsAccountedFor: Boolean = {
+        (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
+        (stateField2constrParam.size == field.size)
+      }
 
       def isRepOK: Boolean = {
-        /*
-         * number of closure-state fields should be one less than number of fields in closure-class
-         * (static field SerialVersionUID isn't part of closure-state).
-         */
-        (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
-        (stateField2constrParam.size == field.size) &&
-        (stubCreatorOutcome.isRight)
+        areAllFiledsAccountedFor && stubCreatorOutcome.isRight
       }
 
     } // end of class ClosureClassUtil
