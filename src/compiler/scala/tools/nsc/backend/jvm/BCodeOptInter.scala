@@ -53,7 +53,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * classified into "higher-order callsites" (ie taking one or more functions as arguments) and the rest.
    *
    * The callsites in question constitute "requests for inlining". An attempt will be made to fulfill them,
-   * after breaking any inlining cycles. Moreover a request may prove unfeasible afterwards too,
+   * after detecting any attempts at cyclic inlining. Moreover a request may prove unfeasible afterwards too,
    * e.g. due to the callsite program point having a deeper operand-stack than the arguments the callee expects,
    * and the callee contains exception handlers.
    *
@@ -442,10 +442,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def inlining() {
 
       /*
-       * The MethodNode for each callsite to an @inline method is found, if necessary by parsing bytecode
-       * (ie the classfile given by a callsite's `owner` field).
-       * Those classes can be parsed only after making sure they aren't being compiled in this run.
-       * That's the case by now, in fact codeRepo.classes can't grow from now on.
+       * The MethodNode for each callsite to an @inline method is found via `CallGraphNode.populate()`,
+       * if necessary by parsing bytecode (ie the classfile given by a callsite's `owner` field is parsed).
+       * This is safe because by the time `WholeProgramAnalysis.inlining()` is invoked
+       * all classes being compiled have been put in `codeRepo.classes` already.
+       * Not finding a class there means it has to be parsed.
        */
       val mn2cgn = mutable.Map.empty[MethodNode, CallGraphNode]
       for(cgn <- cgns) {
@@ -502,7 +503,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method inlining()
 
     /**
-     *  After avoiding attempts at inlining cycles,
+     *  After avoiding attempts at cyclic inlining,
      *  this method is invoked to perform inlinings in a single method (given by `CallGraphNode.host`).
      */
     private def inlineCallees(leaf: CallGraphNode) {
