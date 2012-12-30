@@ -815,8 +815,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         else        "Failed "     + kind )
 
       log(
-        leading + ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
-        " , occurring in method " + hostOwner + "::" + host.name + host.desc
+        leading +
+        s". Callsite: ${callsite.owner}.${callsite.name}${callsite.desc} , occurring in method $hostOwner::${host.name}${host.desc}"
       )
 
       debuglog(s"Bytecode of callee, declared by ${hiOOwner.name} \n" + Util.textify(hiO))
@@ -1162,13 +1162,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            * determine those params that receive a unique closure, and look up the ClassNode for the closures in question.
            *
            * N.B.: Assuming the standard compiler transforms as of this writing, `survivors2()` isn't strictly necessary.
-           * However it protects against any non-standard transforms that mess up with preconds required for correctness.
+           * However it protects against any non-standard transform that messes up with preconds required for correctness.
            *
-           * `survivors2()` goes over the formals in `survivors1()`, picking those that have a single producer,
-           * such that the value thus produced is the only actual for the formal in question.
+           * `survivors2()` goes over the formal params in `survivors1()`, picking those that have a single producer,
+           * such that the value thus produced is the only actual for the param in question.
            *
            * Given that the type of the actual fulfills Tracked.isClosureClass,
-           * the ClassNode of that type can be found in codeRepo.classes (ie it's being compiled in this run).
+           * the ClassNode of that type can be found in codeRepo.classes (it's being compiled in this run).
            *
            * @return a map with an entry for each hiO method-param that takes a closure,
            *         where an entry maps the position of the method-param to a closure class.
@@ -1195,7 +1195,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val closureClassPerHiOFormal = survivors2()
       if(closureClassPerHiOFormal.isEmpty) {
         inlineTarget.warn(
-          s"Can't perform closure-inlining because $callerId may pass different closures in the same argument position."
+          s"Can't perform closure-inlining because in $callerId different closures may arrive at the same argument position."
         )
         return false
       }
