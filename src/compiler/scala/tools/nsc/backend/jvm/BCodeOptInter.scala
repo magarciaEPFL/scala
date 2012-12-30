@@ -802,7 +802,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       log(
         leading + ". Callsite: " + callsite.owner + "." + callsite.name + callsite.desc +
-        " , occurring in method " + hostOwner + "::" + host.name + "." + host.desc
+        " , occurring in method " + hostOwner + "::" + host.name + host.desc
       )
 
       debuglog("Bytecode of callee:\n" + Util.textify(hiO))
@@ -1066,8 +1066,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val illegalAccessInsn = allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))
       if(illegalAccessInsn != null) {
         inlineTarget.warn(
-          "Closure-inlining failed because not all accesses performed by the callee " +
-          "are legal from the class containing the call to the closure-receiving method.")
+          s"Closure-inlining failed because the callee contains instruction \n${Util.textify(illegalAccessInsn)}" +
+          s"which would cause IllegalAccessError from class ${hostOwner.name} .")
         return false
       }
 

@@ -24,6 +24,8 @@ import scala.tools.asm.tree.InsnList;
 import scala.tools.asm.tree.LocalVariableNode;
 import scala.tools.asm.tree.TryCatchBlockNode;
 
+import scala.tools.asm.util.Textifier;
+
 import java.util.*;
 
 /**
@@ -515,6 +517,18 @@ public class Util {
       java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
       trace.p.print(pw);
       return sw.toString();
+    }
+
+    /**
+     * Returns a human-readable representation of the given instruction.
+     */
+    public static String textify(final AbstractInsnNode insn) {
+        scala.tools.asm.util.TraceMethodVisitor trace = new scala.tools.asm.util.TraceMethodVisitor(new Textifier());
+        insn.accept(trace);
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
+        trace.p.print(pw);
+        return sw.toString();
     }
 
     public static class ClonedMethod {
