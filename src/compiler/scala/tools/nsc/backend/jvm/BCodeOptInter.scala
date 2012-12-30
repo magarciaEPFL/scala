@@ -135,6 +135,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
+    def calleeId: String = { owner.name + "::" + callee.name + callee.desc }
+
     def warn(msg: String) = cunit.inlinerWarning(pos, msg)
 
   }
@@ -1070,16 +1072,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // the Classnode where callee is declared.
       val hiOOwner: ClassNode      = inlineTarget.owner
 
+      val callerId = hostOwner.name + "::" + host.name + host.desc
+
       // val txtHost = Util.textify(host) // debug
       // val txtHiO  = Util.textify(hiO)  // debug
 
       codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions)
 
+      if(Util.isSynchronizedMethod(hiO)) {
+        inlineTarget.warn(s"Closure-inlining failed because ${inlineTarget.calleeId} is synchronized.")
+        return false
+      }
+
       val illegalAccessInsn = allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))
       if(illegalAccessInsn != null) {
         inlineTarget.warn(
-          s"Closure-inlining failed because the callee contains instruction \n${Util.textify(illegalAccessInsn)}" +
-          s"which would cause IllegalAccessError from class ${hostOwner.name} .")
+          s"Closure-inlining failed because ${inlineTarget.calleeId} contains instruction \n${Util.textify(illegalAccessInsn)}" +
+          s"which would cause IllegalAccessError from class ${hostOwner.name} ."
+        )
         return false
       }
 
@@ -1179,7 +1189,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val closureClassPerHiOFormal = survivors2()
       if(closureClassPerHiOFormal.isEmpty) {
-        inlineTarget.warn("Can't perform closure-inlining because the caller may pass different closures in the same argument position.")
+        inlineTarget.warn(
+          s"Can't perform closure-inlining because $callerId may pass different closures in the same argument position."
+        )
         return false
       }
 
@@ -1224,11 +1236,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                         )
                       }
 
-                  val hiOId = hiOOwner.name + "." + hiO.name + hiO.desc
-
                   // (1) all usages are invocations
                   if(closureArgUsages.exists(insn => insn.getType != AbstractInsnNode.METHOD_INSN)) {
-                    warn(s"not all of its usages in $hiOId are invocations of the closure's apply() method.")
+                    warn(s"not all of its usages in ${inlineTarget.calleeId} are invocations of the closure's apply() method.")
                     return null
                   }
 
@@ -1243,7 +1253,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       fst.name      != nxt.name      ||
                       fst.desc      != nxt.desc
                     ) {
-                      warn(s"one or more methods other than apply() are called on it in $hiOId .")
+                      warn(s"one or more methods other than apply() are called on it in ${inlineTarget.calleeId} .")
                       return null
                     }
                   }
@@ -1269,11 +1279,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                     }
 
                     if(passesClosureAsArgument) {
-                      warn(s"$hiOId passes the closure as argument, thus letting it escape (to a method not marked @inline).")
+                      warn(s"${inlineTarget.calleeId} passes the closure as argument, thus letting it escape (to a method not marked @inline).")
                       return null
                     }
                     if(!isDispatchedOnClosure) {
-                      warn(s"$hiOId contains a closure usage other than as receiver of apply().")
+                      warn(s"${inlineTarget.calleeId} contains a closure usage other than as receiver of apply().")
                       return null
                     }
                   }
@@ -1293,7 +1303,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                     else { tentative.mnode }
 
                   if(applyMethod == null) {
-                    warn("the callee invokes apply() on the closure, but the bytecode for that method couldn't be found.")
+                    warn(s"${inlineTarget.calleeId} invokes apply() on the closure, but the bytecode for that method couldn't be found.")
                   }
 
                   applyMethod
@@ -1876,14 +1886,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
         // (7) put together the pieces above into a MethodNode
-        val shioFlags = {
-          Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC |
-          (hiO.access & Opcodes.ACC_SYNCHRONIZED)
-        }
         val shio: MethodNode =
           new MethodNode(
             Opcodes.ASM4,
-            shioFlags,
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
             name,
             shiOMethodType.getDescriptor,
             null,
