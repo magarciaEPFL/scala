@@ -530,14 +530,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val hostOwner = leaf.hostOwner.name
         val frame     = tfaFrameAt(proc.callsite)
 
-        val success = inlineMethod(
+        val inlineMethodOutcome = inlineMethod(
           hostOwner,
           leaf.host,
           proc.callsite,
           frame,
-          proc.callee
+          proc.callee, proc.owner
         )
+        inlineMethodOutcome foreach proc.warn
 
+        val success = inlineMethodOutcome.isEmpty
         logInlining(
           success, hostOwner, leaf.host, proc.callsite, isHiO = false,
           isReceiverKnownNonNull(frame, proc.callsite),
@@ -602,33 +604,39 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *         (accesses to local-vars shifted,
      *          RETURNs replaced by jumps to the single-exit of the inlined instructions,
      *          without forgetting to empty all the stack slots except stack-top right before jumping)
-     *   (c) copying over the debug info from the callee's
+     *   (c) copying the debug info from the callee's over to the host method
      *   (d) re-computing the maxLocals and maxStack of the host method.
-     *   (e) return true.
+     *   (e) return None (this indicates success).
      *
      * Inlining is considered unfeasible in two cases, summarized below and described in more detail on the spot:
      *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
      *   (a.2) inlining would lead to illegal access errors.
      *
-     * @param hostOwner the internal name of the class declaring the host method
-     * @param host      the method containing a callsite for which inlining has been requested
-     * @param callsite  the invocation whose inlining is requested.
-     * @param frame     informs about stack depth at the callsite
-     * @param callee    the actual method-implementation that will be dispatched at runtime.
+     * @param hostOwner   internal name of the class declaring the host method
+     * @param host        method containing a callsite for which inlining has been requested
+     * @param callsite    invocation whose inlining is requested.
+     * @param frame       informs about stack depth at the callsite
+     * @param callee      actual method-implementation that will be dispatched at runtime.
+     * @param calleeOwner class that declares callee
      *
-     * @return true iff method-inlining was actually performed.
+     * @return None iff method-inlining was actually performed,
+     *         Some(diagnostics) iff the inlining is unfeasible.
      *
      */
-    private def inlineMethod(hostOwner: String,
-                             host:      MethodNode,
-                             callsite:  MethodInsnNode,
-                             frame:     asm.tree.analysis.Frame[TFValue],
-                             callee:    MethodNode): Boolean = {
+    private def inlineMethod(hostOwner:   String,
+                             host:        MethodNode,
+                             callsite:    MethodInsnNode,
+                             frame:       asm.tree.analysis.Frame[TFValue],
+                             callee:      MethodNode,
+                             calleeOwner: ClassNode): Option[String] = {
 
       assert(host.instructions.contains(callsite))
       assert(callee != null)
       assert(callsite.name == callee.name)
       assert(callsite.desc == callee.desc)
+
+      val hostId   = hostOwner        + "::" + host.name   + host.desc
+      val calleeId = calleeOwner.name + "::" + callee.name + callee.desc
 
       /*
        * The first situation (a.1) under which method-inlining is unfeasible: In case both conditions below hold:
@@ -642,8 +650,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val stackHeight       = frame.getStackSize
         val expectedArgs: Int = Util.expectedArgs(callsite)
         if(stackHeight > expectedArgs) {
-          // TODO warning()
-          return false
+          return Some(
+            s"The operand stack may be cleared on entering an exception-handler in $calleeId , and " +
+            s"the stack at the callsite in $hostId contains more values than args expected by the callee."
+          )
         }
         assert(stackHeight == expectedArgs)
       }
@@ -676,8 +686,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val illegalAccessInsn = allAccessesLegal(body, lookupRefBType(hostOwner))
       if(illegalAccessInsn != null) {
-        // TODO warning()
-        return false
+        return Some(
+          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)} which would cause IllegalAccessError from class $hostOwner ."
+        )
       }
 
       // By now it's a done deal that method-inlining will be performed. There's no going back.
@@ -779,7 +790,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       Util.computeMaxLocalsMaxStack(host)
       assert(host.maxLocals >= nxtLocalIdx) // TODO why not == ?
 
-      true
+      None
 
     } // end of method inlineMethod()
 
@@ -1110,21 +1121,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          * Doing so unblocks closure-inlining of the closure(s) passed to `host` (itself a higher-order method).
          *
          */
-        val asMethodInline =
+        val asMethodInlineOutcome =
           inlineMethod(
             hostOwner.name,
             host,
             callsite,
             callsiteTypeFlow,
-            hiO
+            hiO, hiOOwner
           )
         val quickOptimizer = new BCodeCleanser(hostOwner)
         quickOptimizer.basicIntraMethodOpt(hostOwner.name, host)
         Util.computeMaxLocalsMaxStack(host)
 
-        // TODO warn
+        asMethodInlineOutcome foreach inlineTarget.warn
 
-        return asMethodInline
+        return asMethodInlineOutcome.isEmpty
       }
 
           /**
@@ -1558,16 +1569,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                         tfa.analyze(closureClassName, current)
                         val clonedForwarder = cm.insnMap.get(forwarder).asInstanceOf[MethodInsnNode]
                         val frame   = tfa.frameAt(clonedForwarder).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
-                        val success = inlineMethod(
+                        val inlineMethodOutcome = inlineMethod(
                           closureClassName,
                           clonedCurrent,
                           clonedForwarder,
                           frame,
-                          rewritten
+                          rewritten, closureUsages.closureClass
                         )
-                        if(success) {
-                          return Right(clonedCurrent)
-                        } // TODO else return Left(...)
+                        return inlineMethodOutcome match {
+                          case None                => Right(clonedCurrent)
+                          case Some(diagnosticMsg) => Left(diagnosticMsg)
+                        }
 
                       case diagnostics =>
                         return diagnostics
