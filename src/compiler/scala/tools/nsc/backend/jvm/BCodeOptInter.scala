@@ -674,7 +674,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        */
       codeRepo.enterExemplarsForUnseenTypeNames(body)
 
-      if(!allAccessesLegal(body, lookupRefBType(hostOwner))) {
+      val illegalAccessInsn = allAccessesLegal(body, lookupRefBType(hostOwner))
+      if(illegalAccessInsn != null) {
         // TODO warning()
         return false
       }
@@ -836,13 +837,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  subtype of D). That requirement is checked as part of the verification process
      *  (Sec 5.4.1); it is not part of link-time access control.
      *
-     *  @param body
-     *              instructions that will be inlined in a method in class `here`
-     *  @param here
-     *              class from which accesses given by `body` will take place.
+     *  @param body instructions that will be inlined in a method in class `here`
+     *  @param here class from which accesses given by `body` will take place.
+     *
+     *  @return the first instruction found in `body`
+     *          that would result in java.lang.IllegalAccessError if used from class `here`.
      *
      */
-    private def allAccessesLegal(body: InsnList, here: BType): Boolean = {
+    private def allAccessesLegal(body: InsnList, here: BType): AbstractInsnNode = {
 
           /**
            * @return whether the first argument is a subtype of the second, or both are the same BType.
@@ -869,7 +871,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           def samePackageAsHere(there: BType): Boolean = { there.getRuntimePackage == here.getRuntimePackage }
 
-          def memberAccess(flags: Int, thereOwner: BType, thereSymRef: BType) = {
+          def memberAccess(flags: Int, thereOwner: BType, thereSymRef: BType): Boolean = {
             val key = { (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE) & flags }
             key match {
 
@@ -929,11 +931,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           case _ => true
         }
         if(!isLegal) {
-          return false
+          return insn
         }
       }
 
-      true
+      null // stands for "all accesses legal"
+
     } // end of method allAccessesLegal()
 
     /**
@@ -1035,10 +1038,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * If successful, it only remains for `StaticHiOUtil.rewriteHost()` to patch `host` to changed the target of
      * the original callsite invocation, as well as adapt its arguments.
      *
-     * @param hostOwner the class declaring the host method
-     * @param host      the method containing a callsite for which inlining has been requested
+     * @param hostOwner        the class declaring the host method
+     * @param host             the method containing a callsite for which inlining has been requested
      * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
-     * @param inlineTarget inlining request (includes: callsite, callee, callee's owner, and error reporting)
+     * @param inlineTarget     inlining request (includes: callsite, callee, callee's owner, and error reporting)
      *
      * @return true iff inlining was actually performed.
      *
@@ -1060,7 +1063,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions)
 
-      if(!allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))) {
+      val illegalAccessInsn = allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))
+      if(illegalAccessInsn != null) {
         inlineTarget.warn(
           "Closure-inlining failed because not all accesses performed by the callee " +
           "are legal from the class containing the call to the closure-receiving method.")
