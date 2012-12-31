@@ -689,7 +689,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val illegalAccessInsn = allAccessesLegal(body, lookupRefBType(hostOwner))
       if(illegalAccessInsn != null) {
         return Some(
-          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)} which would cause IllegalAccessError from class $hostOwner"
+          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)}that would cause IllegalAccessError from class $hostOwner"
         )
       }
 
@@ -1088,7 +1088,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       if(illegalAccessInsn != null) {
         inlineTarget.warn(
           s"Closure-inlining failed because ${inlineTarget.calleeId} contains instruction \n${Util.textify(illegalAccessInsn)}" +
-          s"which would cause IllegalAccessError from class ${hostOwner.name}"
+          s"that would cause IllegalAccessError from class ${hostOwner.name}"
         )
         return false
       }
@@ -1247,6 +1247,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                   }
 
                   // (2) moreover invocations of one and the same method
+                  if(closureArgUsages.isEmpty) {
+                    warn(s"no invocations were found in ${inlineTarget.calleeId} of the closure's apply() method.")
+                    return null
+                  }
                   var iter: Iterator[AbstractInsnNode] = closureArgUsages.iterator
                   val fst = iter.next().asInstanceOf[MethodInsnNode]
                   while(iter.hasNext) {
