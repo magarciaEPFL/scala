@@ -5,31 +5,32 @@
 
 package scala.tools.asm.optimiz;
 
-import java.io.Console;
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Queue;
+import java.util.Iterator;
+import java.util.LinkedList;
 
 import scala.tools.asm.Opcodes;
-import scala.tools.asm.Type;
 
-import scala.tools.asm.tree.*;
-
-import scala.tools.asm.tree.analysis.AnalyzerException;
-import scala.tools.asm.tree.analysis.Analyzer;
-import scala.tools.asm.tree.analysis.Frame;
-import scala.tools.asm.tree.analysis.Value;
-import scala.tools.asm.tree.analysis.Interpreter;
+import scala.tools.asm.tree.FieldNode;
+import scala.tools.asm.tree.MethodNode;
+import scala.tools.asm.tree.ClassNode;
+import scala.tools.asm.tree.AbstractInsnNode;
+import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.FieldInsnNode;
 
 /**
- *  This class transformer detects usages of private members of this class
- *  (fields, methods, or constructors; be they static or private)
- *  by visiting the class' public and protected methods and constructors
- *  (as well as any private methods or constructors transitively reachable).
+ *  This class transformer detects usages of private members of the ClassNode to transform()
+ *  (private members includes fields, methods, or constructors; be they static or private).
+ *  Those usages are detected by visiting the class' public and protected methods and constructors
+ *  as well as any private methods or constructors transitively reachable.
  *  Those private members for which no usages are found are elided.
  *
  *  This means that any code using, say, reflection or invokedynamic or a methodhandle constant
  *  referring to an (otherwise unused) private member, will fail after this transformer is run.
  *
- *  Private methods and field, as e.g. needed by java.io.Serializable or java.io.Externalizable,
+ *  Private methods and fields, as e.g. needed by java.io.Serializable or java.io.Externalizable,
  *  are elided as any other. It's recommended not to run this transformer on classes extending those interfaces.
  *  This transformer does not check that on its own.
  *
