@@ -239,6 +239,10 @@ public class Util {
     // boxing and unboxing
     // ------------------------------------------------------------------------
 
+    public static boolean isAbstractMethod(final MethodNode m) {
+        return (m.access & Opcodes.ACC_ABSTRACT) != 0;
+    }
+
     public static boolean isInstanceMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_STATIC) == 0;
     }

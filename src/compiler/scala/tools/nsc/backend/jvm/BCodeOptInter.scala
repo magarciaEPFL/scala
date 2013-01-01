@@ -438,9 +438,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  Performs closure-inlining and method-inlining, by first breaking any cycles
      *  over the "inlined-into" relation (see local method `isReachable()`).
      *  Afterwards,
-     *    - `WholeProgramAnalysis.inlineMethod()`   takes care of method-inlining, and
-     *    - `WholeProgramAnalysis.inlineClosures()` of closure-inlining.
-     */
+     *    - `WholeProgramAnalysis.inlineMethod()`   takes care of method-inlining
+     *    - `WholeProgramAnalysis.inlineClosures()` of closure-inlining
+     *    - closure-state params that see no use are elided (e.g., the receiver of a dlgt$ invocation).
+     *
+     *  must-single-thread
+     *
+     **/
     def inlining() {
 
       /*
@@ -501,6 +505,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         remaining --= leaves
       }
+
+      // elide closure-state params that see no use (e.g., the receiver of a dlgt$ invocation).
+      if(!settings.keepUnusedPrivateClassMembers.value) {
+
+        val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
+        val iterCompiledClasses = codeRepo.classes.values().iterator()
+        while(iterCompiledClasses.hasNext) {
+          val cnode = iterCompiledClasses.next()
+          do {
+            val updatedMethodSignatures = unusedParamsElider.transform(cnode)
+            JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
+          } while (unusedParamsElider.changed)
+        }
+
+      }
+
+
 
     } // end of method inlining()
 
@@ -819,7 +840,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         s". Callsite: ${callsite.owner}.${callsite.name}${callsite.desc} , occurring in method $hostOwner::${host.name}${host.desc}"
       )
 
-      debuglog(s"Bytecode of callee, declared by ${hiOOwner.name} \n" + Util.textify(hiO))
+      if(!success) {
+        debuglog(s"Bytecode of callee, declared by ${hiOOwner.name} \n" + Util.textify(hiO))
+      }
 
     } // end of method logInlining()
 
@@ -1897,7 +1920,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val shio: MethodNode =
           new MethodNode(
             Opcodes.ASM4,
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
             name,
             shiOMethodType.getDescriptor,
             null,
