@@ -239,6 +239,18 @@ public class Util {
     // boxing and unboxing
     // ------------------------------------------------------------------------
 
+    public static boolean isPrivateMethod(final MethodNode m) {
+        return (m.access & Opcodes.ACC_PRIVATE) != 0;
+    }
+
+    public static boolean isPublicMethod(final MethodNode m) {
+        return (m.access & Opcodes.ACC_PUBLIC) != 0;
+    }
+
+    public static boolean isProtectedMethod(final MethodNode m) {
+        return (m.access & Opcodes.ACC_PROTECTED) != 0;
+    }
+
     public static boolean isAbstractMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_ABSTRACT) != 0;
     }
@@ -247,8 +259,16 @@ public class Util {
         return (m.access & Opcodes.ACC_STATIC) == 0;
     }
 
+    public static boolean isStaticMethod(final MethodNode m) {
+        return (m.access & Opcodes.ACC_STATIC) != 0;
+    }
+
     public static boolean isSynchronizedMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_SYNCHRONIZED) != 0;
+    }
+
+    public static boolean isConstructor(final MethodNode m) {
+        return (m.name.equals("<init>") || m.name.equals("<clinit>"));
     }
 
     public static boolean isInstanceField(final FieldNode f) {

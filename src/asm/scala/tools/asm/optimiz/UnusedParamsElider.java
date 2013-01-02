@@ -49,7 +49,8 @@ public class UnusedParamsElider {
 
     /**
      * @return those private MethodNodes whose method descriptor has changed (ie has fewer parameters).
-     *         Please notice other MethodNodes may also have been adapted (ie callsites updated).
+     *         Please notice other MethodNodes may also have been adapted
+     *         (in order to keep callsites to the above well-formed).
      * */
     public Set<MethodNode> transform(final ClassNode cnode) throws AnalyzerException {
 
@@ -58,7 +59,7 @@ public class UnusedParamsElider {
         Set<MethodNode> updatedMethodSignatures = new HashSet<MethodNode>();
 
         for (MethodNode m : cnode.methods) {
-            if (isPrivate(m)) {
+            if (Util.isPrivateMethod(m)) {
                 String oldDescr = m.desc;
                 Set<Integer> elidedParams = elideUnusedParams(cnode, m);
                 if(!elidedParams.isEmpty()) {
@@ -83,7 +84,7 @@ public class UnusedParamsElider {
      *
      * */
     public Set<Integer> elideUnusedParams(final ClassNode cnode, final MethodNode m) {
-        assert isPrivate(m);
+        assert Util.isPrivateMethod(m);
         assert cnode.methods.contains(m);
 
         // indexed by param position (which are zero-based)
@@ -236,10 +237,66 @@ public class UnusedParamsElider {
 
         changed = true;
 
-        // drop arguments for elided params, update descriptor
+        // drop arguments for elided params
+        dropArgumentsForElidedParams(cnode, caller, callsites, oldDescr, false, elidedParams);
+
+        // update descriptor
+        for(MethodInsnNode callsite : callsites) {
+            callsite.desc = callee.desc;
+        }
+
+        // not necessary to Util.computeMaxLocalsMaxStack(caller) because maxLocals was increased as need arose. maxStack doesn't change.
+    }
+
+    private boolean isThis(final int localVarIdx, final MethodNode m) {
+        return (localVarIdx == 0) && Util.isInstanceMethod(m);
+    }
+
+    /**
+     *  After refactoring a MethodNode by:
+     *    (a) removing one or more method params, or
+     *    (b) turning it into a static method,
+     *  the need arises to adapt methods containing callsites so that the arguments in question (or the receiver)
+     *  are dropped.
+     *
+     *  This method takes care of that, as needed by UnusedParamsElider and StaticsMaker.
+     *
+     *  The easiest way to "drop an unneeded argument" is by inserting a POP1 or POP2 instruction
+     *  to remove the just pushed stack value. However that assumes no instructions other than the callsite being adapted
+     *  consume the value in question (@see consumersExistOtherThanCallsite() ).
+     *
+     *  In case the unneded value has other consumers, the callsite in question has to be prefixed
+     *  with STORE instructions that "spill" stack values into local-vars created to that effect,
+     *  followed by LOAD instructions that load all spilled values except those that aren't needed
+     *  (as a special case, removing the receiver via spilling amounts to POP1 right
+     *  after all arguments values have been STOREd in local-vars).
+     *
+     *  @param cnode     class containing the method being adapted, caller
+     *  @param caller    method containing callsites, each assuming more arguments (or a receiver) than
+     *                   what the target method expects
+     *  @param callsites callsites to be adapted (actually, the callsites themselves are left as is,
+     *                   it's the surrounding code that is adapted).
+     *  @param oldDescr  method descriptor for the target site, *before* method params were removed or
+     *                   the method made static. Callsites still assume oldDescr.
+     *  @param dropReceiver whether the receiver should be dropped. This can be combined with dropping zero or more
+     *                      arguments, as given by elidedParams.
+     *  @param elidedParams zero-based positions of arguments to drop, the receiver of an instance method
+     *                      is not considered among these.
+     *
+     * */
+    public static void dropArgumentsForElidedParams(final ClassNode     cnode,
+                                                    final MethodNode    caller,
+                                                    Set<MethodInsnNode> callsites,
+                                                    String              oldDescr,
+                                                    boolean             dropReceiver,
+                                                    final Set<Integer>  elidedParams) throws AnalyzerException {
+
+        assert cnode.methods.contains(caller);
+
         if(caller.maxLocals == 0) {
             Util.computeMaxLocalsMaxStack(caller);
         }
+
         ProdConsAnalyzer cp = ProdConsAnalyzer.create();
         cp.analyze(cnode.name, caller);
 
@@ -250,20 +307,28 @@ public class UnusedParamsElider {
         Map<MethodInsnNode, Integer> toSpill = new HashMap<MethodInsnNode, Integer>();
 
         for(MethodInsnNode callsite : callsites) {
+            assert caller.instructions.contains(callsite);
             Frame<SourceValue> frame = cp.frameAt(callsite);
             callsiteFrame.put(callsite, frame);
-            Value[] argProducerss = frame.getActualArguments(callsite);
+
             boolean doneWithCallsite = false;
+            if(dropReceiver) {
+                SourceValue rcvProd = frame.getReceiver(callsite);
+                if(consumersExistOtherThanCallsite(cp, rcvProd, callsite)) {
+                    // drop unneeded value at the point of consumption
+                    toSpill.put(callsite, -1);
+                    doneWithCallsite = true;
+                } else {
+                    // drop unneeded value at the source
+                    toPOP1.addAll(rcvProd.insns);
+                }
+            }
+
+            Value[] argProducerss = frame.getActualArguments(callsite);
             for(int paramPos = 0; paramPos < argProducerss.length; paramPos++) {
                 if(!doneWithCallsite && elidedParams.contains(paramPos)) {
                     SourceValue argProducers = (SourceValue)argProducerss[paramPos];
-                    boolean anyOtherConsumers = false;
-                    for(AbstractInsnNode prod : argProducers.insns) {
-                        if(!cp.hasUniqueImage(prod, callsite)) {
-                            anyOtherConsumers = true;
-                        }
-                    }
-                    if(anyOtherConsumers) {
+                    if(consumersExistOtherThanCallsite(cp, argProducers, callsite)) {
                         // drop unneeded value at the point of consumption
                         toSpill.put(callsite, paramPos);
                         doneWithCallsite = true;
@@ -288,10 +353,14 @@ public class UnusedParamsElider {
         }
 
         for(MethodInsnNode callsite : toSpill.keySet()) {
-            Frame<SourceValue> frame = callsiteFrame.get(callsite);
             Type[] argTs = Type.getArgumentTypes(oldDescr);
+            boolean spillReceiver = false;
             int firstParamToDrop = toSpill.get(callsite);
-            assert elidedParams.contains(firstParamToDrop);
+            if(firstParamToDrop == -1) {
+                spillReceiver = true;
+                firstParamToDrop = 0;
+            }
+            assert spillReceiver || elidedParams.contains(firstParamToDrop);
             int[] idxOfAddedLocalVars = new int[argTs.length]; // indexed by paramPos
             for(int paramPos = argTs.length - 1; paramPos >= firstParamToDrop; paramPos--) {
                 int idx = caller.maxLocals;
@@ -299,6 +368,9 @@ public class UnusedParamsElider {
                 caller.maxLocals += argTs[paramPos].getSize();
                 VarInsnNode storeInsn = new VarInsnNode(argTs[paramPos].getOpcode(Opcodes.ISTORE), idx);
                 caller.instructions.insertBefore(callsite, storeInsn);
+            }
+            if(spillReceiver) {
+                caller.instructions.insertBefore(callsite, Util.getDrop(1));
             }
             for(int paramPos = firstParamToDrop; paramPos < argTs.length; paramPos++) {
                 if(!elidedParams.contains(paramPos)) {
@@ -308,24 +380,15 @@ public class UnusedParamsElider {
                 }
             }
         }
+    }
 
-        for(MethodInsnNode callsite : callsites) {
-            callsite.desc = callee.desc;
+    private static boolean consumersExistOtherThanCallsite(ProdConsAnalyzer cp, SourceValue argProducers, MethodInsnNode callsite) {
+        for(AbstractInsnNode prod : argProducers.insns) {
+            if(!cp.hasUniqueImage(prod, callsite)) {
+                return true;
+            }
         }
-
-        Util.computeMaxLocalsMaxStack(caller);
-    }
-
-    private boolean isThis(final int localVarIdx, final MethodNode m) {
-        return (localVarIdx == 0) && Util.isInstanceMethod(m);
-    }
-
-    private boolean isPrivate(final MethodNode m) {
-        return (m.access & Opcodes.ACC_PRIVATE) != 0;
-    }
-
-    private boolean isStatic(final MethodNode m) {
-        return (m.access & Opcodes.ACC_STATIC) != 0;
+        return false;
     }
 
 }
