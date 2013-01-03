@@ -104,7 +104,7 @@ public class NullnessPropagator {
                         break;
 
                     case Opcodes.INVOKESTATIC:
-                        if(frame.getStackTop().isNull()) {
+                        if((frame.getStackSize() > 0) && (frame.getStackTop().isNull())) {
                             MethodInsnNode mi = (MethodInsnNode)insns[i];
                             if(SSLUtil.isScalaUnBoxCall(mi)) {
                                 // Scala unbox of null is 0

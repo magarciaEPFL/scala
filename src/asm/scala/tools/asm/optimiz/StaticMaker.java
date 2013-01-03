@@ -165,6 +165,9 @@ public class StaticMaker {
             callsite.setOpcode(Opcodes.INVOKESTATIC);
         }
 
+        // get rid of LOADs made redundant by the DROPs inserted, as well as dead-stores.
+        UnusedParamsElider.elimRedundantLocalVarAccesses(cnode.name, caller);
+
         // not necessary to Util.computeMaxLocalsMaxStack(caller) because maxLocals was increased as need arose. maxStack doesn't change.
     }
 

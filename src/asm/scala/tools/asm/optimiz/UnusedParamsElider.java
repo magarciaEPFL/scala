@@ -245,6 +245,9 @@ public class UnusedParamsElider {
             callsite.desc = callee.desc;
         }
 
+        // get rid of LOADs made redundant by the DROPs inserted, as well as dead-stores.
+        UnusedParamsElider.elimRedundantLocalVarAccesses(cnode.name, caller);
+
         // not necessary to Util.computeMaxLocalsMaxStack(caller) because maxLocals was increased as need arose. maxStack doesn't change.
     }
 
@@ -380,7 +383,8 @@ public class UnusedParamsElider {
                 }
             }
         }
-    }
+
+    } // end of methdo dropArgumentsForElidedParams()
 
     private static boolean consumersExistOtherThanCallsite(ProdConsAnalyzer cp, SourceValue argProducers, MethodInsnNode callsite) {
         for(AbstractInsnNode prod : argProducers.insns) {
@@ -391,4 +395,21 @@ public class UnusedParamsElider {
         return false;
     }
 
+    /**
+     *  Get rid of LOADs made redundant by the DROPs inserted, as well as dead-stores.
+     * */
+    public static void elimRedundantLocalVarAccesses(final String cName, final MethodNode mnode) throws AnalyzerException {
+      DeadStoreElim    deadStoreElim   = new DeadStoreElim();
+      PushPopCollapser ppCollapser     = new PushPopCollapser();
+      UnreachableCode  unreachableCode = new UnreachableCode();
+
+      do {
+
+          unreachableCode.transform(cName, mnode); // remove unreachable code
+          deadStoreElim.transform(cName, mnode);   // replace STOREs to non-live local-vars with DROP instructions.
+          ppCollapser.transform(cName, mnode);     // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+
+      } while (deadStoreElim.changed || ppCollapser.changed);
+
+    }
 }
