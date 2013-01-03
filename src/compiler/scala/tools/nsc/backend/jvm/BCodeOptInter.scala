@@ -434,8 +434,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
+    /**
+     *  TODO documentation
+     *
+     *  must-single-thread
+     *
+     **/
     def optimize() {
-      allowFindingDelegateGivenClosure()
+      // allowFindingDelegateGivenClosure()
       // groupClosuresByMasterClass()
       // privatizables.clear
       inlining()
@@ -447,6 +453,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     val closureEndpoint = mutable.Map.empty[BType, MethodRef] // closureClass -> delegate method called from that closure
 
+    /**
+     *  TODO documentation
+     *
+     *  must-single-thread
+     *
+     **/
     private def allowFindingDelegateGivenClosure() {
       import uncurry.{ ClosureAndDelegate, closuresAndDelegates }
       for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
@@ -561,8 +573,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
       }
-
-
 
     } // end of method inlining()
 
