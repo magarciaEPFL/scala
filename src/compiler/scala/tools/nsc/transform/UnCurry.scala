@@ -57,6 +57,10 @@ abstract class UnCurry extends InfoTransform
   def newTransformer(unit: CompilationUnit): Transformer = new UnCurryTransformer(unit)
   override def changesBaseClasses = false
 
+  case class ClosureAndDelegate(closureClassSymbol: ClassSymbol, delegateMethodSymbol: MethodSymbol)
+
+  var closuresAndDelegates: List[ClosureAndDelegate] = Nil
+
 // ------ Type transformation --------------------------------------------------------
 
 // uncurry and uncurryType expand type aliases
@@ -397,7 +401,7 @@ abstract class UnCurry extends InfoTransform
         amethDef
       }
 
-      // val pmmh = closureOwner newValue(unit.freshTermName("pmmh"), fun.pos, inConstructorFlag) setInfo fun.tpe
+      closuresAndDelegates ::= ClosureAndDelegate(anonClass, hoistedMethodDef.symbol.asInstanceOf[MethodSymbol])
 
       localTyper.typedPos(fun.pos) {
         Block(

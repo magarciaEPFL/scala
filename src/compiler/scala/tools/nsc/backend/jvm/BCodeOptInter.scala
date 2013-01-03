@@ -430,9 +430,40 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * However, `WholeProgramAnalysis.inlining()` does not consume ClassNodes from q2
    * but from a queue of CallGraphNodes (BCodeOptInter.cgns) that is populated during PlainClassBuilder's genDefDef().
    */
-  class WholeProgramAnalysis {
+  class WholeProgramAnalysis extends BCInnerClassGen {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
+
+    def optimize() {
+      allowFindingDelegateGivenClosure()
+      // groupClosuresByMasterClass()
+      // privatizables.clear
+      inlining()
+      // for(priv <- privatizables) { Util.makePrivate(priv) }
+      // minimizeClosureFields()
+    }
+
+    case class MethodRef(ownerClass: BType, mnode: MethodNode)
+
+    val closureEndpoint = mutable.Map.empty[BType, MethodRef] // closureClass -> delegate method called from that closure
+
+    private def allowFindingDelegateGivenClosure() {
+      import uncurry.{ ClosureAndDelegate, closuresAndDelegates }
+      for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
+        val closureClassBT: BType = exemplar(closureClassSymbol).c
+        val delegateMethodRef = {
+          val delegateOwnerBT:    BType = exemplar(delegateMethodSymbol.owner).c
+          val delegateMethodType: BType = asmMethodType(delegateMethodSymbol)
+          val delegateName = delegateMethodSymbol.javaSimpleName.toString
+          assert(codeRepo.classes.containsKey(delegateOwnerBT))
+          val delegateMethodNode = codeRepo.getMethod(delegateOwnerBT, delegateName, delegateMethodType.getDescriptor).mnode
+
+          MethodRef(delegateOwnerBT, delegateMethodNode)
+        }
+        closureEndpoint.put(closureClassBT, delegateMethodRef)
+      }
+      closuresAndDelegates = Nil
+    }
 
     /**
      *  Performs closure-inlining and method-inlining, by first breaking any cycles
@@ -667,6 +698,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       assert(callee != null)
       assert(callsite.name == callee.name)
       assert(callsite.desc == callee.desc)
+      assert(!Util.isConstructor(callee))
 
       val hostId   = hostOwner        + "::" + host.name   + host.desc
       val calleeId = calleeOwner.name + "::" + callee.name + callee.desc

@@ -365,7 +365,7 @@ abstract class GenBCode extends BCodeOptInter {
 
       val wp = new WholeProgramAnalysis()
       // val start = System.currentTimeMillis
-      wp.inlining()
+      wp.optimize()
       // println("Inlining took " + (System.currentTimeMillis - start) + " ms.")
 
       val workers = spawnPipeline2()
