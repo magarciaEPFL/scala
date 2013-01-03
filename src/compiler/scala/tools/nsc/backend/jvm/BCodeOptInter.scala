@@ -510,13 +510,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       if(!settings.keepUnusedPrivateClassMembers.value) {
 
         val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
+        val staticMaker         = new asm.optimiz.StaticMaker()
         val iterCompiledClasses = codeRepo.classes.values().iterator()
+
         while(iterCompiledClasses.hasNext) {
           val cnode = iterCompiledClasses.next()
-          do {
-            val updatedMethodSignatures = unusedParamsElider.transform(cnode)
-            JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
-          } while (unusedParamsElider.changed)
+          val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
+          if(!cnodeEx.isSubtypeOf(jioSerializableReference)) {
+
+            do {
+              // elide unused params (private methods only)
+              val updatedMethodSignatures = unusedParamsElider.transform(cnode)
+              JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
+              // make static those private methods that don't rely on THIS
+              staticMaker.transform(cnode)
+            } while (unusedParamsElider.changed || staticMaker.changed)
+
+          }
         }
 
       }
