@@ -449,11 +449,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       inlining()
       // for(priv <- privatizables) { Util.makePrivate(priv) }
       // minimizeClosureFields()
+      closureEndpoint.clear()
+      closuresAtMasterClass.clear()
     }
 
     case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
-    val closureEndpoint = mutable.Map.empty[BType, MethodRef] // closureClass -> delegate method called from that closure
+    val closureEndpoint = mutable.Map.empty[BType, MethodRef] // delegating-closureClass -> delegate method called from that closure
 
     // -----------------------------------------------------------------------------------
     // ------------------------------- closure -> delegate -------------------------------
@@ -467,6 +469,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     private def allowFindingDelegateGivenClosure() {
       import uncurry.{ ClosureAndDelegate, closuresAndDelegates }
+      closureEndpoint.clear()
       for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
         val closureTR = exemplar(closureClassSymbol)
         assert(closureTR.isClosureClass)
@@ -484,7 +487,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         closureEndpoint.put(closureBT, delegateMethodRef)
       }
       closuresAndDelegates = Nil
-    }
+
+    } // end of method allowFindingDelegateGivenClosure()
 
     // ----------------------------------------------------------------------------------
     // ------------------------------- master -> closures -------------------------------
@@ -492,7 +496,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     case class ClosureInstantiation(newInsn: TypeInsnNode, closureClass: BType)
 
-    case class ClosuresAtMasterMethod(mnode: MethodNode, delegating: List[ClosureInstantiation])
+    case class ClosuresAtMasterMethod(mnode: MethodNode, delegating: Array[ClosureInstantiation])
 
     val closuresAtMasterClass = mutable.Map.empty[BType, List[ClosuresAtMasterMethod]]
 
@@ -503,16 +507,61 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      **/
     private def groupClosuresByMasterClass() {
+
+      closuresAtMasterClass.clear()
       val iter: java.util.Iterator[java.util.Map.Entry[BType, ClassNode]] = codeRepo.classes.entrySet().iterator()
       while(iter.hasNext) {
         val e = iter.next
         val master: Tracked  = exemplars.get(e.getKey)
         val cnode: ClassNode = e.getValue
         if(!master.isClosureClass && !master.isSerializable) {
-          // scan its non-abstract methods and constructors, find instantiations of delegating-closures in them
+
+            /**
+             * scan master's non-abstract methods and constructors, find instantiations of delegating-closures in them
+             * */
+            def visitMaster: List[ClosuresAtMasterMethod] = {
+              for(
+                mnode <- JListWrapper(cnode.methods).toList;
+                if !Util.isAbstractMethod(mnode); // constructors are considered too
+                delegating = visitMethod(mnode);
+                if delegating.nonEmpty
+              ) yield {
+                ClosuresAtMasterMethod(mnode, delegating)
+              }
+            }
+
+            /**
+             * find instantiations of delegating-closures in mnode
+             * */
+            def visitMethod(mnode: MethodNode): Array[ClosureInstantiation] = {
+              for(
+                insn <- mnode.instructions.toArray;
+                if insn != null;
+                if insn.getOpcode == Opcodes.NEW;
+                newInsn = insn.asInstanceOf[TypeInsnNode];
+                if newInsn.desc.contains(tpnme.ANON_FUN_NAME.toString);
+                cloBT = lookupRefBType(newInsn.desc);
+                if exemplars.get(cloBT).isClosureClass;
+                if closureEndpoint.contains(cloBT)
+              ) yield {
+                ClosureInstantiation(newInsn, cloBT)
+              }
+            }
+
+          val v = visitMaster
+          if(v.nonEmpty) {
+            closuresAtMasterClass.put(master.c, v)
+          }
+
         }
+
       }
-    }
+
+      // ideally we should cross-check by scanning codeRepo.classes that
+      // each delegating-closure-class has been grouped into exactly one "master" class.
+      // however we've skipped those "master" classes which are serializable, and thus their delegating-closures
+
+    } // end of method groupClosuresByMasterClass()
 
     // ----------------------------------------------------------------------------------
     // ------------------------------- closure-fields MIN -------------------------------
