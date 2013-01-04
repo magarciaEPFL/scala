@@ -488,7 +488,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
       closuresAndDelegates = Nil
 
+      /*
+       * invariant: a class C owning a closure-endpoint method cannot be a delegating-closure itself
+       * (it's fine for C to be a non-delegating-closure or a non-closure).
+       *
+       * Given that non-delegating-closure classes may own closure-endpoints,
+       * those classes should be optimized as any other class owning closure-endpoints (see `minimizeClosureFields`)
+       */
+      for(cep <- closureEndpoint) {
+        val endpointOwningClass: BType = cep._2.ownerClass
+        assert(
+          !isDelegatingClosure(endpointOwningClass),
+          "A class owning a closure-endpoint method cannot be a delegating-closure itself: " + endpointOwningClass.getInternalName
+        )
+      }
+
     } // end of method allowFindingDelegateGivenClosure()
+
+    def isDelegatingClosure(c: BType) = { closureEndpoint.contains(c) }
 
     // ----------------------------------------------------------------------------------
     // ------------------------------- master -> closures -------------------------------
@@ -514,7 +531,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val e = iter.next
         val master: Tracked  = exemplars.get(e.getKey)
         val cnode: ClassNode = e.getValue
-        if(!master.isClosureClass && !master.isSerializable) {
+        if(!isDelegatingClosure(master.c) && !master.isSerializable) {
 
             /**
              * scan master's non-abstract methods and constructors, find instantiations of delegating-closures in them
@@ -542,7 +559,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 if newInsn.desc.contains(tpnme.ANON_FUN_NAME.toString);
                 cloBT = lookupRefBType(newInsn.desc);
                 if exemplars.get(cloBT).isClosureClass;
-                if closureEndpoint.contains(cloBT)
+                if isDelegatingClosure(cloBT)
               ) yield {
                 ClosureInstantiation(newInsn, cloBT)
               }
