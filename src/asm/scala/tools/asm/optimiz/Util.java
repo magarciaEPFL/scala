@@ -243,12 +243,30 @@ public class Util {
         return (m.access & Opcodes.ACC_PRIVATE) != 0;
     }
 
+    public static void makePrivateMethod(final MethodNode m) {
+        m.access |=  Opcodes.ACC_PRIVATE;
+        m.access &= ~Opcodes.ACC_PUBLIC;
+        m.access &= ~Opcodes.ACC_PROTECTED;
+    }
+
     public static boolean isPublicMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_PUBLIC) != 0;
     }
 
+    public static void makePublicMethod(final MethodNode m) {
+        m.access &= ~Opcodes.ACC_PRIVATE;
+        m.access |=  Opcodes.ACC_PUBLIC;
+        m.access &= ~Opcodes.ACC_PROTECTED;
+    }
+
     public static boolean isProtectedMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_PROTECTED) != 0;
+    }
+
+    public static void makeProtectedMethod(final MethodNode m) {
+        m.access &= ~Opcodes.ACC_PRIVATE;
+        m.access &= ~Opcodes.ACC_PUBLIC;
+        m.access |=  Opcodes.ACC_PROTECTED;
     }
 
     public static boolean isAbstractMethod(final MethodNode m) {

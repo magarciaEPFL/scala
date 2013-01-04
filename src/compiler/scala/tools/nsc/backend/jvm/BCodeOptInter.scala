@@ -445,10 +445,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def optimize() {
       allowFindingDelegateGivenClosure()
       groupClosuresByMasterClass()
-      // privatizables.clear
+      privatizables.clear()
       inlining()
-      // for(priv <- privatizables) { Util.makePrivate(priv) }
-      // minimizeClosureFields()
+      for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+      privatizables.clear()
+      minimizeClosureFields()
       closureEndpoint.clear()
       closuresAtMasterClass.clear()
     }
@@ -456,6 +457,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
     val closureEndpoint = mutable.Map.empty[BType, MethodRef] // delegating-closureClass -> delegate method called from that closure
+
+    /* shio methods are grouped in the `privatizables` map by their ownning class.
+     * They spend most of their time as public methods,
+     * so as not to block method-inlining (they're synthetically generated, thus it would come as a surprise
+     * if they required attention from the developer).
+     * However, if no method-inlining transplanted them to another class,
+     * they are made private as initially intended. */
+    val privatizables = new MethodsPerClass
 
     // -----------------------------------------------------------------------------------
     // ------------------------------- closure -> delegate -------------------------------
@@ -606,6 +615,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *    - `WholeProgramAnalysis.inlineClosures()` of closure-inlining
      *    - closure-state params that see no use are elided (e.g., the receiver of a dlgt$ invocation).
      *
+     *  @return a map with shio methods, we'll need them later to make them private.
+     *
      *  must-single-thread
      *
      **/
@@ -625,27 +636,27 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         mn2cgn += (cgn.host -> cgn)
       }
 
-      /**
-       * @return true iff there's a chain of inline-requests starting at `start` that contains `goal`
-       * */
-      def isReachable(start: MethodNode, goal: MethodNode, visited: Set[MethodNode]): Boolean = {
-        (start eq goal) ||
-        (visited contains goal) || {
+          /**
+           * @return true iff there's a chain of inline-requests starting at `start` that contains `goal`
+           * */
+          def isReachable(start: MethodNode, goal: MethodNode, visited: Set[MethodNode]): Boolean = {
+            (start eq goal) ||
+            (visited contains goal) || {
 
-          val directCallees: Set[MethodNode] = {
-            mn2cgn.get(start) match {
-              case Some(startCGN) => startCGN.directCallees
-              case _              => Set.empty
+              val directCallees: Set[MethodNode] = {
+                mn2cgn.get(start) match {
+                  case Some(startCGN) => startCGN.directCallees
+                  case _              => Set.empty
+                }
+              }
+              (directCallees contains goal) || {
+                val visited2 = (visited ++ directCallees)
+
+                directCallees exists { d => isReachable(d, goal, visited2) }
+              }
+
             }
           }
-          (directCallees contains goal) || {
-            val visited2 = (visited ++ directCallees)
-
-            directCallees exists { d => isReachable(d, goal, visited2) }
-          }
-
-        }
-      }
 
       for(cgn <- cgns) {
         cgn.hiOs  = cgn.hiOs  filterNot { it: InlineTarget => isReachable(it.callee, cgn.host, Set.empty) }
@@ -661,12 +672,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val remaining = mutable.Set.empty[CallGraphNode]
       remaining ++= cgns.toList
       while(remaining.nonEmpty) {
-
         val leaves = remaining.filter( cgn => cgn.candidates.forall( c => !mn2cgn.contains(c.callee) || !remaining.contains(mn2cgn(c.callee)) ) )
         assert(leaves.nonEmpty, "Otherwise loop forever")
-
-        leaves foreach { leaf  => inlineCallees(leaf) }
-
+        inliningRound(leaves)
         remaining --= leaves
       }
 
@@ -697,11 +705,41 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method inlining()
 
+    class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
+
+      def track(k: ClassNode, v: MethodNode) { track(lookupRefBType(k.name), v) }
+      def track(k: BType,     v: MethodNode) { put(k, v :: getOrElse(k, Nil)) }
+
+      def untrack(k: BType,   v: MethodNode) { put(k, getOrElse(k, Nil) filterNot { _ eq v } ) }
+      def untrack(k: BType, methodName: String, methodDescr: String) {
+        put(k, getOrElse(k, Nil) filterNot { mn => (mn.name == methodName) && (mn.desc == methodDescr) } )
+      }
+
+    } // end of class MethodsPerClass
+
+    /**
+     *  TODO documentation
+     *
+     *  @param leaves        TODO
+     *
+     * */
+    private def inliningRound(leaves: collection.Set[CallGraphNode]) {
+
+      // owning-class -> shio-method (ie a shio-method added in the current inlining round)
+      val inlinedSHiOs = new MethodsPerClass
+
+      leaves foreach { leaf => inlineCallees(leaf, inlinedSHiOs) }
+
+    }
+
     /**
      *  After avoiding attempts at cyclic inlining,
      *  this method is invoked to perform inlinings in a single method (given by `CallGraphNode.host`).
+     *
+     *  @param leaf         TODO
+     *  @param inlinedSHiOs TODO
      */
-    private def inlineCallees(leaf: CallGraphNode) {
+    private def inlineCallees(leaf: CallGraphNode, inlinedSHiOs: MethodsPerClass) {
 
       // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
 
@@ -755,7 +793,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           leaf.hostOwner,
           leaf.host,
           callsiteTypeFlow,
-          hiO
+          hiO,
+          inlinedSHiOs
         )
 
         val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
@@ -818,12 +857,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *         Some(diagnostics) iff the inlining is unfeasible.
      *
      */
-    private def inlineMethod(hostOwner:   String,
-                             host:        MethodNode,
-                             callsite:    MethodInsnNode,
-                             frame:       asm.tree.analysis.Frame[TFValue],
-                             callee:      MethodNode,
-                             calleeOwner: ClassNode): Option[String] = {
+    private def inlineMethod(hostOwner:     String,
+                             host:          MethodNode,
+                             callsite:      MethodInsnNode,
+                             frame:         asm.tree.analysis.Frame[TFValue],
+                             callee:        MethodNode,
+                             calleeOwner:   ClassNode): Option[String] = {
 
       assert(host.instructions.contains(callsite))
       assert(callee != null)
@@ -1248,10 +1287,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * If successful, it only remains for `StaticHiOUtil.rewriteHost()` to patch `host` to changed the target of
      * the original callsite invocation, as well as adapt its arguments.
      *
-     * @param hostOwner        the class declaring the host method
+     * @param hostOwner        the class declaring the host method.
+     *                         Upon successful closure-inling, a "static-HiO" ("shio") method is added to it.
      * @param host             the method containing a callsite for which inlining has been requested
      * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
      * @param inlineTarget     inlining request (includes: callsite, callee, callee's owner, and error reporting)
+     * @param inlinedSHiOs     TODO
      *
      * @return true iff inlining was actually performed.
      *
@@ -1259,7 +1300,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def inlineClosures(hostOwner:        ClassNode,
                                host:             MethodNode,
                                callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
-                               inlineTarget:     InlineTarget): Boolean = {
+                               inlineTarget:     InlineTarget,
+                               inlinedSHiOs:     MethodsPerClass): Boolean = {
 
       // invocation of a higher-order method (taking one or more closures) whose inlining is requested.
       val callsite: MethodInsnNode = inlineTarget.callsite
@@ -1540,9 +1582,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite, inlineTarget)
       if(staticHiO == null) { return false }
+      assert(Util.isPrivateMethod(staticHiO))
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)
       if(wasInlined) {
         hostOwner.methods.add(staticHiO)
+        inlinedSHiOs.track( hostOwner, staticHiO)
+        privatizables.track(hostOwner, staticHiO)
+        for(ccu <- closureClassUtils) {
+          val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
+          assert(isDelegatingClosure(delegatingClosureClass))
+          Util.makePrivateMethod(closureEndpoint(delegatingClosureClass).mnode)
+        }
       }
 
       true
