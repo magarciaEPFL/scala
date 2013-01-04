@@ -184,7 +184,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
       // ---------------- intra-class optimizations ----------------
 
       val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
-      if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSubtypeOf(jioSerializableReference)) {
+      if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSerializable) {
         unusedPrivateElider.transform(cnode)
       }
 

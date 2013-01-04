@@ -1085,6 +1085,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isClosureClass = {
       isInnerClass && isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
     }
+    def isSerializable = { isSubtypeOf(jioSerializableReference) }
 
     /** can-multi-thread */
     def superClasses: List[Tracked] = {

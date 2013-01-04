@@ -429,6 +429,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * (preparing those ClassNodes is the job of GenBCode's Worker1, with queue q2 being filled as a result).
    * However, `WholeProgramAnalysis.inlining()` does not consume ClassNodes from q2
    * but from a queue of CallGraphNodes (BCodeOptInter.cgns) that is populated during PlainClassBuilder's genDefDef().
+   *
+   * TODO break up into two or more classes
    */
   class WholeProgramAnalysis extends BCInnerClassGen {
 
@@ -437,12 +439,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  TODO documentation
      *
-     *  must-single-thread
+     *  must-single-thread due to `allowFindingDelegateGivenClosure()` invocation, the rest is amenable to task-parallelism.
      *
      **/
     def optimize() {
-      // allowFindingDelegateGivenClosure()
-      // groupClosuresByMasterClass()
+      allowFindingDelegateGivenClosure()
+      groupClosuresByMasterClass()
       // privatizables.clear
       inlining()
       // for(priv <- privatizables) { Util.makePrivate(priv) }
@@ -453,6 +455,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     val closureEndpoint = mutable.Map.empty[BType, MethodRef] // closureClass -> delegate method called from that closure
 
+    // -----------------------------------------------------------------------------------
+    // ------------------------------- closure -> delegate -------------------------------
+    // -----------------------------------------------------------------------------------
+
     /**
      *  TODO documentation
      *
@@ -462,20 +468,69 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def allowFindingDelegateGivenClosure() {
       import uncurry.{ ClosureAndDelegate, closuresAndDelegates }
       for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
-        val closureClassBT: BType = exemplar(closureClassSymbol).c
+        val closureTR = exemplar(closureClassSymbol)
+        assert(closureTR.isClosureClass)
+        val closureBT: BType = closureTR.c
         val delegateMethodRef = {
           val delegateOwnerBT:    BType = exemplar(delegateMethodSymbol.owner).c
           val delegateMethodType: BType = asmMethodType(delegateMethodSymbol)
-          val delegateName = delegateMethodSymbol.javaSimpleName.toString
+          val delegateName:      String = delegateMethodSymbol.javaSimpleName.toString
           assert(codeRepo.classes.containsKey(delegateOwnerBT))
           val delegateMethodNode = codeRepo.getMethod(delegateOwnerBT, delegateName, delegateMethodType.getDescriptor).mnode
+          assert(delegateMethodNode != null)
 
           MethodRef(delegateOwnerBT, delegateMethodNode)
         }
-        closureEndpoint.put(closureClassBT, delegateMethodRef)
+        closureEndpoint.put(closureBT, delegateMethodRef)
       }
       closuresAndDelegates = Nil
     }
+
+    // ----------------------------------------------------------------------------------
+    // ------------------------------- master -> closures -------------------------------
+    // ----------------------------------------------------------------------------------
+
+    case class ClosureInstantiation(newInsn: TypeInsnNode, closureClass: BType)
+
+    case class ClosuresAtMasterMethod(mnode: MethodNode, delegating: List[ClosureInstantiation])
+
+    val closuresAtMasterClass = mutable.Map.empty[BType, List[ClosuresAtMasterMethod]]
+
+    /**
+     *  TODO documentation
+     *
+     *  can-multi-thread
+     *
+     **/
+    private def groupClosuresByMasterClass() {
+      val iter: java.util.Iterator[java.util.Map.Entry[BType, ClassNode]] = codeRepo.classes.entrySet().iterator()
+      while(iter.hasNext) {
+        val e = iter.next
+        val master: Tracked  = exemplars.get(e.getKey)
+        val cnode: ClassNode = e.getValue
+        if(!master.isClosureClass && !master.isSerializable) {
+          // scan its non-abstract methods and constructors, find instantiations of delegating-closures in them
+        }
+      }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // ------------------------------- closure-fields MIN -------------------------------
+    // ----------------------------------------------------------------------------------
+
+    /**
+     *  TODO documentation
+     *
+     *  can-multi-thread
+     *
+     **/
+    private def minimizeClosureFields() {
+
+    }
+
+    // -------------------------------------------------------------------------------
+    // ------------------------------- inlining rounds -------------------------------
+    // -------------------------------------------------------------------------------
 
     /**
      *  Performs closure-inlining and method-inlining, by first breaking any cycles
@@ -559,7 +614,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         while(iterCompiledClasses.hasNext) {
           val cnode = iterCompiledClasses.next()
           val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
-          if(!cnodeEx.isSubtypeOf(jioSerializableReference)) {
+          if(!cnodeEx.isSerializable) {
 
             do {
               // elide unused params (private methods only)
