@@ -63,6 +63,7 @@ public class UnusedParamsElider {
                 String oldDescr = m.desc;
                 Set<Integer> elidedParams = elideUnusedParams(cnode, m);
                 if(!elidedParams.isEmpty()) {
+                    changed = true;
                     updatedMethodSignatures.add(m);
                     for (MethodNode caller : cnode.methods) {
                         elideArguments(cnode, caller, m, oldDescr, elidedParams);
@@ -83,7 +84,7 @@ public class UnusedParamsElider {
      *  @param m     private method or constructors whose unused params are to be elided.
      *
      * */
-    public Set<Integer> elideUnusedParams(final ClassNode cnode, final MethodNode m) {
+    public static Set<Integer> elideUnusedParams(final ClassNode cnode, final MethodNode m) {
         assert Util.isPrivateMethod(m);
         assert cnode.methods.contains(m);
 
@@ -143,8 +144,6 @@ public class UnusedParamsElider {
         for(idx = paramStatus.length - 1; idx >= firstParamLocalVarIdx; idx--) {
             if(paramStatus[idx] == -1) {
 
-                changed = true;
-
                 int paramPos = originalParamPos[idx];
                 paramTs[paramPos] = null;
                 elidedParams.add(paramPos);
@@ -201,11 +200,11 @@ public class UnusedParamsElider {
      *  @param elidedParams zero-based positions of params that were elided in callee.
      *
      * */
-    public void elideArguments(final ClassNode    cnode,
-                               final MethodNode   caller,
-                               final MethodNode   callee,
-                               final String       oldDescr,
-                               final Set<Integer> elidedParams) throws AnalyzerException {
+    public static void elideArguments(final ClassNode    cnode,
+                                      final MethodNode   caller,
+                                      final MethodNode   callee,
+                                      final String       oldDescr,
+                                      final Set<Integer> elidedParams) throws AnalyzerException {
 
         assert cnode.methods.contains(caller);
         assert cnode.methods.contains(callee);
@@ -234,8 +233,6 @@ public class UnusedParamsElider {
         if(callsites.isEmpty()) {
             return;
         }
-
-        changed = true;
 
         // drop arguments for elided params
         dropArgumentsForElidedParams(cnode, caller, callsites, oldDescr, false, elidedParams);
@@ -399,9 +396,9 @@ public class UnusedParamsElider {
      *  Get rid of LOADs made redundant by the DROPs inserted, as well as dead-stores.
      * */
     public static void elimRedundantLocalVarAccesses(final String cName, final MethodNode mnode) throws AnalyzerException {
+      UnreachableCode  unreachableCode = new UnreachableCode();
       DeadStoreElim    deadStoreElim   = new DeadStoreElim();
       PushPopCollapser ppCollapser     = new PushPopCollapser();
-      UnreachableCode  unreachableCode = new UnreachableCode();
 
       do {
 

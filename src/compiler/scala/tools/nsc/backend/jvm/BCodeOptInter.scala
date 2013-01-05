@@ -449,7 +449,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       groupDClosuresByMasterClass()
       privatizables.clear()
       inlining()
-      for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+      // for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
       privatizables.clear()
       minimizeDClosureFields()
       dclosureEndpoint.clear()
@@ -717,6 +717,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         remaining --= leaves
       }
 
+      /*
+
       // elide closure-state params that see no use (e.g., the receiver of a dlgt$ invocation).
       if(!settings.keepUnusedPrivateClassMembers.value) {
 
@@ -743,6 +745,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
       }
+
+      */
 
     } // end of method inlining()
 
