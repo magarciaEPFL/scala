@@ -439,7 +439,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  TODO documentation
      *
-     *  must-single-thread due to `allowFindingDelegateGivenClosure()` invocation, the rest is amenable to task-parallelism.
+     *  must-single-thread due to
+     *    - `allowFindingDelegateGivenClosure()`
+     *    - `inlining()`
      *
      **/
     def optimize() {
@@ -454,7 +456,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       dclosuresAtMasterClass.clear()
     }
 
-    case class MethodRef(ownerClass: BType, mnode: MethodNode)
+    private case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
     /**
      * delegating-closure-class -> delegate method called from that closure
@@ -471,28 +473,26 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   allowFindingDelegateGivenClosure()
      * has run. Before that, the map is empty.
      * */
-    val dclosureEndpoint = mutable.Map.empty[BType, MethodRef]
+    private val dclosureEndpoint = mutable.Map.empty[BType, MethodRef]
 
-    def isDelegatingClosure( c: BType) = { dclosureEndpoint.contains(c) }
-    def isTraditionalClosure(c: BType) = { c.isClosureClass && !isDelegatingClosure(c) }
+    private def isDelegatingClosure( c: BType) = { dclosureEndpoint.contains(c) }
+    private def isTraditionalClosure(c: BType) = { c.isClosureClass && !isDelegatingClosure(c) }
 
     /**
      * The set of delegating-closures created during UnCurry, represented as BTypes.
      * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
      * */
-    def delegatingClosures: collection.Set[BType] = { dclosureEndpoint.keySet }
+    private def delegatingClosures: collection.Set[BType] = { dclosureEndpoint.keySet }
 
     /**
      * shio methods are collected as they are built in the `privatizables` map, grouped by their ownning class.
-     * (That ownning class must be a delegating-closure endpoint).
+     * (That class also owns what used to be the endpoint of the delegating-closure that was inlined).
      *
-     * shio methods spend most of their time as public methods,
-     * so as not to block method-inlining (they're synthetically generated, thus it would come as a surprise
-     * if they required attention from the developer).
-     * However, in case no method-inlining transplanted them to another class,
-     * they are made private as initially intended.
+     * shio methods spend most of their time as public methods, so as not to block method-inlining
+     * (they're synthetically generated, thus it would come as a surprise if they required attention from the developer).
+     * However, in case no method-inlining transplanted them to another class, they are made private as initially intended.
      * */
-    val privatizables = new MethodsPerClass
+    private val privatizables = new MethodsPerClass
 
     // ------------------------------------------------------------------------------------
     // ------------------------------- dclosure -> endpoint -------------------------------
@@ -547,14 +547,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // -----------------------------------------------------------------------------------
 
     /**
-     *  Records for a delegating-closure instantiations the NEW instruction and the closure-class.
+     *  Records for a delegating-closure-instantiation the NEW instruction and the closure-class.
      **/
-    case class DClosureInstantiation(newInsn: TypeInsnNode, closureClass: BType)
+    private case class DClosureInstantiation(newInsn: TypeInsnNode, closureClass: BType)
 
     /**
-     *  Records for a method or constructor in a "master-class" the occurrences it contains of delegating-closure instantiations.
+     *  Records for a method or constructor in a "master-class" the occurrences
+     *  the method or constructor contains of delegating-closure instantiations.
      **/
-    case class DClosuresAtMasterMethod(mnode: MethodNode, delegating: Array[DClosureInstantiation])
+    private case class DClosuresAtMasterMethod(mnode: MethodNode, delegating: Array[DClosureInstantiation])
 
     /**
      *  "master class" -> the delegating-closures it "owns",
@@ -562,7 +563,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *    (a) is not a delegating-closure; and
      *    (b) instantiates one or more delegating-closures.
      **/
-    val dclosuresAtMasterClass = mutable.Map.empty[BType, List[DClosuresAtMasterMethod]]
+    private val dclosuresAtMasterClass = mutable.Map.empty[BType, List[DClosuresAtMasterMethod]]
+
+    private def isMasterClass(c: BType) = { dclosuresAtMasterClass.contains(c) }
 
     /**
      *  During optimization of a "master-class" it's useful to know for which delegating-closures it's responsible.
@@ -652,12 +655,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  Afterwards,
      *    - `WholeProgramAnalysis.inlineMethod()`   takes care of method-inlining
      *    - `WholeProgramAnalysis.inlineClosures()` of closure-inlining
-     *    - closure-state params that see no use are elided (e.g., the receiver of a dlgt$ invocation).
      *
      *  must-single-thread
      *
      **/
-    def inlining() {
+    private def inlining() {
 
       /*
        * The MethodNode for each callsite to an @inline method is found via `CallGraphNode.populate()`,
@@ -718,6 +720,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // elide closure-state params that see no use (e.g., the receiver of a dlgt$ invocation).
       if(!settings.keepUnusedPrivateClassMembers.value) {
 
+        // TODO decide location for PrivatCompacter
+
         val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
         val staticMaker         = new asm.optimiz.StaticMaker()
         val iterCompiledClasses = codeRepo.classes.values().iterator()
@@ -742,7 +746,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method inlining()
 
-    class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
+    private class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
 
       def track(k: ClassNode, v: MethodNode) { track(lookupRefBType(k.name), v) }
       def track(k: BType,     v: MethodNode) { put(k, v :: getOrElse(k, Nil)) }
@@ -764,6 +768,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  TODO documentation
      *
+     *  TODO leaves are independent from each other, could be done in parallel.
+     *
      *  @param leaves        TODO
      *
      * */
@@ -777,8 +783,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     *  After avoiding attempts at cyclic inlining,
-     *  this method is invoked to perform inlinings in a single method (given by `CallGraphNode.host`).
+     *  Perform inlinings in a single method (given by `CallGraphNode.host`)
+     *  of the callees given by `CallGraphNode.procs` and `CallGraphNode.hiOs`.
      *
      *  @param leaf         TODO
      *  @param inlinedSHiOs TODO
@@ -1649,7 +1655,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  @param usages            invocations in hiO of closureClass' applyMethod.
      *                           Allows finding out the instruction producing receiver and arguments.
      */
-    case class ClosureUsages(
+    private case class ClosureUsages(
       formalParamPosHiO: Int,
       localVarIdxHiO:    Int,
       closureClass:      ClassNode,
@@ -1660,7 +1666,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  Query methods that dig out information hidden in the structure of a closure-class.
      */
-    case class ClosureClassUtil(closureUsages: ClosureUsages) {
+    private case class ClosureClassUtil(closureUsages: ClosureUsages) {
 
       def closureClass: ClassNode = closureUsages.closureClass
 
@@ -1976,7 +1982,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  @param closureClassUtils a subset of the closures that `hiO` expects,
      *                           ie the subset that has survived a plethora of checks about pre-conditions for inlining.
      */
-    case class StaticHiOUtil(hiO: MethodNode, closureClassUtils: Array[ClosureClassUtil]) {
+    private case class StaticHiOUtil(hiO: MethodNode, closureClassUtils: Array[ClosureClassUtil]) {
 
       val howMany = closureClassUtils.size
 
