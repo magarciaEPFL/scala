@@ -457,17 +457,29 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
     /**
-     * All methods querying the closureEndpoint map,
-     *   ie isDelegatingClosure(), isTraditionalClosure(), delegatingClosures()
+     * delegating-closure-class -> delegate method called from that closure
+     *
+     * One such pair for each "delegating closure" (dclosure for short)
+     * created by `closureConversionMethodHandle()` in UnCurry.
+     *
+     * Therefore the map contains entries for dclosures that might not be emitted,
+     * e.g. as a result of dead-code elimination or closure inlining.
+     *
+     * All methods querying the closureEndpoint map, e.g.
+     *   isDelegatingClosure(), isTraditionalClosure(), delegatingClosures()
      * may be called only after
      *   allowFindingDelegateGivenClosure()
      * has run. Before that, the map is empty.
      * */
-    val dclosureEndpoint = mutable.Map.empty[BType, MethodRef] // delegating-closureClass -> delegate method called from that closure
+    val dclosureEndpoint = mutable.Map.empty[BType, MethodRef]
 
     def isDelegatingClosure( c: BType) = { dclosureEndpoint.contains(c) }
     def isTraditionalClosure(c: BType) = { c.isClosureClass && !isDelegatingClosure(c) }
 
+    /**
+     * The set of delegating-closures created during UnCurry, represented as BTypes.
+     * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
+     * */
     def delegatingClosures: collection.Set[BType] = { dclosureEndpoint.keySet }
 
     /**
@@ -482,9 +494,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     val privatizables = new MethodsPerClass
 
-    // -----------------------------------------------------------------------------------
-    // ------------------------------- closure -> delegate -------------------------------
-    // -----------------------------------------------------------------------------------
+    // ------------------------------------------------------------------------------------
+    // ------------------------------- dclosure -> endpoint -------------------------------
+    // ------------------------------------------------------------------------------------
 
     /**
      *  TODO documentation
@@ -530,9 +542,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method allowFindingDelegateGivenClosure()
 
-    // ----------------------------------------------------------------------------------
-    // ------------------------------- master -> closures -------------------------------
-    // ----------------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------------
+    // ------------------------------- master -> dclosures -------------------------------
+    // -----------------------------------------------------------------------------------
 
     /**
      *  Records for a delegating-closure instantiations the NEW instruction and the closure-class.
@@ -616,9 +628,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method groupClosuresByMasterClass()
 
-    // ----------------------------------------------------------------------------------
-    // ------------------------------- closure-fields MIN -------------------------------
-    // ----------------------------------------------------------------------------------
+    // -----------------------------------------------------------------------------------
+    // ------------------------------- dclosure-fields MIN -------------------------------
+    // -----------------------------------------------------------------------------------
 
     /**
      *  TODO documentation
@@ -1069,15 +1081,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                             isReceiverKnownNonNull: Boolean,
                             hiO:       MethodNode,
                             hiOOwner:  ClassNode) {
-      val remark =
-        if(isReceiverKnownNonNull) ""
-        else " (albeit null receiver couldn't be ruled out)"
 
-      val kind = if(isHiO) "closure-inlining" else "method-inlining"
-
-      val leading = (
-        if(success) "Successful " + kind + remark
-        else        "Failed "     + kind )
+      val remark  = if(isReceiverKnownNonNull) ""  else " (albeit null receiver couldn't be ruled out)"
+      val kind    = if(isHiO)   "closure-inlining" else "method-inlining"
+      val leading = if(success) "Successful " + kind + remark else "Failed " + kind
 
       log(
         leading +
