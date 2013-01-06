@@ -465,24 +465,6 @@ public class ClassWriter extends ClassVisitor {
      */
     MethodWriter firstMethod;
 
-    public MethodWriter[] getMethodWriters() {
-        int methodCount = 0;
-        MethodWriter mb = firstMethod;
-        while (mb != null) {
-            methodCount++;
-            mb = (MethodWriter) mb.mv;
-        }
-        MethodWriter[] arr = new MethodWriter[methodCount];
-        mb = firstMethod;
-        int idx = 0;
-        while (mb != null) {
-            arr[idx] = mb;
-            idx++;
-            mb = (MethodWriter) mb.mv;
-        }
-        return arr;
-    }
-
     /**
      * The methods of this class. These methods are stored in a linked list of
      * {@link MethodWriter} objects, linked to each other by their

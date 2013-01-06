@@ -168,22 +168,30 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      */
     def cleanseClass() {
-      // find out maxLocals and maxStack (maxLocals is given by nxtIdx in PlainClassBuilder, but maxStack hasn't been computed yet).
-      val cw = new asm.ClassWriter(asm.ClassWriter.COMPUTE_MAXS)
-      cnode.accept(cw)
 
-      val mwIter = cw.getMethodWriters().iterator
+      intraMethodFixpoints() // intra-method optimizations
+
+      // ---------------- intra-class optimizations ----------------
+
+      privatCompacter()
+      // TODO minimizeDClosureFields()
+      refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
+
+    } // end of method cleanseClass()
+
+    /**
+     *  intra-method optimizations
+     * */
+    private def intraMethodFixpoints() {
+
+      val cName = cnode.name
+
       val mnIter = cnode.methods.iterator()
-
-      // ---------------- intra-method optimizations ----------------
-
       while(mnIter.hasNext) {
         val mnode = mnIter.next()
-        val mw    = mwIter.next()
-        mnode.visitMaxs(mw.getMaxStack, mw.getMaxLocals)
+        Util.computeMaxLocalsMaxStack(mnode)
         val isConcrete = ((mnode.access & (asm.Opcodes.ACC_ABSTRACT | asm.Opcodes.ACC_NATIVE)) == 0)
         if(isConcrete) {
-          val cName = cnode.name
 
           basicIntraMethodOpt(cName, mnode)     // intra-method optimizations performed until a fixpoint is reached
 
@@ -195,15 +203,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
         }
       }
 
-      // ---------------- intra-class optimizations ----------------
-
-      privatCompacter()
-
-      // TODO minimizeDClosureFields()
-
-      refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
-
-    } // end of method cleanseClass()
+    }
 
     /**
      * Dead-code-elimination may have removed the last use of a private member.
