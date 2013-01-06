@@ -537,17 +537,20 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (a) the endpoint of a dclosure is the single entry point through which
      *       the dclosure may access functionality of its master class.
      *
-     *   (b) Initially there's program wide a single callsite targeting any given dclosure-endpoint.
+     *   (b) Initially there's program wide a single callsite targeting any given dclosure-endpoint
+     *       (that callsite is enclosed in one of the dclosure's apply() methods).
      *       This may change due to:
      *
-     *         (b.1) dead-code elimination, which may remove that callsite
+     *         (b.1) dead-code elimination, which may remove the instantiation of the dclosure
+     *               (as any anonymous closure, a dclosure is instantiated at a single program-wide point).
      *
      *         (b.2) as part of `WholeProgramAnalysis.inlining()`, closure-inlining elides a dclosure-class.
      *               As a result, one or more callsites to the endpoint may occur now in the
      *               "static-HiO" method added to the master class (see `buildStaticHiO`).
      *               Still, all those occurrences can be found by inspecting the master class.
-     *               Moreover, a static-HiO method, although public, is itself never inlined:
-     *               although callsites to it may well be inlined. Thus the following invariant remains:
+     *               Moreover, a static-HiO method, although public, is itself never inlined
+     *               (callsites to it may well be inlined, e.g. in another class).
+     *               Thus the following invariant holds:
      *
      *               Callsites to a dclosure endpoint may appear only:
      *                 - either in
@@ -555,7 +558,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *                 - or
      *                     in the master class (one ore more callsites), if the dclosure has been inlined.
      *
-     *               (All this obsession about not losing track of callsites to endpoints is
+     *               (This whole nit-pick about not losing track of callsites to endpoints is
      *               explained by our desire to optimize).
      *
      *   (c) a class C owning a closure-endpoint method isn't a delegating-closure itself
@@ -606,6 +609,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val master = endpointRef.ownerClass
         val other  = dclosures.getOrElse(master, Nil)
         dclosures.put(master, dclosure :: other)
+      }
+    }
+
+    /**
+     *  TODO document
+     * */
+    private def retract(former: BType) {
+      log("retracting delegating-closure: " + former)
+      val master = endpoint(former).ownerClass
+      endpoint.remove(former)
+      val other = dclosures(master) filterNot { _ == former}
+      if(other.isEmpty) {
+        dclosures.remove(master)
+      } else {
+        dclosures.put(master, other)
       }
     }
 
@@ -1666,6 +1684,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
               s"resulting from inlining closure ${delegatingClosureClass} invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
             )
+            retract(delegatingClosureClass)
           }
         }
       }
