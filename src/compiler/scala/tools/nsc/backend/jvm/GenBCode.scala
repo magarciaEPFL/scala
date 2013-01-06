@@ -152,7 +152,14 @@ abstract class GenBCode extends BCodeOptInter {
     // q3
     case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
       def isPoison  = { arrivalPos == Int.MaxValue }
-      def wasElided = { plain == null }
+      /*
+       * The first condition below (plain == null) implies WholeProgramAnalysis did the eliding,
+       * the second condition holds when an intra-class optimization did the eliding
+       * (during BCodeCleanser.cleanseClass(), running after whole-program).
+       * */
+      def wasElided = {
+        (plain == null) ||
+        elidedClasses.contains(lookupRefBType(plain.jclassName)) }
     }
     private val i3comparator = new _root_.java.util.Comparator[Item3] {
       override def compare(a: Item3, b: Item3) = {
@@ -352,11 +359,15 @@ abstract class GenBCode extends BCodeOptInter {
     }
 
     /**
-     *  The workflow of this method comprises:
-     *    - getting all ClassNodes built (Worker1 takes care of this)
-     *    - let loose the whole-program analysis on them.
-     *  Afterwards, as soon as all intra-method work for any given class is over, that class can be written to disk.
-     *  In other words, pipeline-2 and pipeline-3 run in parallel (granted, once inter-procedural optimizations are over, which run sequential).
+     *  The workflow with inter-procedural optimizations is:
+     *    - sequentially build all ClassNodes (Worker1 takes care of this)
+     *    - sequentially perform whole-program analysis on them
+     *    - run in parallel intra-class (including intra-method) optimizations
+     *    - sequentially write non-elided classes to disk.
+     *
+     *  Waiting for all intra-class optimizations to complete before starting writing to disk
+     *  is explained by the fact that some delegating-closures may be elided in the process,
+     *  and we don't want to have written them to disk too early.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
       feedPipeline1()
@@ -364,11 +375,11 @@ abstract class GenBCode extends BCodeOptInter {
       w1.run()
 
       val wp = new WholeProgramAnalysis()
-      // val start = System.currentTimeMillis
       wp.optimize()
-      // println("Inlining took " + (System.currentTimeMillis - start) + " ms.")
 
-      val workers = spawnPipeline2()
+      spawnPipeline2()
+      do { Thread.sleep(100) } while (woExited.size < MAX_THREADS)
+
       drainQ3()
     }
 
