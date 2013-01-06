@@ -613,7 +613,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     *  TODO document
+     *  TODO document the invariant we keep
      * */
     private def retract(former: BType) {
       log("retracting delegating-closure: " + former)
@@ -1669,23 +1669,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite, inlineTarget)
       if(staticHiO == null) { return false }
       assert(Util.isPublicMethod(staticHiO))
-      val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)
-      if(wasInlined) {
-        hostOwner.methods.add(staticHiO)
-        privatizables.track(hostOwner, staticHiO)
-        for(ccu <- closureClassUtils) {
-          val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
-          assert(isDelegatingClosure(delegatingClosureClass))
-          val endPointMethodRef = endpoint(delegatingClosureClass)
-          if(endPointMethodRef.ownerClass == lookupRefBType(hostOwner.name)) {
-            Util.makePrivateMethod(endPointMethodRef.mnode)
-          } else {
-            log(
-              s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
-              s"resulting from inlining closure ${delegatingClosureClass} invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
-            )
-            retract(delegatingClosureClass)
-          }
+      if(!shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
+        return false
+      }
+
+      hostOwner.methods.add(staticHiO)
+      privatizables.track(hostOwner, staticHiO)
+      for(ccu <- closureClassUtils) {
+        val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
+        assert(isDelegatingClosure(delegatingClosureClass))
+        val endPointMethodRef = endpoint(delegatingClosureClass)
+        if(endPointMethodRef.ownerClass == lookupRefBType(hostOwner.name)) {
+          Util.makePrivateMethod(endPointMethodRef.mnode)
+        } else {
+          log(
+            s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
+            s"resulting from inlining closure $delegatingClosureClass invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
+          )
+          retract(delegatingClosureClass)
         }
       }
 
