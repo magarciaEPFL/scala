@@ -63,6 +63,16 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
   def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
 
+  def isAdaptingPrivateMembersOK(cnode: ClassNode): Boolean = {
+
+    if(settings.keepUnusedPrivateClassMembers.value) { return false }
+
+    val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
+    if(cnodeEx.isSerializable) { return false }
+
+    true
+  }
+
   /**
    *  @param owner      a JVM-level class
    *  @param memberName name of a method or field defined in `owner`
@@ -132,7 +142,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val constantFolder      = new asm.optimiz.ConstantFolder
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
+
     val unusedPrivateElider = new asm.optimiz.UnusedPrivateElider()
+    val staticMaker         = new asm.optimiz.StaticMaker()
 
     /**
      *  The intra-method optimizations below are performed until a fixpoint is reached.
@@ -185,14 +197,42 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       // ---------------- intra-class optimizations ----------------
 
-      val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
-      if(!settings.keepUnusedPrivateClassMembers.value && !cnodeEx.isSerializable) {
-        unusedPrivateElider.transform(cnode)
-      }
+      privatCompacter()
+
+      // TODO minimizeDClosureFields()
 
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
     } // end of method cleanseClass()
+
+    /**
+     * Dead-code-elimination may have removed the last use of a private member.
+     *
+     * Additionally, all methods originally local to a delegating-closure's apply() are private,
+     * and some of them need not be instance methods but can be made static, which may contribute
+     * to doing away with that closure's outer-instance.
+     *
+     *  (1) elide unused private members (ie fields, methods, or constructors; be they static or instance)
+     *  (2) make static those private methods that don't rely on THIS
+     *
+     * */
+    private def privatCompacter() {
+
+      if(!isAdaptingPrivateMembersOK(cnode)) { return }
+
+      var changed = false
+      do {
+
+        changed = unusedPrivateElider.transform(cnode)
+
+        // UnusedParamsElider can't run here because creating BTypes for updated method descriptors must-single-thread
+
+        staticMaker.transform(cnode)
+        changed |= staticMaker.changed
+
+      } while (changed)
+
+    }
 
     /**
      * One of the intra-method optimizations (dead-code elimination)

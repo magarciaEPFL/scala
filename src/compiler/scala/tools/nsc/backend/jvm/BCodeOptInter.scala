@@ -10,7 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.{UnusedParamsElider, UnBoxAnalyzer, ProdConsAnalyzer, Util}
+import asm.optimiz.{UnBoxAnalyzer, ProdConsAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree._
 
@@ -436,6 +436,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
+    val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
+
     /**
      *  TODO documentation
      *
@@ -445,13 +447,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      **/
     def optimize() {
-      populateDClosureEndpoints()
-      invertEndpointsMap()
+
+      populateDClosureMaps()
+
       privatizables.clear()
       inlining()
       // for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+
+      // elide unused params of private methods
+      val iterCompiledClasses = codeRepo.classes.values().iterator()
+      while(iterCompiledClasses.hasNext) {
+        val compiledClass: ClassNode = iterCompiledClasses.next()
+        if(isAdaptingPrivateMembersOK(compiledClass)) {
+          val updatedMethodSignatures = unusedParamsElider.transform(compiledClass)
+          JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
+        }
+      }
+
       privatizables.clear()
-      minimizeDClosureFields()
       endpoint.clear()
       dclosures.clear()
     }
@@ -459,7 +472,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  dclosure-class -> methodRef-to-endpoint-in-master-class
      *
-     *  @see populateDClosureEndpoints() Before that method runs, this map is empty.
+     *  @see populateDClosureMaps() Before that method runs, this map is empty.
      */
     private val endpoint = mutable.Map.empty[BType, MethodRef]
 
@@ -572,7 +585,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  must-single-thread
      *
      **/
-    private def populateDClosureEndpoints() {
+    private def populateDClosureMaps() {
 
       import uncurry.{ ClosureAndDelegate, closuresAndDelegates }
       endpoint.clear()
@@ -602,15 +615,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         )
       }
 
-    } // end of method populateDClosureMaps()
-
-    private def invertEndpointsMap() {
       for(Pair(dclosure, endpointRef) <- endpoint) {
         val master = endpointRef.ownerClass
         val other  = dclosures.getOrElse(master, Nil)
         dclosures.put(master, dclosure :: other)
       }
-    }
+
+    } // end of method populateDClosureMaps()
 
     /**
      *  TODO document the invariant we keep
@@ -692,20 +703,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method groupClosuresByMasterClass()
 
-    // -----------------------------------------------------------------------------------
-    // ------------------------------- dclosure-fields MIN -------------------------------
-    // -----------------------------------------------------------------------------------
-
-    /**
-     *  TODO documentation
-     *
-     *  can-multi-thread
-     *
-     **/
-    private def minimizeDClosureFields() {
-
-    }
-
     // -------------------------------------------------------------------------------
     // ------------------------------- inlining rounds -------------------------------
     // -------------------------------------------------------------------------------
@@ -777,37 +774,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         inliningRound(leaves)
         remaining --= leaves
       }
-
-      /*
-
-      // elide closure-state params that see no use (e.g., the receiver of a dlgt$ invocation).
-      if(!settings.keepUnusedPrivateClassMembers.value) {
-
-        // TODO decide location for PrivatCompacter
-
-        val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
-        val staticMaker         = new asm.optimiz.StaticMaker()
-        val iterCompiledClasses = codeRepo.classes.values().iterator()
-
-        while(iterCompiledClasses.hasNext) {
-          val cnode = iterCompiledClasses.next()
-          val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
-          if(!cnodeEx.isSerializable) {
-
-            do {
-              // elide unused params (private methods only)
-              val updatedMethodSignatures = unusedParamsElider.transform(cnode)
-              JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
-              // make static those private methods that don't rely on THIS
-              staticMaker.transform(cnode)
-            } while (unusedParamsElider.changed || staticMaker.changed)
-
-          }
-        }
-
-      }
-
-      */
 
     } // end of method inlining()
 

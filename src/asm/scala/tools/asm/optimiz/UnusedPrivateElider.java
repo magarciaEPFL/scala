@@ -22,7 +22,7 @@ import scala.tools.asm.tree.FieldInsnNode;
 
 /**
  *  This class transformer detects usages of private members of the ClassNode to transform()
- *  (private members includes fields, methods, or constructors; be they static or private).
+ *  (private members includes fields, methods, or constructors; be they static or instance).
  *  Those usages are detected by visiting the class' public and protected methods and constructors
  *  as well as any private methods or constructors transitively reachable.
  *  Those private members for which no usages are found are elided.
