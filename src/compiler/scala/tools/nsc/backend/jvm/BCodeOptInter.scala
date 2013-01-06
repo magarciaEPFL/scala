@@ -446,24 +446,29 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     def optimize() {
       populateDClosureEndpoints()
-      groupDClosuresByMasterClass()
+      invertEndpointsMap()
       privatizables.clear()
       inlining()
       // for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
       privatizables.clear()
       minimizeDClosureFields()
       endpoint.clear()
-      dclosuresAtMasterClass.clear()
+      dclosures.clear()
     }
 
-    /*
-     * All methods querying the closureEndpoint map, e.g.
-     *   isDelegatingClosure(), isTraditionalClosure(), delegatingClosures()
-     * may be called only after
-     *   allowFindingDelegateGivenClosure()
-     * has run. Before that, the map is empty.
+    /**
+     *  dclosure-class -> methodRef-to-endpoint-in-master-class
+     *
+     *  @see populateDClosureEndpoints() Before that method runs, this map is empty.
      */
     private val endpoint = mutable.Map.empty[BType, MethodRef]
+
+    /**
+     *  master-class -> dclosure-classes-it's-responsible-for
+     *
+     *  @see invertEndpointsMap() Before that method runs, this map is empty.
+     */
+    private val dclosures = mutable.Map.empty[BType, List[BType]]
 
     private case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
@@ -474,7 +479,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * The set of delegating-closures created during UnCurry, represented as BTypes.
      * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
      * */
-    private def delegatingClosures: collection.Set[BType] = { endpoint.keySet }
+    private def allDClosures: collection.Set[BType] = { endpoint.keySet }
 
     /**
      * shio methods are collected as they are built in the `privatizables` map, grouped by their ownning class.
@@ -507,6 +512,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     // ------------------------------------------------------------------------------------
     // ------------------------------- dclosure -> endpoint -------------------------------
+    // -------------------------------          and         -------------------------------
+    // -------------------------------  master -> dclosures -------------------------------
     // ------------------------------------------------------------------------------------
 
     /**
@@ -594,8 +601,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method populateDClosureMaps()
 
+    private def invertEndpointsMap() {
+      for(Pair(dclosure, endpointRef) <- endpoint) {
+        val master = endpointRef.ownerClass
+        val other  = dclosures.getOrElse(master, Nil)
+        dclosures.put(master, dclosure :: other)
+      }
+    }
+
     // -----------------------------------------------------------------------------------
-    // ------------------------------- master -> dclosures -------------------------------
+    // ------------------------------- TODO use after DCE -------------------------------
     // -----------------------------------------------------------------------------------
 
     /**
@@ -609,72 +624,48 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     private case class DClosuresAtMasterMethod(mnode: MethodNode, delegating: Array[DClosureInstantiation])
 
-    /**
-     *  "master class" -> the delegating-closures "it's responsible for",
-     *  where a master-class is a class that:
-     *    (a) is not a delegating-closure; and
-     *    (b) instantiates one or more delegating-closures.
-     **/
-    private val dclosuresAtMasterClass = mutable.Map.empty[BType, List[DClosuresAtMasterMethod]]
-
-    private def isMasterClass(c: BType) = { dclosuresAtMasterClass.contains(c) }
+    private def isMasterClass(c: BType) = { dclosures.contains(c) }
 
     /**
-     *  During optimization of a "master-class" it's useful to know for which delegating-closures it's responsible.
-     *  This method populates the `dclosuresAtMasterClass` map which provides that information
-     *  (in particular, the values of an `dclosuresAtMasterClass` entry serve as keys in map `dclosureEndpoint`).
+     *  TODO use after DCE
      *
      *  can-multi-thread
      *
      **/
-    private def groupDClosuresByMasterClass() {
+    private def survivingDClosures(masterBT: BType): List[DClosuresAtMasterMethod] = {
 
-      dclosuresAtMasterClass.clear()
-      val iter: java.util.Iterator[java.util.Map.Entry[BType, ClassNode]] = codeRepo.classes.entrySet().iterator()
-      while(iter.hasNext) {
-        val e = iter.next
-        val master: Tracked  = exemplars.get(e.getKey)
-        val cnode: ClassNode = e.getValue
-        if(!isDelegatingClosure(master.c) && !master.isSerializable) {
+      assert(isMasterClass(masterBT))
 
-            /**
-             * scan master's non-abstract methods and constructors, find instantiations of delegating-closures in them
-             * */
-            def visitMaster: List[DClosuresAtMasterMethod] = {
-              for(
-                mnode <- JListWrapper(cnode.methods).toList;
-                if !Util.isAbstractMethod(mnode); // constructors are considered too
-                delegating = visitMethod(mnode);
-                if delegating.nonEmpty
-              ) yield {
-                DClosuresAtMasterMethod(mnode, delegating)
-              }
+      val master: Tracked  = exemplars.get(masterBT)
+      val cnode: ClassNode = codeRepo.classes.get(masterBT)
+
+          /**
+           * find instantiations of delegating-closures in mnode
+           * */
+          def visitMethod(mnode: MethodNode): Array[DClosureInstantiation] = {
+            for(
+              insn <- mnode.instructions.toArray;
+              if insn != null;
+              if insn.getOpcode == Opcodes.NEW;
+              newInsn = insn.asInstanceOf[TypeInsnNode];
+              if newInsn.desc.contains(tpnme.ANON_FUN_NAME.toString);
+              cloBT = lookupRefBType(newInsn.desc);
+              if isDelegatingClosure(cloBT)
+            ) yield {
+              DClosureInstantiation(newInsn, cloBT)
             }
-
-            /**
-             * find instantiations of delegating-closures in mnode
-             * */
-            def visitMethod(mnode: MethodNode): Array[DClosureInstantiation] = {
-              for(
-                insn <- mnode.instructions.toArray;
-                if insn != null;
-                if insn.getOpcode == Opcodes.NEW;
-                newInsn = insn.asInstanceOf[TypeInsnNode];
-                if newInsn.desc.contains(tpnme.ANON_FUN_NAME.toString);
-                cloBT = lookupRefBType(newInsn.desc);
-                if isDelegatingClosure(cloBT)
-              ) yield {
-                DClosureInstantiation(newInsn, cloBT)
-              }
-            }
-
-          val v = visitMaster
-          if(v.nonEmpty) {
-            dclosuresAtMasterClass.put(master.c, v)
           }
 
-        }
-
+      /**
+       * scan master's non-abstract methods and constructors, find instantiations of delegating-closures in them
+       * */
+      for(
+        mnode <- JListWrapper(cnode.methods).toList;
+        if !Util.isAbstractMethod(mnode); // constructors are considered too
+        delegating = visitMethod(mnode);
+        if delegating.nonEmpty
+      ) yield {
+        DClosuresAtMasterMethod(mnode, delegating)
       }
 
       // ideally we should cross-check by scanning codeRepo.classes that
