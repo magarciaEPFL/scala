@@ -2375,7 +2375,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         removeAll(dupInsns)
         removeAll(initInsns)
 
-        elidedClasses ++= (closureClassUtils map { ccu => lookupRefBType(ccu.closureClass.name) })
+        for(cloBT <- (closureClassUtils map { ccu => lookupRefBType(ccu.closureClass.name) })) {
+          elidedClasses.add(cloBT)
+        }
 
         val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
         host.instructions.set(callsite, rewiredInvocation)

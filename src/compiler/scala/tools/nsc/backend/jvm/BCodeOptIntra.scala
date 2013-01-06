@@ -45,7 +45,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
   val knownLacksInline = mutable.Set.empty[Symbol] // cache to avoid multiple inliner.hasInline() calls.
   val knownHasInline   = mutable.Set.empty[Symbol] // as above. Motivated by the need to warn on "inliner failures".
 
-  val elidedClasses = mutable.Set.empty[BType]
+  val elidedClasses: java.util.Set[BType] = java.util.Collections.newSetFromMap(
+    new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
+  )
 
   def hasInline(sym: Symbol) = {
     if     (knownLacksInline(sym)) false
@@ -224,7 +226,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
             if (bt.isArray) {
               bt = bt.getElementType
             }
-            if(bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !elidedClasses(bt)) {
+            if(bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !elidedClasses.contains(bt)) {
               if(exemplars.get(bt).isInnerClass) {
                 refedInnerClasses += bt
               }
