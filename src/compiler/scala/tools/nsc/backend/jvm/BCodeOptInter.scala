@@ -10,7 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.{UnBoxAnalyzer, ProdConsAnalyzer, Util}
+import asm.optimiz.{UnusedParamsElider, UnBoxAnalyzer, ProdConsAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree._
 
@@ -779,10 +779,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     private def inliningRound(leaves: collection.Set[CallGraphNode]) {
 
-      // owning-class -> shio-method (ie a shio-method added in the current inlining round)
-      val inlinedSHiOs = new MethodsPerClass
-
-      leaves foreach { leaf => inlineCallees(leaf, inlinedSHiOs) }
+      leaves foreach { leaf => inlineCallees(leaf) }
 
     }
 
@@ -791,9 +788,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  of the callees given by `CallGraphNode.procs` and `CallGraphNode.hiOs`.
      *
      *  @param leaf         TODO
-     *  @param inlinedSHiOs TODO
      */
-    private def inlineCallees(leaf: CallGraphNode, inlinedSHiOs: MethodsPerClass) {
+    private def inlineCallees(leaf: CallGraphNode) {
 
       // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
 
@@ -847,8 +843,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           leaf.hostOwner,
           leaf.host,
           callsiteTypeFlow,
-          hiO,
-          inlinedSHiOs
+          hiO
         )
 
         val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
@@ -1341,16 +1336,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * @param host             the method containing a callsite for which inlining has been requested
      * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
      * @param inlineTarget     inlining request (includes: callsite, callee, callee's owner, and error reporting)
-     * @param inlinedSHiOs     TODO
      *
      * @return true iff inlining was actually performed.
+     *
+     * must-single-thread
      *
      */
     private def inlineClosures(hostOwner:        ClassNode,
                                host:             MethodNode,
                                callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
-                               inlineTarget:     InlineTarget,
-                               inlinedSHiOs:     MethodsPerClass): Boolean = {
+                               inlineTarget:     InlineTarget): Boolean = {
 
       // invocation of a higher-order method (taking one or more closures) whose inlining is requested.
       val callsite: MethodInsnNode = inlineTarget.callsite
@@ -1631,11 +1626,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite, inlineTarget)
       if(staticHiO == null) { return false }
-      assert(Util.isPrivateMethod(staticHiO))
+      assert(Util.isPublicMethod(staticHiO))
       val wasInlined = shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)
       if(wasInlined) {
         hostOwner.methods.add(staticHiO)
-        inlinedSHiOs.track( hostOwner, staticHiO)
         privatizables.track(hostOwner, staticHiO)
         for(ccu <- closureClassUtils) {
           val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
@@ -2189,10 +2183,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
 
         // (7) put together the pieces above into a MethodNode
+        val access = (Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC)
         val shio: MethodNode =
           new MethodNode(
             Opcodes.ASM4,
-            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+            access,
             name,
             shiOMethodType.getDescriptor,
             null,
