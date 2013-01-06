@@ -169,12 +169,19 @@ abstract class BCodeOptIntra extends BCodeTypes {
      */
     def cleanseClass() {
 
-      intraMethodFixpoints() // intra-method optimizations
+      var keepGoing = false
+      do {
 
-      // ---------------- intra-class optimizations ----------------
+        // (1) intra-method
+        intraMethodFixpoints()
 
-      privatCompacter()
-      // TODO minimizeDClosureFields()
+        // (2) intra-class
+        keepGoing = privatCompacter()
+        // TODO keepGoing |= minimizeDClosureFields()
+        // TODO keepGoing |= elideUninstantiatedDClosures()
+
+      } while(keepGoing)
+
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
     } // end of method cleanseClass()
@@ -199,7 +206,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
 
-          runTypeFlowAnalysis(cName, mnode)     // debug
+          if(settings.debug.value) {
+            runTypeFlowAnalysis(cName, mnode)
+          }
         }
       }
 
@@ -216,22 +225,21 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  (2) make static those private methods that don't rely on THIS
      *
      * */
-    private def privatCompacter() {
+    private def privatCompacter(): Boolean = {
 
-      if(!isAdaptingPrivateMembersOK(cnode)) { return }
+      if(!isAdaptingPrivateMembersOK(cnode)) { return false }
 
-      var changed = false
+      var changed   = false
+      var keepGoing = false
       do {
-
-        changed = unusedPrivateElider.transform(cnode)
-
+        keepGoing = unusedPrivateElider.transform(cnode)
         // UnusedParamsElider can't run here because creating BTypes for updated method descriptors must-single-thread
-
         staticMaker.transform(cnode)
-        changed |= staticMaker.changed
+        keepGoing |= staticMaker.changed
+        changed |= keepGoing
+      } while (keepGoing)
 
-      } while (changed)
-
+      changed
     }
 
     /**
