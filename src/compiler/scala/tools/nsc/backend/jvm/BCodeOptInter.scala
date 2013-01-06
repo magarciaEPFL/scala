@@ -554,6 +554,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (c) a class C owning a closure-endpoint method isn't a delegating-closure itself
      *       (it's fine for C to be a traditional-closure or a non-closure).
      *
+     *  TODO document the invariant
+     *         static-HiO's declaring class == inlined delegate's declaring class
+     *       does not hold when delayedInit gets in the way.
+     *       See log entry starting with "Surprise surprise" in `inlineClosures()` along with workaround.
+     *
      *  must-single-thread
      *
      **/
@@ -1662,7 +1667,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         for(ccu <- closureClassUtils) {
           val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
           assert(isDelegatingClosure(delegatingClosureClass))
-          Util.makePrivateMethod(endpoint(delegatingClosureClass).mnode)
+          val endPointMethodRef = endpoint(delegatingClosureClass)
+          if(endPointMethodRef.ownerClass == lookupRefBType(hostOwner.name)) {
+            Util.makePrivateMethod(endPointMethodRef.mnode)
+          } else {
+            log(
+              s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
+              s"resulting from inlining closure ${delegatingClosureClass} invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
+            )
+          }
         }
       }
 
