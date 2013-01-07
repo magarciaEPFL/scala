@@ -99,6 +99,27 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   }
 
   /**
+   * Matches a "INVOKE dclosure-endpoint" instruction returning the dclosure's BType, null otherwise.
+   * */
+  final def invokedDClosure(insn: AbstractInsnNode): BType = {
+    if(insn.getType == AbstractInsnNode.METHOD_INSN) {
+      val mi = insn.asInstanceOf[MethodInsnNode]
+      val master = lookupRefBType(mi.owner)
+      if(isMasterClass(master)) {
+        for(
+          dclosure <- dclosures(master);
+          mnode: MethodNode = endpoint(dclosure).mnode;
+          if (mnode.name == mi.name) && (mnode.desc == mi.desc)
+        ) {
+          return dclosure
+        }
+      }
+    }
+
+    null
+  }
+
+  /**
    *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
    */
   final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]].withDefaultValue(mutable.Set.empty)
