@@ -51,6 +51,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
   /**
+   *  @return the callee, for a MethodNodeInsn, represented as MethodRef. Otherwise null.
+   * */
+  def accessedMethodRef(insn: AbstractInsnNode): MethodRef = {
+    insn match {
+      case mi: MethodInsnNode =>
+        val ownerBT = lookupRefBType(mi.owner)
+        val mnode   = codeRepo.getMethod(ownerBT, mi.name, mi.desc).mnode
+        MethodRef(ownerBT, mnode)
+      case _ => null
+    }
+  }
+
+  /**
    * Terminology for delegating closures
    * -----------------------------------
    *
@@ -159,7 +172,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // -------------- utilities to track dclosure usages in classes other than master --------------
 
     /**
-     * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case, null otherwise.
+     * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
      * */
     private def instantiatedDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getOpcode == Opcodes.NEW) {
@@ -174,9 +187,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     * Matches a "INVOKE dclosure-endpoint" instruction returning the dclosure's BType in that case, null otherwise.
+     * Matches a "INVOKE dclosure-endpoint" instruction returning the dclosure's BType in that case. Otherwise null.
      * */
-    private def invokedDClosure(insn: AbstractInsnNode): BType = {
+    def invokedDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getType == AbstractInsnNode.METHOD_INSN) {
         val mi     = insn.asInstanceOf[MethodInsnNode]
         val master = lookupRefBType(mi.owner)
@@ -195,7 +208,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case, null otherwise.
+     * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case. Otherwise null.
      * */
     private def accessedDClosure(insn: AbstractInsnNode): BType = {
       instantiatedDClosure(insn) match {
@@ -715,7 +728,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       privatizables.clear()
       inlining()
-      // for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+      // println(s"About to privatize: ${privatizables.size} shio methods.") // debug
+      for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
       privatizables.clear()
 
       elideUnusedParamsOfPrivateMethods()
@@ -748,12 +762,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       def track(k: ClassNode, v: MethodNode) { track(lookupRefBType(k.name), v) }
       def track(k: BType,     v: MethodNode) { put(k, v :: getOrElse(k, Nil)) }
 
+      /**
+       *  It's ok trying to untrack a method that's not being tracked. If in doubt, call untrack()
+       * */
       def untrack(k: BType, v: MethodNode) {
         val v2 = getOrElse(k, Nil) filterNot { _ eq v }
         if(v2.isEmpty) { remove(k)  }
         else           { put(k, v2) }
       }
 
+      /**
+       *  It's ok trying to untrack a method that's not being tracked. If in doubt, call untrack()
+       * */
       def untrack(k: BType, methodName: String, methodDescr: String) {
         val v2 = getOrElse(k, Nil) filterNot { mn => (mn.name == methodName) && (mn.desc == methodDescr) }
         if(v2.isEmpty) { remove(k)  }
@@ -1098,7 +1118,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        */
       codeRepo.enterExemplarsForUnseenTypeNames(body)
 
-      val illegalAccessInsn = allAccessesLegal(body, lookupRefBType(hostOwner))
+      val hostOwnerBT = lookupRefBType(hostOwner)
+
+      val illegalAccessInsn = allAccessesLegal(body, hostOwnerBT)
       if(illegalAccessInsn != null) {
         return Some(
           s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)}that would cause IllegalAccessError from class $hostOwner"
@@ -1192,6 +1214,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
 
       replaceRETURNs()
+
+      checkTransplantedAccesses(body, hostOwnerBT)
 
       host.instructions.insert(callsite, body) // after this point, body.isEmpty (an ASM instruction can be owned by a single InsnList)
       host.instructions.remove(callsite)
@@ -1462,7 +1486,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * the original callsite invocation, as well as adapt its arguments.
      *
      * @param hostOwner        the class declaring the host method.
-     *                         Upon successful closure-inling, a "static-HiO" ("shio") method is added to it.
+     *                         Upon successful closure-inling, a "static-HiO" ("shio") method is added to hostOwner.
      * @param host             the method containing a callsite for which inlining has been requested
      * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
      * @param inlineTarget     inlining request (includes: callsite, callee, callee's owner, and error reporting)
@@ -1635,7 +1659,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
                 /**
                  *  Checks whether all closure-usages (in hiO) are of the form `closure.apply(...)`
-                 *  and if so return the MethodNode for that apply(), null otherwise.
+                 *  and if so return the MethodNode for that apply(). Otherwise null.
                  *
                  *  @param closureClass     class realizing the closure of interest
                  *  @param localVarIdxHiO   local-var in hiO (a formal param) whose value is the closure of interest
@@ -1761,17 +1785,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
+      val enclClass = lookupRefBType(hostOwner.name)
+      checkTransplantedAccesses(staticHiO.instructions, enclClass)
+
       hostOwner.methods.add(staticHiO)
       privatizables.track(hostOwner, staticHiO)
       for(ccu <- closureClassUtils) {
         val dclosure: BType = lookupRefBType(ccu.closureClass.name)
         if(closuRepo.isDelegatingClosure(dclosure)) {
           val mc = closuRepo.masterClass(dclosure)
-          val enclClass = lookupRefBType(hostOwner.name)
           if(mc != enclClass) {
             log(
-              s"Surprise surprise: a static-HiO method added to class ${hostOwner.name} " +
-              s"(resulting from inlining closure $dclosure) invokes a delegate method declared in $mc"
+              s"DClosure usage in non-master: a static-HiO method added to class ${hostOwner.name} " +
+              s"(resulting from inlining closure $dclosure) invokes that closure's endpoint method (which is declared in $mc)"
             )
             assert(closuRepo.nonMasterUsers(dclosure).contains(enclClass))
           }
@@ -1780,6 +1806,35 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       true
     } // end of method inlineClosures
+
+    /**
+     *
+     * */
+    private def checkTransplantedAccesses(body: InsnList, enclClass: BType) {
+
+      /*
+       * An invocation to a shio method declared in a class other than the new home of the callsite (enclClass)
+       * forces the shio method in question to remain public.
+       * */
+      body foreachInsn { insn =>
+        insn match {
+          case mi: MethodInsnNode =>
+            val calleeOwnerBT = lookupRefBType(mi.owner)
+            if(calleeOwnerBT != enclClass) {
+              // it's ok to try to untrack a method that's not being tracked
+              privatizables.untrack(calleeOwnerBT, mi.name, mi.desc)
+            }
+          case _ => ()
+        }
+      }
+
+      /*
+       * In case `insn` denotes a dclosure instantiation or endpoint invocation
+       * and `enclClass` isn't the master class of that closure, note this fact `nonMasterUsers`.
+       * */
+      body foreachInsn { insn => closuRepo.trackClosureUsageIfAny(insn, enclClass) }
+
+    }
 
     /**
      *  For a given pair (hiO method, closure-argument) an instance of ClosureUsages
@@ -2228,7 +2283,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *            where each code snippet has to be able to cope with the arguments (save for the receiver)
        *            of a usage of that closure (ie of a closure-application).
        *
-       *  @return `staticHiO` if preconditions are satisfied, null otherwise
+       *  @return `staticHiO` if preconditions are satisfied. Otherwise null.
        */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode, inlineTarget: InlineTarget): MethodNode = {
 
