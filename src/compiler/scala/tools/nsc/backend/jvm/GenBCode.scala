@@ -24,7 +24,7 @@ import collection.immutable.HashMap
  *  (There's another pipeline so to speak, the one that populates queue-1 by traversing a CompilationUnit until ClassDefs are found,
  *   but the "interesting" pipelines are the ones described below)
  *
- *    (1) In the first queue, an item consists of a ClassDef along with its arrival position.
+ *    (1) In the first queue, an item consists of a ClassDef along with its arrival insnval position.
  *        This position is needed at the time classfiles are serialized to disk,
  *        so as to emit classfiles in the same order CleanUp handed them over.
  *        As a result, two runs of the compiler on the same files produce jars that are identical on a byte basis.
@@ -1130,12 +1130,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         // collect all return instructions
         var rets: List[asm.tree.AbstractInsnNode] = Nil
-        val iter = mnode.instructions.iterator()
-        while(iter.hasNext) {
-          val i = iter.next()
-          if(i.getOpcode() == asm.Opcodes.RETURN) { rets ::= i  }
-        }
-
+        mnode foreachInsn { i => if(i.getOpcode() == asm.Opcodes.RETURN) { rets ::= i  } }
         if(rets.isEmpty) { return }
 
         var insnModA: asm.tree.AbstractInsnNode = null

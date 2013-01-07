@@ -4179,4 +4179,25 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   }
 
+  implicit class InsnIterMethodNode(mnode: asm.tree.MethodNode) {
+
+    @inline final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit) {
+      val insnIter = mnode.instructions.iterator()
+      while(insnIter.hasNext) {
+        f(insnIter.next())
+      }
+    }
+
+  }
+
+  implicit class InsnIterInsnList(lst: asm.tree.InsnList) {
+
+    @inline final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit) {
+      val insnIter = lst.iterator()
+      while(insnIter.hasNext) {
+        f(insnIter.next())
+      }
+    }
+
+  }
 }

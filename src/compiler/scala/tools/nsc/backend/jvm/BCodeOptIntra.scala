@@ -928,10 +928,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
             false
           }
 
-      val insnIter = mnode.instructions.iterator()
-      while(insnIter.hasNext) {
-        assert(insnIter.next() != null, "instruction stream shouldn't contain nulls.")
-      }
+      mnode foreachInsn { insn => assert(insn != null, "instruction stream shouldn't contain nulls.") }
 
       // exception-handler entries
       if(mnode.tryCatchBlocks != null) {

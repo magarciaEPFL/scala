@@ -217,9 +217,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def trackClosureUsageIfAny(insn: AbstractInsnNode, enclClass: BType) {
       val dc = accessedDClosure(insn)
-      if(dc == null || !isDelegatingClosure(dc)) { return }
+      if(dc == null || enclClass == dc || !isDelegatingClosure(dc)) { return }
       assert(!isDelegatingClosure(enclClass))
-      if(enclClass != dc && enclClass != masterClass(dc)) {
+      if(enclClass != masterClass(dc)) {
         nonMasterUsers(dc) += enclClass
       }
     }
@@ -290,15 +290,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           mnode <- JListWrapper(compiledClassCN.methods);
           if !Util.isAbstractMethod(mnode)
         ) {
-          val insnIter = mnode.instructions.iterator()
-          while(insnIter.hasNext) {
-            closuRepo.trackClosureUsageIfAny(insnIter.next(), compiledClassBT)
-          }
+          mnode foreachInsn { insn => closuRepo.trackClosureUsageIfAny(insn, compiledClassBT) }
         }
       }
     }
 
     def clear() {
+      uncurry.closuresAndDelegates = Nil
       endpoint.clear()
       dclosures.clear()
       nonMasterUsers.clear()
@@ -1769,12 +1767,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val dclosure: BType = lookupRefBType(ccu.closureClass.name)
         if(closuRepo.isDelegatingClosure(dclosure)) {
           val mc = closuRepo.masterClass(dclosure)
-          if(mc != lookupRefBType(hostOwner.name)) {
+          val enclClass = lookupRefBType(hostOwner.name)
+          if(mc != enclClass) {
             log(
               s"Surprise surprise: a static-HiO method added to class ${hostOwner.name} " +
               s"(resulting from inlining closure $dclosure) invokes a delegate method declared in $mc"
             )
-            assert(closuRepo.nonMasterUsers(dclosure).contains(mc))
+            assert(closuRepo.nonMasterUsers(dclosure).contains(enclClass))
           }
         }
       }
