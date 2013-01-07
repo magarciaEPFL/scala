@@ -41,7 +41,34 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     cgns.clear()
     codeRepo.clear()
     elidedClasses.clear()
+    endpoint.clear()
+    dclosures.clear()
   }
+
+  /**
+   *  dclosure-class -> methodRef-to-endpoint-in-master-class
+   *
+   *  @see populateDClosureMaps() Before that method runs, this map is empty.
+   */
+  private val endpoint = mutable.Map.empty[BType, MethodRef]
+
+  /**
+   *  master-class -> dclosure-classes-it's-responsible-for
+   *
+   *  @see populateDClosureMaps() Before that method runs, this map is empty.
+   */
+  private val dclosures = mutable.Map.empty[BType, List[BType]]
+
+  private case class MethodRef(ownerClass: BType, mnode: MethodNode)
+
+  private def isDelegatingClosure( c: BType) = { endpoint.contains(c) }
+  private def isTraditionalClosure(c: BType) = { c.isClosureClass && !isDelegatingClosure(c) }
+
+  /**
+   * The set of delegating-closures created during UnCurry, represented as BTypes.
+   * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
+   * */
+  private def allDClosures: collection.Set[BType] = { endpoint.keySet }
 
   //--------------------------------------------------------
   // Optimization pack: Method-inlining and Closure-inlining
@@ -449,12 +476,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def optimize() {
 
       populateDClosureMaps()
+      retractAssumptionsBreakingDClosures()
 
       privatizables.clear()
       inlining()
       // for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+      privatizables.clear()
 
-      // elide unused params of private methods
+      elideUnusedParamsOfPrivateMethods()
+
+    }
+
+    private def elideUnusedParamsOfPrivateMethods() {
       val iterCompiledClasses = codeRepo.classes.values().iterator()
       while(iterCompiledClasses.hasNext) {
         val compiledClass: ClassNode = iterCompiledClasses.next()
@@ -463,36 +496,40 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
         }
       }
-
-      privatizables.clear()
-      endpoint.clear()
-      dclosures.clear()
     }
 
     /**
-     *  dclosure-class -> methodRef-to-endpoint-in-master-class
-     *
-     *  @see populateDClosureMaps() Before that method runs, this map is empty.
-     */
-    private val endpoint = mutable.Map.empty[BType, MethodRef]
-
-    /**
-     *  master-class -> dclosure-classes-it's-responsible-for
-     *
-     *  @see invertEndpointsMap() Before that method runs, this map is empty.
-     */
-    private val dclosures = mutable.Map.empty[BType, List[BType]]
-
-    private case class MethodRef(ownerClass: BType, mnode: MethodNode)
-
-    private def isDelegatingClosure( c: BType) = { endpoint.contains(c) }
-    private def isTraditionalClosure(c: BType) = { c.isClosureClass && !isDelegatingClosure(c) }
-
-    /**
-     * The set of delegating-closures created during UnCurry, represented as BTypes.
-     * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
+     * TODO shouldn't count as invariant. Needed?
      * */
-    private def allDClosures: collection.Set[BType] = { endpoint.keySet }
+    private def retractAssumptionsBreakingDClosures() {
+      val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
+      while(iterCompiledEntries.hasNext) {
+        val e = iterCompiledEntries.next()
+        val compiledClassBT: BType     = e.getKey
+        val compiledClassCN: ClassNode = e.getValue
+        for(
+          mnode <- JListWrapper(compiledClassCN.methods);
+          if !Util.isAbstractMethod(mnode)
+        ) {
+          val insnIter = mnode.instructions.iterator()
+          while(insnIter.hasNext) {
+            val insn = insnIter.next()
+            if(insn.getOpcode == Opcodes.NEW) {
+              val ti = insn.asInstanceOf[TypeInsnNode]
+              if(ti.desc.contains(tpnme.ANON_FUN_NAME.toString)) {
+                val dbt = lookupRefBType(ti.desc)
+                if(isDelegatingClosure(dbt)) {
+                  val methodRef = endpoint(dbt)
+                  if(methodRef.ownerClass != compiledClassBT) {
+                    retract(dbt)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
 
     /**
      * shio methods are collected as they are built in the `privatizables` map, grouped by their ownning class.
@@ -539,7 +576,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * "dclosure endpoint":  method consisting of the closure's body, its name contains "dlgt$".
      *
      * "master class of a dclosure": non-dclosure class declaring one or more dclosure endpoints
-     *                               (we way the master class "is responsible for" its dclosures).
+     *                               (we say the master class "is responsible for" its dclosures).
      *
      * Invariants for delegating closures
      * ----------------------------------
@@ -555,7 +592,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *       This may change due to:
      *
      *         (b.1) dead-code elimination, which may remove the instantiation of the dclosure
-     *               (as any anonymous closure, a dclosure is instantiated at a single program-wide point).
+     *               (just like any anonymous closure, a dclosure is instantiated at a single program-wide point).
      *
      *         (b.2) as part of `WholeProgramAnalysis.inlining()`, closure-inlining elides a dclosure-class.
      *               As a result, one or more callsites to the endpoint may occur now in the
@@ -577,10 +614,20 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (c) a class C owning a closure-endpoint method isn't a delegating-closure itself
      *       (it's fine for C to be a traditional-closure or a non-closure).
      *
-     *  TODO document the invariant
-     *         static-HiO's declaring class == inlined delegate's declaring class
-     *       does not hold when delayedInit gets in the way.
+     * Beware
+     * ------
+     *
+     *   (1) Not really an invariant but almost:
+     *       "all instantiations of dclosure D are enclosed in a method of the master class of D"
+     *       With inlining, "transplanting" a method's instructions to another class may break the condition above.
+     *       Apparently few program points contradict the above right after GenBCode.
+     *
+     *
+     *   (2) Care is needed to preserve Invariant (b.2) in the presence of closure-inlining and delayedInit,
+     *       ie we want to preserve:
+     *             static-HiO's declaring class == master class of the inlined dclosure
      *       See log entry starting with "Surprise surprise" in `inlineClosures()` along with workaround.
+     *
      *
      *  must-single-thread
      *
@@ -1643,16 +1690,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       privatizables.track(hostOwner, staticHiO)
       for(ccu <- closureClassUtils) {
         val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
-        assert(isDelegatingClosure(delegatingClosureClass))
-        val endPointMethodRef = endpoint(delegatingClosureClass)
-        if(endPointMethodRef.ownerClass == lookupRefBType(hostOwner.name)) {
-          Util.makePrivateMethod(endPointMethodRef.mnode)
-        } else {
-          log(
-            s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
-            s"resulting from inlining closure $delegatingClosureClass invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
-          )
-          retract(delegatingClosureClass)
+        if(isDelegatingClosure(delegatingClosureClass)) {
+          val endPointMethodRef = endpoint(delegatingClosureClass)
+          if(endPointMethodRef.ownerClass == lookupRefBType(hostOwner.name)) {
+            Util.makePrivateMethod(endPointMethodRef.mnode)
+          } else {
+            log(
+              s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
+              s"resulting from inlining closure $delegatingClosureClass invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
+            )
+            retract(delegatingClosureClass)
+          }
         }
       }
 
