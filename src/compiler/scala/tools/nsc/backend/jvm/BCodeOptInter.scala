@@ -45,8 +45,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     dclosures.clear()
   }
 
+  //--------------------------------------------------------
+  // Tracking of delegating-closures
+  //--------------------------------------------------------
+
+  private case class MethodRef(ownerClass: BType, mnode: MethodNode)
+
   /**
-   *  dclosure-class -> methodRef-to-endpoint-in-master-class
+   *  dclosure-class -> endpoint-as-methodRef-in-master-class
    *
    *  @see populateDClosureMaps() Before that method runs, this map is empty.
    */
@@ -59,16 +65,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    */
   private val dclosures = mutable.Map.empty[BType, List[BType]]
 
-  private case class MethodRef(ownerClass: BType, mnode: MethodNode)
+  private def isDelegatingClosure( c: BType): Boolean = { endpoint.contains(c) }
+  private def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
 
-  private def isDelegatingClosure( c: BType) = { endpoint.contains(c) }
-  private def isTraditionalClosure(c: BType) = { c.isClosureClass && !isDelegatingClosure(c) }
+  private def masterClass(dclosure: BType): BType = { endpoint(dclosure).ownerClass }
+
+  private def isMasterClass(c:     BType ):    Boolean = { dclosures.contains(c) }
+  private def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
+  private def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
 
   /**
    * The set of delegating-closures created during UnCurry, represented as BTypes.
    * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
    * */
-  private def allDClosures: collection.Set[BType] = { endpoint.keySet }
+  private def allDClosures:     collection.Set[BType] = { endpoint.keySet  }
+  private def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
 
   //--------------------------------------------------------
   // Optimization pack: Method-inlining and Closure-inlining
