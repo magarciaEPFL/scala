@@ -129,14 +129,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   //--------------------------------------------------------
 
   /**
-   * Each MethodNode built for a plain class is inspected for callsites targeting @inline methods,
-   * those callsites are collected in a `CallGraphNode` instance,
+   * During `GenBCode`, `PlainClassBuilder` inspects each MethodNode for a plain class,
+   * detecting those callsites targeting @inline methods, and collecting them (the callsites) in a `CallGraphNode` instance,
    * classified into "higher-order callsites" (ie taking one or more functions as arguments) and the rest.
+   * The callsites in question constitute "requests for inlining".
    *
-   * The callsites in question constitute "requests for inlining". An attempt will be made to fulfill them,
+   * During `WholeProgramAnalysis.inlining()` An attempt will be made to fulfill the inlining requests,
    * after detecting any attempts at cyclic inlining. Moreover a request may prove unfeasible afterwards too,
    * e.g. due to the callsite program point having a deeper operand-stack than the arguments the callee expects,
-   * and the callee contains exception handlers.
+   * and the callee containing exception handlers.
    *
    * A description of the workflow for method-inlining and closure-inlining can be found in `WholeProgramAnalysis.inlining()`.
    *
