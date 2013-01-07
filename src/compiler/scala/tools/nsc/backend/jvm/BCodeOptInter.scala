@@ -31,7 +31,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   import global._
 
-  private val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
+  val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
 
   /**
    * must-single-thread
@@ -65,7 +65,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    */
   final val dclosures = mutable.Map.empty[BType, List[BType]]
 
-  final def isDelegatingClosure( c: BType): Boolean = { endpoint.contains(c) }
+  final def isDelegatingClosure( c:    BType):  Boolean = { endpoint.contains(c) }
+  final def isDelegatingClosure(iname: String): Boolean = { endpoint.contains(lookupRefBType(iname)) }
+
   final def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
 
   final def masterClass(dclosure: BType): BType = { endpoint(dclosure).ownerClass }
@@ -82,9 +84,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   final def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
 
   /**
+   * Matches a "NEW dclosure" instruction returning the dclosure's BType, null otherwise.
+   * */
+  final def instantiatedDClosure(insn: AbstractInsnNode): BType = {
+    if(insn.getOpcode == Opcodes.NEW) {
+      val ti = insn.asInstanceOf[TypeInsnNode]
+      val dbt = lookupRefBType(ti.desc)
+      if(isDelegatingClosure(dbt)) {
+        return dbt
+      }
+    }
+
+    null
+  }
+
+  /**
    *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
    */
-  final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]]
+  final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]].withDefaultValue(mutable.Set.empty)
 
   //--------------------------------------------------------
   // Optimization pack: Method-inlining and Closure-inlining
@@ -492,7 +509,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def optimize() {
 
       populateDClosureMaps()
-      retractAssumptionsBreakingDClosures()
+      initNonMasterUsers()
 
       privatizables.clear()
       inlining()
@@ -515,9 +532,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     * TODO shouldn't count as invariant. Needed?
+     * Right after GenBCode, 99% of all "NEW dclosure" instructions are found in masterClass(dclosure).
+     * The exceptions (due to delayedInit) are found here.
+     *
+     * Together with the tracking of non-master-class users of dclosures performed during inlining,
+     * we can know where to look for usages of a given dclosure.
+     *
+     * During intra-class optimizatin, we need to know about such usages to decide whether:
+     *   (a) a dclosure endpoint can be made private
+     *   (b) a dclosure endpoint can be made static.
+     * In the affirmative case, we'll need to adapt usages.
+     *
      * */
-    private def retractAssumptionsBreakingDClosures() {
+    private def initNonMasterUsers() {
       val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
       while(iterCompiledEntries.hasNext) {
         val e = iterCompiledEntries.next()
@@ -529,18 +556,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         ) {
           val insnIter = mnode.instructions.iterator()
           while(insnIter.hasNext) {
-            val insn = insnIter.next()
-            if(insn.getOpcode == Opcodes.NEW) {
-              val ti = insn.asInstanceOf[TypeInsnNode]
-              if(ti.desc.contains(tpnme.ANON_FUN_NAME.toString)) {
-                val dbt = lookupRefBType(ti.desc)
-                if(isDelegatingClosure(dbt)) {
-                  val methodRef = endpoint(dbt)
-                  if(methodRef.ownerClass != compiledClassBT) {
-                    retract(dbt)
-                  }
-                }
-              }
+            val dbt = instantiatedDClosure(insnIter.next())
+            if((dbt != null) && isDelegatingClosure(dbt) && (masterClass(dbt) != compiledClassBT)) {
+              nonMasterUsers(dbt) += compiledClassBT
             }
           }
         }
