@@ -129,6 +129,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      */
     final val dclosures = mutable.Map.empty[BType, List[BType]]
 
+    /**
+     *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
+     *
+     *  @see populateNonMasterUsers() Before that method runs, this map is empty.
+     */
+    final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]].withDefaultValue(mutable.Set.empty)
+
+    // --------------------- query methods ---------------------
+
     final def isDelegatingClosure( c:    BType):  Boolean = { endpoint.contains(c) }
     final def isDelegatingClosure(iname: String): Boolean = { endpoint.contains(lookupRefBType(iname)) }
 
@@ -147,12 +156,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     final def allDClosures:     collection.Set[BType] = { endpoint.keySet  }
     final def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
 
+    // -------------- utilities to track dclosure usages in classes other than master --------------
+
     /**
-     * Matches a "NEW dclosure" instruction returning the dclosure's BType, null otherwise.
+     * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case, null otherwise.
      * */
-    final def instantiatedDClosure(insn: AbstractInsnNode): BType = {
+    private def instantiatedDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getOpcode == Opcodes.NEW) {
-        val ti = insn.asInstanceOf[TypeInsnNode]
+        val ti  = insn.asInstanceOf[TypeInsnNode]
         val dbt = lookupRefBType(ti.desc)
         if(isDelegatingClosure(dbt)) {
           return dbt
@@ -163,11 +174,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     * Matches a "INVOKE dclosure-endpoint" instruction returning the dclosure's BType, null otherwise.
+     * Matches a "INVOKE dclosure-endpoint" instruction returning the dclosure's BType in that case, null otherwise.
      * */
-    final def invokedDClosure(insn: AbstractInsnNode): BType = {
+    private def invokedDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getType == AbstractInsnNode.METHOD_INSN) {
-        val mi = insn.asInstanceOf[MethodInsnNode]
+        val mi     = insn.asInstanceOf[MethodInsnNode]
         val master = lookupRefBType(mi.owner)
         if(isMasterClass(master)) {
           for(
@@ -184,9 +195,32 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
-     */
-    final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]].withDefaultValue(mutable.Set.empty)
+     * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case, null otherwise.
+     * */
+    def accessedDClosure(insn: AbstractInsnNode): BType = {
+        instantiatedDClosure(insn) match {
+          case null => invokedDClosure(insn)
+          case dc   => dc
+        }
+    }
+
+    /**
+     *  In case dc is a dclosure being "used" in non-master class `user`, track this fact in `nonMasterUsers`.
+     *  In this case, a dclosure is "used" whenever an instantiation of it or an endpoint-invocation
+     *  are lexically enclosed in the "user" class.
+     *
+     *  @param dc   maybe a dclosure
+     *  @param user enclosing class where the usage of dc appears
+     * */
+    def inUseBy(dc: BType, user: BType) {
+      if(dc == null || !isDelegatingClosure(dc)) { return }
+      assert(!isDelegatingClosure(user))
+      if(user != masterClass(dc) && user != dc) {
+        nonMasterUsers(dc) += user
+      }
+    }
+
+    // --------------------- closuRepo initializers ---------------------
 
     /**
      *  must-single-thread
@@ -242,7 +276,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * In the affirmative case, we'll need to adapt usages.
      *
      * */
-    def initNonMasterUsers() {
+    def populateNonMasterUsers() {
       val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
       while(iterCompiledEntries.hasNext) {
         val e = iterCompiledEntries.next()
@@ -260,21 +294,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
           }
         }
-      }
-    }
-
-    /**
-     *  TODO Not needed
-     * */
-    def retract(former: BType) {
-      log("retracting delegating-closure: " + former)
-      val master = endpoint(former).ownerClass
-      endpoint.remove(former)
-      val other = dclosures(master) filterNot { _ == former}
-      if(other.isEmpty) {
-        dclosures.remove(master)
-      } else {
-        dclosures.put(master, other)
       }
     }
 
@@ -693,7 +712,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def optimize() {
 
       closuRepo.populateDClosureMaps()
-      closuRepo.initNonMasterUsers()
+      closuRepo.populateNonMasterUsers()
 
       privatizables.clear()
       inlining()
@@ -1754,7 +1773,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               s"Surprise surprise: a static-HiO method added to class ${hostOwner.name} " +
               s"(resulting from inlining closure $dclosure) invokes a delegate method declared in $mc"
             )
-            closuRepo.retract(dclosure)
+            assert(closuRepo.nonMasterUsers(dclosure).contains(mc))
           }
         }
       }
