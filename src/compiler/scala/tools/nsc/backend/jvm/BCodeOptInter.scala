@@ -197,26 +197,30 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case, null otherwise.
      * */
-    def accessedDClosure(insn: AbstractInsnNode): BType = {
-        instantiatedDClosure(insn) match {
-          case null => invokedDClosure(insn)
-          case dc   => dc
-        }
+    private def accessedDClosure(insn: AbstractInsnNode): BType = {
+      instantiatedDClosure(insn) match {
+        case null => invokedDClosure(insn)
+        case dc   => dc
+      }
     }
 
     /**
-     *  In case dc is a dclosure being "used" in non-master class `user`, track this fact in `nonMasterUsers`.
-     *  In this case, a dclosure is "used" whenever an instantiation of it or an endpoint-invocation
-     *  are lexically enclosed in the "user" class.
+     *  In case dc is a dclosure being "used" in `enclClass` (for enclClass not the master class of dc),
+     *  make note of this fact in `nonMasterUsers`.
      *
-     *  @param dc   maybe a dclosure
-     *  @param user enclosing class where the usage of dc appears
+     *  For the purposes of forthcoming optimizations,
+     *  a dclosure is "used" whenever an instantiation of it or an endpoint-invocation to it
+     *  are lexically enclosed in the "user" class (ie `enclClass`).
+     *
+     *  @param insn      bytecode instruction that may access a dclosure
+     *  @param enclClass enclosing class where the usage of the dclosure appears
      * */
-    def inUseBy(dc: BType, user: BType) {
+    def trackClosureUsageIfAny(insn: AbstractInsnNode, enclClass: BType) {
+      val dc = accessedDClosure(insn)
       if(dc == null || !isDelegatingClosure(dc)) { return }
-      assert(!isDelegatingClosure(user))
-      if(user != masterClass(dc) && user != dc) {
-        nonMasterUsers(dc) += user
+      assert(!isDelegatingClosure(enclClass))
+      if(enclClass != dc && enclClass != masterClass(dc)) {
+        nonMasterUsers(dc) += enclClass
       }
     }
 
@@ -288,10 +292,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         ) {
           val insnIter = mnode.instructions.iterator()
           while(insnIter.hasNext) {
-            val dbt = instantiatedDClosure(insnIter.next())
-            if((dbt != null) && isDelegatingClosure(dbt) && (masterClass(dbt) != compiledClassBT)) {
-              nonMasterUsers(dbt) += compiledClassBT
-            }
+            closuRepo.trackClosureUsageIfAny(insnIter.next(), compiledClassBT)
           }
         }
       }
