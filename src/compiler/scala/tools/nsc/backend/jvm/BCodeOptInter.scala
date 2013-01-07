@@ -31,7 +31,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   import global._
 
-  val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
+  private val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
 
   /**
    * must-single-thread
@@ -49,37 +49,42 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   // Tracking of delegating-closures
   //--------------------------------------------------------
 
-  private case class MethodRef(ownerClass: BType, mnode: MethodNode)
+  case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
   /**
    *  dclosure-class -> endpoint-as-methodRef-in-master-class
    *
    *  @see populateDClosureMaps() Before that method runs, this map is empty.
    */
-  private val endpoint = mutable.Map.empty[BType, MethodRef]
+  final val endpoint = mutable.Map.empty[BType, MethodRef]
 
   /**
    *  master-class -> dclosure-classes-it's-responsible-for
    *
    *  @see populateDClosureMaps() Before that method runs, this map is empty.
    */
-  private val dclosures = mutable.Map.empty[BType, List[BType]]
+  final val dclosures = mutable.Map.empty[BType, List[BType]]
 
-  private def isDelegatingClosure( c: BType): Boolean = { endpoint.contains(c) }
-  private def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
+  final def isDelegatingClosure( c: BType): Boolean = { endpoint.contains(c) }
+  final def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
 
-  private def masterClass(dclosure: BType): BType = { endpoint(dclosure).ownerClass }
+  final def masterClass(dclosure: BType): BType = { endpoint(dclosure).ownerClass }
 
-  private def isMasterClass(c:     BType ):    Boolean = { dclosures.contains(c) }
-  private def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
-  private def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
+  final def isMasterClass(c:     BType ):    Boolean = { dclosures.contains(c) }
+  final def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
+  final def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
 
   /**
    * The set of delegating-closures created during UnCurry, represented as BTypes.
    * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
    * */
-  private def allDClosures:     collection.Set[BType] = { endpoint.keySet  }
-  private def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
+  final def allDClosures:     collection.Set[BType] = { endpoint.keySet  }
+  final def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
+
+  /**
+   *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
+   */
+  final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]]
 
   //--------------------------------------------------------
   // Optimization pack: Method-inlining and Closure-inlining
@@ -470,7 +475,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * TODO break up into two or more classes
    */
-  class WholeProgramAnalysis extends BCInnerClassGen {
+  final class WholeProgramAnalysis extends BCInnerClassGen {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
@@ -1700,17 +1705,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       hostOwner.methods.add(staticHiO)
       privatizables.track(hostOwner, staticHiO)
       for(ccu <- closureClassUtils) {
-        val delegatingClosureClass: BType = lookupRefBType(ccu.closureClass.name)
-        if(isDelegatingClosure(delegatingClosureClass)) {
-          val endPointMethodRef = endpoint(delegatingClosureClass)
-          if(endPointMethodRef.ownerClass == lookupRefBType(hostOwner.name)) {
-            Util.makePrivateMethod(endPointMethodRef.mnode)
-          } else {
+        val dclosure: BType = lookupRefBType(ccu.closureClass.name)
+        if(isDelegatingClosure(dclosure)) {
+          val mc = masterClass(dclosure)
+          if(mc != lookupRefBType(hostOwner.name)) {
             log(
-              s"Surprise surprise: a static-HiO method based in class ${hostOwner.name} " +
-              s"resulting from inlining closure $delegatingClosureClass invokes a delegate method declared in ${endPointMethodRef.ownerClass}"
+              s"Surprise surprise: a static-HiO method added to class ${hostOwner.name} " +
+              s"(resulting from inlining closure $dclosure) invokes a delegate method declared in $mc"
             )
-            retract(delegatingClosureClass)
+            retract(dclosure)
           }
         }
       }
