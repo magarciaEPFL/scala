@@ -4181,12 +4181,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   implicit class InsnIterMethodNode(mnode: asm.tree.MethodNode) {
 
-    @inline final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit) {
-      val insnIter = mnode.instructions.iterator()
-      while(insnIter.hasNext) {
-        f(insnIter.next())
-      }
-    }
+    @inline final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit) { mnode.instructions.foreachInsn(f) }
+
+    @inline final def toList: List[asm.tree.AbstractInsnNode] = { mnode.instructions.toList }
 
   }
 
@@ -4197,6 +4194,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       while(insnIter.hasNext) {
         f(insnIter.next())
       }
+    }
+
+    @inline final def toList: List[asm.tree.AbstractInsnNode] = {
+      var result: List[asm.tree.AbstractInsnNode] = Nil
+      lst foreachInsn { insn => if(insn != null) { result ::= insn }  }
+      result.reverse
     }
 
   }

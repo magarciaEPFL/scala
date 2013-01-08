@@ -172,6 +172,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     final def allDClosures:     collection.Set[BType] = { endpoint.keySet  }
     final def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
 
+    /**
+     * The set of delegating-closures used by no other class than the argument
+     * (besides the trivial usage of each dclosure by itself).
+     * */
+    final def exclusiveDClosures(master: BType): List[BType] = {
+      dclosures(master) filter { dc => nonMasterUsers(dc).isEmpty }
+    }
+
+    def closureAccesses(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
+      assert(dclosure != null)
+      mnode.instructions.toList filter { insn => accessedDClosure(insn) == dclosure }
+    }
+
     // -------------- utilities to track dclosure usages in classes other than master --------------
 
     /**
@@ -2662,14 +2675,38 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * */
   override def closuresOptimiz(cnode: ClassNode): Boolean = {
 
-    if(!closuRepo.isMasterClass(cnode)) { return false }
+    val cnodeBT = lookupRefBType(cnode.name)
+    if(!closuRepo.isMasterClass(cnodeBT)) { return false }
 
-    // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) may be mutated.
+    // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
 
     var changed = false
+    for(d <- closuRepo.exclusiveDClosures(cnodeBT); if !elidedClasses.contains(d)) {
 
-    // TODO keepGoing |= minimizeDClosureFields()
-    // TODO keepGoing |= elideUninstantiatedDClosures()
+      val dep = closuRepo.endpoint(d).mnode
+
+      // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
+      val unused = { JListWrapper(cnode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
+      if(unused) {
+        changed = true
+        elidedClasses.add(d) // a concurrent set
+        cnode.methods.remove(dep)
+        /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
+         * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
+      }
+      else if (!Util.isStaticMethod(dep)) {
+        // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
+        assert(cnode.methods.contains(dep))
+        assert(Util.isPublicMethod(dep))
+        /*
+         * All usages of the dclosure are confined to two places: master and the dclosure itself.
+         * We can minimize dclosure fields (in particular, outer) because we know where to find all
+         * the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
+         * */
+         // TODO
+       }
+
+    }
 
     changed
   }

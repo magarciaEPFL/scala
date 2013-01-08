@@ -17,6 +17,7 @@ import scala.tools.asm.tree.InsnNode;
 import scala.tools.asm.tree.LdcInsnNode;
 import scala.tools.asm.tree.LabelNode;
 import scala.tools.asm.tree.MethodInsnNode;
+import scala.tools.asm.tree.ClassNode;
 import scala.tools.asm.tree.MethodNode;
 import scala.tools.asm.tree.FieldNode;
 import scala.tools.asm.tree.VarInsnNode;
@@ -552,6 +553,18 @@ public class Util {
     // ------------------------------------------------------------------------
     // Textification
     // ------------------------------------------------------------------------
+
+    /**
+     * Returns a human-readable representation of the cnode ClassNode.
+     */
+    public static String textify(final ClassNode cnode) {
+      scala.tools.asm.util.TraceClassVisitor trace = new scala.tools.asm.util.TraceClassVisitor(new java.io.PrintWriter(new java.io.StringWriter()));
+      cnode.accept(trace);
+      java.io.StringWriter sw = new java.io.StringWriter();
+      java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
+      trace.p.print(pw);
+      return sw.toString();
+    }
 
     /**
      * Returns a human-readable representation of the code in the mnode MethodNode.
