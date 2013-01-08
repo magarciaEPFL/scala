@@ -184,6 +184,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         // (2) intra-class
         keepGoing  = privatCompacter()
+
+        // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
         keepGoing |= closuresOptimiz(cnode)
 
       } while(keepGoing)

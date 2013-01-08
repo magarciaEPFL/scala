@@ -311,6 +311,20 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
+    // --------------------- closuRepo post-initialization utilities ---------------------
+
+    def retractAsDClosure(dc: BType) {
+      assert(nonMasterUsers(dc).isEmpty)
+      assert(elidedClasses.contains(dc))
+      val exMaster = masterClass(dc)
+      endpoint.remove(dc)
+      if(dclosures.contains(exMaster)) {
+        val other = dclosures(exMaster) filterNot { _ == dc }
+        if(other.isEmpty) { dclosures.remove(exMaster)     }
+        else              { dclosures.put(exMaster, other) }
+      }
+    }
+
     def clear() {
       uncurry.closuresAndDelegates = Nil
       endpoint.clear()
@@ -1787,6 +1801,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       for(ccu <- closureClassUtils) {
         val dclosure: BType = lookupRefBType(ccu.closureClass.name)
         if(closuRepo.isDelegatingClosure(dclosure)) {
+
           val mc = closuRepo.masterClass(dclosure)
           if(mc != enclClass) {
             log(
@@ -1795,6 +1810,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             )
             assert(closuRepo.nonMasterUsers(dclosure).contains(enclClass))
           }
+
+          // once inlined, a dclosure used only by its master class loses its "dclosure" status
+          if(closuRepo.nonMasterUsers(dclosure).isEmpty) {
+            Util.makePrivateMethod(closuRepo.endpoint(dclosure).mnode)
+            closuRepo.retractAsDClosure(dclosure)
+          }
+
         }
       }
 
@@ -2641,6 +2663,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   override def closuresOptimiz(cnode: ClassNode): Boolean = {
 
     if(!closuRepo.isMasterClass(cnode)) { return false }
+
+    // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) may be mutated.
 
     var changed = false
 
