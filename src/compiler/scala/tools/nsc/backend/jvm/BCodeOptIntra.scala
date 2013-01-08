@@ -17,6 +17,7 @@ import asm.tree._
 import scala.collection.{ mutable, immutable }
 import scala.Some
 import collection.convert.Wrappers.JListWrapper
+import collection.convert.Wrappers.JSetWrapper
 
 /**
  *  Optimize and tidy-up bytecode before it's serialized for good.
@@ -114,6 +115,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
     knownHasInline.clear()
   }
 
+  def isDClosure(cnode: ClassNode): Boolean       // to be implemented by subclass BCodeOptInter
+  def closuresOptimiz(cnode: ClassNode): Boolean  // to be implemented by subclass BCodeOptInter
+
   /**
    *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
    *  optimizations are applied iteratively until a fixpoint is reached.
@@ -144,6 +148,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
     val unusedPrivateElider = new asm.optimiz.UnusedPrivateElider()
+    val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
     val staticMaker         = new asm.optimiz.StaticMaker()
 
     /**
@@ -169,6 +174,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
      */
     def cleanseClass() {
 
+      if(isDClosure(cnode)) { return } // a dclosure is optimized together with its master class by closuresOptimiz().
+
       var keepGoing = false
       do {
 
@@ -176,9 +183,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
         intraMethodFixpoints()
 
         // (2) intra-class
-        keepGoing = privatCompacter()
-        // TODO keepGoing |= minimizeDClosureFields()
-        // TODO keepGoing |= elideUninstantiatedDClosures()
+        keepGoing  = privatCompacter()
+        keepGoing |= closuresOptimiz(cnode)
 
       } while(keepGoing)
 
@@ -227,15 +233,28 @@ abstract class BCodeOptIntra extends BCodeTypes {
      * */
     private def privatCompacter(): Boolean = {
 
-      if(!isAdaptingPrivateMembersOK(cnode)) { return false }
+      if(settings.keepUnusedPrivateClassMembers.value) { return false }
+
+      val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
+      if(cnodeEx.isSerializable) { return false }
 
       var changed   = false
       var keepGoing = false
       do {
         keepGoing = unusedPrivateElider.transform(cnode)
-        // UnusedParamsElider can't run here because creating BTypes for updated method descriptors must-single-thread
+
+        val updatedMethodSignatures = unusedParamsElider.transform(cnode)
+        if(!updatedMethodSignatures.isEmpty) {
+          // println(s"entering ${updatedMethodSignatures.size()} (possible new) method descriptors")
+          keepGoing = true
+          global synchronized {
+            JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
+          }
+        }
+
         staticMaker.transform(cnode)
         keepGoing |= staticMaker.changed
+
         changed |= keepGoing
       } while (keepGoing)
 

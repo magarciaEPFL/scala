@@ -48,6 +48,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   // Tracking of delegating-closures
   //--------------------------------------------------------
 
+  override def isDClosure(cnode: ClassNode): Boolean = { closuRepo.isDelegatingClosure(cnode)  }
+
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
   /**
@@ -151,8 +153,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     // --------------------- query methods ---------------------
 
-    final def isDelegatingClosure( c:    BType):  Boolean = { endpoint.contains(c) }
-    final def isDelegatingClosure(iname: String): Boolean = { endpoint.contains(lookupRefBType(iname)) }
+    final def isDelegatingClosure( c:    BType):     Boolean = { endpoint.contains(c) }
+    final def isDelegatingClosure(iname: String):    Boolean = { isDelegatingClosure(lookupRefBType(iname)) }
+    final def isDelegatingClosure(cnode: ClassNode): Boolean = { isDelegatingClosure(cnode.name) }
 
     final def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
 
@@ -732,19 +735,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
       privatizables.clear()
 
-      elideUnusedParamsOfPrivateMethods()
+      // val howManyDClosures: Float = closuRepo.endpoint.keySet.size
+      // val howManyShared   : Float = closuRepo.nonMasterUsers.keySet.size
+      // println("Proportion of dclosures in use by non-master to those used only from master:" howManyShared / howManyDClosures)
 
-    }
-
-    private def elideUnusedParamsOfPrivateMethods() {
-      val iterCompiledClasses = codeRepo.classes.values().iterator()
-      while(iterCompiledClasses.hasNext) {
-        val compiledClass: ClassNode = iterCompiledClasses.next()
-        if(isAdaptingPrivateMembersOK(compiledClass)) {
-          val updatedMethodSignatures = unusedParamsElider.transform(compiledClass)
-          JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
-        }
-      }
     }
 
     /**
@@ -2629,6 +2623,31 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    */
   case class MethodNodeAndOwner(mnode: MethodNode, owner: ClassNode) {
     assert(owner.methods.contains(mnode))
+  }
+
+  //---------------------------------------------------------------------------
+  // Optimization pack: closures (located here due to proximity with closuRepo)
+  //---------------------------------------------------------------------------
+
+  /**
+   * "master class of a dclosure": non-dclosure class declaring one or more dclosure endpoints
+   *                               (we say the master class "is responsible for" its dclosures).
+   *
+   * TODO documentation
+   *
+   * @see BCodeOptInter.closuRepo
+   *
+   * */
+  override def closuresOptimiz(cnode: ClassNode): Boolean = {
+
+    if(!closuRepo.isMasterClass(cnode)) { return false }
+
+    var changed = false
+
+    // TODO keepGoing |= minimizeDClosureFields()
+    // TODO keepGoing |= elideUninstantiatedDClosures()
+
+    changed
   }
 
 } // end of class BCodeOptInter
