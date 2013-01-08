@@ -2665,12 +2665,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   //---------------------------------------------------------------------------
 
   /**
-   * "master class of a dclosure": non-dclosure class declaring one or more dclosure endpoints
-   *                               (we say the master class "is responsible for" its dclosures).
+   * Detects those dclosures that the `cnode` argument is exclusively responsible for
+   * (consequence: all usages of the dclosure are confined to two places: master and the dclosure itself).
    *
-   * TODO documentation
+   * For each such closure:
    *
-   * @see BCodeOptInter.closuRepo
+   *   (1) lack of usages in `cnode` (eg as a result of dead-code elimination) means the closure can be elided,
+   *       along with its endpoint. This may lead to further tree-shaking in `cnode` (via UnusedPrivateElider).
+   *
+   *   (2) minimize the dclosure fields (in particular, outer) to those actually used.
+   *       "Minimizing the outer instance" means the endpoint is made static.
+   *       The dclosure itself remains, but with smaller GC overhead.
    *
    * */
   override def closuresOptimiz(cnode: ClassNode): Boolean = {
@@ -2703,13 +2708,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          * We can minimize dclosure fields (in particular, outer) because we know where to find all
          * the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
          * */
-         // TODO
+        changed |= minimizeDClosureFields(cnode, d)
        }
 
     }
 
     changed
   }
+
+  /**
+   *
+   * */
+  private def minimizeDClosureFields(cnode: ClassNode, d: BType): Boolean = {
+    false
+  }
+
 
 } // end of class BCodeOptInter
 

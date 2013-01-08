@@ -192,7 +192,7 @@ public class UnusedParamsElider {
 
     /**
      *  Step 2 of 2 of the transformation:
-     *    adapt the invokers of method whose unused params have been elided, dropping the arguments for those params.
+     *    adapt the invokers of a method some of whose params have been elided, dropping the arguments for those params.
      *
      *  @param cnode        class containing method m
      *  @param caller       a method in class cnode to be adapted in case it invokes the (already adapted) method callee.
