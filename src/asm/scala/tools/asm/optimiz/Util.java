@@ -282,6 +282,10 @@ public class Util {
         return (m.access & Opcodes.ACC_STATIC) != 0;
     }
 
+    public static void makeStaticMethod(final MethodNode m) {
+        m.access |= Opcodes.ACC_STATIC;
+    }
+
     public static boolean isSynchronizedMethod(final MethodNode m) {
         return (m.access & Opcodes.ACC_SYNCHRONIZED) != 0;
     }

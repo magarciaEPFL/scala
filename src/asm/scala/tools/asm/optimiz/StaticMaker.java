@@ -61,28 +61,11 @@ public class StaticMaker {
             ) {
                 changed = true;
                 m.access |= Opcodes.ACC_STATIC;
-                Iterator<AbstractInsnNode> insnIter = m.instructions.iterator();
-                while(insnIter.hasNext()) {
-                    AbstractInsnNode insn = insnIter.next();
-                    if(insn.getType() == AbstractInsnNode.VAR_INSN) {
-                        VarInsnNode vi = (VarInsnNode)insn;
-                        vi.var -= 1;
-                    }
-                }
-                Iterator<LocalVariableNode> lvnIter = m.localVariables.iterator();
-                while(lvnIter.hasNext()) {
-                    LocalVariableNode lvn = lvnIter.next();
-                    if(lvn.index == 0) {
-                        lvnIter.remove();
-                    } else {
-                        lvn.index -= 1;
-                    }
-                }
-                Util.computeMaxLocalsMaxStack(m);
+                downShiftLocalVarUsages(m);
                 methodsMadeStatic.add(m);
                 for (MethodNode caller : cnode.methods) {
                     if (!Util.isAbstractMethod(m)) {
-                        adaptCallsitesTargeting(cnode, caller, m);
+                        adaptCallsitesTargeting(cnode, caller, cnode, m);
                     }
                 }
             }
@@ -91,7 +74,7 @@ public class StaticMaker {
         return methodsMadeStatic;
     }
 
-    private boolean lacksUsagesOfTHIS(final MethodNode m) {
+    public static boolean lacksUsagesOfTHIS(final MethodNode m) {
         assert !Util.isAbstractMethod(m);
         assert  Util.isInstanceMethod(m);
 
@@ -123,16 +106,19 @@ public class StaticMaker {
      *                to be adapted in case it invokes the (already made static) method callee.
      *  @param callee (private) method that was made static.
      *
+     *  @return true iff sthg was changed.
+     *
      * */
-    public void adaptCallsitesTargeting(final ClassNode  cnode,
-                                        final MethodNode caller,
-                                        final MethodNode callee) throws AnalyzerException {
+    public static boolean adaptCallsitesTargeting(final ClassNode  callerOwner,
+                                                  final MethodNode caller,
+                                                  final ClassNode  calleeOwner,
+                                                  final MethodNode callee) throws AnalyzerException {
 
-        assert cnode.methods.contains(caller);
-        assert cnode.methods.contains(callee);
+        assert callerOwner.methods.contains(caller);
+        assert calleeOwner.methods.contains(callee);
 
         if(Util.isAbstractMethod(caller)) {
-            return;
+            return false;
         }
 
         // find callsites
@@ -143,7 +129,7 @@ public class StaticMaker {
             AbstractInsnNode insn = insnIter.next();
             if(insn.getType() == AbstractInsnNode.METHOD_INSN) {
                 MethodInsnNode mi = (MethodInsnNode)insn;
-                if((mi.owner.equals(cnode.name)) &&
+                if((mi.owner.equals(calleeOwner.name)) &&
                    (mi.name.equals(callee.name)) &&
                    (mi.desc.equals(callee.desc))) {
 
@@ -153,22 +139,43 @@ public class StaticMaker {
         }
 
         if(callsites.isEmpty()) {
-            return;
+            return false;
         }
 
-        changed = true;
-
         // drop receiver
-        UnusedParamsElider.dropArgumentsForElidedParams(cnode, caller, callsites, callee.desc, true, Collections.EMPTY_SET);
+        UnusedParamsElider.dropArgumentsForElidedParams(callerOwner, caller, callsites, callee.desc, true, Collections.EMPTY_SET);
 
         for(MethodInsnNode callsite : callsites) {
             callsite.setOpcode(Opcodes.INVOKESTATIC);
         }
 
         // get rid of LOADs made redundant by the DROPs inserted, as well as dead-stores.
-        UnusedParamsElider.elimRedundantLocalVarAccesses(cnode.name, caller);
+        UnusedParamsElider.elimRedundantLocalVarAccesses(callerOwner.name, caller);
 
         // not necessary to Util.computeMaxLocalsMaxStack(caller) because maxLocals was increased as need arose. maxStack doesn't change.
+
+        return true;
+    }
+
+    public static void downShiftLocalVarUsages(MethodNode m) {
+        Iterator<AbstractInsnNode> insnIter = m.instructions.iterator();
+        while(insnIter.hasNext()) {
+            AbstractInsnNode insn = insnIter.next();
+            if(insn.getType() == AbstractInsnNode.VAR_INSN) {
+                VarInsnNode vi = (VarInsnNode)insn;
+                vi.var -= 1;
+            }
+        }
+        Iterator<LocalVariableNode> lvnIter = m.localVariables.iterator();
+        while(lvnIter.hasNext()) {
+            LocalVariableNode lvn = lvnIter.next();
+            if(lvn.index == 0) {
+                lvnIter.remove();
+            } else {
+                lvn.index -= 1;
+            }
+        }
+        Util.computeMaxLocalsMaxStack(m);
     }
 
     private boolean isThis(final int localVarIdx, final MethodNode m) {

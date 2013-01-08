@@ -197,7 +197,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  intra-method optimizations
      * */
-    private def intraMethodFixpoints() {
+    def intraMethodFixpoints() {
 
       val cName = cnode.name
 

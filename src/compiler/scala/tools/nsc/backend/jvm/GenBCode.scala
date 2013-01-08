@@ -124,7 +124,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(
-      16,
+      1,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 

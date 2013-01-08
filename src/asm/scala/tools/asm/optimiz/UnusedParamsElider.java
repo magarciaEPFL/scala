@@ -66,7 +66,7 @@ public class UnusedParamsElider {
                     changed = true;
                     updatedMethodSignatures.add(m);
                     for (MethodNode caller : cnode.methods) {
-                        elideArguments(cnode, caller, m, oldDescr, elidedParams);
+                        elideArguments(cnode, caller, cnode, m, oldDescr, elidedParams);
                     }
                 }
             }
@@ -194,20 +194,22 @@ public class UnusedParamsElider {
      *  Step 2 of 2 of the transformation:
      *    adapt the invokers of a method some of whose params have been elided, dropping the arguments for those params.
      *
-     *  @param cnode        class containing method m
+     *  @param callerOwner  class declaring method "caller"
      *  @param caller       a method in class cnode to be adapted in case it invokes the (already adapted) method callee.
+     *  @param calleeOwner  class declaring method "callee"
      *  @param callee       (private) method whose unused params (given by elidedParams) have been elided.
      *  @param elidedParams zero-based positions of params that were elided in callee.
      *
      * */
-    public static void elideArguments(final ClassNode    cnode,
+    public static void elideArguments(final ClassNode    callerOwner,
                                       final MethodNode   caller,
+                                      final ClassNode    calleeOwner,
                                       final MethodNode   callee,
                                       final String       oldDescr,
                                       final Set<Integer> elidedParams) throws AnalyzerException {
 
-        assert cnode.methods.contains(caller);
-        assert cnode.methods.contains(callee);
+        assert callerOwner.methods.contains(caller);
+        assert calleeOwner.methods.contains(callee);
 
         if(elidedParams.isEmpty() || Util.isAbstractMethod(caller)) {
             return;
@@ -221,7 +223,7 @@ public class UnusedParamsElider {
             AbstractInsnNode insn = insnIter.next();
             if(insn.getType() == AbstractInsnNode.METHOD_INSN) {
                 MethodInsnNode mi = (MethodInsnNode)insn;
-                if((mi.owner.equals(cnode.name)) &&
+                if((mi.owner.equals(calleeOwner.name)) &&
                    (mi.name.equals(callee.name)) &&
                    (mi.desc.equals(oldDescr))) {
 
@@ -235,7 +237,7 @@ public class UnusedParamsElider {
         }
 
         // drop arguments for elided params
-        dropArgumentsForElidedParams(cnode, caller, callsites, oldDescr, false, elidedParams);
+        dropArgumentsForElidedParams(callerOwner, caller, callsites, oldDescr, false, elidedParams);
 
         // update descriptor
         for(MethodInsnNode callsite : callsites) {
@@ -243,7 +245,7 @@ public class UnusedParamsElider {
         }
 
         // get rid of LOADs made redundant by the DROPs inserted, as well as dead-stores.
-        UnusedParamsElider.elimRedundantLocalVarAccesses(cnode.name, caller);
+        UnusedParamsElider.elimRedundantLocalVarAccesses(callerOwner.name, caller);
 
         // not necessary to Util.computeMaxLocalsMaxStack(caller) because maxLocals was increased as need arose. maxStack doesn't change.
     }

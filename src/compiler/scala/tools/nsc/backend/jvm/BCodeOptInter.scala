@@ -741,8 +741,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
-    val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
-
     /**
      *  TODO documentation
      *
@@ -2708,7 +2706,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          * We can minimize dclosure fields (in particular, outer) because we know where to find all
          * the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
          * */
-        changed |= minimizeDClosureFields(cnode, d)
+        changed |= minimizeDClosureFields(cnode, dep, d)
        }
 
     }
@@ -2719,8 +2717,50 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   /**
    *
    * */
-  private def minimizeDClosureFields(cnode: ClassNode, d: BType): Boolean = {
-    false
+  private def minimizeDClosureFields(masterCNode: ClassNode, endpoint: MethodNode, d: BType): Boolean = {
+    import asm.optimiz.UnusedParamsElider
+    import asm.optimiz.StaticMaker
+
+    if(Util.isStaticMethod(endpoint)) { return false }
+
+    var changed  = false
+    val oldDescr = endpoint.desc
+    val dCNode: ClassNode = codeRepo.classes.get(d)
+
+    // don't run UnusedPrivateElider on a ClassNode with a method temporarily made private.
+    Util.makePrivateMethod(endpoint) // temporarily
+
+    val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
+    if(!elidedParams.isEmpty) {
+      changed = true
+      global synchronized {
+        BType.getMethodType(endpoint.desc)
+      }
+      for(caller <- JListWrapper(dCNode.methods)) {
+        UnusedParamsElider.elideArguments(dCNode, caller, masterCNode, endpoint, oldDescr, elidedParams)
+      }
+    }
+
+    if(StaticMaker.lacksUsagesOfTHIS(endpoint)) {
+      changed = true
+      Util.makeStaticMethod(endpoint)
+      StaticMaker.downShiftLocalVarUsages(endpoint)
+      for (caller <- JListWrapper(dCNode.methods)) {
+        assert(!Util.isAbstractMethod(caller))
+        StaticMaker.adaptCallsitesTargeting(dCNode, caller, masterCNode, endpoint)
+      }
+    }
+
+    // TODO those dclosure-fields that are never GETFIELD, should have their PUTFIELD replaced with POP1 or POP2.
+
+    Util.makePublicMethod(endpoint)
+
+    if(changed) {
+      val cleanser = new BCodeCleanser(dCNode)
+      cleanser.intraMethodFixpoints()
+    }
+
+    changed
   }
 
 
