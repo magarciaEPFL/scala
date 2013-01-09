@@ -393,12 +393,19 @@ abstract class GenBCode extends BCodeOptInter {
       spawnPipeline2()
       do { Thread.sleep(100) } while (woExited.size < MAX_THREADS)
 
-      // when inter-procedural is on, after intra-class optimizations we can't just add to q3
-      // (doing so implies the final bytecode is ready) because some dclosures are rewritten along with its master class.
-      // In detail, q2 does not group dclosures by master class, each class is an item, we want to avoid
-      // placing in q3 the byte array of a dclosure before its master class and the dclosure have been rewritten).
-      // Therefore Worker2 enqueues in `qInterProc` its output in the form of ClassNodes rather than ClassWriters
-      // (after running intra-class optimizations).
+      // debug
+      // val (staticsEPs, instanceEPs) = closuRepo.endpoint.values partition { ep => asm.optimiz.Util.isStaticMethod(ep.mnode) }
+      // println(s"staticsEPs: ${staticsEPs.size} \t instanceEPs: ${instanceEPs.size} \t out of ${closuRepo.endpoint.values.size}")
+
+      /*
+       *  When inter-procedural is on, after intra-class optimizations we can't just add to q3
+       *  (doing so implies the final bytecode is ready) because some dclosures are rewritten along with its master class.
+       *  In detail, q2 does not group dclosures by master class, each class is an item, we want to avoid
+       *  placing in q3 the byte array of a dclosure before its master class and the dclosure have been rewritten).
+       *  Therefore Worker2 enqueues in `qInterProc` its output in the form of ClassNodes rather than ClassWriters
+       *  (after running intra-class optimizations).
+       *
+       * */
       while(!qInterProc.isEmpty) {
 
         val Item2(arrivalPos, mirror, plain, bean) = qInterProc.take()
