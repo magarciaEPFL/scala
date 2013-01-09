@@ -2660,8 +2660,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     import asm.optimiz.UnusedParamsElider
     import asm.optimiz.StaticMaker
 
-    if(Util.isStaticMethod(endpoint)) { return false } // this marks we've already been there
-
     var changed  = false
     val oldDescr = endpoint.desc
     val dCNode: ClassNode = codeRepo.classes.get(d)
@@ -2680,7 +2678,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
-    if(StaticMaker.lacksUsagesOfTHIS(endpoint)) {
+    if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
       changed = true
       Util.makeStaticMethod(endpoint)
       StaticMaker.downShiftLocalVarUsages(endpoint)
@@ -2696,22 +2694,27 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       return false
     }
 
+    // past this point one or more closure-fields are to be elided (outer instance, captured local, or any combination thereof).
+
+    // PUTFIELD instructions for dclosure-fields that are never read can be eliminated,
+    // which in turn is a pre-requisite for removal of redundant closure-state fields.
+    // The whole process involves four steps.
+
     /*
-     * STORE instructions for dclosure-fields that are never read can be eliminated,
-     * which is in turn a pre-requisite to removing the closure-state field altogether.
-     * That's accomplished in a series of steps.
-     *
      * Step 1: cancel-out DROP of closure-state GETFIELD
      * -------------------------------------------------
      *
-     * Although PushPopCollapser has run on the dclosure, instruction pairs of the form:
+     * Even if PushPopCollapser is run on the dclosure, instruction pairs of the form:
      *   LOAD_0
      *   GETFIELD of a closure-field
      *   DROP
-     * still remain (PushPopCollapser does not elide a GETFIELD of an already assigned private final field).
+     * still remain (PushPopCollapser does not elide a GETFIELD of a private final field,
+     * because it doesnt' determine whether it's been assigned already or not).
+     *
      * The custom transform below gets rid of those GETFIELD instructions, rewriting the above into:
      *   LOAD_0
      *   DROP
+     *
      * A follow-up round of PushPopCollapser finishes the code clean-up.
      * */
     val cp = ProdConsAnalyzer.create()
@@ -2729,14 +2732,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         if prod.asInstanceOf[FieldInsnNode].owner == dCNode.name;
         if cp.isPointToPoint(prod, drop)
       ) {
-        caller.instructions.set(prod, Util.getDrop(1))
-        caller.instructions.remove(drop)
+        caller.instructions.set(prod, Util.getDrop(1)) // drop the receiver of GETFIELD, ie drop the result of LOAD_0
+        caller.instructions.remove(drop)               // cancel-out the DROP for the result of GETFIELD
       }
     }
 
     /*
-     * Step 2: get rid of PUTFIELDs to closure-state fields never read
-     * ------------------------------------------------------------
+     * Step 2: determine (declared) `closureState` and (effectively used) `whatGetsRead`
+     * ---------------------------------------------------------------------------------
      * */
     val closureState: Map[String, FieldNode] = {
       JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
@@ -2748,18 +2751,55 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     ) {
       if (insn.getOpcode == Opcodes.GETFIELD) {
         val fieldRead = insn.asInstanceOf[FieldInsnNode]
-        if (fieldRead.owner == dCNode.name && closureState.contains(fieldRead.name)) {
+        assert(fieldRead.owner == dCNode.name)
+        if (closureState.contains(fieldRead.name)) {
           whatGetsRead += fieldRead.name
         }
       }
     }
+
+    /*
+     * Step 3: determine correspondence redundant-closure-field-name -> constructor-params-position
+     * --------------------------------------------------------------------------------------------
+     * */
+    // redundant-closure-field-name -> zero-based position the constructor param providing the value for it.
+    val paramPosToElide = mutable.Map.empty[String, Int]
+    val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
+    val ctorBT = BType.getMethodType(ctor.desc)
+    Util.computeMaxLocalsMaxStack(ctor)
+    cp.analyze(dCNode.name, ctor)
+    for(
+      insn   <- ctor.instructions.toList
+    ) {
+      if (insn.getOpcode == Opcodes.PUTFIELD) {
+        val fieldWrite = insn.asInstanceOf[FieldInsnNode]
+        assert(fieldWrite.owner == dCNode.name)
+        if (!whatGetsRead.contains(fieldWrite.name)) {
+          val nonThisLocals = {
+            JSetWrapper(cp.producers(fieldWrite)) map { insn => insn.asInstanceOf[VarInsnNode].`var` } filterNot { _ == 0 }
+          }
+          assert(nonThisLocals.size == 1)
+          assert(!paramPosToElide.contains(fieldWrite.name))
+          val localVarIdx = nonThisLocals.iterator.next
+          val paramPos    = ctorBT.convertLocalVarIdxToFormalParamPos(localVarIdx, true)
+          paramPosToElide.put(fieldWrite.name, paramPos)
+        }
+      }
+    }
+    val isOuterRedundant = paramPosToElide.contains(nme.OUTER.toString)
+
+    /*
+     * Step 4: get rid of PUTFIELDs to closure-state fields never read
+     * ---------------------------------------------------------------
+     * */
     for(
       caller <- JListWrapper(dCNode.methods);
       insn   <- caller.instructions.toList
     ) {
       if (insn.getOpcode == Opcodes.PUTFIELD) {
         val fieldWrite = insn.asInstanceOf[FieldInsnNode]
-        if (fieldWrite.owner == dCNode.name && !whatGetsRead.contains(fieldWrite.name)) {
+        assert(fieldWrite.owner == dCNode.name)
+        if (!whatGetsRead.contains(fieldWrite.name)) {
           val fnode = closureState(fieldWrite.name)
           val size  = descrToBType(fnode.desc).getSize
           caller.instructions.insert(fieldWrite, Util.getDrop(1)) // drops THIS
