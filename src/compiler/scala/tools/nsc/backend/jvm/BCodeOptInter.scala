@@ -2660,37 +2660,48 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     import asm.optimiz.UnusedParamsElider
     import asm.optimiz.StaticMaker
 
-    var changed  = false
-    val oldDescr = endpoint.desc
     val dCNode: ClassNode = codeRepo.classes.get(d)
 
-    // don't run UnusedPrivateElider on a ClassNode with a method temporarily made private.
-    Util.makePrivateMethod(endpoint) // temporarily
+        /**
+         *  (1) remove params that go unused at the endpoint in the master class,
+         *      also removing the arguments provided by the callsite in the dclosure class.
+         *
+         *  (2) attempt to make static the endpoint (and its invocation).
+         *
+         * */
+        def adaptEndpointAndItsCallsite(): Boolean = {
+          var changed  = false
+          val oldDescr = endpoint.desc
+          // don't run UnusedPrivateElider on a ClassNode with a method temporarily made private.
+          Util.makePrivateMethod(endpoint) // temporarily
 
-    val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
-    if(!elidedParams.isEmpty) {
-      changed = true
-      global synchronized {
-        BType.getMethodType(endpoint.desc)
-      }
-      for(caller <- JListWrapper(dCNode.methods)) {
-        UnusedParamsElider.elideArguments(dCNode, caller, masterCNode, endpoint, oldDescr, elidedParams)
-      }
-    }
+          val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
+          if(!elidedParams.isEmpty) {
+            changed = true
+            global synchronized {
+              BType.getMethodType(endpoint.desc)
+            }
+            for(caller <- JListWrapper(dCNode.methods)) {
+              UnusedParamsElider.elideArguments(dCNode, caller, masterCNode, endpoint, oldDescr, elidedParams)
+            }
+          }
 
-    if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
-      changed = true
-      Util.makeStaticMethod(endpoint)
-      StaticMaker.downShiftLocalVarUsages(endpoint)
-      for (caller <- JListWrapper(dCNode.methods)) {
-        assert(!Util.isAbstractMethod(caller))
-        StaticMaker.adaptCallsitesTargeting(dCNode, caller, masterCNode, endpoint)
-      }
-    }
+          if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
+            changed = true
+            Util.makeStaticMethod(endpoint)
+            StaticMaker.downShiftLocalVarUsages(endpoint)
+            for (caller <- JListWrapper(dCNode.methods)) {
+              assert(!Util.isAbstractMethod(caller))
+              StaticMaker.adaptCallsitesTargeting(dCNode, caller, masterCNode, endpoint)
+            }
+          }
 
-    Util.makePublicMethod(endpoint)
+          Util.makePublicMethod(endpoint)
 
-    if(!changed) {
+          changed
+        }
+
+    if(!adaptEndpointAndItsCallsite()) {
       return false
     }
 
@@ -2737,6 +2748,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
+    val cleanser = new BCodeCleanser(dCNode)
+    cleanser.intraMethodFixpoints()
+
     /*
      * Step 2: determine (declared) `closureState` and (effectively used) `whatGetsRead`
      * ---------------------------------------------------------------------------------
@@ -2758,12 +2772,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
+    if(whatGetsRead.size == closureState.size) {
+      // elidedParams may refer to an apply-arg or a captured local, or combination thereof.
+      return true // no closure-state field to elide after all (e.g., outer was a module, see test/files/run/Course-2002-10.scala)
+    }
+
     /*
      * Step 3: determine correspondence redundant-closure-field-name -> constructor-params-position
      * --------------------------------------------------------------------------------------------
      * */
     // redundant-closure-field-name -> zero-based position the constructor param providing the value for it.
-    val paramPosToElide = mutable.Map.empty[String, Int]
+    val posOfRedundantCtorParam = mutable.Map.empty[String, Int]
     val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
     val ctorBT = BType.getMethodType(ctor.desc)
     Util.computeMaxLocalsMaxStack(ctor)
@@ -2779,17 +2798,65 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             JSetWrapper(cp.producers(fieldWrite)) map { insn => insn.asInstanceOf[VarInsnNode].`var` } filterNot { _ == 0 }
           }
           assert(nonThisLocals.size == 1)
-          assert(!paramPosToElide.contains(fieldWrite.name))
+          assert(!posOfRedundantCtorParam.contains(fieldWrite.name))
           val localVarIdx = nonThisLocals.iterator.next
           val paramPos    = ctorBT.convertLocalVarIdxToFormalParamPos(localVarIdx, true)
-          paramPosToElide.put(fieldWrite.name, paramPos)
+          posOfRedundantCtorParam.put(fieldWrite.name, paramPos)
         }
       }
     }
-    val isOuterRedundant = paramPosToElide.contains(nme.OUTER.toString)
+    assert(posOfRedundantCtorParam.nonEmpty)
 
     /*
-     * Step 4: get rid of PUTFIELDs to closure-state fields never read
+     * Step 4: In case outer-instance is being removed, get rid of the following preamble
+     * ----------------------------------------------------------------------------------
+     *     ALOAD 1
+     *     IFNONNULL L0
+     *     NEW java/lang/NullPointerException
+     *     DUP
+     *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
+     *     ATHROW
+     * */
+    val isOuterRedundant = {
+       closureState.contains(nme.OUTER.toString) &&
+      !whatGetsRead.contains(nme.OUTER.toString)
+    }
+    if(isOuterRedundant) {
+
+      assert(posOfRedundantCtorParam(nme.OUTER.toString) == 0)
+
+      val preamble = ctor.toList.filter(i => Util.isExecutable(i)).take(6).toArray
+
+          def preambleAssert(idx: Int, pf: PartialFunction[AbstractInsnNode, Boolean]) {
+            val insn = preamble(idx)
+            assert(pf(insn), s"OuterRedundant-Preamble: Expected another instruction at index $idx but found " + Util.textify(insn))
+          }
+
+      val txtCtorBefore = Util.textify(ctor)
+
+      preambleAssert(0, { case vi: VarInsnNode  => vi.getOpcode == Opcodes.ALOAD && vi.`var` == 1 } )
+      preambleAssert(1, { case ji: JumpInsnNode => ji.getOpcode == Opcodes.IFNONNULL } )
+      preambleAssert(2, { case ti: TypeInsnNode => ti.getOpcode == Opcodes.NEW  && ti.desc == "java/lang/NullPointerException" } )
+      preambleAssert(3, { case in: InsnNode     => in.getOpcode == Opcodes.DUP } )
+      preambleAssert(4,
+        { case mi: MethodInsnNode =>
+            mi.getOpcode == Opcodes.INVOKESPECIAL &&
+            mi.owner == "java/lang/NullPointerException" &&
+            mi.name  == "<init>" &&
+            mi.desc  == "()V"
+        }
+      )
+      preambleAssert(5, { case in: InsnNode => in.getOpcode == Opcodes.ATHROW } )
+      for(i <- preamble) { ctor.instructions.remove(i) }
+
+      val txtCtorAfter = Util.textify(ctor)
+      cleanser.runTypeFlowAnalysis(dCNode.name, ctor) // debug
+
+      // TODO once $outer is gone, the dclosure will invoke a static endpoint, and there's no reason to keep it InnerClass.
+    }
+
+    /*
+     * Step 5: get rid of PUTFIELDs to closure-state fields never read
      * ---------------------------------------------------------------
      * */
     for(
@@ -2804,13 +2871,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           val size  = descrToBType(fnode.desc).getSize
           caller.instructions.insert(fieldWrite, Util.getDrop(1)) // drops THIS
           caller.instructions.set(fieldWrite, Util.getDrop(size)) // drops field value
-          dCNode.fields.remove(fnode)
         }
       }
     }
 
-    val cleanser = new BCodeCleanser(dCNode)
+    /*
+     * Step 6: backpropagate DROPs inserted above, and remove redundant fields
+     * (otherwise another attempt will be made to delete them next time around)
+     * -----------------------------------------------------------------------
+     * */
     cleanser.intraMethodFixpoints()
+    for(
+      fnode <- closureState.values;
+      if !whatGetsRead.contains(fnode.name)
+    ) {
+      dCNode.fields.remove(fnode)
+    }
 
     true
   }
