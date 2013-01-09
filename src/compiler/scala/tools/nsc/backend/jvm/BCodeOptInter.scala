@@ -801,69 +801,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of class MethodsPerClass
 
-    // -----------------------------------------------------------------------------------
-    // ------------------------------- TODO use after DCE -------------------------------
-    // -----------------------------------------------------------------------------------
-
-    /**
-     *  Records for a delegating-closure-instantiation the NEW instruction and the closure-class.
-     **/
-    private case class DClosureInstantiation(newInsn: TypeInsnNode, closureClass: BType)
-
-    /**
-     *  Records for a method or constructor in a "master-class" the occurrences
-     *  the method or constructor contains of delegating-closure instantiations.
-     **/
-    private case class DClosuresAtMasterMethod(mnode: MethodNode, delegating: Array[DClosureInstantiation])
-
-    /**
-     *  TODO use after DCE
-     *
-     *  can-multi-thread
-     *
-     **/
-    private def survivingDClosures(masterBT: BType): List[DClosuresAtMasterMethod] = {
-
-      assert(closuRepo.isMasterClass(masterBT))
-
-      val master: Tracked  = exemplars.get(masterBT)
-      val cnode: ClassNode = codeRepo.classes.get(masterBT)
-
-          /**
-           * find instantiations of delegating-closures in mnode
-           * */
-          def visitMethod(mnode: MethodNode): Array[DClosureInstantiation] = {
-            for(
-              insn <- mnode.instructions.toArray;
-              if insn != null;
-              if insn.getOpcode == Opcodes.NEW;
-              newInsn = insn.asInstanceOf[TypeInsnNode];
-              if newInsn.desc.contains(tpnme.ANON_FUN_NAME.toString);
-              cloBT = lookupRefBType(newInsn.desc);
-              if closuRepo.isDelegatingClosure(cloBT)
-            ) yield {
-              DClosureInstantiation(newInsn, cloBT)
-            }
-          }
-
-      /**
-       * scan master's non-abstract methods and constructors, find instantiations of delegating-closures in them
-       * */
-      for(
-        mnode <- JListWrapper(cnode.methods).toList;
-        if !Util.isAbstractMethod(mnode); // constructors are considered too
-        delegating = visitMethod(mnode);
-        if delegating.nonEmpty
-      ) yield {
-        DClosuresAtMasterMethod(mnode, delegating)
-      }
-
-      // ideally we should cross-check by scanning codeRepo.classes that
-      // each delegating-closure-class has been grouped into exactly one "master" class.
-      // however we've skipped those "master" classes which are serializable, and thus their delegating-closures
-
-    } // end of method groupClosuresByMasterClass()
-
     // -------------------------------------------------------------------------------
     // ------------------------------- inlining rounds -------------------------------
     // -------------------------------------------------------------------------------
