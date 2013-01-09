@@ -2621,9 +2621,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
 
     var changed = false
-    for(d <- closuRepo.exclusiveDClosures(cnodeBT); if !elidedClasses.contains(d)) {
-
-      val dep = closuRepo.endpoint(d).mnode
+    for(
+      d <- closuRepo.exclusiveDClosures(cnodeBT);
+      if !elidedClasses.contains(d);
+      dep = closuRepo.endpoint(d).mnode;
+      // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
+      if cnode.methods.contains(dep)
+    ) {
 
       // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
       val unused = { JListWrapper(cnode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
@@ -2638,11 +2642,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
         assert(cnode.methods.contains(dep))
         assert(Util.isPublicMethod(dep))
-        /*
-         * All usages of the dclosure are confined to two places: master and the dclosure itself.
-         * We can minimize dclosure fields (in particular, outer) because we know where to find all
-         * the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
-         * */
         changed |= minimizeDClosureFields(cnode, dep, d)
        }
 
@@ -2652,6 +2651,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   }
 
   /**
+   * All usages of the dclosure are confined to two places: its master class and the dclosure itself.
+   * We can minimize dclosure fields (in particular, outer) because we know where to find all
+   * the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
    *
    * */
   private def minimizeDClosureFields(masterCNode: ClassNode, endpoint: MethodNode, d: BType): Boolean = {
