@@ -2690,16 +2690,59 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
-    // TODO those dclosure-fields that are never GETFIELD, should have their PUTFIELD replaced with POP1 or POP2.
-
     Util.makePublicMethod(endpoint)
 
-    if(changed) {
-      val cleanser = new BCodeCleanser(dCNode)
-      cleanser.intraMethodFixpoints()
+    if(!changed) {
+      return false
     }
 
-    changed
+    /*
+     * STORE instructions for dclosure-fields that are never read can be eliminated,
+     * which is in turn a pre-requisite to removing the closure-state field altogether.
+     * That's accomplished in a series of steps.
+     *
+     * Step 1: cancel-out DROP of closure-state GETFIELD
+     * -------------------------------------------------
+     *
+     * Although PushPopCollapser has run on the dclosure, instruction pairs of the form:
+     *   LOAD_0
+     *   GETFIELD of a closure-field
+     *   DROP
+     * still remain (PushPopCollapser does not elide a GETFIELD of an already assigned private final field).
+     * The custom transform below gets rid of those GETFIELD instructions, rewriting the above into:
+     *   LOAD_0
+     *   DROP
+     * A follow-up round of PushPopCollapser finishes the code clean-up.
+     * */
+    val cp = ProdConsAnalyzer.create()
+    for (caller <- JListWrapper(dCNode.methods)) {
+      Util.computeMaxLocalsMaxStack(caller)
+      cp.analyze(dCNode.name, caller)
+      for(
+        // we'll modify caller.instructions in the for-body, that's fine because toList returns another list.
+        drop <- caller.instructions.toList;
+        if Util.isDROP(drop);
+        producers = cp.producers(drop);
+        if producers.size() == 1;
+        prod = producers.iterator().next;
+        if prod.getOpcode == Opcodes.GETFIELD;
+        if prod.asInstanceOf[FieldInsnNode].owner == dCNode.name;
+        if cp.isPointToPoint(prod, drop)
+      ) {
+        caller.instructions.set(prod, Util.getDrop(1))
+        caller.instructions.remove(drop)
+      }
+    }
+
+    /*
+     * Step 2: get rid of STOREs to closure-state fields never read afterwards
+     * -----------------------------------------------------------------------
+     * */
+
+    val cleanser = new BCodeCleanser(dCNode)
+    cleanser.intraMethodFixpoints()
+
+    true
   }
 
 
