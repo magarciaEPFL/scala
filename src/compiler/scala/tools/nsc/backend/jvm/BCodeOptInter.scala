@@ -2658,7 +2658,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     import asm.optimiz.UnusedParamsElider
     import asm.optimiz.StaticMaker
 
-    if(Util.isStaticMethod(endpoint)) { return false }
+    if(Util.isStaticMethod(endpoint)) { return false } // this marks we've already been there
 
     var changed  = false
     val oldDescr = endpoint.desc

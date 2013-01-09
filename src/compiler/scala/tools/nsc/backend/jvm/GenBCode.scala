@@ -149,6 +149,8 @@ abstract class GenBCode extends BCodeOptInter {
     private val poison2 = Item2(Int.MaxValue, null, null, null)
     private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
 
+    private val qInterProc = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
+
     // q3
     case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
       def isPoison  = { arrivalPos == Int.MaxValue }
@@ -285,6 +287,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       def visit(item: Item2) {
+
         val Item2(arrivalPos, mirror, plain, bean) = item
 
         if(elidedClasses.contains(lookupRefBType(plain.cnode.name))) {
@@ -292,11 +295,18 @@ abstract class GenBCode extends BCodeOptInter {
           return
         }
 
+        if(isInterProcOptimizOn) {
+          // don't place in q3 just yet (which requires ClassWriter.toByteArray()) because rewriting of dclosures may be under way
+          (new BCodeCleanser(plain.cnode)).cleanseClass()
+          qInterProc put item
+          return
+        }
+
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
           if (mirror != null) {
             SubItem3(mirror.label, mirror.jclassName, mirror.jclass.toByteArray(), mirror.outF)
-          } else null;
+          } else null
 
         // -------------- "plain" class --------------
         if(isIntraMethodOptimizOn) {
@@ -311,7 +321,7 @@ abstract class GenBCode extends BCodeOptInter {
         val beanC: SubItem3 =
           if (bean != null) {
             SubItem3(bean.label, bean.jclassName, bean.jclass.toByteArray(), bean.outF)
-          } else null;
+          } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
       }
@@ -365,9 +375,12 @@ abstract class GenBCode extends BCodeOptInter {
      *    - run in parallel intra-class (including intra-method) optimizations
      *    - sequentially write non-elided classes to disk.
      *
-     *  Waiting for all intra-class optimizations to complete before starting writing to disk
-     *  is explained by the fact that some delegating-closures may be elided in the process,
-     *  and we don't want to have written them to disk too early.
+     *  Waiting for all intra-class optimizations to complete before starting writing to disk is necessary because:
+     *
+     *    (a) some delegating-closures may be elided in the process,
+     *        and we don't want to have them written to disk too early.
+     *
+     *    (b) some dclosures are rewritten along with its master class. For details see method body comments.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
       feedPipeline1()
@@ -379,6 +392,46 @@ abstract class GenBCode extends BCodeOptInter {
 
       spawnPipeline2()
       do { Thread.sleep(100) } while (woExited.size < MAX_THREADS)
+
+      // when inter-procedural is on, after intra-class optimizations we can't just add to q3
+      // (doing so implies the final bytecode is ready) because some dclosures are rewritten along with its master class.
+      // In detail, q2 does not group dclosures by master class, each class is an item, we want to avoid
+      // placing in q3 the byte array of a dclosure before its master class and the dclosure have been rewritten).
+      // Therefore Worker2 enqueues in `qInterProc` its output in the form of ClassNodes rather than ClassWriters
+      // (after running intra-class optimizations).
+      while(!qInterProc.isEmpty) {
+
+        val Item2(arrivalPos, mirror, plain, bean) = qInterProc.take()
+
+        if(elidedClasses.contains(lookupRefBType(plain.cnode.name))) {
+
+          q3 put Item3(arrivalPos, null, null, null)
+
+        } else {
+
+          // -------------- mirror class, if needed --------------
+          val mirrorC: SubItem3 =
+            if (mirror != null) {
+              SubItem3(mirror.label, mirror.jclassName, mirror.jclass.toByteArray(), mirror.outF)
+            } else null
+
+          // -------------- "plain" class --------------
+          val cw = new CClassWriter(extraProc)
+          plain.cnode.accept(cw)
+          val plainC =
+            SubItem3(plain.label, plain.cnode.name, cw.toByteArray, plain.outF)
+
+          // -------------- bean info class, if needed --------------
+          val beanC: SubItem3 =
+            if (bean != null) {
+              SubItem3(bean.label, bean.jclassName, bean.jclass.toByteArray(), bean.outF)
+            } else null
+
+          q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
+
+        }
+
+      }
 
       drainQ3()
     }
