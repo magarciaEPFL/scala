@@ -2735,9 +2735,39 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /*
-     * Step 2: get rid of STOREs to closure-state fields never read afterwards
-     * -----------------------------------------------------------------------
+     * Step 2: get rid of PUTFIELDs to closure-state fields never read
+     * ------------------------------------------------------------
      * */
+    val closureState: Map[String, FieldNode] = {
+      JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
+    }.toMap
+    val whatGetsRead = mutable.Set.empty[String]
+    for(
+      caller <- JListWrapper(dCNode.methods);
+      insn   <- caller.instructions.toList
+    ) {
+      if (insn.getOpcode == Opcodes.GETFIELD) {
+        val fieldRead = insn.asInstanceOf[FieldInsnNode]
+        if (fieldRead.owner == dCNode.name && closureState.contains(fieldRead.name)) {
+          whatGetsRead += fieldRead.name
+        }
+      }
+    }
+    for(
+      caller <- JListWrapper(dCNode.methods);
+      insn   <- caller.instructions.toList
+    ) {
+      if (insn.getOpcode == Opcodes.PUTFIELD) {
+        val fieldWrite = insn.asInstanceOf[FieldInsnNode]
+        if (fieldWrite.owner == dCNode.name && !whatGetsRead.contains(fieldWrite.name)) {
+          val fnode = closureState(fieldWrite.name)
+          val size  = descrToBType(fnode.desc).getSize
+          caller.instructions.insert(fieldWrite, Util.getDrop(1)) // drops THIS
+          caller.instructions.set(fieldWrite, Util.getDrop(size)) // drops field value
+          dCNode.fields.remove(fnode)
+        }
+      }
+    }
 
     val cleanser = new BCodeCleanser(dCNode)
     cleanser.intraMethodFixpoints()
