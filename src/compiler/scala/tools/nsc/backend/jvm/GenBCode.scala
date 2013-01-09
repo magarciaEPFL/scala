@@ -271,8 +271,10 @@ abstract class GenBCode extends BCodeOptInter {
           val item = q2.take
           if(item.isPoison) {
             woExited.put(id, item)
-            q3 put poison3 // therefore queue-3 will contain as many poison pills as pipeline-2 threads.
-            // to terminate all pipeline-2 workers, queue-1 must contain as many poison pills as pipeline-2 threads.
+            if(!isInterProcOptimizOn) {
+              q3 put poison3 // therefore queue-3 will contain as many poison pills as pipeline-2 threads.
+              // to terminate all pipeline-2 workers, queue-1 must contain as many poison pills as pipeline-2 threads.
+            }
             return
           }
           else {
@@ -375,12 +377,13 @@ abstract class GenBCode extends BCodeOptInter {
      *    - run in parallel intra-class (including intra-method) optimizations
      *    - sequentially write non-elided classes to disk.
      *
-     *  Waiting for all intra-class optimizations to complete before starting writing to disk is necessary because:
+     *  It's necessary to wait for intra-class optimizations to complete before starting writing to disk because:
      *
      *    (a) some delegating-closures may be elided in the process,
      *        and we don't want to have them written to disk too early.
      *
-     *    (b) some dclosures are rewritten along with its master class. For details see method body comments.
+     *    (b) some dclosures are rewritten along with its master class,
+     *        and we don't want to write to disk an old version. For details see comments in method body.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
       feedPipeline1()
@@ -439,6 +442,8 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
       }
+
+      (1 to MAX_THREADS) foreach { i => q3 put poison3 }
 
       drainQ3()
     }

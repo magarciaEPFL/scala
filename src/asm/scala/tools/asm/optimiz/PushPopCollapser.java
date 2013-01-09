@@ -156,7 +156,7 @@ public class PushPopCollapser {
                 case Opcodes.BIPUSH:
                 case Opcodes.SIPUSH:
                 case Opcodes.LDC:
-                  // eliding an LDC of the "push ymbolic reference to a class" variety might
+                  // eliding an LDC of the "push symbolic reference to a class" variety might
                   // save us a NoClassDefFoundError at runtime (ie, change semantics, bad thing).
                   // Still, seems reasonable to elide.
                 case Opcodes.ILOAD:
