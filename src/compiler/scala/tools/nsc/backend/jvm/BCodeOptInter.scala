@@ -2881,8 +2881,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /*
-     * Step 7: adapt the method descriptor of the dclosure constructor, as well as callsites in master class
-     * -----------------------------------------------------------------------------------------------------
+     * Step 7: adapt the method descriptor of the dclosure constructor, as well as callsite in master class
+     * ----------------------------------------------------------------------------------------------------
      * */
     Util.makePrivateMethod(ctor) // temporarily
     val oldCtorDescr = ctor.desc
@@ -2897,7 +2897,69 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     true
-  }
+  } // end of method minimizeDClosureFields()
+
+  /**
+   * Once no further `minimizeDClosureFields()` is possible, dclosures can be classified into:
+   *
+   *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
+   *       In this case the closure can be turned into a singleton.
+   *
+   *   (2) closure state consisting only of outer-instance: irrespective of the dclosure's arity,
+   *       besides (a subset of) the apply()'s arguments, the only additional value needed
+   *       to invoke the endpoint (necessarily an instance method) is the outer-instance value.
+   *       In this case the closure can be allocated once per outer-instance
+   *       (for example, in the constructor of the class of the outer instance).
+   *       "Per-outer-instance closure-singletons" are a trade-off: the assumption being their instantiation
+   *       will be amortized over the many times it's passed as argument.
+   *
+   *   (3) closure state consists of one or more value other than the outer instance, if any.
+   *
+   *       In other words the subcases are:
+   *         (3.a) the outer-instance and one or more captured values, or
+   *         (3.b) one or more captured values,
+   *       constitute the closure state.
+   *       Under (3.a) the endpoint is an instance-method, while for (3.b) it's static.
+   *
+   *       In this last case (3), an allocation is needed each time the closure is passed as argument (to convey those captured values).
+   *
+   *       In theory two closures of the same closure-class capturing the same values are inter-changeable,
+   *       thus a runtime "dictionary lookup" could provide an existing closure instance for a given tuple of captured values. Expensive.
+   *
+   * */
+  override def minimizeDClosureAllocations(cnode: ClassNode) {
+
+    val cnodeBT = lookupRefBType(cnode.name)
+    if(!closuRepo.isMasterClass(cnodeBT)) { return }
+
+    // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
+
+    for(
+      d <- closuRepo.exclusiveDClosures(cnodeBT);
+      if !elidedClasses.contains(d);
+      dep = closuRepo.endpoint(d).mnode;
+      // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
+      if cnode.methods.contains(dep)
+    ) {
+
+      // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
+      val unused = { JListWrapper(cnode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
+      if(unused) {
+        elidedClasses.add(d) // a concurrent set
+        cnode.methods.remove(dep)
+        /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
+         * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
+      }
+      else if (!Util.isStaticMethod(dep)) {
+        // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
+        assert(cnode.methods.contains(dep))
+        assert(Util.isPublicMethod(dep))
+        minimizeDClosureFields(cnode, dep, d)
+       }
+
+    }
+
+  } // end of method minimizeDClosureAllocations()
 
 
 } // end of class BCodeOptInter

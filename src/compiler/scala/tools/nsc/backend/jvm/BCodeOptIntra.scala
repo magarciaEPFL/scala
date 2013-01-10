@@ -115,8 +115,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
     knownHasInline.clear()
   }
 
-  def isDClosure(cnode: ClassNode): Boolean       // to be implemented by subclass BCodeOptInter
-  def closuresOptimiz(cnode: ClassNode): Boolean  // to be implemented by subclass BCodeOptInter
+  def isDClosure(cnode: ClassNode): Boolean         // implemented by subclass BCodeOptInter
+  def closuresOptimiz(cnode: ClassNode): Boolean    // implemented by subclass BCodeOptInter
+  def minimizeDClosureAllocations(cnode: ClassNode) // implemented by subclass BCodeOptInter
 
   /**
    *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
@@ -189,6 +190,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
         keepGoing |= closuresOptimiz(cnode)
 
       } while(keepGoing)
+
+      // minimizeDClosureAllocations(cnode)
 
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
