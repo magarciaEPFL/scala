@@ -2670,8 +2670,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   /**
    * All usages of the dclosure are confined to two places: its master class and the dclosure itself.
-   * We can minimize dclosure fields (in particular, outer) because we know where to find all
-   * the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
+   * We can minimize dclosure fields (in particular, outer) because we know where to find
+   * all of the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
    *
    * */
   private def minimizeDClosureFields(masterCNode: ClassNode, endpoint: MethodNode, d: BType): Boolean = {
@@ -2931,7 +2931,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *       "Per-outer-instance closure-singletons" are a trade-off: the assumption being their instantiation
    *       will be amortized over the many times it's passed as argument.
    *
-   *   (3) closure state consists of one or more value other than the outer instance, if any.
+   *   (3) closure state consists of one or more values other than the outer instance, if any.
    *
    *       In other words the subcases are:
    *         (3.a) the outer-instance and one or more captured values, or
@@ -2952,6 +2952,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // Case (3) do nothing --- no allocation can be removed without deeper analysis.
   }
 
+  /**
+   *  Handle the following subcase described in minimizeDClosureAllocations():
+   *
+   *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
+   *       In this case the closure can be turned into a singleton.
+   *
+   * */
   private def singletonizeDClosures(masterCNode: ClassNode) {
     val masterBT = lookupRefBType(masterCNode.name)
     if(!closuRepo.isMasterClass(masterBT)) { return }
@@ -3050,6 +3057,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   } // end of method singletonizeDClosures()
 
+  /**
+   *  Cosmetic rewriting: if possible, move back the endpoint's instructions to the dclosure's apply
+   *
+   * */
   private def bringBackStaticDClosureBodies(masterCNode: ClassNode) {
     val masterBT = lookupRefBType(masterCNode.name)
     if(!closuRepo.isMasterClass(masterBT)) { return }
@@ -3063,9 +3074,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }.toMap
       val dClassDescriptor = "L" + dCNode.name + ";"
 
-      // ------------------------------------------------------------------------------------
-      // Cosmetic: if possible, move back the endpoint's instructions to the dclosure's apply
-      // ------------------------------------------------------------------------------------
       if(Util.isStaticMethod(dep) && masterCNode.methods.contains(dep)) {
         val wp = new WholeProgramAnalysis
         val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
@@ -3104,6 +3112,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   } // end of method bringBackStaticDClosureBodies()
 
+  /**
+   *  Handle the following subcase described in minimizeDClosureAllocations():
+   *
+   *   (2) closure state consisting only of outer-instance
+   *
+   * */
   private def perOuterInstanceCaching(masterCNode: ClassNode) {
 
     val masterBT = lookupRefBType(masterCNode.name)
