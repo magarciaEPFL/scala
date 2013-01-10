@@ -2832,8 +2832,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             assert(pf(insn), s"OuterRedundant-Preamble: Expected another instruction at index $idx but found " + Util.textify(insn))
           }
 
-      val txtCtorBefore = Util.textify(ctor)
-
       preambleAssert(0, { case vi: VarInsnNode  => vi.getOpcode == Opcodes.ALOAD && vi.`var` == 1 } )
       preambleAssert(1, { case ji: JumpInsnNode => ji.getOpcode == Opcodes.IFNONNULL } )
       preambleAssert(2, { case ti: TypeInsnNode => ti.getOpcode == Opcodes.NEW  && ti.desc == "java/lang/NullPointerException" } )
@@ -2848,9 +2846,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       )
       preambleAssert(5, { case in: InsnNode => in.getOpcode == Opcodes.ATHROW } )
       for(i <- preamble) { ctor.instructions.remove(i) }
-
-      val txtCtorAfter = Util.textify(ctor)
-      cleanser.runTypeFlowAnalysis(dCNode.name, ctor) // debug
 
       // TODO once $outer is gone, the dclosure will invoke a static endpoint, and there's no reason to keep it InnerClass.
     }
@@ -2881,11 +2876,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * -----------------------------------------------------------------------
      * */
     cleanser.intraMethodFixpoints()
-    for(
-      fnode <- closureState.values;
-      if !whatGetsRead.contains(fnode.name)
-    ) {
+    for(fnode <- closureState.values; if !whatGetsRead.contains(fnode.name)) {
       dCNode.fields.remove(fnode)
+    }
+
+    /*
+     * Step 7: adapt the method descriptor of the dclosure constructor, as well as callsites in master class
+     * -----------------------------------------------------------------------------------------------------
+     * */
+    Util.makePrivateMethod(ctor) // temporarily
+    val oldCtorDescr = ctor.desc
+    val elideCtorParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(dCNode, ctor)
+    Util.makePublicMethod(ctor)
+    global synchronized {
+      BType.getMethodType(ctor.desc)
+    }
+    assert(!elideCtorParams.isEmpty)
+    for(callerInMaster <- JListWrapper(masterCNode.methods)) {
+      UnusedParamsElider.elideArguments(masterCNode, callerInMaster, dCNode, ctor, oldCtorDescr, elideCtorParams)
     }
 
     true
