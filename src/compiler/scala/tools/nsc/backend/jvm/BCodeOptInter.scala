@@ -2946,27 +2946,107 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val closureState: Map[String, FieldNode] = {
         JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
       }.toMap
+      val dClassDescriptor = "L" + dCNode.name + ";"
 
       // ------------------------------------------------------------------
       // Case (1): the dclosure can be turned into a program-wide singleton
       // ------------------------------------------------------------------
       val lacksClosureState = closureState.isEmpty
       if(lacksClosureState) {
-        // TODO
+
+        log("Singleton-closure: " + dCNode.name)
+
+        // -------- (1.a) modify the dclosure class (add $single static field, initialize it in <clinit>)
+        val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
+        Util.makePrivateMethod(ctor)
+        val single =
+          new FieldNode(
+            Opcodes.ASM4,
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
+            "$single",
+            dClassDescriptor,
+            null, null
+          )
+        dCNode.fields.add(single)
+        val staticClassInitializer =
+          new MethodNode(
+            Opcodes.ASM4,
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+            "<clinit>",
+            "()V",
+            null, null
+          )
+        dCNode.methods.add(staticClassInitializer)
+        val insns = new InsnList()
+        insns.add(new TypeInsnNode(Opcodes.NEW, dCNode.name))
+        insns.add(new InsnNode(Opcodes.DUP))
+        insns.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, dCNode.name, "<init>", "()V"))
+        insns.add(new FieldInsnNode(Opcodes.PUTSTATIC, dCNode.name, single.name, dClassDescriptor))
+        insns.add(new InsnNode(Opcodes.RETURN))
+        staticClassInitializer.instructions.add(insns)
+
+        // -------- (1.b) modify the master class (replace instantiations with GETSTATIC of the singleton)
+        for(
+          callerInMaster <- JListWrapper(masterCNode.methods);
+          newInsn        <- closuRepo.closureAccesses(callerInMaster, d)
+        ) {
+          assert(newInsn.getOpcode == Opcodes.NEW)
+          /*
+           * A dclosure instantiation (the code pattern to replace) looks like:
+           *     NEW dclosure
+           *     DUP
+           *     INVOKESPECIAL dclosure.<init> ()V
+           * */
+
+              def snippetAssert(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]) {
+                assert(pf(insn),
+                 "minimizeDClosureAllocations(), replace instantiations with GETSTATIC of the singleton: " +
+                s"Expected another instruction at index $idx but found " + Util.textify(insn))
+              }
+
+          snippetAssert(0, newInsn,
+            { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }
+          )
+          snippetAssert(1, newInsn.getNext,
+            { case di: InsnNode       => di.getOpcode == Opcodes.DUP }
+          )
+          snippetAssert(2, newInsn.getNext.getNext,
+            { case mi: MethodInsnNode =>
+                mi.getOpcode == Opcodes.INVOKESPECIAL &&
+                mi.owner     == d.getInternalName     &&
+                mi.name      == "<init>" &&
+                mi.desc      == "()V"
+            }
+          )
+
+          ctor.instructions.remove(newInsn.getNext.getNext)
+          ctor.instructions.remove(newInsn.getNext)
+          ctor.instructions.set(
+            newInsn,
+            new FieldInsnNode(Opcodes.GETSTATIC, d.getInternalName, single.name, single.desc)
+          )
+        }
+
       }
 
       // ------------------------------------------------------------------------------------
       // Cosmetic: if possible, move back the endpoint's instructions to the dclosure's apply
       // ------------------------------------------------------------------------------------
-      val hasOuter = closureState.contains(nme.OUTER.toString)
-      if(!hasOuter) {
-
+      if(Util.isStaticMethod(dep)) {
+        // TODO
       }
 
       // ------------------------------------------------------------------
       // Case (2): the dclosure can be converted into "Per-outer-instance closure-singletons"
       // ------------------------------------------------------------------
+      val hasOuter = closureState.contains(nme.OUTER.toString)
+      /*
+       * doesn't hold for endpoints in implementation classes:
+       *   assert(hasOuter == Util.isInstanceMethod(dep))
+       * (in that case, outer is THIS value passed as first argument to a static implementation method).
+       * */
       if(hasOuter && closureState.size == 1) {
+        log("Per-outer-instance singleton " + dCNode.name)
         // TODO
       }
 

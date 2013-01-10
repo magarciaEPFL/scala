@@ -191,7 +191,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       } while(keepGoing)
 
-      // minimizeDClosureAllocations(cnode)
+      minimizeDClosureAllocations(cnode)
 
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
