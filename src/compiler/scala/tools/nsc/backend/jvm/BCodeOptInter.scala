@@ -2918,7 +2918,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   } // end of method minimizeDClosureFields()
 
   /**
-   * Once no further `minimizeDClosureFields()` is possible, dclosures can be classified into (a partition):
+   * Once no further `minimizeDClosureFields()` is possible, dclosures can be partitioned into the following classes:
    *
    *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
    *       In this case the closure can be turned into a singleton.
@@ -2946,7 +2946,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * */
   override def minimizeDClosureAllocations(masterCNode: ClassNode) {
+    singletonizeDClosures(masterCNode) // Case (1) empty closure state
+    bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
+    perOuterInstanceCaching(masterCNode) // Case (2) closure state consisting only of outer-instance
+    // Case (3) do nothing --- no allocation can be removed without deeper analysis.
+  }
 
+  private def singletonizeDClosures(masterCNode: ClassNode) {
     val masterBT = lookupRefBType(masterCNode.name)
     if(!closuRepo.isMasterClass(masterBT)) { return }
 
@@ -3040,6 +3046,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       }
 
+    }
+
+  } // end of method singletonizeDClosures()
+
+  private def bringBackStaticDClosureBodies(masterCNode: ClassNode) {
+    val masterBT = lookupRefBType(masterCNode.name)
+    if(!closuRepo.isMasterClass(masterBT)) { return }
+
+    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+
+      val dep    = closuRepo.endpoint(d).mnode
+      val dCNode = codeRepo.classes.get(d)
+      val closureState: Map[String, FieldNode] = {
+        JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
+      }.toMap
+      val dClassDescriptor = "L" + dCNode.name + ";"
+
       // ------------------------------------------------------------------------------------
       // Cosmetic: if possible, move back the endpoint's instructions to the dclosure's apply
       // ------------------------------------------------------------------------------------
@@ -3077,7 +3100,24 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
-      // ------------------------------------------------------------------
+    }
+
+  } // end of method bringBackStaticDClosureBodies()
+
+  private def perOuterInstanceCaching(masterCNode: ClassNode) {
+
+    val masterBT = lookupRefBType(masterCNode.name)
+    if(!closuRepo.isMasterClass(masterBT)) { return }
+
+    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+
+      val dep    = closuRepo.endpoint(d).mnode
+      val dCNode = codeRepo.classes.get(d)
+      val closureState: Map[String, FieldNode] = {
+        JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
+      }.toMap
+      val dClassDescriptor = "L" + dCNode.name + ";"
+
       // Case (2): the dclosure can be converted into "Per-outer-instance closure-singletons"
       // ------------------------------------------------------------------
       val hasOuter = closureState.contains(nme.OUTER.toString)
@@ -3093,8 +3133,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     }
 
-  } // end of method minimizeDClosureAllocations()
-
+  } // end of method perOuterInstanceCaching()
 
 } // end of class BCodeOptInter
 
