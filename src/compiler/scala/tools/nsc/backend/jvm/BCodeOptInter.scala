@@ -259,7 +259,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def trackClosureUsageIfAny(insn: AbstractInsnNode, enclClass: BType) {
       val dc = accessedDClosure(insn)
       if(dc == null || enclClass == dc || !isDelegatingClosure(dc)) { return }
-      assert(!isDelegatingClosure(enclClass))
+      assert(
+        !isDelegatingClosure(enclClass),
+         "A dclosure D is used by a class C other than its master class, but C is a dclosure itself. " +
+        s"Who plays each role: D by ${dc.getInternalName} , C by ${enclClass.getInternalName} "
+      )
       if(enclClass != masterClass(dc)) {
         nonMasterUsers(dc) += enclClass
       }
@@ -936,7 +940,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           leaf.host,
           proc.callsite,
           frame,
-          proc.callee, proc.owner
+          proc.callee, proc.owner,
+          doTrackClosureUsage = true
         )
         inlineMethodOutcome foreach proc.warn
 
@@ -1019,17 +1024,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * @param frame       informs about stack depth at the callsite
      * @param callee      actual method-implementation that will be dispatched at runtime.
      * @param calleeOwner class that declares callee
+     * @param doTrackClosureUsage TODO documentation
      *
      * @return None iff method-inlining was actually performed,
      *         Some(diagnostics) iff the inlining is unfeasible.
      *
      */
-    private def inlineMethod(hostOwner:     String,
-                             host:          MethodNode,
-                             callsite:      MethodInsnNode,
-                             frame:         asm.tree.analysis.Frame[TFValue],
-                             callee:        MethodNode,
-                             calleeOwner:   ClassNode): Option[String] = {
+    def inlineMethod(hostOwner:     String,
+                     host:          MethodNode,
+                     callsite:      MethodInsnNode,
+                     frame:         asm.tree.analysis.Frame[TFValue],
+                     callee:        MethodNode,
+                     calleeOwner:   ClassNode,
+                     doTrackClosureUsage: Boolean): Option[String] = {
 
       assert(host.instructions.contains(callsite))
       assert(callee != null)
@@ -1183,7 +1190,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       replaceRETURNs()
 
-      checkTransplantedAccesses(body, hostOwnerBT)
+      if(doTrackClosureUsage) {
+        checkTransplantedAccesses(body, hostOwnerBT)
+      }
 
       host.instructions.insert(callsite, body) // after this point, body.isEmpty (an ASM instruction can be owned by a single InsnList)
       host.instructions.remove(callsite)
@@ -1538,7 +1547,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           inlineMethod(
             hostOwner.name, host,
             callsite, callsiteTypeFlow,
-            hiO, hiOOwner
+            hiO, hiOOwner,
+            doTrackClosureUsage = true
           )
 
         asMethodInlineOutcome match {
@@ -2052,7 +2062,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                           clonedCurrent,
                           clonedForwarder,
                           frame,
-                          rewritten, closureUsages.closureClass
+                          rewritten, closureUsages.closureClass,
+                          doTrackClosureUsage = true
                         )
                         return inlineMethodOutcome match {
                           case None                => Right(clonedCurrent)
@@ -2907,14 +2918,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   } // end of method minimizeDClosureFields()
 
   /**
-   * Once no further `minimizeDClosureFields()` is possible, dclosures can be classified into:
+   * Once no further `minimizeDClosureFields()` is possible, dclosures can be classified into (a partition):
    *
    *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
    *       In this case the closure can be turned into a singleton.
    *
    *   (2) closure state consisting only of outer-instance: irrespective of the dclosure's arity,
    *       besides (a subset of) the apply()'s arguments, the only additional value needed
-   *       to invoke the endpoint (necessarily an instance method) is the outer-instance value.
+   *       to invoke the endpoint is the outer-instance value.
    *       In this case the closure can be allocated once per outer-instance
    *       (for example, in the constructor of the class of the outer instance).
    *       "Per-outer-instance closure-singletons" are a trade-off: the assumption being their instantiation
@@ -3019,9 +3030,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
           )
 
-          ctor.instructions.remove(newInsn.getNext.getNext)
-          ctor.instructions.remove(newInsn.getNext)
-          ctor.instructions.set(
+          callerInMaster.instructions.remove(newInsn.getNext.getNext)
+          callerInMaster.instructions.remove(newInsn.getNext)
+          callerInMaster.instructions.set(
             newInsn,
             new FieldInsnNode(Opcodes.GETSTATIC, d.getInternalName, single.name, single.desc)
           )
@@ -3032,8 +3043,38 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // ------------------------------------------------------------------------------------
       // Cosmetic: if possible, move back the endpoint's instructions to the dclosure's apply
       // ------------------------------------------------------------------------------------
-      if(Util.isStaticMethod(dep)) {
-        // TODO
+      if(Util.isStaticMethod(dep) && masterCNode.methods.contains(dep)) {
+        val wp = new WholeProgramAnalysis
+        val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
+          for(
+            applyMethod <- JListWrapper(dCNode.methods).toList;
+            if !Util.isConstructor(applyMethod);
+            callsite    <- applyMethod.toList;
+            if closuRepo.invokedDClosure(callsite) == d
+          ) yield (applyMethod -> callsite.asInstanceOf[MethodInsnNode])
+        }
+        assert(endpointCallers.tail.isEmpty)
+        val Pair(applyMethod, callsite) = endpointCallers.head
+
+        Util.computeMaxLocalsMaxStack(applyMethod)
+        val tfa = new asm.tree.analysis.Analyzer[TFValue](new TypeFlowInterpreter)
+        tfa.analyze(dCNode.name, applyMethod)
+        val frame = tfa.frameAt(callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
+
+        val success =
+          wp.inlineMethod(
+            dCNode.name, applyMethod,
+            callsite, frame,
+            dep, masterCNode,
+            doTrackClosureUsage = false
+          ).isEmpty
+        if(success) {
+          val cleanser = new BCodeCleanser(dCNode)
+          cleanser.intraMethodFixpoints()
+          // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
+          // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
+          masterCNode.methods.remove(dep)
+        }
       }
 
       // ------------------------------------------------------------------
