@@ -180,6 +180,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       dclosures(master) filter { dc => nonMasterUsers(dc).isEmpty }
     }
 
+    final def nonElidedExclusiveDClosures(masterCNode: ClassNode): List[BType] = {
+      val master = lookupRefBType(masterCNode.name)
+      assert(isMasterClass(master))
+      for(
+        d <- exclusiveDClosures(master);
+        if !elidedClasses.contains(d);
+        dep = endpoint(d).mnode;
+        // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
+        if masterCNode.methods.contains(dep)
+      ) yield d
+    }
+
     def closureAccesses(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
       assert(dclosure != null)
       mnode.instructions.toList filter { insn => accessedDClosure(insn) == dclosure }
@@ -2621,14 +2633,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
 
     var changed = false
-    for(
-      d <- closuRepo.exclusiveDClosures(cnodeBT);
-      if !elidedClasses.contains(d);
-      dep = closuRepo.endpoint(d).mnode;
-      // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
-      if cnode.methods.contains(dep)
-    ) {
+    for(d <- closuRepo.nonElidedExclusiveDClosures(cnode)) {
 
+      val dep = closuRepo.endpoint(d).mnode
       // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
       val unused = { JListWrapper(cnode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
       if(unused) {
@@ -2643,7 +2650,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         assert(cnode.methods.contains(dep))
         assert(Util.isPublicMethod(dep))
         changed |= minimizeDClosureFields(cnode, dep, d)
-       }
+      }
 
     }
 
@@ -2927,35 +2934,41 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *       thus a runtime "dictionary lookup" could provide an existing closure instance for a given tuple of captured values. Expensive.
    *
    * */
-  override def minimizeDClosureAllocations(cnode: ClassNode) {
+  override def minimizeDClosureAllocations(masterCNode: ClassNode) {
 
-    val cnodeBT = lookupRefBType(cnode.name)
-    if(!closuRepo.isMasterClass(cnodeBT)) { return }
+    val masterBT = lookupRefBType(masterCNode.name)
+    if(!closuRepo.isMasterClass(masterBT)) { return }
 
-    // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
+    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
 
-    for(
-      d <- closuRepo.exclusiveDClosures(cnodeBT);
-      if !elidedClasses.contains(d);
-      dep = closuRepo.endpoint(d).mnode;
-      // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
-      if cnode.methods.contains(dep)
-    ) {
+      val dep    = closuRepo.endpoint(d).mnode
+      val dCNode = codeRepo.classes.get(d)
+      val closureState: Map[String, FieldNode] = {
+        JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
+      }.toMap
 
-      // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
-      val unused = { JListWrapper(cnode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
-      if(unused) {
-        elidedClasses.add(d) // a concurrent set
-        cnode.methods.remove(dep)
-        /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
-         * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
+      // ------------------------------------------------------------------
+      // Case (1): the dclosure can be turned into a program-wide singleton
+      // ------------------------------------------------------------------
+      val lacksClosureState = closureState.isEmpty
+      if(lacksClosureState) {
+        // TODO
       }
-      else if (!Util.isStaticMethod(dep)) {
-        // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
-        assert(cnode.methods.contains(dep))
-        assert(Util.isPublicMethod(dep))
-        minimizeDClosureFields(cnode, dep, d)
-       }
+
+      // ------------------------------------------------------------------------------------
+      // Cosmetic: if possible, move back the endpoint's instructions to the dclosure's apply
+      // ------------------------------------------------------------------------------------
+      val hasOuter = closureState.contains(nme.OUTER.toString)
+      if(!hasOuter) {
+
+      }
+
+      // ------------------------------------------------------------------
+      // Case (2): the dclosure can be converted into "Per-outer-instance closure-singletons"
+      // ------------------------------------------------------------------
+      if(hasOuter && closureState.size == 1) {
+        // TODO
+      }
 
     }
 
