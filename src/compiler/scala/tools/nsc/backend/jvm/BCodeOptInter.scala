@@ -192,9 +192,41 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       ) yield d
     }
 
+    def closureInstantiations(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
+      assert(dclosure != null)
+      mnode.instructions.toList filter { insn => instantiatedDClosure(insn) == dclosure }
+    }
+
+    def closureInvocations(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
+      assert(dclosure != null)
+      mnode.instructions.toList filter { insn => invokedDClosure(insn) == dclosure }
+    }
+
     def closureAccesses(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
       assert(dclosure != null)
       mnode.instructions.toList filter { insn => accessedDClosure(insn) == dclosure }
+    }
+
+    // ------------------------------- yes/no inspectors and asserts ------------------------------
+
+    /**
+     *  A master-class of a non-elided dclosure contains:
+     *    - a single instantiation of it, and
+     *    - no invocations to the dclosure's endpoint.
+     *  (the "non-elided" part is responsible for that property: a dclosure that was inlined
+     *   has a callsite to the endpoint in the shio method that replaces the higher-order method invocation).
+     * */
+    def assertEndpointInvocationsIsEmpty(masterCNode: ClassNode, dclosure: BType) {
+      for( /*debug*/
+        masterMethod <- JListWrapper(masterCNode.methods);
+        if !Util.isAbstractMethod(masterMethod)
+      ) {
+        assert(
+          closuRepo.closureInvocations(masterMethod, dclosure).isEmpty,
+          "A master class of a non-elided dclosure is supposed to contain a single instantiation of it, however " +
+         s"${methodSignature(masterCNode, masterMethod)} invokes the endpoint of ${dclosure.getInternalName}"
+        )
+      }
     }
 
     // -------------- utilities to track dclosure usages in classes other than master --------------
@@ -2710,6 +2742,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          *
          *  (2) attempt to make static the endpoint (and its invocation).
          *
+         *  A master-class of a non-elided dclosure contains:
+         *    - a single instantiation of it, and
+         *    - no invocations to the dclosure's endpoint.
+         *  (the "non-elided" part is responsible for that property: a dclosure that was inlined
+         *   has a callsite to the endpoint in the shio method that replaces the higher-order method invocation).
+         *
          * */
         def adaptEndpointAndItsCallsite(): Boolean = {
           var changed  = false
@@ -2723,19 +2761,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             global synchronized {
               BType.getMethodType(endpoint.desc)
             }
-            for(caller <- JListWrapper(dCNode.methods)) {
-              UnusedParamsElider.elideArguments(dCNode, caller, masterCNode, endpoint, oldDescr, elidedParams)
+            for(dmethod <- JListWrapper(dCNode.methods)) {
+              UnusedParamsElider.elideArguments(dCNode, dmethod, masterCNode, endpoint, oldDescr, elidedParams)
             }
+            closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
           }
 
           if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
             changed = true
             Util.makeStaticMethod(endpoint)
             StaticMaker.downShiftLocalVarUsages(endpoint)
-            for (caller <- JListWrapper(dCNode.methods)) {
-              assert(!Util.isAbstractMethod(caller))
-              StaticMaker.adaptCallsitesTargeting(dCNode, caller, masterCNode, endpoint)
+            for (dmethod <- JListWrapper(dCNode.methods)) {
+              assert(!Util.isAbstractMethod(dmethod))
+              StaticMaker.adaptCallsitesTargeting(dCNode, dmethod, masterCNode, endpoint)
             }
+            closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
           }
 
           Util.makePublicMethod(endpoint)
@@ -2751,7 +2791,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     // PUTFIELD instructions for dclosure-fields that are never read can be eliminated,
     // which in turn is a pre-requisite for removal of redundant closure-state fields.
-    // The whole process involves four steps.
+    // The whole process involves several steps.
 
     /*
      * Step 1: cancel-out DROP of closure-state GETFIELD
@@ -2871,7 +2911,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           def preambleAssert(idx: Int, pf: PartialFunction[AbstractInsnNode, Boolean]) {
             val insn = preamble(idx)
-            assert(pf(insn), s"OuterRedundant-Preamble: Expected another instruction at index $idx but found " + Util.textify(insn))
+            assert(
+              pf.isDefinedAt(insn) && pf(insn),
+              s"OuterRedundant-Preamble: Expected another instruction at index $idx but found " + Util.textify(insn)
+            )
           }
 
       preambleAssert(0, { case vi: VarInsnNode  => vi.getOpcode == Opcodes.ALOAD && vi.`var` == 1 } )
@@ -3047,9 +3090,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            * */
 
               def snippetAssert(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]) {
-                assert(pf(insn),
-                 "minimizeDClosureAllocations(), replace instantiations with GETSTATIC of the singleton: " +
-                s"Expected another instruction at index $idx but found " + Util.textify(insn))
+                assert(
+                  pf.isDefinedAt(insn) && pf(insn),
+                   "minimizeDClosureAllocations(), replace instantiations with GETSTATIC of the singleton: " +
+                  s"Expected another instruction at index $idx but found " + Util.textify(insn)
+                )
               }
 
           snippetAssert(0, newInsn,
