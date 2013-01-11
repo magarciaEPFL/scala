@@ -3028,6 +3028,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
     perOuterInstanceCaching(masterCNode)       // Case (2) closure state consisting only of outer-instance
     // Case (3) do nothing --- no allocation can be removed without deeper analysis.
+    cleanseDClosures(masterCNode)
   }
 
   /**
@@ -3235,6 +3236,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
   } // end of method perOuterInstanceCaching()
+
+  private def cleanseDClosures(masterCNode: ClassNode) {
+    val masterBT = lookupRefBType(masterCNode.name)
+    if(!closuRepo.isMasterClass(masterBT)) { return }
+
+    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+      val dCNode: ClassNode = codeRepo.classes.get(d)
+      val cleanser = new BCodeCleanser(dCNode)
+      cleanser.intraMethodFixpoints()
+    }
+
+  } // end of method cleanseDClosures()
 
 } // end of class BCodeOptInter
 
