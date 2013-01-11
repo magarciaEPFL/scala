@@ -14,15 +14,19 @@ scala> val s = transformedType(StringClass.toType).asInstanceOf[Type]
 s: $r.intp.global.Type = String
 
 scala> { println(exitingPhase(currentRun.erasurePhase)(ConstantType(Constant(s)))) }
+warning: there were 1 inliner warnings; re-run with -Yinline-warnings for details
 Class[String](classOf[java.lang.String])
 
 scala> { exitingPhase(currentRun.erasurePhase)(println(ConstantType(Constant(s)))) }
+warning: there were 1 inliner warnings; re-run with -Yinline-warnings for details
 Class(classOf[java.lang.String])
 
 scala> { ConstantType(Constant(s)); println(exitingPhase(currentRun.erasurePhase)(ConstantType(Constant(s)))); }
+warning: there were 1 inliner warnings; re-run with -Yinline-warnings for details
 Class[String](classOf[java.lang.String])
 
 scala> { ConstantType(Constant(s)); exitingPhase(currentRun.erasurePhase)(println(ConstantType(Constant(s)))); }
+warning: there were 1 inliner warnings; re-run with -Yinline-warnings for details
 Class(classOf[java.lang.String])
 
 scala> 
