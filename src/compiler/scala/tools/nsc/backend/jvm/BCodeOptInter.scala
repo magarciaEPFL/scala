@@ -3097,39 +3097,72 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         ) {
           assert(newInsn.getOpcode == Opcodes.NEW)
           /*
-           * A dclosure instantiation (the code pattern to replace) looks like:
+           * A dclosure instantiation (the code pattern to replace) usually looks like:
+           *
            *     NEW dclosure
            *     DUP
            *     INVOKESPECIAL dclosure.<init> ()V
+           *
+           * In a few cases it may look like:
+           *
+           *     NEW dclosure
+           *     DUP
+           *     ALOAD 0
+           *     CHECKCAST X
+           *     POP
+           *     INVOKESPECIAL dclosure.<init> ()V
+           *
+           * because PushPopCollapser doesn't back-propagate POP over CHECKCAST,
+           * that would be a task for a type-flow based analysis.
+           *
            * */
 
-              def snippetAssert(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]) {
-                assert(
-                  pf.isDefinedAt(insn) && pf(insn),
-                  s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
-                    "in method ${methodSignature(masterCNode, callerInMaster)}."  +
-                  s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
-                   "Here's the complete bytecode of that method:" + Util.textify(callerInMaster)
-                )
+              def snippetTest(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]): Boolean = {
+                val isBoilerplate = pf.isDefinedAt(insn) && pf(insn)
+                if(!isBoilerplate) {
+                  warning(
+                    s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
+                    s"in method ${methodSignature(masterCNode, callerInMaster)}."  +
+                    s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
+                     "Here's the complete bytecode of that method:" + Util.textify(callerInMaster)
+                  )
+                }
+
+                isBoilerplate
               }
 
-          snippetAssert(0, newInsn,
-            { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }
-          )
-          snippetAssert(1, newInsn.getNext,
-            { case di: InsnNode       => di.getOpcode == Opcodes.DUP }
-          )
-          snippetAssert(2, newInsn.getNext.getNext,
+          val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
             { case mi: MethodInsnNode =>
                 mi.getOpcode == Opcodes.INVOKESPECIAL &&
                 mi.owner     == d.getInternalName     &&
                 mi.name      == "<init>" &&
                 mi.desc      == "()V"
+              case _ => false
             }
-          )
 
-          callerInMaster.instructions.remove(newInsn.getNext.getNext)
-          callerInMaster.instructions.remove(newInsn.getNext)
+          // displays warning only for the first divergence from "boilerplate"
+          val isBoilterPlate =
+            snippetTest(0, newInsn,         { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }) &&
+            snippetTest(1, newInsn.getNext, { case di: InsnNode       => di.getOpcode == Opcodes.DUP }) &&
+            snippetTest(2, newInsn.getNext.getNext, isLasInsnInBoilerplate)
+
+          val lastInsn: MethodInsnNode = {
+            var current: AbstractInsnNode = newInsn
+            while(!isLasInsnInBoilerplate(current)) {
+              current = current.getNext
+            }
+            current.asInstanceOf[MethodInsnNode]
+          }
+
+          {
+            var current: AbstractInsnNode = lastInsn
+            while(current ne newInsn) {
+              val prev = current.getPrevious
+              callerInMaster.instructions.remove(current)
+              current = prev
+            }
+          }
+
           callerInMaster.instructions.set(
             newInsn,
             new FieldInsnNode(Opcodes.GETSTATIC, d.getInternalName, single.name, single.desc)
