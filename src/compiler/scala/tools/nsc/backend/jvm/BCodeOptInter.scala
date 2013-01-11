@@ -506,15 +506,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   }
 
-  def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
+  final def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
     ownerBT.getInternalName + "::" + methodName + methodDescriptor
   }
 
-  def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
+  final def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
     methodSignature(ownerBT, methodName, methodType.getDescriptor)
   }
 
-  def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
+  final def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
     methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
   }
 
@@ -2761,6 +2761,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             global synchronized {
               BType.getMethodType(endpoint.desc)
             }
+            log(
+             s"In order to minimize closure-fields, one or more params were elided from endpoint ${methodSignature(masterCNode, endpoint)} " +
+             s". Before the change, its method descriptor was $oldDescr"
+            )
             for(dmethod <- JListWrapper(dCNode.methods)) {
               UnusedParamsElider.elideArguments(dCNode, dmethod, masterCNode, endpoint, oldDescr, elidedParams)
             }
@@ -2769,6 +2773,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
             changed = true
+            log(s"In order to minimize closure-fields, made static endpoint ${methodSignature(masterCNode, endpoint)}")
             Util.makeStaticMethod(endpoint)
             StaticMaker.downShiftLocalVarUsages(endpoint)
             for (dmethod <- JListWrapper(dCNode.methods)) {
@@ -2802,7 +2807,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   GETFIELD of a closure-field
      *   DROP
      * still remain (PushPopCollapser does not elide a GETFIELD of a private final field,
-     * because it doesnt' determine whether it's been assigned already or not).
+     * because it doesn't check whether it's been assigned already or not).
      *
      * The custom transform below gets rid of those GETFIELD instructions, rewriting the above into:
      *   LOAD_0
@@ -2859,6 +2864,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       return true // no closure-state field to elide after all (e.g., outer was a module, see test/files/run/Course-2002-10.scala)
     }
 
+    val fieldsToRemove = for(Pair(fname, fnode) <- closureState; if !whatGetsRead.contains(fname) ) yield fnode;
+    log(
+     s"Minimizing closure-fields in dclosure ${d.getInternalName}. The following fields will be removed " +
+     (fieldsToRemove map { fnode => fnode.name + " : " + fnode.desc }).mkString
+    )
+
     /*
      * Step 3: determine correspondence redundant-closure-field-name -> constructor-params-position
      * --------------------------------------------------------------------------------------------
@@ -2913,7 +2924,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val insn = preamble(idx)
             assert(
               pf.isDefinedAt(insn) && pf(insn),
-              s"OuterRedundant-Preamble: Expected another instruction at index $idx but found " + Util.textify(insn)
+              s"While eliding the preamble: Expected another instruction at index $idx but found " + Util.textify(insn)
             )
           }
 
@@ -2936,8 +2947,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /*
-     * Step 5: get rid of PUTFIELDs to closure-state fields never read
-     * ---------------------------------------------------------------
+     * Step 5: in the dclosure (e.g. its constructor) get rid of PUTFIELDs to closure-state fields never read
+     * ------------------------------------------------------------------------------------------------------
      * */
     for(
       caller <- JListWrapper(dCNode.methods);
@@ -2956,9 +2967,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /*
-     * Step 6: backpropagate DROPs inserted above, and remove redundant fields
+     * Step 6: back-propagate DROPs inserted above, and remove redundant fields
      * (otherwise another attempt will be made to delete them next time around)
-     * -----------------------------------------------------------------------
+     * ------------------------------------------------------------------------
      * */
     cleanser.intraMethodFixpoints()
     for(fnode <- closureState.values; if !whatGetsRead.contains(fnode.name)) {
@@ -3013,9 +3024,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * */
   override def minimizeDClosureAllocations(masterCNode: ClassNode) {
-    singletonizeDClosures(masterCNode) // Case (1) empty closure state
+    singletonizeDClosures(masterCNode)         // Case (1) empty closure state
     bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
-    perOuterInstanceCaching(masterCNode) // Case (2) closure state consisting only of outer-instance
+    perOuterInstanceCaching(masterCNode)       // Case (2) closure state consisting only of outer-instance
     // Case (3) do nothing --- no allocation can be removed without deeper analysis.
   }
 
@@ -3144,6 +3155,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val dClassDescriptor = "L" + dCNode.name + ";"
 
       if(Util.isStaticMethod(dep) && masterCNode.methods.contains(dep)) {
+
+        log(
+          "Bringing back the endpoint's instructions to the dclosure's apply(), " +
+         s"from endpoint ${methodSignature(masterCNode, dep)} to dclosure ${dCNode.name}"
+        )
+
         val wp = new WholeProgramAnalysis
         val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
           for(
@@ -3173,6 +3190,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           cleanser.intraMethodFixpoints()
           // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
           // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
+          closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
           masterCNode.methods.remove(dep)
         }
       }
