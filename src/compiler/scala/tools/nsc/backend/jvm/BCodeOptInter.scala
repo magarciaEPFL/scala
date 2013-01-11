@@ -2924,7 +2924,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val insn = preamble(idx)
             assert(
               pf.isDefinedAt(insn) && pf(insn),
-              s"While eliding the preamble: Expected another instruction at index $idx but found " + Util.textify(insn)
+              s"While eliding a preamble in constructor ${methodSignature(dCNode, ctor)}}, " +
+              s"expected another instruction at index $idx but found ${Util.textify(insn)}\n." +
+               "Here's the complete bytecode of that constructor:" + Util.textify(ctor)
             )
           }
 
@@ -3105,7 +3107,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 assert(
                   pf.isDefinedAt(insn) && pf(insn),
                    "minimizeDClosureAllocations(), replace instantiations with GETSTATIC of the singleton: " +
-                  s"Expected another instruction at index $idx but found " + Util.textify(insn)
+                  s"Expected another instruction at index $idx but found ${Util.textify(insn)}\n. Here's the complete bytecode of that method:" +
+                    Util.textify(callerInMaster)
                 )
               }
 
