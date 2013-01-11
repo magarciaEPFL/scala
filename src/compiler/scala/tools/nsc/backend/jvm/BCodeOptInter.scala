@@ -2979,8 +2979,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /*
-     * Step 7: adapt the method descriptor of the dclosure constructor, as well as callsite in master class
-     * ----------------------------------------------------------------------------------------------------
+     * Step 7: adapt the method descriptor of the dclosure constructor, as well as <init> callsite in master class
+     * -----------------------------------------------------------------------------------------------------------
      * */
     Util.makePrivateMethod(ctor) // temporarily
     val oldCtorDescr = ctor.desc
@@ -3106,7 +3106,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               def snippetAssert(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]) {
                 assert(
                   pf.isDefinedAt(insn) && pf(insn),
-                  s"Attempt to replace instantiation with GETSTATIC of singleton dclosure in method ${methodSignature(masterCNode, callerInMaster)}."  +
+                  s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
+                    "in method ${methodSignature(masterCNode, callerInMaster)}."  +
                   s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
                    "Here's the complete bytecode of that method:" + Util.textify(callerInMaster)
                 )
