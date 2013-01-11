@@ -182,7 +182,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     final def nonElidedExclusiveDClosures(masterCNode: ClassNode): List[BType] = {
       val master = lookupRefBType(masterCNode.name)
-      assert(isMasterClass(master))
+      assert(isMasterClass(master), "Not a master class for some dclosure: " + master.getInternalName)
       for(
         d <- exclusiveDClosures(master);
         if !elidedClasses.contains(d);
@@ -280,15 +280,21 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       endpoint.clear()
       for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
         val closureTR = exemplar(closureClassSymbol)
-        assert(closureTR.isClosureClass)
+        assert(closureTR.isClosureClass, "Not a closure class: " + closureTR.c.getInternalName)
         val closureBT: BType = closureTR.c
         val delegateMethodRef = {
           val delegateOwnerBT:    BType = exemplar(delegateMethodSymbol.owner).c
           val delegateMethodType: BType = asmMethodType(delegateMethodSymbol)
           val delegateName:      String = delegateMethodSymbol.javaSimpleName.toString
-          assert(codeRepo.classes.containsKey(delegateOwnerBT))
+          assert(
+            codeRepo.classes.containsKey(delegateOwnerBT),
+            "A class being compiled can't be found via codeRepo: " + delegateOwnerBT.getInternalName
+          )
           val delegateMethodNode = codeRepo.getMethod(delegateOwnerBT, delegateName, delegateMethodType.getDescriptor).mnode
-          assert(delegateMethodNode != null)
+          assert(
+            delegateMethodNode != null,
+            "A method being compiled can't be found via codeRepo: " + methodSignature(delegateOwnerBT, delegateName, delegateMethodType)
+          )
 
           MethodRef(delegateOwnerBT, delegateMethodNode)
         }
@@ -343,8 +349,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo post-initialization utilities ---------------------
 
     def retractAsDClosure(dc: BType) {
-      assert(nonMasterUsers(dc).isEmpty)
-      assert(elidedClasses.contains(dc))
+      assert(
+        nonMasterUsers(dc).isEmpty,
+        s"A dclosure can't retracted when used from non-master classes, for example ${dc.getInternalName} in use from ${nonMasterUsers(dc).mkString}"
+      )
+      assert(
+        elidedClasses.contains(dc),
+        s"A dclosure can't retracted before being elided:  ${dc.getInternalName}"
+      )
       val exMaster = masterClass(dc)
       endpoint.remove(dc)
       if(dclosures.contains(exMaster)) {
@@ -460,6 +472,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def warn(msg: String) = cunit.inlinerWarning(pos, msg)
 
+  }
+
+  def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
+    ownerBT.getInternalName + "::" + methodName + methodDescriptor
+  }
+
+  def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
+    methodSignature(ownerBT, methodName, methodType.getDescriptor)
   }
 
   object inlineTargetOrdering extends scala.math.Ordering[InlineTarget] {

@@ -120,7 +120,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     // TODO for now lumped together, but in principle intra-method and inter-proc could be on/off independent of each other.
     val isIntraMethodOptimizOn = settings.optimise.value || settings.canUseBCode // TODO "|| canUseBCode" is debug only
-    val isInterProcOptimizOn   = isIntraMethodOptimizOn
+    val isInterProcOptimizOn   = isIntraMethodOptimizOn && !settings.skipInterProcOptimiz.value
 
     // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(

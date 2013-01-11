@@ -201,6 +201,7 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode's optimizer
    */
   val keepUnusedPrivateClassMembers = BooleanSetting("-YkeepUnusedPrivateClassMembers", "Class members that are private and lacking usages are left in place")
+  val skipInterProcOptimiz          = BooleanSetting("-YskipInterProcOptimiz",          "Skip inter-procedural optimizations")
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -228,6 +229,6 @@ trait ScalaSettings extends AbsScalaSettings
   /** Test whether GenBCode will run instead of GenASM */
   def isBCodeActive = !mustUseGenASM && canUseBCode
 
-  def canUseBCode   = !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
+  def canUseBCode   = false && !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
   def mustUseGenASM = (target.value == "jvm-1.5-asm") || (target.value == "jvm-1.6-asm")
 }
