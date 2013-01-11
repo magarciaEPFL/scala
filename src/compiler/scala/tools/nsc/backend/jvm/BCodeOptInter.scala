@@ -482,6 +482,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     methodSignature(ownerBT, methodName, methodType.getDescriptor)
   }
 
+  def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
+    methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
+  }
+
   object inlineTargetOrdering extends scala.math.Ordering[InlineTarget] {
     def compare(x: InlineTarget, y: InlineTarget): Int = {
       x.hashCode().compare(y.hashCode())
@@ -1778,7 +1782,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val shio = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite, inlineTarget)
       if(staticHiO == null) { return false }
-      assert(Util.isPublicMethod(staticHiO))
+      assert(Util.isPublicMethod(staticHiO), "Not a public method: " + methodSignature(hostOwner, staticHiO))
       if(!shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
         return false
       }
