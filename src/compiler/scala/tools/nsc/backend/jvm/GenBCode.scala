@@ -149,7 +149,7 @@ abstract class GenBCode extends BCodeOptInter {
     private val poison2 = Item2(Int.MaxValue, null, null, null)
     private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
 
-    private val qInterProc = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
+    private val limboForDClosures = mutable.Map.empty[BType, Item2] // a single Worker1 adds, many Worker2 read.
 
     // q3
     case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
@@ -249,7 +249,8 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         q2 put Item2(arrivalPos, mirrorC, plainC, beanC)
-      }
+
+      } // end of method visit(Item1)
 
     } // end of class BCodePhase.Worker1
 
@@ -271,10 +272,8 @@ abstract class GenBCode extends BCodeOptInter {
           val item = q2.take
           if(item.isPoison) {
             woExited.put(id, item)
-            if(!isInterProcOptimizOn) {
-              q3 put poison3 // therefore queue-3 will contain as many poison pills as pipeline-2 threads.
-              // to terminate all pipeline-2 workers, queue-1 must contain as many poison pills as pipeline-2 threads.
-            }
+            q3 put poison3 // therefore queue-3 will contain as many poison pills as pipeline-2 threads.
+            // to terminate all pipeline-2 workers, queue-1 must contain as many poison pills as pipeline-2 threads.
             return
           }
           else {
@@ -290,22 +289,35 @@ abstract class GenBCode extends BCodeOptInter {
 
       def visit(item: Item2) {
 
-        val Item2(arrivalPos, mirror, plain, bean) = item
-
-        if(elidedClasses.contains(lookupRefBType(plain.cnode.name))) {
-          q3 put Item3(arrivalPos, null, null, null)
-          return
+        if(isIntraMethodOptimizOn || isInterProcOptimizOn) {
+          (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() actually doesn't touch dclosures.
         }
 
-        if(isInterProcOptimizOn) {
-          /*
-           * Don't place in q3 just yet (which requires ClassWriter.toByteArray()).
-           * This way, exclusive write access is granted to a master class to the dclosures it's responsible for.
+        if(!isInterProcOptimizOn) {
+          addToQ3(item)
+        } else {
+          /* A master classes and the dclosures it's responsible for are transformed together by BCodeCleanser.cleanseClass().
+           * Once the master class has been transformed, its dclosures won't change either,
+           * and they all can go through ClassWriter.toByteArray() (but not before).
            * */
-          (new BCodeCleanser(plain.cnode)).cleanseClass()
-          qInterProc put item
-          return
+          val bt = lookupRefBType(item.plain.cnode.name)
+          if(!closuRepo.isMasterClass(bt)) {
+            if(!closuRepo.isDelegatingClosure(bt)) {
+              addToQ3(item)
+            }
+          } else {
+            addToQ3(item) // the master class
+            for(d <- closuRepo.dclosures(bt)) { // elided dclosures must also go to q3: their arrivalPos required for progress.
+              addToQ3(limboForDClosures(d))
+            }
+          }
         }
+
+      } // end of method visit(Item2)
+
+      private def addToQ3(item: Item2) {
+
+        val Item2(arrivalPos, mirror, plain, bean) = item
 
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
@@ -314,9 +326,6 @@ abstract class GenBCode extends BCodeOptInter {
           } else null
 
         // -------------- "plain" class --------------
-        if(isIntraMethodOptimizOn) {
-          (new BCodeCleanser(plain.cnode)).cleanseClass()
-        }
         val cw = new CClassWriter(extraProc)
         plain.cnode.accept(cw)
         val plainC =
@@ -329,6 +338,7 @@ abstract class GenBCode extends BCodeOptInter {
           } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
+
       }
 
     } // end of class BCodePhase.Worker2
@@ -370,7 +380,7 @@ abstract class GenBCode extends BCodeOptInter {
 
       // clearing maps
       clearBCodeTypes()
-
+      limboForDClosures.clear()
     }
 
     /**
@@ -389,78 +399,40 @@ abstract class GenBCode extends BCodeOptInter {
      *        and we don't want to write to disk an old version. For details see comments in method body.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
+      assert(isInterProcOptimizOn)
+
+      // sequentially
       feedPipeline1()
-      val w1 = new Worker1(needsOutfileForSymbol)
-      w1.run()
-
-      val wp = new WholeProgramAnalysis()
-      wp.optimize()
-
-      spawnPipeline2()
-      do { Thread.sleep(100) } while (woExited.size < MAX_THREADS)
-
-      // debug
-      // val (staticsEPs, instanceEPs) = closuRepo.endpoint.values partition { ep => asm.optimiz.Util.isStaticMethod(ep.mnode) }
-      // println(s"staticsEPs: ${staticsEPs.size} \t instanceEPs: ${instanceEPs.size} \t out of ${closuRepo.endpoint.values.size}")
-
-      /*
-       *  When inter-procedural is on, after intra-class optimizations we can't just add to q3
-       *  (doing so implies the final bytecode is ready) because some dclosures are rewritten along with its master class.
-       *  In detail, q2 does not group dclosures by master class, each class is an item, we want to avoid
-       *  placing in q3 the byte array of a dclosure before its master class and the dclosure have been rewritten).
-       *  Therefore Worker2 enqueues in `qInterProc` its output in the form of ClassNodes rather than ClassWriters
-       *  (after running intra-class optimizations).
-       *
-       * */
-      while(!qInterProc.isEmpty) {
-
-        val Item2(arrivalPos, mirror, plain, bean) = qInterProc.take()
-
-        if(elidedClasses.contains(lookupRefBType(plain.cnode.name))) {
-
-          q3 put Item3(arrivalPos, null, null, null)
-
-        } else {
-
-          // -------------- mirror class, if needed --------------
-          val mirrorC: SubItem3 =
-            if (mirror != null) {
-              SubItem3(mirror.label, mirror.jclassName, mirror.jclass.toByteArray(), mirror.outF)
-            } else null
-
-          // -------------- "plain" class --------------
-          val cw = new CClassWriter(extraProc)
-          plain.cnode.accept(cw)
-          val plainC =
-            SubItem3(plain.label, plain.cnode.name, cw.toByteArray, plain.outF)
-
-          // -------------- bean info class, if needed --------------
-          val beanC: SubItem3 =
-            if (bean != null) {
-              SubItem3(bean.label, bean.jclassName, bean.jclass.toByteArray(), bean.outF)
-            } else null
-
-          q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
-
+      (new Worker1(needsOutfileForSymbol)).run()
+      (new WholeProgramAnalysis()).optimize()
+      if(isInterProcOptimizOn) {
+        limboForDClosures.clear()
+        val iter = q2.iterator()
+        while(iter.hasNext) {
+          val i2 = iter.next()
+          if(i2.plain != null) {
+            val cnode = i2.plain.cnode
+            if(closuRepo.isDelegatingClosure(cnode)) {
+              limboForDClosures(lookupRefBType(cnode.name)) = i2
+            }
+          }
         }
-
       }
 
-      (1 to MAX_THREADS) foreach { i => q3 put poison3 }
-
+      // optimize different groups of ClassNodes in parallel, once done with each group queue its ClassNodes for disk serialization.
+      spawnPipeline2()
       drainQ3()
+
     }
 
     private def buildAndSendToDiskInParallel(needsOutfileForSymbol: Boolean) {
+      assert(!isInterProcOptimizOn)
 
+      // as soon as each individual ClassNode is ready (if needed intra-class optimized) it's also ready for disk serialization.
       new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
-      val workers = spawnPipeline2()
-
+      spawnPipeline2()
       feedPipeline1()
       drainQ3()
-
-      for(t <- workers) { assert(woExited.containsKey(t.getId)) } // debug
-      assert(woExited.size == MAX_THREADS)                        // debug
 
     }
 
