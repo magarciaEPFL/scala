@@ -298,7 +298,10 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         if(isInterProcOptimizOn) {
-          // don't place in q3 just yet (which requires ClassWriter.toByteArray()) because rewriting of dclosures may be under way
+          /*
+           * Don't place in q3 just yet (which requires ClassWriter.toByteArray()).
+           * This way, exclusive write access is granted to a master class to the dclosures it's responsible for.
+           * */
           (new BCodeCleanser(plain.cnode)).cleanseClass()
           qInterProc put item
           return

@@ -180,7 +180,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       dclosures(master) filter { dc => nonMasterUsers(dc).isEmpty }
     }
 
-    final def nonElidedExclusiveDClosures(masterCNode: ClassNode): List[BType] = {
+    /**
+     * The set of delegating-closures used by no other class than the argument
+     * (besides the trivial usage of each dclosure by itself)
+     * and moreover not elided (as a consequence, endpoint is public).
+     * */
+    final def liveDClosures(masterCNode: ClassNode): List[BType] = {
       val master = lookupRefBType(masterCNode.name)
       assert(isMasterClass(master), "Not a master class for some dclosure: " + master.getInternalName)
       for(
@@ -383,11 +388,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def retractAsDClosure(dc: BType) {
       assert(
         nonMasterUsers(dc).isEmpty,
-        s"A dclosure can't retracted when used from non-master classes, for example ${dc.getInternalName} in use from ${nonMasterUsers(dc).mkString}"
+        s"A dclosure can't be retracted unless used only by its master class, but ${dc.getInternalName} in use by ${nonMasterUsers(dc).mkString}"
       )
       assert(
         elidedClasses.contains(dc),
-        s"A dclosure can't retracted before being elided:  ${dc.getInternalName}"
+        s"A dclosure can't be retracted before being elided:  ${dc.getInternalName}"
       )
       val exMaster = masterClass(dc)
       endpoint.remove(dc)
@@ -2692,7 +2697,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *       The dclosure itself remains, but with smaller GC overhead.
    *
    * */
-  override def closuresOptimiz(cnode: ClassNode): Boolean = {
+  override def shakeAndMinimizeClosures(cnode: ClassNode): Boolean = {
 
     val cnodeBT = lookupRefBType(cnode.name)
     if(!closuRepo.isMasterClass(cnodeBT)) { return false }
@@ -2700,7 +2705,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
 
     var changed = false
-    for(d <- closuRepo.nonElidedExclusiveDClosures(cnode)) {
+    for(d <- closuRepo.liveDClosures(cnode)) {
 
       val dep = closuRepo.endpoint(d).mnode
       // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
@@ -3026,6 +3031,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * */
   override def minimizeDClosureAllocations(masterCNode: ClassNode) {
+    val masterBT = lookupRefBType(masterCNode.name)
+    if(!closuRepo.isMasterClass(masterBT)) { return }
+
     singletonizeDClosures(masterCNode)         // Case (1) empty closure state
     bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
     perOuterInstanceCaching(masterCNode)       // Case (2) closure state consisting only of outer-instance
@@ -3041,10 +3049,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * */
   private def singletonizeDClosures(masterCNode: ClassNode) {
-    val masterBT = lookupRefBType(masterCNode.name)
-    if(!closuRepo.isMasterClass(masterBT)) { return }
-
-    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+    for(d <- closuRepo.liveDClosures(masterCNode)) {
 
       val dep    = closuRepo.endpoint(d).mnode
       val dCNode = codeRepo.classes.get(d)
@@ -3180,10 +3185,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * */
   private def bringBackStaticDClosureBodies(masterCNode: ClassNode) {
-    val masterBT = lookupRefBType(masterCNode.name)
-    if(!closuRepo.isMasterClass(masterBT)) { return }
 
-    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+    for(d <- closuRepo.liveDClosures(masterCNode)) {
 
       val dep    = closuRepo.endpoint(d).mnode
       val dCNode = codeRepo.classes.get(d)
@@ -3245,10 +3248,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * */
   private def perOuterInstanceCaching(masterCNode: ClassNode) {
 
-    val masterBT = lookupRefBType(masterCNode.name)
-    if(!closuRepo.isMasterClass(masterBT)) { return }
-
-    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+    for(d <- closuRepo.liveDClosures(masterCNode)) {
 
       val dep    = closuRepo.endpoint(d).mnode
       val dCNode = codeRepo.classes.get(d)
@@ -3275,10 +3275,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   } // end of method perOuterInstanceCaching()
 
   private def cleanseDClosures(masterCNode: ClassNode) {
-    val masterBT = lookupRefBType(masterCNode.name)
-    if(!closuRepo.isMasterClass(masterBT)) { return }
 
-    for(d <- closuRepo.nonElidedExclusiveDClosures(masterCNode)) {
+    for(d <- closuRepo.liveDClosures(masterCNode)) {
       val dCNode: ClassNode = codeRepo.classes.get(d)
       val cleanser = new BCodeCleanser(dCNode)
       cleanser.intraMethodFixpoints()

@@ -115,9 +115,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
     knownHasInline.clear()
   }
 
-  def isDClosure(cnode: ClassNode): Boolean         // implemented by subclass BCodeOptInter
-  def closuresOptimiz(cnode: ClassNode): Boolean    // implemented by subclass BCodeOptInter
-  def minimizeDClosureAllocations(cnode: ClassNode) // implemented by subclass BCodeOptInter
+  def isDClosure(cnode: ClassNode): Boolean               // implemented by subclass BCodeOptInter
+  def shakeAndMinimizeClosures(cnode: ClassNode): Boolean // implemented by subclass BCodeOptInter
+  def minimizeDClosureAllocations(cnode: ClassNode)       // implemented by subclass BCodeOptInter
 
   /**
    *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
@@ -175,7 +175,26 @@ abstract class BCodeOptIntra extends BCodeTypes {
      */
     def cleanseClass() {
 
-      if(isDClosure(cnode)) { return } // a dclosure is optimized together with its master class by closuresOptimiz().
+      /*
+       * ClassNodes can be partitioned into:
+       *   (1) master classes;
+       *   (2) dclosures;
+       *   (3) elided classes; and
+       *   (4) none of the previous ones. Examples of (4) are:
+       *       (4.a) a traditional closure lacking any dclosures, or
+       *       (4.b) a plain class without dclosures.
+       *
+       * We want to grant exclusive write access to a dclosure to its master class (there's always one),
+       * thus we return immediately for dclosures.
+       *
+       * For the remaining cases, the usual intra-method and intra-class optimizations are performed,
+       * except two groups of optimizations:
+       *   - shakeAndMinimizeClosures()
+       *   - minimizeDClosureAllocations()
+       * which are performed only for master classes (and their dclosures).
+       *
+       * */
+      if(isDClosure(cnode)) { return } // a dclosure is optimized together with its master class by shakeAndMinimizeClosures().
 
       var keepGoing = false
       do {
@@ -187,7 +206,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
         keepGoing  = privatCompacter()
 
         // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
-        keepGoing |= closuresOptimiz(cnode)
+        keepGoing |= shakeAndMinimizeClosures(cnode)
 
       } while(keepGoing)
 
