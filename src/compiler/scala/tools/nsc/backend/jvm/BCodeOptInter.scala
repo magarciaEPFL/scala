@@ -192,7 +192,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         d <- exclusiveDClosures(master);
         if !elidedClasses.contains(d);
         dep = endpoint(d).mnode;
-        // bringBackStaticDClosureBodies() may move an arg-less static endpoint into the dclosure's apply().
+        // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
         if masterCNode.methods.contains(dep)
       ) yield d
     }
@@ -3308,7 +3308,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               def snippetTest(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]): Boolean = {
                 val isBoilerplate = pf.isDefinedAt(insn) && pf(insn)
                 if(!isBoilerplate) {
-                  debuglog(
+                  warning(
                     s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
                     s"in method ${methodSignature(masterCNode, callerInMaster)}."  +
                     s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
@@ -3340,27 +3340,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               current = current.getNext
             }
             current.asInstanceOf[MethodInsnNode]
-          }
-
-          if(!isBoilterPlate) {
-            /*
-             * Move the instructions that load arguments only to drop them right before the "NEW" instruction.
-             * For example for the following input. Afterwards the transformation for the common case is applied.
-             *
-             *     NEW dclosure
-             *     DUP
-             *     ALOAD 0
-             *     CHECKCAST X
-             *     POP
-             *     INVOKESPECIAL dclosure.<init> ()V
-             *
-             * */
-            var current: AbstractInsnNode = newInsn.getNext.getNext
-            while(current ne lastInsn) {
-              val nxt = current.getNext
-              callerInMaster.instructions.insertBefore(newInsn, current)
-              current = nxt
-            }
           }
 
           {
