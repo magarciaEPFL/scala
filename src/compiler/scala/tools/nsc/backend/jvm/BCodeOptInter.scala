@@ -3358,7 +3358,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             var current: AbstractInsnNode = newInsn.getNext.getNext
             while(current ne lastInsn) {
               val nxt = current.getNext
-              callerInMaster.instructions.remove(current)
               callerInMaster.instructions.insertBefore(newInsn, current)
               current = nxt
             }
