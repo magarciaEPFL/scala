@@ -115,9 +115,10 @@ abstract class BCodeOptIntra extends BCodeTypes {
     knownHasInline.clear()
   }
 
-  def isDClosure(cnode: ClassNode): Boolean               // implemented by subclass BCodeOptInter
+  def isDClosure(iname: String): Boolean                  // implemented by subclass BCodeOptInter
   def shakeAndMinimizeClosures(cnode: ClassNode): Boolean // implemented by subclass BCodeOptInter
   def minimizeDClosureAllocations(cnode: ClassNode)       // implemented by subclass BCodeOptInter
+  def closureCachingAndEviction(cnode: ClassNode)         // implemented by subclass BCodeOptInter
 
   /**
    *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
@@ -187,6 +188,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
        * We want to grant exclusive write access to a dclosure to its master class (there's always one),
        * thus we return immediately for dclosures.
        *
+       * We also skip elided classes, because they aren't written to disk anyway.
+       *
        * For the remaining cases, the usual intra-method and intra-class optimizations are performed,
        * except two groups of optimizations:
        *   - shakeAndMinimizeClosures()
@@ -194,7 +197,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
        * which are performed only for master classes (and their dclosures).
        *
        * */
-      if(isDClosure(cnode)) { return } // a dclosure is optimized together with its master class by shakeAndMinimizeClosures().
+      if(isDClosure(cnode.name)) { return } // a dclosure is optimized together with its master class by shakeAndMinimizeClosures().
+      val bt = lookupRefBType(cnode.name)
+      if(elidedClasses.contains(bt)) { return }
 
       var keepGoing = false
       do {
@@ -216,54 +221,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
     } // end of method cleanseClass()
-
-    /**
-     *  Handle Cases (2) and (3) as described in minimizeDClosureAllocations(),
-     *  by adding code for caching and eviction of the "representative"
-     *  ie a closure instance that is interchangeable with any other in that closure-equivalence class.
-     *
-     *  Two instances of an anonymous closure class (delegating or not) are equivalent
-     *  iff they have same closure-state. That's easier to check for delegating closures,
-     *  where it's safe to assume that all of its instance fields make up the closure-state.
-     *
-     *  This method does not mutate closure classes, but those MethodNodes
-     *  containing allocations of (delegating) closures.
-     *
-     *  Gist: rather than checking at allocation-site whether the arguments to the ctor match
-     *  those of a cached representative (an "Available Expressions" or "Definite Alias" problem),
-     *  we rely on each STORE to a local as above also "killing" the cached reprsentative,
-     *  by assigning null to the local holding it.
-     *
-     *  In detail:
-     *
-     *  (1) for each non-abstract method find pairs (NEW, INIT) of instructions that bracket
-     *      a closure allocation, along with a Set[Int] representing the LOAD_x instructions
-     *      providing values for the INIT.
-     *
-     *      Remarks:
-     *        - instantiations not fulfulling the condition above aren't candidates for this transformation.
-     *        - 0 is removed from Set[Int] if present, thus it may be empty (for a delegating-closure
-     *          just capturing its outer instance. All delegating-closures capturing no value have been
-     *          singleton-ized by now).
-     *
-     *      (1.a) if no pair found, move on to next method.
-     *
-     *      (1.b) for each pair:
-     *            - add a local var to cache it, initialized to null on method entry
-     *            - right before the NEW, insert: LOAD  cachevar, IFNONNULL L1
-     *            - right after the INIT, insert: STORE cachevar, LabelNode L1, LOAD cachevar
-     *            - iterate over all instructions in the method,
-     *              if STORE to a var in Set[Int], insert right after it a STORE NULL to cachevar
-     *
-     *      (1.c) run an intra-method fixpoint on the method, so as to:
-     *            - elide redundant null stores
-     *            - propagate nulls
-     *
-     * */
-    private def closureCachingAndEviction(cnode: ClassNode) {
-      assert(!isDClosure(cnode), "BCodeCleanser.cleanseClass() not supposed to let in any delegating-closure")
-
-    } // end of method closureCachingAndEviction()
 
     /**
      *  intra-method optimizations

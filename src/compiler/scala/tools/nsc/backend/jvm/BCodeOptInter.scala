@@ -48,7 +48,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   // Tracking of delegating-closures
   //--------------------------------------------------------
 
-  override def isDClosure(cnode: ClassNode): Boolean = { closuRepo.isDelegatingClosure(cnode)  }
+  override def isDClosure(iname: String): Boolean = { closuRepo.isDelegatingClosure(iname)  }
 
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
@@ -3038,6 +3038,191 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
     cleanseDClosures(masterCNode)
   }
+
+  override def closureCachingAndEviction(cnode: ClassNode) {
+    closureCachingAndEvictionHelper(cnode)
+    val masterBT = lookupRefBType(cnode.name)
+    if(closuRepo.isMasterClass(masterBT)) {
+      for(d <- closuRepo.exclusiveDClosures(masterBT); if !elidedClasses.contains(d)) {
+        // those dclosures for which `bringBackStaticDClosureBodies()` run may benefit from closure caching and eviction.
+        closureCachingAndEvictionHelper(codeRepo.classes.get(d))
+      }
+    }
+  }
+
+  /**
+   *  Handle Cases (2) and (3) as described in minimizeDClosureAllocations(),
+   *  by adding code for caching and eviction of the "representative"
+   *  ie a closure instance that is interchangeable with any other in that closure-equivalence class.
+   *
+   *  Two instances of an anonymous closure class (delegating or not) are equivalent
+   *  iff they have same closure-state. That's easier to check for delegating closures,
+   *  where it's safe to assume that all of its instance fields make up the closure-state.
+   *
+   *  This method does not mutate closure classes, but those MethodNodes
+   *  containing allocations of (delegating) closures.
+   *
+   *  Gist: rather than checking at allocation-site whether the arguments to the ctor match
+   *  those of a cached representative (an "Available Expressions" or "Definite Alias" problem),
+   *  we rely on each STORE to a local as above also "killing" the cached reprsentative,
+   *  by assigning null to the local holding it.
+   *
+   *  In detail:
+   *
+   *  (1) for each non-abstract method find pairs (NEW, INIT) of instructions that bracket
+   *      a closure allocation, along with a Set[Int] representing the LOAD_x instructions
+   *      providing values for the INIT.
+   *
+   *      Remarks:
+   *        - instantiations not fulfulling the condition above aren't candidates for this transformation.
+   *        - 0 is removed from Set[Int] if present, thus it may be empty (for a delegating-closure
+   *          just capturing its outer instance. All delegating-closures capturing no value have been
+   *          singleton-ized by now).
+   *
+   *  (2) if no pair found, move on to next method.
+   *
+   *  (3) for each bracket:
+   *      - add a local var to cache it, initialized to null on method entry
+   *      - right before the NEW, insert: LOAD  cache, IFNONNULL L1
+   *      - right after the INIT, insert: STORE cache, LabelNode L1, LOAD cache
+   *      - iterate over all instructions in the method,
+   *        if STORE to a var in Set[Int], insert right after it a STORE NULL to cache
+   *
+   *  (4) run an intra-method fixpoint on the method, so as to:
+   *      - elide redundant null stores
+   *      - propagate nulls
+   *
+   * */
+  private def closureCachingAndEvictionHelper(cnode: ClassNode) {
+    val cnodeBT = lookupRefBType(cnode.name)
+    if(elidedClasses.contains(cnodeBT)) { return }
+
+        case class Bracket(newInsn: TypeInsnNode, initInsn: MethodInsnNode, stateLocals: collection.Set[Int])
+
+        def findBracket(newInsn: TypeInsnNode, mnode: MethodNode): Bracket = {
+          val dclosureIName = newInsn.desc
+          val dclosureBT = lookupRefBType(dclosureIName)
+          if(!closuRepo.isDelegatingClosure(dclosureBT)) {
+            return null
+          }
+
+          def logUponOffendingInsn(offendingInsn: AbstractInsnNode, reason: String) {
+            log(
+              s"Attempt at closure caching and eviction in method ${methodSignature(cnode, mnode)} " +
+              s"failed because $reason, " +
+              s"more precisely at index ${mnode.instructions.indexOf(offendingInsn)} where instruction ${Util.textify(offendingInsn)} can be found.\n" +
+               "Full bytecode of that method:" + Util.textify(mnode)
+            )
+          }
+
+          val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
+            { case mi: MethodInsnNode =>
+                mi.getOpcode == Opcodes.INVOKESPECIAL &&
+                mi.owner     == dclosureIName &&
+                mi.name      == "<init>" // TODO we assume the constructor descriptor can't be any other than the right one :)
+              case _ => false
+            }
+
+          if(newInsn.getNext.getOpcode != Opcodes.DUP) {
+            logUponOffendingInsn(newInsn.getNext, "non-DUP instruction found right before the ctor-args-loading section")
+            return null
+          }
+          var argLoader = newInsn.getNext.getNext
+          val stateLocals = mutable.Set.empty[Int]
+          while(!isLasInsnInBoilerplate(argLoader)) {
+            if(Util.isExecutable(argLoader)) {
+              if(Util.isLOAD(argLoader)) {
+                val idx = argLoader.asInstanceOf[VarInsnNode].`var`
+                if(idx != 0) {
+                  stateLocals += idx
+                }
+              } else {
+                val isOK = {
+                  (argLoader.getOpcode == Opcodes.CHECKCAST) ||
+                  (Util.isPrimitiveConstant(argLoader))      ||
+                  (Util.isStringConstant(argLoader))         ||
+                  (Util.isTypeConstant(argLoader))
+                }
+                if(!isOK) {
+                  logUponOffendingInsn(argLoader, "of non-LOAD, non-CHECKCAST instruction in the ctor-args-loading section")
+                  return null
+                }
+              }
+            }
+            argLoader = argLoader.getNext
+          }
+
+          Bracket(newInsn, argLoader.asInstanceOf[MethodInsnNode], stateLocals)
+        } // end of method findBracket
+
+        /**
+         * Step (3) Perform transformation for each bracket
+         * */
+        def addCachingAndEviction(br: Bracket, mnode: MethodNode) {
+          // add a local var to cache it, initialized to null on method entry
+          val cacheIdx = mnode.maxLocals
+          mnode.maxLocals += 1
+          val insnList = mnode.instructions
+          insnList.insert(new VarInsnNode(Opcodes.ASTORE, cacheIdx))
+          insnList.insert(new InsnNode(Opcodes.ACONST_NULL))
+          // right before the NEW, insert: LOAD  cache, IFNONNULL L1
+          insnList.insertBefore(br.newInsn, new VarInsnNode(Opcodes.ALOAD, cacheIdx))
+          val lnode = new LabelNode(new asm.Label)
+          insnList.insertBefore(br.newInsn, new JumpInsnNode(Opcodes.IFNONNULL, lnode))
+          // right after the INIT, insert: STORE cache, LabelNode L1, LOAD cache
+          insnList.insert(br.initInsn, new VarInsnNode(Opcodes.ALOAD, cacheIdx))
+          insnList.insert(br.initInsn, lnode)
+          insnList.insert(br.initInsn, new VarInsnNode(Opcodes.ASTORE, cacheIdx))
+          // iterate over all instructions in the method, if STORE to a var in Set[Int],
+          // insert right after it a STORE NULL to cache
+          val killers = mutable.Set.empty[AbstractInsnNode]
+          for(
+            i <- mnode.instructions.toList;
+            if Util.isSTORE(i) && br.stateLocals(i.asInstanceOf[VarInsnNode].`var`)
+          ) {
+            killers += i
+          }
+          for(k <- killers) {
+            insnList.insert(k, new VarInsnNode(Opcodes.ASTORE, cacheIdx))
+            insnList.insert(k, new InsnNode(Opcodes.ACONST_NULL))
+          }
+        } // end of method addCachingAndEviction()
+
+
+    for(mnode <- JListWrapper(cnode.methods); if !Util.isAbstractMethod(mnode) ) {
+      // Step (1) Find brackets fulfilling conditions
+      var brackets: List[Bracket] = Nil
+      var current = mnode.instructions.getFirst
+      while(current != null) {
+        if(current.getOpcode == Opcodes.NEW) {
+          val br = findBracket(current.asInstanceOf[TypeInsnNode], mnode)
+          if(br != null) {
+            brackets ::= br
+            current = br.initInsn
+          }
+        }
+        current = current.getNext
+      }
+      if(!brackets.isEmpty) {
+
+        // val txtBefore = Util.textify(mnode); println("Before -------------------------------- " + txtBefore)
+
+        // Step (3) Perform transformation for each bracket
+        for(br <- brackets) {
+          addCachingAndEviction(br, mnode)
+        }
+
+        // val txtDuring = Util.textify(mnode); println("During -------------------------------- " + txtDuring)
+
+        // Step (4) run an intra-method fixpoint on all methods
+        val cleanser = new BCodeCleanser(cnode)
+        cleanser.intraMethodFixpoints()
+
+        // val txtAfter = Util.textify(mnode); println("After -------------------------------- " + txtAfter)
+      }
+    } // end of method iteration
+
+  } // end of method closureCachingAndEvictionHelper()
 
   /**
    *  Handle the following subcase described in minimizeDClosureAllocations():
