@@ -3036,8 +3036,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     singletonizeDClosures(masterCNode)         // Case (1) empty closure state
     bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
-    perOuterInstanceCaching(masterCNode)       // Case (2) closure state consisting only of outer-instance
-    // Case (3) do nothing --- no allocation can be removed without deeper analysis.
     cleanseDClosures(masterCNode)
   }
 
@@ -3260,40 +3258,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
   } // end of method bringBackStaticDClosureBodies()
-
-  /**
-   *  Handle the following subcase described in minimizeDClosureAllocations():
-   *
-   *   (2) closure state consisting only of outer-instance
-   *
-   * */
-  private def perOuterInstanceCaching(masterCNode: ClassNode) {
-
-    for(d <- closuRepo.liveDClosures(masterCNode)) {
-
-      val dep    = closuRepo.endpoint(d).mnode
-      val dCNode = codeRepo.classes.get(d)
-      val closureState: Map[String, FieldNode] = {
-        JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
-      }.toMap
-      val dClassDescriptor = "L" + dCNode.name + ";"
-
-      // Case (2): the dclosure can be converted into "Per-outer-instance closure-singletons"
-      // ------------------------------------------------------------------
-      val hasOuter = closureState.contains(nme.OUTER.toString)
-      /*
-       * doesn't hold for endpoints in implementation classes:
-       *   assert(hasOuter == Util.isInstanceMethod(dep))
-       * (in that case, outer is THIS value passed as first argument to a static implementation method).
-       * */
-      if(hasOuter && closureState.size == 1) {
-        log("Per-outer-instance singleton " + dCNode.name)
-        // TODO
-      }
-
-    }
-
-  } // end of method perOuterInstanceCaching()
 
   private def cleanseDClosures(masterCNode: ClassNode) {
 
