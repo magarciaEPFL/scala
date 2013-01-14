@@ -559,6 +559,29 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
+     *  @return None if not found, the MethodNode's access field otherwise.
+     * */
+    def getMethodAccess(bt: BType, name: String, desc: String): Option[Int] = {
+      val cn = getClassNode(bt)
+      val iter = cn.methods.iterator()
+      while(iter.hasNext) {
+        val mn = iter.next()
+        if(mn.name == name && mn.desc == desc) {
+          return Some(mn.access)
+        }
+      }
+      for(ifaceIName <- JListWrapper(cn.interfaces)) {
+        val outcome = getMethodAccess(lookupRefBType(ifaceIName), name, desc)
+        if(outcome.nonEmpty) { return outcome }
+      }
+      if(cn.superName != null) {
+        val outcome = getMethodAccess(lookupRefBType(cn.superName), name, desc)
+        if(outcome.nonEmpty) { return outcome }
+      }
+      None
+    }
+
+    /**
      * Looks up (parsing from bytecode if needed) the field declared in `bt`
      * given by the combination of field-name and field-descriptor.
      *
@@ -1356,7 +1379,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           def samePackageAsHere(there: BType): Boolean = { there.getRuntimePackage == here.getRuntimePackage }
 
-          def memberAccess(flags: Int, thereOwner: BType, thereSymRef: BType): Boolean = {
+          def memberAccess(flags: Int, thereOwner: BType): Boolean = {
             val key = { (Opcodes.ACC_PUBLIC | Opcodes.ACC_PROTECTED | Opcodes.ACC_PRIVATE) & flags }
             key match {
 
@@ -1370,7 +1393,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 // (cond B2)
                 val condB2 = isSubtypeOrSame(here, thereOwner) && {
                   val isStatic = ((Opcodes.ACC_STATIC & flags) != 0)
-                  isStatic || sameLineage(thereSymRef)
+                  isStatic || sameLineage(thereOwner)
                 }
                 condB2 || samePackageAsHere(thereOwner)
 
@@ -1389,16 +1412,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           case fi: FieldInsnNode =>
             val fowner: BType = lookupRefBType(fi.owner)
             val fn: FieldNode = codeRepo.getFieldOrNull(fowner, fi.name, fi.desc)
-            (fn != null) && memberAccess(fn.access, fowner, fowner)
+            (fn != null) && memberAccess(fn.access, fowner)
 
           case mi: MethodInsnNode =>
             val thereSymRef: BType  = lookupRefBType(mi.owner)
-            val mnAndOwner = codeRepo.getMethodOrNull(thereSymRef, mi.name, mi.desc) // TODO look up in superclasses too
-            (mnAndOwner != null) && {
-              val MethodNodeAndOwner(mn, thereClassNode) = mnAndOwner
-              val thereOwner = lookupRefBType(thereClassNode.name)
-              memberAccess(mn.access, thereOwner, thereSymRef)
-            }
+            val mAccess: Option[Int] = codeRepo.getMethodAccess(thereSymRef, mi.name, mi.desc)
+            mAccess.nonEmpty && memberAccess(mAccess.get, thereSymRef)
 
           case ivd: InvokeDynamicInsnNode => false // TODO
 
@@ -3402,20 +3421,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         tfa.analyze(dCNode.name, applyMethod)
         val frame = tfa.frameAt(callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
 
-        val success =
+        val inlineOutcome =
           wp.inlineMethod(
             dCNode.name, applyMethod,
             callsite, frame,
             dep, masterCNode,
             doTrackClosureUsage = false
-          ).isEmpty
-        if(success) {
-          val cleanser = new BCodeCleanser(dCNode)
-          cleanser.intraMethodFixpoints()
-          // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
-          // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
-          closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
-          masterCNode.methods.remove(dep)
+          )
+        inlineOutcome match {
+          case Some(problem) =>
+            log(s"Couldn't bring back the endpoint's instructions because $problem")
+          case None =>
+            val cleanser = new BCodeCleanser(dCNode)
+            cleanser.intraMethodFixpoints()
+            // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
+            // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
+            closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
+            masterCNode.methods.remove(dep)
         }
       }
 
