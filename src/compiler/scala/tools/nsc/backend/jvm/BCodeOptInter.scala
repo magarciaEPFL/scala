@@ -3297,7 +3297,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         insns.add(new InsnNode(Opcodes.RETURN))
         staticClassInitializer.instructions.add(insns)
 
-        // -------- (1.b) modify the master class (replace instantiations with GETSTATIC of the singleton)
+        // -------- (1.b) modify the master class (replace instantiations by GETSTATIC of the singleton)
         for(
           callerInMaster <- JListWrapper(masterCNode.methods);
           newInsn        <- closuRepo.closureAccesses(callerInMaster, d)
@@ -3319,15 +3319,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            *     POP
            *     INVOKESPECIAL dclosure.<init> ()V
            *
-           * because PushPopCollapser doesn't back-propagate POP over CHECKCAST,
-           * that would be a task for a type-flow based analysis.
+           * The second case arises because PushPopCollapser doesn't back-propagate POP over CHECKCAST
+           * (that would requires a type-flow based analysis).
            *
            * */
 
               def snippetTest(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]): Boolean = {
                 val isBoilerplate = pf.isDefinedAt(insn) && pf(insn)
                 if(!isBoilerplate) {
-                  warning(
+                  log(
                     s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
                     s"in method ${methodSignature(masterCNode, callerInMaster)}."  +
                     s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
@@ -3347,8 +3347,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               case _ => false
             }
 
-          // displays warning only for the first divergence from "boilerplate"
-          val isBoilterPlate =
+              // logs only the first divergence from "boilerplate"
+              def isBoilerplate =
             snippetTest(0, newInsn,         { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }) &&
             snippetTest(1, newInsn.getNext, { case di: InsnNode       => di.getOpcode == Opcodes.DUP }) &&
             snippetTest(2, newInsn.getNext.getNext, isLasInsnInBoilerplate)
@@ -3361,13 +3361,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             current.asInstanceOf[MethodInsnNode]
           }
 
-          {
+          if(isBoilerplate) {
             var current: AbstractInsnNode = lastInsn
             while(current ne newInsn) {
               val prev = current.getPrevious
               callerInMaster.instructions.remove(current)
               current = prev
             }
+          } else {
+            val dupInsn = newInsn.getNext
+            assert(dupInsn.getOpcode == Opcodes.DUP)
+            // move NEW, DUP from where they are into right before INVOKESPECIAL
+            callerInMaster.instructions.remove(newInsn)
+            callerInMaster.instructions.remove(dupInsn)
+            callerInMaster.instructions.insertBefore(lastInsn, newInsn)
+            callerInMaster.instructions.insertBefore(lastInsn, dupInsn)
+            assert(isBoilerplate)
           }
 
           callerInMaster.instructions.set(
