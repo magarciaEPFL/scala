@@ -10,6 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
+import asm.optimiz.UnBoxAnalyzer.FakeParamLoad
 import asm.optimiz.{UnBoxAnalyzer, ProdConsAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree._
@@ -875,8 +876,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val compiledClassesIter = codeRepo.classes.values().iterator()
       while(compiledClassesIter.hasNext) {
-        val c = compiledClassesIter.next()
-        do {  } while (percolateUpwards(c))
+        percolateUpwards(compiledClassesIter.next())
       }
 
     }
@@ -2706,105 +2706,173 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  Inline those "small" private methods that are invoked from a single place.
      *
      * */
-    private def percolateUpwards(cnode: ClassNode): Boolean = {
+    private def percolateUpwards(cnode: ClassNode) {
 
-      var changed = false
+      log(s"Inlining small private methods used once, for class ${cnode.name}")
 
-      val candidates0 = {
+      val candidates = {
         JListWrapper(cnode.methods)
        .filter(m => Util.isPrivateMethod(m) && !Util.isConstructor(m) && !Util.isAbstractMethod(m))
        .filter(m => m.tryCatchBlocks.isEmpty) /* considering only callees without exception handlers allows skipping type-flow analysis */
        .filter(m => m.name.contains('$'))
       }
 
-          def insnIvokes(insn: AbstractInsnNode, calleeOwner: String, callee: MethodNode): Boolean = {
+          def invokes(insn: AbstractInsnNode, callee: MethodNode): Boolean = {
             (insn.getType == AbstractInsnNode.METHOD_INSN) && {
               val mi = insn.asInstanceOf[MethodInsnNode]
 
-              (mi.owner == calleeOwner) && (mi.name == callee.name) && (mi.desc == callee.desc)
+              (mi.owner == cnode.name) && (mi.name == callee.name) && (mi.desc == callee.desc)
             }
           }
-          def methodInvokes(caller: MethodNode, calleeOwner: String, callee: MethodNode): Boolean = {
-            caller.instructions.toList.exists( (i: AbstractInsnNode) => insnIvokes(i, calleeOwner, callee) )
+
+          case class Invocation(caller: MethodNode, callsite: MethodInsnNode, callee: MethodNode)
+
+      val invocations = mutable.Set.empty[Invocation] ++ {
+        for(
+          caller <- JListWrapper(cnode.methods);
+          if !Util.isAbstractMethod(caller);
+          i <- caller.instructions.toList;
+          if i.getType == AbstractInsnNode.METHOD_INSN;
+          callsite = i.asInstanceOf[MethodInsnNode];
+          callee <- candidates;
+          if invokes(callsite, callee)
+        ) yield Invocation(caller, callsite, callee)
+      }
+
+        /**
+         *  (1) Discard those tuples sharing the same candidate as callee
+         *      (they stand for different invocations, either from different or the same method)
+         *
+         *  (2) Discard those tuples where caller == callee (they stand for direct recursive invocations)
+         *
+         */
+          def pruneMultipleOrRecursive() {
+            for(candidate <- candidates) {
+              val callingContexts = invocations.filter(invoc => invoc.callee == candidate)
+              val discard = (callingContexts.size  > 1) || {
+                (callingContexts.size == 1) && { val tuple = callingContexts.head; tuple.caller == tuple.callee }
+              }
+              if(discard) {
+                invocations --= callingContexts
+              }
+            }
           }
 
-      // keep only those candidates not calling themselves any other candidate
-      val candidates1 =
-        for(cand <- candidates0; callee <- candidates0; if !methodInvokes(cand, cnode.name, callee)) yield cand;
-
-      if(candidates1.isEmpty) return false;
-
-      /* inlining methods with long method descriptors means smaller ConstantPool */
-      val sorted = candidates1.toList.sortBy(m => m.instructions.size - m.desc.size)
+      pruneMultipleOrRecursive()
       val unreachCodeRemover = new asm.optimiz.UnreachableCode
 
-      val iter = sorted.iterator
-      while(iter.hasNext) {
-        val callee = iter.next()
-        val callingContexts: Map[MethodNode, List[MethodInsnNode]] = {
-          for(
-            caller <- JListWrapper(cnode.methods);
-            if !Util.isAbstractMethod(caller);
-            callsites: List[MethodInsnNode] =
-              for(
-                i <- caller.instructions.toList;
-                if i.getType == AbstractInsnNode.METHOD_INSN;
-                mi = i.asInstanceOf[MethodInsnNode];
-                if (mi.owner == cnode.name) && (mi.name == callee.name) && (mi.desc == callee.desc)
-              )
-              yield mi;
-            if callsites.nonEmpty
-          ) yield (caller -> callsites)
-        }.toMap
-        // assert(callingContexts.nonEmpty, s"UnusedPrivateElider should have removed ${methodSignature(cnode, callee)}")
-        val wrongCallers = (callingContexts.size != 1)
-        if(!wrongCallers) {
-          // keep as candidate only those private methods invoked from a single location
-          val entry = callingContexts.iterator.next()
-          val caller: MethodNode = entry._1
-          val multipleCallsites = (entry._2.tail.nonEmpty)
-          val badSizes = {
-            (caller.instructions.size + callee.instructions.size) > 1000 || {
-              (caller.instructions.size + callee.instructions.size > 500) &&
-              (caller.instructions.size > 50) &&
-              (callee.instructions.size > 50)
-            }
-          }
-          if(badSizes) {
-            log(s"Refrained from attempting to percolate method ${methodSignature(cnode, callee)} upwards " +
-                s"into method ${methodSignature(cnode, caller)} because of method sizes " +
-                s"(caller has ${caller.instructions.size} instructions and callee has ${callee.instructions.size} instructions)"
-            )
-          }
-          if(!badSizes && !multipleCallsites) {
-            val callsite: MethodInsnNode = entry._2.head
+          def asCaller(callee: MethodNode): collection.Set[Invocation] = { invocations.filter(invoc => invoc.caller == callee) }
 
-            Util.computeMaxLocalsMaxStack(caller)
+          /**
+           *  A callee "promotes closure recycling (after inlining)" whenever it contains
+           *  a INVOKESPECIAL <init> for an anonymous-closure instruction
+           *  taking one or more method parameters as constructor args.
+           *
+           * */
+          def promotesClosureRecycling(callee: MethodNode): Boolean = {
+
             Util.computeMaxLocalsMaxStack(callee)
             // UnreachableCode eliminates null frames (which complicate further analyses).
             unreachCodeRemover.transform(cnode.name, callee)
 
-            val inlineOutcome =
-              inlineMethod(
-                cnode.name, caller,
-                callsite, null,
-                callee, cnode,
-                doTrackClosureUsage = true
+              def isClosureInit(insn: AbstractInsnNode) = {
+                insn.getType == AbstractInsnNode.METHOD_INSN && {
+                  val init = insn.asInstanceOf[MethodInsnNode]
+                  init.name == "<init>" && isDClosure(init.owner)
+                }
+              }
+
+            val closureInits = callee.instructions.toList collect { case i if isClosureInit(i) => i.asInstanceOf[MethodInsnNode] }
+            if(closureInits.isEmpty) { return false }
+
+            val cp = UnBoxAnalyzer.create()
+            cp.analyze(cnode.name , callee)
+            closureInits exists { init: MethodInsnNode =>
+              val frame: asm.tree.analysis.Frame[SourceValue] = cp.frameAt(init)
+              val actualArgs: Array[SourceValue] = frame.getActualArguments(init) map (_.asInstanceOf[SourceValue])
+
+              actualArgs exists { (sv: SourceValue) =>
+                (sv.insns.size() == 1) && {
+                  sv.insns.iterator.next() match {
+                    case p: FakeParamLoad => p.isFormalParam()
+                    case _ => false
+                  }
+                }
+              }
+            }
+          }
+
+          def knockedOut(invoc: Invocation): Boolean = {
+            val Invocation(caller, _, callee) = invoc
+            val callerS = caller.instructions.size
+            val calleeS = caller.instructions.size
+
+            // knock-out criteria 1: method sizes
+            val badSizes = (callerS + calleeS) > 1000 || {
+              (callerS + calleeS > 500) && (callerS > 50) && (calleeS > 50)
+            }
+            if(badSizes) {
+              log(s"Refrained from attempting to percolate method ${methodSignature(cnode, callee)} upwards " +
+                  s"into method ${methodSignature(cnode, caller)} because of method sizes " +
+                  s"(caller has $callerS instructions and callee has $calleeS instructions)"
               )
-            inlineOutcome match {
-              case Some(problem) =>
-                log(s"Couldn't percolate method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)} because $problem")
-              case None =>
-                log(s"Percolated method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)}")
-                cnode.methods.remove(callee)
-                changed = true
+              return true
             }
 
+            // knock-out criteria 2: inlining the callee brings no benefit
+            val bytecodeWeight = (calleeS - (callee.desc.length / 4))
+            val promotes = promotesClosureRecycling(callee)
+            val noGain = (bytecodeWeight > 50) && !promotes
+            if(noGain) {
+              log(s"Refrained from attempting to percolate method ${methodSignature(cnode, callee)} upwards " +
+                  s"into method ${methodSignature(cnode, caller)} because " +
+                  s"inlining brings no benefit (bytecodeWeight=$bytecodeWeight, promotesClosureRecycling=$promotes)"
+              )
+              return true
+            }
+
+            false // ie not knocked out
           }
+
+
+
+      var progress = true
+      while (invocations.nonEmpty && progress) {
+        /*
+         * For this round, pick those tuples where callee doesn't appear in any caller position, ie pick "leaf" invocations
+         * In this round, "leaf" tuples will be removed, either due to successful inlining or not.
+         * */
+        val round = invocations.filter(invoc => asCaller(invoc.callee).isEmpty )
+        progress = round.nonEmpty // progress false for invocation cycles involving two or more candidates.
+        /*
+         * No ranking needed because we're inlining all qualifying candidates reaching this far.
+         * */
+        for(Invocation(caller, callsite, callee) <- round filterNot knockedOut) {
+
+          Util.computeMaxLocalsMaxStack(caller)
+          Util.computeMaxLocalsMaxStack(callee)
+          // UnreachableCode eliminates null frames (which complicate further analyses).
+          unreachCodeRemover.transform(cnode.name, callee)
+
+          val inlineOutcome =
+            inlineMethod(
+              cnode.name, caller,
+              callsite, null,
+              callee, cnode,
+              doTrackClosureUsage = true
+            )
+          inlineOutcome match {
+            case Some(problem) =>
+              log(s"Couldn't percolate method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)} because $problem")
+            case None =>
+              log(s"Percolated method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)}")
+              cnode.methods.remove(callee)
+          }
+
         }
+        invocations --= round
       }
 
-      changed
 
     } // end of method percolateUpwards()
 
