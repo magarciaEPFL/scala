@@ -875,7 +875,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val compiledClassesIter = codeRepo.classes.values().iterator()
       while(compiledClassesIter.hasNext) {
-        percolateUpwards(compiledClassesIter.next())
+        val c = compiledClassesIter.next()
+        do {  } while (percolateUpwards(c))
       }
 
     }
@@ -1191,7 +1192,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * TODO why weren't those TypeNames entered as part of parsing callee from bytecode?
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
-      codeRepo.enterExemplarsForUnseenTypeNames(body)
+      codeRepo.enterExemplarsForUnseenTypeNames(body) // must-single-thread
 
       val hostOwnerBT = lookupRefBType(hostOwner)
 
@@ -1210,7 +1211,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         lvi.`var` += host.maxLocals
       }
 
-      val calleeMethodType = BType.getMethodType(callee.desc)
+      val calleeMethodType = BType.getMethodType(callee.desc) // must-single-thread
 
       // add a STORE instruction for each expected argument, including for THIS instance if any.
       val argStores   = new InsnList
@@ -1269,7 +1270,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 if calleeInsn.getOpcode >= Opcodes.IRETURN && calleeInsn.getOpcode <= Opcodes.RETURN)
             {
               val retInsn = calleeInsn.asInstanceOf[InsnNode]
-              val frame   = ca.frameAt(retInsn)
+              val frame   = ca.frameAt(retInsn) // NPE means dead-code wasn't removed from the callee before calling inlineMethod
               val height  = frame.getStackSize
               val counterpart = insnMap.get(retInsn)
               assert(counterpart.getOpcode == retInsn.getOpcode)
@@ -2705,23 +2706,36 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  Inline those "small" private methods that are invoked from a single place.
      *
      * */
-    private def percolateUpwards(cnode: ClassNode) {
+    private def percolateUpwards(cnode: ClassNode): Boolean = {
 
-      val txtBefore = Util.textify(cnode)
+      var changed = false
 
-      val discarded  = mutable.Set.empty[MethodNode]
-      val candidates = mutable.Set.empty[MethodNode]
-
-      candidates.clear()
-      candidates ++=
+      val candidates0 = {
         JListWrapper(cnode.methods)
        .filter(m => Util.isPrivateMethod(m) && !Util.isConstructor(m) && !Util.isAbstractMethod(m))
        .filter(m => m.tryCatchBlocks.isEmpty) /* considering only callees without exception handlers allows skipping type-flow analysis */
        .filter(m => m.name.contains('$'))
-       .filter(m => !discarded(m));
+      }
+
+          def insnIvokes(insn: AbstractInsnNode, calleeOwner: String, callee: MethodNode): Boolean = {
+            (insn.getType == AbstractInsnNode.METHOD_INSN) && {
+              val mi = insn.asInstanceOf[MethodInsnNode]
+
+              (mi.owner == calleeOwner) && (mi.name == callee.name) && (mi.desc == callee.desc)
+            }
+          }
+          def methodInvokes(caller: MethodNode, calleeOwner: String, callee: MethodNode): Boolean = {
+            caller.instructions.toList.exists( (i: AbstractInsnNode) => insnIvokes(i, calleeOwner, callee) )
+          }
+
+      // keep only those candidates not calling themselves any other candidate
+      val candidates1 =
+        for(cand <- candidates0; callee <- candidates0; if !methodInvokes(cand, cnode.name, callee)) yield cand;
+
+      if(candidates1.isEmpty) return false;
 
       /* inlining methods with long method descriptors means smaller ConstantPool */
-      val sorted = candidates.toList.sortBy(m => m.instructions.size - m.desc.size)
+      val sorted = candidates1.toList.sortBy(m => m.instructions.size - m.desc.size)
       val unreachCodeRemover = new asm.optimiz.UnreachableCode
 
       val iter = sorted.iterator
@@ -2739,17 +2753,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 if (mi.owner == cnode.name) && (mi.name == callee.name) && (mi.desc == callee.desc)
               )
               yield mi;
-            if callsites.size == 1 /* if multipleCallsites there's nothing to do about it, thus don't even report */
+            if callsites.nonEmpty
           ) yield (caller -> callsites)
         }.toMap
         // assert(callingContexts.nonEmpty, s"UnusedPrivateElider should have removed ${methodSignature(cnode, callee)}")
         val wrongCallers = (callingContexts.size != 1)
-        if(wrongCallers) {
+        if(!wrongCallers) {
           // keep as candidate only those private methods invoked from a single location
-          discarded += callee
-        } else {
           val entry = callingContexts.iterator.next()
           val caller: MethodNode = entry._1
+          val multipleCallsites = (entry._2.tail.nonEmpty)
           val badSizes = {
             (caller.instructions.size + callee.instructions.size) > 1000 || {
               (caller.instructions.size + callee.instructions.size > 500) &&
@@ -2762,8 +2775,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                 s"into method ${methodSignature(cnode, caller)} because of method sizes " +
                 s"(caller has ${caller.instructions.size} instructions and callee has ${callee.instructions.size} instructions)"
             )
-            discarded += callee
-          } else {
+          }
+          if(!badSizes && !multipleCallsites) {
             val callsite: MethodInsnNode = entry._2.head
 
             Util.computeMaxLocalsMaxStack(caller)
@@ -2780,16 +2793,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               )
             inlineOutcome match {
               case Some(problem) =>
-                discarded += callee
                 log(s"Couldn't percolate method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)} because $problem")
               case None =>
                 log(s"Percolated method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)}")
                 cnode.methods.remove(callee)
+                changed = true
             }
 
           }
         }
       }
+
+      changed
 
     } // end of method percolateUpwards()
 
