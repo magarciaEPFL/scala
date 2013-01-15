@@ -401,7 +401,6 @@ trait Definitions extends api.StandardDefinitions {
     lazy val RemoteExceptionClass  = requiredClass[java.rmi.RemoteException]
 
     lazy val ByNameParamClass       = specialPolyClass(tpnme.BYNAME_PARAM_CLASS_NAME, COVARIANT)(_ => AnyClass.tpe)
-    lazy val EqualsPatternClass     = specialPolyClass(tpnme.EQUALS_PATTERN_NAME, 0L)(_ => AnyClass.tpe)
     lazy val JavaRepeatedParamClass = specialPolyClass(tpnme.JAVA_REPEATED_PARAM_CLASS_NAME, COVARIANT)(tparam => arrayType(tparam.tpe))
     lazy val RepeatedParamClass     = specialPolyClass(tpnme.REPEATED_PARAM_CLASS_NAME, COVARIANT)(tparam => seqType(tparam.tpe))
 
@@ -908,6 +907,7 @@ trait Definitions extends api.StandardDefinitions {
     lazy val GetterTargetClass          = requiredClass[meta.getter]
     lazy val ParamTargetClass           = requiredClass[meta.param]
     lazy val SetterTargetClass          = requiredClass[meta.setter]
+    lazy val ObjectTargetClass          = requiredClass[meta.companionObject]
     lazy val ClassTargetClass           = requiredClass[meta.companionClass]
     lazy val MethodTargetClass          = requiredClass[meta.companionMethod]    // TODO: module, moduleClass? package, packageObject?
     lazy val LanguageFeatureAnnot       = requiredClass[meta.languageFeature]
@@ -927,11 +927,21 @@ trait Definitions extends api.StandardDefinitions {
       // Trying to allow for deprecated locations
       sym.isAliasType && isMetaAnnotation(sym.info.typeSymbol)
     )
-    lazy val metaAnnotations = Set[Symbol](
-      FieldTargetClass, ParamTargetClass,
-      GetterTargetClass, SetterTargetClass,
-      BeanGetterTargetClass, BeanSetterTargetClass
-    )
+    lazy val metaAnnotations: Set[Symbol] = getPackage("scala.annotation.meta").info.members filter (_ isSubClass StaticAnnotationClass) toSet
+
+    // According to the scala.annotation.meta package object:
+    // * By default, annotations on (`val`-, `var`- or plain) constructor parameters
+    // * end up on the parameter, not on any other entity. Annotations on fields
+    // * by default only end up on the field.
+    def defaultAnnotationTarget(t: Tree): Symbol = t match {
+      case ClassDef(_, _, _, _)                                  => ClassTargetClass
+      case ModuleDef(_, _, _)                                    => ObjectTargetClass
+      case vd @ ValDef(_, _, _, _) if vd.symbol.isParamAccessor  => ParamTargetClass
+      case vd @ ValDef(_, _, _, _) if vd.symbol.isValueParameter => ParamTargetClass
+      case ValDef(_, _, _, _)                                    => FieldTargetClass
+      case DefDef(_, _, _, _, _, _)                              => MethodTargetClass
+      case _                                                     => GetterTargetClass
+    }
 
     lazy val AnnotationDefaultAttr: ClassSymbol = {
       val attr = enterNewClass(RuntimePackageClass, tpnme.AnnotationDefaultATTR, List(AnnotationClass.tpe))
@@ -1066,8 +1076,7 @@ trait Definitions extends api.StandardDefinitions {
       AnyValClass,
       NullClass,
       NothingClass,
-      SingletonClass,
-      EqualsPatternClass
+      SingletonClass
     )
     /** Lists core methods that don't have underlying bytecode, but are synthesized on-the-fly in every reflection universe */
     lazy val syntheticCoreMethods = List(
