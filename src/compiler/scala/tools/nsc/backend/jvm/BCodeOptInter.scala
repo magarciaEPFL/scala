@@ -873,6 +873,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // val howManyShared   : Float = closuRepo.nonMasterUsers.keySet.size
       // println("Proportion of dclosures in use by non-master to those used only from master:" howManyShared / howManyDClosures)
 
+      val compiledClassesIter = codeRepo.classes.values().iterator()
+      while(compiledClassesIter.hasNext) {
+        percolateUpwards(compiledClassesIter.next())
+      }
+
     }
 
     /**
@@ -2696,6 +2701,98 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of class StaticHiOUtil
 
+    /**
+     *  Inline those "small" private methods that are invoked from a single place.
+     *
+     * */
+    private def percolateUpwards(cnode: ClassNode) {
+
+      val txtBefore = Util.textify(cnode)
+
+      val discarded  = mutable.Set.empty[MethodNode]
+      val candidates = mutable.Set.empty[MethodNode]
+
+      candidates.clear()
+      candidates ++=
+        JListWrapper(cnode.methods)
+       .filter(m => Util.isPrivateMethod(m) && !Util.isConstructor(m) && !Util.isAbstractMethod(m))
+       .filter(m => m.tryCatchBlocks.isEmpty) /* considering only callees without exception handlers allows skipping type-flow analysis */
+       .filter(m => m.name.contains('$'))
+       .filter(m => !discarded(m));
+
+      /* inlining methods with long method descriptors means smaller ConstantPool */
+      val sorted = candidates.toList.sortBy(m => m.instructions.size - m.desc.size)
+      val unreachCodeRemover = new asm.optimiz.UnreachableCode
+
+      val iter = sorted.iterator
+      while(iter.hasNext) {
+        val callee = iter.next()
+        val callingContexts: Map[MethodNode, List[MethodInsnNode]] = {
+          for(
+            caller <- JListWrapper(cnode.methods);
+            if !Util.isAbstractMethod(caller);
+            callsites: List[MethodInsnNode] =
+              for(
+                i <- caller.instructions.toList;
+                if i.getType == AbstractInsnNode.METHOD_INSN;
+                mi = i.asInstanceOf[MethodInsnNode];
+                if (mi.owner == cnode.name) && (mi.name == callee.name) && (mi.desc == callee.desc)
+              )
+              yield mi;
+            if callsites.size == 1 /* if multipleCallsites there's nothing to do about it, thus don't even report */
+          ) yield (caller -> callsites)
+        }.toMap
+        // assert(callingContexts.nonEmpty, s"UnusedPrivateElider should have removed ${methodSignature(cnode, callee)}")
+        val wrongCallers = (callingContexts.size != 1)
+        if(wrongCallers) {
+          // keep as candidate only those private methods invoked from a single location
+          discarded += callee
+        } else {
+          val entry = callingContexts.iterator.next()
+          val caller: MethodNode = entry._1
+          val badSizes = {
+            (caller.instructions.size + callee.instructions.size) > 1000 || {
+              (caller.instructions.size + callee.instructions.size > 500) &&
+              (caller.instructions.size > 50) &&
+              (callee.instructions.size > 50)
+            }
+          }
+          if(badSizes) {
+            log(s"Refrained from attempting to percolate method ${methodSignature(cnode, callee)} upwards " +
+                s"into method ${methodSignature(cnode, caller)} because of method sizes " +
+                s"(caller has ${caller.instructions.size} instructions and callee has ${callee.instructions.size} instructions)"
+            )
+            discarded += callee
+          } else {
+            val callsite: MethodInsnNode = entry._2.head
+
+            Util.computeMaxLocalsMaxStack(caller)
+            Util.computeMaxLocalsMaxStack(callee)
+            // UnreachableCode eliminates null frames (which complicate further analyses).
+            unreachCodeRemover.transform(cnode.name, callee)
+
+            val inlineOutcome =
+              inlineMethod(
+                cnode.name, caller,
+                callsite, null,
+                callee, cnode,
+                doTrackClosureUsage = true
+              )
+            inlineOutcome match {
+              case Some(problem) =>
+                discarded += callee
+                log(s"Couldn't percolate method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)} because $problem")
+              case None =>
+                log(s"Percolated method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)}")
+                cnode.methods.remove(callee)
+            }
+
+          }
+        }
+      }
+
+    } // end of method percolateUpwards()
+
   } // end of class WholeProgramAnalysis
 
   /**
@@ -3079,7 +3176,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   /**
    *  Handle Cases (2) and (3) as described in minimizeDClosureAllocations(),
-   *  by adding code for caching and eviction of the "representative"
+   *  by adding code for caching and eviction of the "representative closure"
    *  ie a closure instance that is interchangeable with any other in that closure-equivalence class.
    *
    *  Two instances of an anonymous closure class (delegating or not) are equivalent
@@ -3087,14 +3184,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *  where it's safe to assume that all of its instance fields make up the closure-state.
    *
    *  This method does not mutate closure classes, but those MethodNodes
-   *  containing allocations of (delegating) closures.
+   *  containing allocations of delegating closures (we focus on delegating closures only).
    *
-   *  Gist: rather than checking at allocation-site whether the arguments to the ctor match
+   *  Gist
+   *  ----
+   *
+   *  Rather than checking at allocation-site whether the arguments to the ctor match
    *  those of a cached representative (an "Available Expressions" or "Definite Alias" problem),
    *  we rely on each STORE to a local as above also "killing" the cached reprsentative,
    *  by assigning null to the local holding it.
    *
-   *  In detail:
+   *  The above works well enough: for example, in case closure-state is loop invariant,
+   *  the desired affect of allocating once during the first pass through the loop
+   *  is achieved. It's not "loop hoisting proper", but with the same effect
+   *  (we piggy-back on the JVM analyses to detect the cache won't be null after the first pass).
+   *
+   *  Rewriting
+   *  ---------
    *
    *  (1) for each non-abstract method find pairs (NEW, INIT) of instructions that bracket
    *      a closure allocation, along with a Set[Int] representing the LOAD_x instructions
