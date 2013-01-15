@@ -542,6 +542,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def containsKey(bt: BType): Boolean = { (classes.containsKey(bt) || parsed.containsKey(bt)) }
 
+    /**
+     *  must-single-thread
+     */
     def getFieldOrNull(bt: BType, name: String, desc: String): FieldNode = {
       try { getField(bt, name, desc) }
       catch {
@@ -550,6 +553,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
     }
 
+    /**
+     *  must-single-thread
+     */
     def getMethodOrNull(bt: BType, name: String, desc: String): MethodNodeAndOwner = {
       try { getMethod(bt, name, desc) }
       catch {
@@ -560,6 +566,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  @return None if not found, the MethodNode's access field otherwise.
+     *
+     *  must-single-thread
+     *
      * */
     def getMethodAccess(bt: BType, name: String, desc: String): Option[Int] = {
       val cn = getClassNode(bt)
@@ -994,6 +1003,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  of the callees given by `CallGraphNode.procs` and `CallGraphNode.hiOs`.
      *
      *  @param leaf         TODO
+     *
+     *  must-single-threadd
      */
     private def inlineCallees(leaf: CallGraphNode) {
 
@@ -1566,9 +1577,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val hiOOwner: ClassNode      = inlineTarget.owner
 
       val callerId = hostOwner.name + "::" + host.name + host.desc
-
-      // val txtHost = Util.textify(host) // debug
-      // val txtHiO  = Util.textify(hiO)  // debug
 
       codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions)
 
