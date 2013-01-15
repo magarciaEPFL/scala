@@ -851,6 +851,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
+    val unreachCodeRemover = new asm.optimiz.UnreachableCode
+
     /**
      *  TODO documentation
      *
@@ -1017,20 +1019,47 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // debug: `Util.textify(leaf.host)` can be used to record (before and after) what the host-method looks like.
 
       //----------------------------------------------------------------------
-      // Part 0 of 2: Type-Flow Analysis to determine non-nullness of receiver
+      // Part 1 of 4: Dead-code elimination, reporting about callsites that are dead
       //----------------------------------------------------------------------
+
+          def logDead(callsite: MethodInsnNode) {
+            log(
+              s"Dead-code elimination in method ${methodSignature(leaf.hostOwner, leaf.host)} " +
+              s"has removed a callsite that was marked for inlining, callsite ${Util.textify(callsite)}"
+            )
+          }
+
+      {
+        // UnreachableCode eliminates null frames (which complicate further analyses).
+        Util.computeMaxLocalsMaxStack(leaf.host)
+        unreachCodeRemover.transform(leaf.hostOwner.name, leaf.host)
+        val (remainingProcs, deadCodeProcs) = leaf.procs partition { proc => leaf.host.instructions.contains(proc.callsite) }
+        for(proc <- deadCodeProcs) { logDead(proc.callsite) }
+        leaf.procs = remainingProcs
+        val (remainingHiOs, deadHiOs) = leaf.hiOs partition { hiO => leaf.host.instructions.contains(hiO.callsite) }
+        for(hiO <- deadHiOs) { logDead(hiO.callsite) }
+        leaf.hiOs = remainingHiOs
+      }
+
+      //----------------------------------------------------------------------
+      // Part 2 of 4: Type-Flow Analysis to determine non-nullness of receiver
+      //----------------------------------------------------------------------
+
       val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
       tfa.analyze(leaf.hostOwner.name, leaf.host)
       // looking up in array `frames` using the whatever-then-current index of `insn` would assume the instruction list hasn't changed.
       // while in general after adding or removing instructions an analysis should be re-run,
       // for the purposes of inlining it's ok to have at hand for a callsite its frame as it was when the analysis was computed.
       val tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]] = {
-        leaf.candidates.map(it => it.callsite -> tfa.frameAt(it.callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]).toMap
+         leaf.candidates
+        .filter(it => leaf.host.instructions.contains(it.callsite))
+        .map(it => it.callsite -> tfa.frameAt(it.callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]).toMap
       }
 
       //-----------------------------
-      // Part 1 of 2: method-inlining
+      // Part 3 of 4: method-inlining
       //-----------------------------
+
       leaf.procs foreach { proc =>
 
         val hostOwner = leaf.hostOwner.name
@@ -1057,11 +1086,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       leaf.procs = Nil
 
       //------------------------------
-      // Part 2 of 2: closure-inlining
+      // Part 4 of 4: closure-inlining
       //------------------------------
+
       leaf.hiOs foreach { hiO =>
 
         val callsiteTypeFlow = tfaFrameAt(hiO.callsite)
+        assert(callsiteTypeFlow != null,
+          s"Most likely dead-code found in method ${methodSignature(leaf.hostOwner, leaf.host)} " +
+          s"because at instruction ${Util.textify(hiO.callsite)} (at index ${leaf.host.instructions.indexOf(hiO.callsite)}}) " +
+           "no frame is computed by type-flow analysis. Here's the complete bytecode of that method " + Util.textify(leaf.host)
+        )
 
         val success = inlineClosures(
           leaf.hostOwner,
@@ -2708,6 +2743,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     private def percolateUpwards(cnode: ClassNode) {
 
+      return
+
       log(s"Inlining small private methods used once, for class ${cnode.name}")
 
       val candidates = {
@@ -2759,7 +2796,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
 
       pruneMultipleOrRecursive()
-      val unreachCodeRemover = new asm.optimiz.UnreachableCode
 
           def asCaller(callee: MethodNode): collection.Set[Invocation] = { invocations.filter(invoc => invoc.caller == callee) }
 
