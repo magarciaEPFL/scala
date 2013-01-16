@@ -2799,17 +2799,22 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           def asCaller(callee: MethodNode): collection.Set[Invocation] = { invocations.filter(invoc => invoc.caller == callee) }
 
+          def promotesSimplerCodeDownTheRoad(callee: MethodNode): Boolean = {
+
+            Util.computeMaxLocalsMaxStack(callee)
+            // UnreachableCode eliminates null frames (which complicate further analyses).
+            unreachCodeRemover.transform(cnode.name, callee)
+
+            promotesClosureRecycling(callee) || promotesDeCapture(callee)
+          }
+
           /**
-           *  A callee "promotes closure recycling (after inlining)" whenever it contains
+           *  A private callee "promotes closure recycling (after inlining)" whenever it contains
            *  a INVOKESPECIAL <init> for an anonymous-closure instruction
            *  taking one or more method parameters as constructor args.
            *
            * */
           def promotesClosureRecycling(callee: MethodNode): Boolean = {
-
-            Util.computeMaxLocalsMaxStack(callee)
-            // UnreachableCode eliminates null frames (which complicate further analyses).
-            unreachCodeRemover.transform(cnode.name, callee)
 
               def isClosureInit(insn: AbstractInsnNode) = {
                 insn.getType == AbstractInsnNode.METHOD_INSN && {
@@ -2838,7 +2843,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
           }
 
-          def knockedOut(invoc: Invocation): Boolean = {
+          /**
+           *  A private callee "promotes de-capture (after inlining)" whenever
+           *    (a) all usages of an IntRef, ObjectRef, etc. it receives as argument do not escape that method; and
+           *    (b) at least one such usage is of the write-variety.
+           *  We don't touch the Volatile... versions on purpose.
+           * */
+          def promotesDeCapture(callee: MethodNode): Boolean = {
+            // TODO test the more precise condition above, for now testing an over-approximation.
+            BType.getMethodType(callee.desc).getArgumentTypes.exists(bt => bt.isCapturedCellRef)
+          }
+
+          def rejected(invoc: Invocation): Boolean = {
             val Invocation(caller, _, callee) = invoc
             val callerS = caller.instructions.size
             val calleeS = caller.instructions.size
@@ -2857,7 +2873,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
             // knock-out criteria 2: inlining the callee brings no benefit
             val bytecodeWeight = (calleeS - (callee.desc.length / 4))
-            val promotes = promotesClosureRecycling(callee)
+            val promotes = promotesSimplerCodeDownTheRoad(callee)
             val noGain = (bytecodeWeight > 50) && !promotes
             if(noGain) {
               log(s"Refrained from attempting to percolate method ${methodSignature(cnode, callee)} upwards " +
@@ -2883,7 +2899,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         /*
          * No ranking needed because we're inlining all qualifying candidates reaching this far.
          * */
-        for(Invocation(caller, callsite, callee) <- round filterNot knockedOut) {
+        for(Invocation(caller, callsite, callee) <- round filterNot rejected) {
 
           Util.computeMaxLocalsMaxStack(caller)
           Util.computeMaxLocalsMaxStack(callee)
