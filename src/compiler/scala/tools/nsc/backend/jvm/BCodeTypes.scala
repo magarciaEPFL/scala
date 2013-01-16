@@ -607,6 +607,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       val tr = exemplars.get(this); (tr != null && tr.isClosureClass)
     }
 
+    def isCapturedCellRef: Boolean = {
+      this == srBooleanRef || this == srByteRef  ||
+      this == srCharRef    ||
+      this == srIntRef     ||
+      this == srLongRef    ||
+      this == srFloatRef   || this == srDoubleRef
+    }
+
     /*
      * Element vs. Component type of an array:
      * Quoting from the JVMS, Sec. 2.4 "Reference Types and Values"
@@ -817,6 +825,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val RT_NULL    = brefType("scala/runtime/Null$")
   val CT_NOTHING = brefType("scala/Nothing") // TODO needed?
   val CT_NULL    = brefType("scala/Null")    // TODO needed?
+
+  val srBooleanRef = brefType("scala/runtime/BooleanRef")
+  val srByteRef    = brefType("scala/runtime/ByteRef")
+  val srCharRef    = brefType("scala/runtime/CharRef")
+  val srIntRef     = brefType("scala/runtime/IntRef")
+  val srLongRef    = brefType("scala/runtime/LongRef")
+  val srFloatRef   = brefType("scala/runtime/FloatRef")
+  val srDoubleRef  = brefType("scala/runtime/DoubleRef")
 
   val ObjectReference   = brefType("java/lang/Object")
   val AnyRefReference   = ObjectReference
