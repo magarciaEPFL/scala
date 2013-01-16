@@ -512,18 +512,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   }
 
-  final def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
-    ownerBT.getInternalName + "::" + methodName + methodDescriptor
-  }
-
-  final def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
-    methodSignature(ownerBT, methodName, methodType.getDescriptor)
-  }
-
-  final def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
-    methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
-  }
-
   object inlineTargetOrdering extends scala.math.Ordering[InlineTarget] {
     def compare(x: InlineTarget, y: InlineTarget): Int = {
       x.hashCode().compare(y.hashCode())
@@ -878,7 +866,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val compiledClassesIter = codeRepo.classes.values().iterator()
       while(compiledClassesIter.hasNext) {
-        percolateUpwards(compiledClassesIter.next())
+        // percolateUpwards(compiledClassesIter.next())
       }
 
     }
@@ -2743,9 +2731,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     private def percolateUpwards(cnode: ClassNode) {
 
-      return
-
-      log(s"Inlining small private methods used once, for class ${cnode.name}")
+      log(s"Attempting to inline small-private-methods-used-once (aka percolating), class ${cnode.name}")
 
       val candidates = {
         JListWrapper(cnode.methods)
@@ -2906,6 +2892,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           // UnreachableCode eliminates null frames (which complicate further analyses).
           unreachCodeRemover.transform(cnode.name, callee)
 
+          val callsiteIndex = caller.instructions.indexOf(callsite)
           val inlineOutcome =
             inlineMethod(
               cnode.name, caller,
@@ -2917,7 +2904,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             case Some(problem) =>
               log(s"Couldn't percolate method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)} because $problem")
             case None =>
-              log(s"Percolated method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)}")
+              log(s"Percolated (and then removed) small-private-methods-used-once ${methodSignature(cnode, callee)} " +
+                  s"upwards into method ${methodSignature(cnode, caller)}. The original callsite was located at index $callsiteIndex")
               cnode.methods.remove(callee)
           }
 

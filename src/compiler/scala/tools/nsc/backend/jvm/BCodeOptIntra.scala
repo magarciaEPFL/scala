@@ -10,7 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.{UnBoxAnalyzer, Util}
+import asm.optimiz.{ProdConsAnalyzer, UnBoxAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree._
 
@@ -72,6 +72,22 @@ abstract class BCodeOptIntra extends BCodeTypes {
     if(cnodeEx.isSerializable) { return false }
 
     true
+  }
+
+  final def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
+    ownerBT.getInternalName + "::" + methodName + methodDescriptor
+  }
+
+  final def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
+    methodSignature(ownerBT, methodName, methodType.getDescriptor)
+  }
+
+  final def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
+    methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
+  }
+
+  final def insnPos(insn: AbstractInsnNode, mnode: MethodNode, cnode: ClassNode): String = {
+   s"${Util.textify(insn)} at index ${mnode.instructions.indexOf(insn)} in method ${methodSignature(cnode, mnode)}"
   }
 
   /**
@@ -222,6 +238,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       minimizeDClosureAllocations(cnode)
       closureCachingAndEviction(cnode)
+      avoidBackedgesInConstructorArgs(cnode)
 
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
@@ -389,6 +406,48 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       addInnerClassesASM(cnode, refedInnerClasses)
 
+    }
+
+    /**
+     *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
+     *
+     *  Quoting from the JVM Spec, 4.9.2 Structural Constraints , http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
+     *
+     *     There must never be an uninitialized class instance on the operand stack or in a local variable
+     *     at the target of a backwards branch unless the special type of the uninitialized class instance
+     *     at the branch instruction is merged with itself at the target of the branch (Sec. 4.10.2.4).
+     *
+     *  TODO Describe rewriting.
+     *
+     * */
+    private def avoidBackedgesInConstructorArgs(cnode: ClassNode) {
+      for(
+        m <- JListWrapper(cnode.methods);
+        if !Util.isAbstractMethod(m);
+        inits =
+          for(
+            i <- m.instructions.toList;
+            if i.getType == AbstractInsnNode.METHOD_INSN;
+            mi = i.asInstanceOf[MethodInsnNode];
+            if (mi.name == "<init>") && (mi.desc != "()V")
+          ) yield mi;
+        if !(inits.isEmpty)
+      ) {
+
+        val cp = ProdConsAnalyzer.create()
+        cp.analyze(cnode.name , m)
+
+        for(init <- inits) {
+          val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
+          assert(receiverSV.insns.size == 1, s"A unique NEW instruction cannot be determined for ${insnPos(init, m, cnode)}")
+          val dupInsn = receiverSV.insns.iterator().next()
+          val bes = Util.backedges(dupInsn, init)
+          if(!bes.isEmpty) {
+            // println(s"SI-6720 in ${methodSignature(cnode, m)}")
+          }
+        }
+
+      }
     }
 
     /**
