@@ -560,7 +560,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * */
     def getMethodAccess(bt: BType, name: String, desc: String): Option[Int] = {
-      val cn = getClassNode(bt)
+      val cn = getClassNodeOrNull(bt)
+      if(cn == null) { return None }
       val iter = cn.methods.iterator()
       while(iter.hasNext) {
         val mn = iter.next()
@@ -648,6 +649,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
       assert(exemplars.containsKey(bt))
       res
+    }
+
+    def getClassNodeOrNull(bt: BType): asm.tree.ClassNode = {
+      try { getClassNode(bt) }
+      catch {
+        case ex: MissingRequirementError =>
+          null // TODO bytecode parsing shouldn't fail, otherwise how could the callsite have compiled?
+      }
     }
 
     /**
@@ -866,7 +875,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val compiledClassesIter = codeRepo.classes.values().iterator()
       while(compiledClassesIter.hasNext) {
-        // percolateUpwards(compiledClassesIter.next())
+        percolateUpwards(compiledClassesIter.next())
       }
 
     }
@@ -1138,7 +1147,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (d) re-computing the maxLocals and maxStack of the host method.
      *   (e) return None (this indicates success).
      *
-     * Inlining is considered unfeasible in two cases, summarized below and described in more detail on the spot:
+     * Inlining is considered unfeasible in three cases, summarized below and described in more detail on the spot:
+     *   (a.0) callee is a synchronized method
      *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
      *   (a.2) inlining would lead to illegal access errors.
      *
@@ -1172,7 +1182,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val calleeId = calleeOwner.name + "::" + callee.name + callee.desc
 
       /*
-       * The first situation (a.1) under which method-inlining is unfeasible: In case both conditions below hold:
+       * Situation (a.0) under which method-inlining is unfeasible: synchronized callee.
+       */
+      if(Util.isSynchronizedMethod(callee)) {
+        return Some(s"Closure-inlining failed because ${methodSignature(calleeOwner, callee)} is synchronized.")
+      }
+
+      /*
+       * Situation (a.1) under which method-inlining is unfeasible: In case both conditions below hold:
        *   (a.1.i ) the operand stack may be cleared in the callee, and
        *   (a.1.ii) the stack at the callsite in host contains more values than args expected by the callee.
        *
@@ -1358,7 +1375,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method logInlining()
 
     /**
-     * The second situation (a.2) under which method-inlining is unfeasible:
+     * Situation (a.2) under which method-inlining is unfeasible:
      *   In case access control doesn't give green light.
      *   Otherwise a java.lang.IllegalAccessError would be thrown at runtime.
      *
@@ -2736,7 +2753,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val candidates = {
         JListWrapper(cnode.methods)
        .filter(m => Util.isPrivateMethod(m) && !Util.isConstructor(m) && !Util.isAbstractMethod(m))
-       .filter(m => m.tryCatchBlocks.isEmpty) /* considering only callees without exception handlers allows skipping type-flow analysis */
        .filter(m => m.name.contains('$'))
       }
 
@@ -2845,7 +2861,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val callerS = caller.instructions.size
             val calleeS = caller.instructions.size
 
-            // knock-out criteria 1: method sizes
+            // rejection criteria 1: method sizes
             val badSizes = (callerS + calleeS) > 1000 || {
               (callerS + calleeS > 500) && (callerS > 50) && (calleeS > 50)
             }
@@ -2857,7 +2873,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               return true
             }
 
-            // knock-out criteria 2: inlining the callee brings no benefit
+            // rejection criteria 2: inlining the callee brings no benefit
             val bytecodeWeight = (calleeS - (callee.desc.length / 4))
             val promotes = promotesSimplerCodeDownTheRoad(callee)
             val noGain = (bytecodeWeight > 50) && !promotes
@@ -2869,7 +2885,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               return true
             }
 
-            false // ie not knocked out
+            false // ie not rejected
           }
 
 
@@ -2891,15 +2907,26 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           Util.computeMaxLocalsMaxStack(callee)
           // UnreachableCode eliminates null frames (which complicate further analyses).
           unreachCodeRemover.transform(cnode.name, callee)
+          unreachCodeRemover.transform(cnode.name, caller)
 
           val callsiteIndex = caller.instructions.indexOf(callsite)
+
+          val txtBefore = Util.textify(caller)
+
+          val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+          tfa.analyze(cnode.name, caller)
+          val callsiteTypeFlow = tfa.frameAt(callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
+
           val inlineOutcome =
             inlineMethod(
               cnode.name, caller,
-              callsite, null,
+              callsite, callsiteTypeFlow,
               callee, cnode,
               doTrackClosureUsage = true
             )
+
+          val txtAfter = Util.textify(caller)
+
           inlineOutcome match {
             case Some(problem) =>
               log(s"Couldn't percolate method ${methodSignature(cnode, callee)} upwards into method ${methodSignature(cnode, caller)} because $problem")

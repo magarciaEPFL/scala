@@ -619,7 +619,7 @@ public class Util {
         java.io.StringWriter sw = new java.io.StringWriter();
         java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
         trace.p.print(pw);
-        return sw.toString();
+        return sw.toString().trim();
     }
 
     public static class ClonedMethod {

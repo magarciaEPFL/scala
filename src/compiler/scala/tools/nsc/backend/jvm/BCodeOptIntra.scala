@@ -86,8 +86,12 @@ abstract class BCodeOptIntra extends BCodeTypes {
     methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
   }
 
-  final def insnPos(insn: AbstractInsnNode, mnode: MethodNode, cnode: ClassNode): String = {
-   s"${Util.textify(insn)} at index ${mnode.instructions.indexOf(insn)} in method ${methodSignature(cnode, mnode)}"
+  final def insnPos(insn: AbstractInsnNode, mnode: MethodNode): String = {
+   s"${Util.textify(insn)} at index ${mnode.instructions.indexOf(insn)}"
+  }
+
+  final def insnPosInMethodSignature(insn: AbstractInsnNode, mnode: MethodNode, cnode: ClassNode): String = {
+    insnPos(insn, mnode) + s" in method ${methodSignature(cnode, mnode)}"
   }
 
   /**
@@ -439,11 +443,41 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         for(init <- inits) {
           val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
-          assert(receiverSV.insns.size == 1, s"A unique NEW instruction cannot be determined for ${insnPos(init, m, cnode)}")
+          assert(
+            receiverSV.insns.size == 1,
+            s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, m, cnode)}"
+          )
           val dupInsn = receiverSV.insns.iterator().next()
-          val bes = Util.backedges(dupInsn, init)
+          val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
           if(!bes.isEmpty) {
-            // println(s"SI-6720 in ${methodSignature(cnode, m)}")
+            for(
+              entry <- JSetWrapper(bes.entrySet());
+              jump  = entry.getKey;
+              label = entry.getValue
+            ) {
+              log(
+                s"Backedge found in a contructor-args section, in method ${methodSignature(cnode, m)} " +
+                s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
+                 "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
+              )
+            }
+            assert(dupInsn.getOpcode == Opcodes.DUP)
+            val newInsn = dupInsn.getPrevious
+            assert(newInsn.getOpcode == Opcodes.NEW)
+            m.instructions.remove(newInsn)
+            m.instructions.remove(dupInsn)
+            m.instructions.insertBefore(init, newInsn)
+            m.instructions.insertBefore(init, dupInsn)
+            val paramTypes = BType.getMethodType(init.desc).getArgumentTypes
+            for(i <- (paramTypes.length - 1) to 0 by -1) {
+              val pt = paramTypes(i)
+              val idxVar   = m.maxLocals
+              m.maxLocals += pt.getSize
+              val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
+              val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
+              m.instructions.insertBefore(newInsn, store)
+              m.instructions.insert(dupInsn,load )
+            }
           }
         }
 
