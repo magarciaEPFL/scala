@@ -167,8 +167,13 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *    - eliding box/unbox pairs
      *    - eliding redundant local vars
      *
-     *  Afterwards, two intra-class optimizations are performed:
+     *  Afterwards, some intra-class optimizations are performed repeatedly:
      *    - those private members of a class which see no use are elided
+     *    - tree-shae unused closures, minimize the fields of those remaining
+     *
+     *  While other intra-class optimizations are performed just once:
+     *    - minimization of closure-allocations
+     *    - add caching for closure recycling
      *    - refresh the InnerClasses JVM attribute
      *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
