@@ -4052,7 +4052,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         else {
 
           assert(a.isRefOrArrayType, "This is not a valuetype and it's not something else, what is it? " + a)
-          assert(b.isRefOrArrayType, "This is not a valuetype and it's not something else, what is it? " + b)
+          assert(b.isRefOrArrayType, "Attempting to merge " + b + " with " + a)
 
           if (a.isNullType)     { b }
           else if(b.isNullType) { a }

@@ -1151,6 +1151,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (a.0) callee is a synchronized method
      *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
      *   (a.2) inlining would lead to illegal access errors.
+     *   (a.3) calee returns scala.runtime.Nothing$ , which means it'll throw an exception
+     *         (s.r.Nothing$ looks like an object to the type-flow analysis).
      *
      * @param hostOwner   internal name of the class declaring the host method
      * @param host        method containing a callsite for which inlining has been requested
@@ -1243,6 +1245,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         )
       }
 
+      val calleeMethodType = BType.getMethodType(callee.desc) // must-single-thread
+
+      /*
+       * Situation (a.3) under which method-inlining is unfeasible: callee has Nothing type.
+       */
+      if(calleeMethodType.getReturnType.isNothingType) {
+        return Some(s"Closure-inlining failed because ${methodSignature(calleeOwner, callee)} has Nothing type.")
+      }
+
       // By now it's a done deal that method-inlining will be performed. There's no going back.
 
       // each local-var access in `body` is shifted host.maxLocals places
@@ -1250,8 +1261,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val lvi = bodyInsn.asInstanceOf[VarInsnNode]
         lvi.`var` += host.maxLocals
       }
-
-      val calleeMethodType = BType.getMethodType(callee.desc) // must-single-thread
 
       // add a STORE instruction for each expected argument, including for THIS instance if any.
       val argStores   = new InsnList
@@ -1280,7 +1289,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           def replaceRETURNs() {
             val retType        = calleeMethodType.getReturnType
             val hasReturnValue = !retType.isUnitType
-            val retVarIdx      = nxtLocalIdx
+            val retVarIdx      = host.maxLocals + callee.maxLocals
             nxtLocalIdx       += retType.getSize
 
             if(hasReturnValue) {
@@ -1344,7 +1353,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       // the host's local-var space grows by the local-var space of the callee, plus another local-var in case hasReturnValue
       Util.computeMaxLocalsMaxStack(host)
-      assert(host.maxLocals >= nxtLocalIdx) // TODO why not == ?
+      assert(host.maxLocals >= nxtLocalIdx) // TODO why not == ? Likely because a RETURN in callee adds no extra var in host for result, while IRETURN etc do.
 
       None
 
@@ -2753,6 +2762,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val candidates = {
         JListWrapper(cnode.methods)
        .filter(m => Util.isPrivateMethod(m) && !Util.isConstructor(m) && !Util.isAbstractMethod(m))
+       .filter(m => m.tryCatchBlocks.isEmpty) /* considering only callees without exception handlers allows skipping type-flow analysis */
        .filter(m => m.name.contains('$'))
       }
 
@@ -2911,6 +2921,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           val callsiteIndex = caller.instructions.indexOf(callsite)
 
+
+          val txtCalee  = Util.textify(callee)
           val txtBefore = Util.textify(caller)
 
           val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
@@ -2933,6 +2945,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             case None =>
               log(s"Percolated (and then removed) small-private-methods-used-once ${methodSignature(cnode, callee)} " +
                   s"upwards into method ${methodSignature(cnode, caller)}. The original callsite was located at index $callsiteIndex")
+              tfa.analyze(cnode.name, caller)
               cnode.methods.remove(callee)
           }
 
