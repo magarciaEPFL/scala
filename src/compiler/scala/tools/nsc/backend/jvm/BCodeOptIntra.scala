@@ -189,7 +189,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *
      *  Afterwards, some intra-class optimizations are performed repeatedly:
      *    - those private members of a class which see no use are elided
-     *    - tree-shae unused closures, minimize the fields of those remaining
+     *    - tree-shake unused closures, minimize the fields of those remaining
      *
      *  While other intra-class optimizations are performed just once:
      *    - minimization of closure-allocations

@@ -873,10 +873,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // val howManyShared   : Float = closuRepo.nonMasterUsers.keySet.size
       // println("Proportion of dclosures in use by non-master to those used only from master:" howManyShared / howManyDClosures)
 
-      val compiledClassesIter = codeRepo.classes.values().iterator()
-      while(compiledClassesIter.hasNext) {
-        percolateUpwards(compiledClassesIter.next())
-      }
+      // val compiledClassesIter = codeRepo.classes.values().iterator()
+      // while(compiledClassesIter.hasNext) {
+      //   percolateUpwards(compiledClassesIter.next())
+      // }
 
     }
 
