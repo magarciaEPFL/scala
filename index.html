@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8' />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="description" content="A new backend and optimizer for scalac : Faster compilation, faster runs" />
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>A new backend and optimizer for scalac</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/magarciaEPFL/scala">View on GitHub</a>
+
+          <h1 id="project_title">A new backend and optimizer for scalac</h1>
+          <h2 id="project_tagline">Faster compilation, faster runs</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/magarciaEPFL/scala/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/magarciaEPFL/scala/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <h1>Why a new optimizer</h1>
+
+<blockquote>
+<p>Aren't <em>upcoming-silver-bullet</em> going to give us top performance, without any effort from our part?</p>
+</blockquote>
+
+<p>The experimental optimizer instead:</p>
+
+<ul>
+<li>explores what can be made today to improve performance (say, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8).</li>
+<li>while leaving a door open to future developments (closures are converted in a manner amenable to a future MethodHandle implementation).</li>
+<li>consisting of many focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>
+</li>
+</ul><p>A summary follows of the capabilities of the new optimizer I've been working on.</p>
+
+<h1>Features</h1>
+
+<h2>Inlining</h2>
+
+<p>The inliner currently used in scalac has a few problems:</p>
+
+<ul>
+<li>closure elimination is implemented as repeated method inlinings. Upon being forced to stop doing that (e.g., recursive method) none of the previous inlinings is undone, leaving both the closure class and a trail of duplicate code.</li>
+<li>code may be inlined from third-party libraries or the JDK. In general methods not marked <code>@inline</code> may be inlined as discussed in thread <a href="https://groups.google.com/d/topic/scala-internals/uyFWFRbUD0o/discussion">the perils of inlining</a> </li>
+<li>invocation cycles (ie M1() calling M2() calling M1() etc) are "broken" only after hitting the maximum method size threshold, leaving a trail of duplicate code behind.</li>
+</ul><p>Instead, the experimental optimizer just follows a simple principle:</p>
+
+<blockquote>
+<p>only inline @inline-marked methods, and always inline them, including under separate-compilation</p>
+</blockquote>
+
+<p>Thus the new inliner is deterministic, not dependent on heuristics about method sizes or similar. The only additional requirement (if you will) is that the method to dispatch (the one marked <code>@inline</code>) can be found via the static type of the receiver, e.g. in a <code>Range.foreach()</code> callsite the type of the receiver must be <code>Range</code> or subtype (in general, not a super type where the <code>@inline</code> method is defined). After all, inlining is a conscious decision: making that explicit via the type of the receiver is straightforward. As a result, the <code>@noinline</code> annotation doesn't play a role anymore.</p>
+
+<p>The new optimizer provides detailed logging about performed inlinings, as well as diagnostics when inlining proves unfeasible (down to the culprit bytecode instructions). With that, fixing the causes of non-inlining takes way less effort, as the following shows.</p>
+
+<p>Log example:</p>
+
+<pre><code>[log jvm] Successful closure-inlining (albeit null receiver couldn't be ruled out). Callsite: 
+  scala/tools/nsc/Global.exitingTyper(Lscala/Function0;)Ljava/lang/Object;
+occurring in method
+  scala/tools/nsc/interpreter/JLineCompletion$CompilerCompletion$class::memberNamed(Lscala/tools/nsc/interpreter/JLineCompletion$CompilerCompletion;Ljava/lang/String;)Lscala/reflect/internal/Symbols$Symbol;
+</code></pre>
+
+<p>Warning example:</p>
+
+<pre><code>SpecializeTypes.scala:1166: warning: Closure-inlining failed because
+  scala/collection/immutable/List::mapConserve(Lscala/Function1;)Lscala/collection/immutable/List;
+contains instruction 
+  INVOKESPECIAL scala/collection/immutable/List.loop$1 (Lscala/collection/mutable/ListBuffer;Lscala/collection/immutable/List;Lscala/collection/immutable/List;Lscala/Function1;)Lscala/collection/immutable/List;
+that would cause IllegalAccessError from class scala/tools/nsc/transform/SpecializeTypes
+        val parents1 = parents mapConserve specializedType
+                               ^
+</code></pre>
+
+<p>Thinking about the warning above, it makes sense: loop() is a local method:</p>
+
+<div class="highlight"><pre><span class="c1">// scala.collection.immutable.List</span>
+  <span class="nd">@inline</span> <span class="k">final</span> <span class="k">def</span> <span class="n">mapConserve</span><span class="o">[</span><span class="kt">B</span> <span class="k">&gt;:</span> <span class="kt">A</span> <span class="k">&lt;:</span> <span class="kt">AnyRef</span><span class="o">](</span><span class="n">f</span><span class="k">:</span> <span class="kt">A</span> <span class="o">=&gt;</span> <span class="n">B</span><span class="o">)</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">B</span><span class="o">]</span> <span class="k">=</span> <span class="o">{</span>
+    <span class="nd">@tailrec</span>
+    <span class="k">def</span> <span class="n">loop</span><span class="o">(</span><span class="n">mapped</span><span class="k">:</span> <span class="kt">ListBuffer</span><span class="o">[</span><span class="kt">B</span><span class="o">],</span> <span class="n">unchanged</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">A</span><span class="o">],</span> <span class="n">pending</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">A</span><span class="o">])</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">B</span><span class="o">]</span> <span class="k">=</span>
+       <span class="o">...</span>
+</pre></div>
+
+<h2>Fewer closure allocations: Singleton closures, Closure recycling</h2>
+
+<p>Some anonymous closures depend only on <code>apply()</code> arguments, for example the char filter function:</p>
+
+<div class="highlight"><pre>  <span class="k">def</span> <span class="n">deeplyNestedMethod</span><span class="o">(</span><span class="n">str</span><span class="k">:</span> <span class="kt">String</span><span class="o">)</span> <span class="k">=</span> <span class="o">{</span>
+    <span class="n">str</span> <span class="n">filter</span> <span class="o">{</span> <span class="o">(</span><span class="n">char</span><span class="k">:</span> <span class="kt">Char</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'a</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'f</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span> <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'A</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'F</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span> <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="sc">'0'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="sc">'9'</span><span class="o">)</span> <span class="o">}</span>
+  <span class="o">}</span>
+</pre></div>
+
+<p>In these cases, the new optimizer avoids repeated allocations by keeping (in a static field) a singleton-instance that is reused.</p>
+
+<p>Closure recycling detects when the values captured by a closure haven't changed, avoiding allocating a new closure in that case. For example:</p>
+
+<div class="highlight"><pre><span class="k">object</span> <span class="nc">Test</span> <span class="o">{</span>
+
+  <span class="k">def</span> <span class="n">main</span><span class="o">(</span><span class="n">args</span><span class="k">:</span> <span class="kt">Array</span><span class="o">[</span><span class="kt">String</span><span class="o">])</span> <span class="o">{</span>
+
+    <span class="k">var</span> <span class="n">sum</span> <span class="k">=</span> <span class="mi">0</span>
+    <span class="k">val</span> <span class="n">a</span>   <span class="k">=</span> <span class="mi">123</span>
+    <span class="k">val</span> <span class="n">b</span>   <span class="k">=</span> <span class="mi">456</span>
+
+    <span class="k">var</span> <span class="n">i</span> <span class="k">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="o">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="o">)</span> <span class="o">{</span>
+      <span class="n">higherOrderMethod</span> <span class="o">{</span>
+        <span class="o">(</span><span class="n">i</span><span class="k">:</span> <span class="kt">Int</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="o">{</span> <span class="n">sum</span> <span class="o">+=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="o">;</span> <span class="n">println</span><span class="o">(</span><span class="n">sum</span><span class="o">)</span> <span class="o">}</span>
+      <span class="o">}</span>
+      <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="o">}</span>
+
+  <span class="o">}</span>
+
+  <span class="k">def</span> <span class="n">higherOrderMethod</span><span class="o">(</span><span class="n">closure</span><span class="k">:</span> <span class="kt">Int</span> <span class="o">=&gt;</span> <span class="nc">Unit</span> <span class="o">)</span> <span class="o">{</span>
+    <span class="n">println</span><span class="o">(</span><span class="nc">System</span><span class="o">.</span><span class="n">identityHashCode</span><span class="o">(</span><span class="n">closure</span><span class="o">))</span>
+  <span class="o">}</span>
+
+<span class="o">}</span>
+</pre></div>
+
+<p>With the current optimizer, the above results in as many closure allocations as passes through the loop. The experimental optimizer instead recycles the first closure allocation. The idea is to expand the reach of this approach to work in more cases (right now, it won't trigger when using a for loop, but that's only because a private method isn't being inlined, for now).</p>
+
+<p>These features are more useful on Android (besides micro-benchmarks) where a vast RAM doesn't masquerade redundant allocations.</p>
+
+<h2>Optimizations already in place</h2>
+
+<h3>Intra-method optimizations</h3>
+
+<ul>
+<li>collapse a multi-jump chain to target its final destination via a single jump</li>
+<li>remove unreachable code</li>
+<li>remove those LabelNodes and LineNumbers that aren't in use</li>
+<li>remove dangling exception handlers</li>
+<li>copy propagation</li>
+<li>dead-store elimination</li>
+<li>Preserve side-effects, but remove those (producer, consumer) pairs where the consumer is a DROP and
+the producer has its value consumed only by the DROP in question.</li>
+<li>simplify branches that need not be taken to get to their destination.</li>
+<li>nullness propagation</li>
+<li>constant folding</li>
+<li>caching repeatable reads of stable values</li>
+<li>eliding box/unbox pairs</li>
+<li>eliding redundant local vars</li>
+<li>SI-6720: Uninitialized object exists on backward branch</li>
+</ul><h3>Intra-class optimizations</h3>
+
+<ul>
+<li>those private members of a class which see no use are elided</li>
+<li>tree-shake unused closures, minimize the fields of those remaining</li>
+<li>minimization of closure-allocations</li>
+<li>add caching for closure recycling</li>
+<li>refresh the InnerClasses JVM attribute</li>
+</ul><h3>Whole-program optimizations</h3>
+
+<ul>
+<li>method inlining</li>
+<li>closure inlining</li>
+</ul><h2>JAR size after optimization, running time after optimization</h2>
+
+<p>Let's take scala/scala as case study, compiling src/compiler and src/reflect together using:</p>
+
+<ol>
+<li>"Old": GenICode, the current optimizer, and GenASM.</li>
+<li>"New": GenBCode and the experimental optimizer.</li>
+</ol><p>The new optimizer produces smaller JAR sizes:</p>
+
+<ol>
+<li><code>"Old": Total length 32'678'787, packed length 12'723'723</code></li>
+<li><code>"New": Total length 32'252'526, packed length 12'416'033</code></li>
+</ol><p>Regarding running time, the new optimizer doesn't make scalac run faster. That's normal: scalac is dominated by factors not optimized yet. Examples abound: </p>
+
+<ul>
+<li>millions of <code>::</code> allocated. Neither the old nor the new optimizer are tuned to reduce that.</li>
+<li>for deeper insights:  <a href="https://github.com/gkossakowski/scalac-aspects">https://github.com/gkossakowski/scalac-aspects</a>
+</li>
+<li>actually, tools like Caliper or ScalaMeter, by themselves, tell how much faster sthg runs. When building an optimizer, it's more useful to know "why" stgh runs faster (specially with 20+ optimizations at play). With some work, the toolset that Grzegorz has jumpstarted can provide those insights. </li>
+</ul><p>The new optimizer may well make <em>your</em> code run faster. To find out, give it a try.</p>
+
+<h2>Task parallelism</h2>
+
+<p>The new optimizer (except a brief whole-program component) is task-parallel:</p>
+
+<ul>
+<li>intra-method optimizations are run in parallel for different methods;</li>
+<li>intra-class optimizations are run parallel for different classes</li>
+</ul><p>Visually:</p>
+
+<p><img src="http://lampwww.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/yk.png" alt="experimental optimizer uses task parallelism"></p>
+
+<p>There's no reason to limit the worker pool to 8 threads, that's "configurable" at:</p>
+
+<div class="highlight"><pre>    <span class="k">val</span> <span class="nc">MAX_THREADS</span> <span class="k">=</span> <span class="n">scala</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">min</span><span class="o">(</span>
+      <span class="mi">32</span><span class="o">,</span>
+      <span class="n">java</span><span class="o">.</span><span class="n">lang</span><span class="o">.</span><span class="nc">Runtime</span><span class="o">.</span><span class="n">getRuntime</span><span class="o">.</span><span class="n">availableProcessors</span>
+    <span class="o">)</span>
+</pre></div>
+
+<h1>Getting Started</h1>
+
+<p>The first step is checking out branch <code>GenBCodeOpt</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+
+<p>After <code>ant all.clean &amp;&amp; ant</code> , the new optimizer runs by default <em>unless</em> an option to activate the "old" optimizer is given ( <code>-optimise</code>, <code>-Yinline</code> , <code>-Yinline-handlers</code> , <code>-Yclosure-elim</code> , or <code>-Ydead-code</code> ). Simply stay away from those options and you'll be running the new optimizer. Diagnostics displayed via <code>-Ylog:jvm</code> . For even more details <code>-Ydebug -Yinline-warnings</code></p>
+
+<h1>Future Work</h1>
+
+<ul>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-4767">SI-4767</a> Inlining of final methods declared in traits</li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-6941">SI-6941</a> Pattern matcher inefficiency for basic constructor patterns</li>
+<li>
+<a href="https://groups.google.com/d/msg/scala-internals/XmiWt2kcHDY/yit5pTyDFF0J">Late closure classes</a> For a smaller working set during compilation, postpone the creation of AST nodes for closure classes until bytecode generation</li>
+</ul><p><code>scala.runtim.IntRef</code> and friends offer opportunities to simplify code (which in itself gains no performance, but may well trigger other optimizations that do). For example, whenever there's a single left-hand-side use of a captured value, an <code>IntRef</code> is passed around all over, even to those private methods that only require read-access. </p>
+
+<div class="highlight"><pre>  <span class="k">def</span> <span class="n">main</span><span class="o">(</span><span class="n">args</span><span class="k">:</span> <span class="kt">Array</span><span class="o">[</span><span class="kt">String</span><span class="o">])</span> <span class="o">{</span>
+    <span class="k">var</span> <span class="n">capturedW</span> <span class="k">=</span> <span class="mi">0</span>
+        <span class="k">def</span> <span class="n">childR</span><span class="o">()</span> <span class="o">{</span> <span class="n">println</span><span class="o">(</span><span class="n">capturedW</span><span class="o">)</span> <span class="o">}</span>
+        <span class="k">def</span> <span class="n">childW</span><span class="o">()</span> <span class="o">{</span> <span class="n">capturedW</span> <span class="k">=</span> <span class="n">args</span><span class="o">.</span><span class="n">size</span> <span class="o">}</span>
+    <span class="k">if</span> <span class="o">(</span><span class="n">args</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="n">childR</span><span class="o">()</span> <span class="k">else</span> <span class="n">childW</span><span class="o">();</span>
+  <span class="o">}</span>
+</pre></div>
+
+<p>Bytecode-level, <code>childR()</code> could receive an <code>Int</code>, or be inlined altogether. Currently:</p>
+
+<pre lang="javap"><code>    private static final void childR$1(scala.runtime.IntRef);
+      Code:
+       0:  getstatic    #31; //Field scala/Predef$.MODULE$:Lscala/Predef$;
+       3:  aload_0
+       4:  getfield #35; //Field scala/runtime/IntRef.elem:I
+       7:  invokestatic #41; //Method scala/runtime/BoxesRunTime.boxToInteger:(I)Ljava/lang/Integer;
+       10: invokevirtual    #45; //Method scala/Predef$.println:(Ljava/lang/Object;)V
+       13: return
+</code></pre>
+
+<p>What others are doing:</p>
+
+<ul>
+<li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
+<li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
+<li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
+</ul><p>Suggestions for improvement need not be "sophisticate" to be useful :) For example, it's easy game for GenBCode to reduce:</p>
+
+<pre><code>new #17; //class scala/runtime/IntRef
+dup
+iconst_0
+invokespecial   #20; //Method scala/runtime/IntRef."&lt;init&gt;":(I)V
+</code></pre>
+
+<p>to just a static invocation (of a factory method added for that common case in <code>scala.runtime.IntRef</code>). And so on so forth.</p>
+
+<p>Comments, benchmarks, test cases, bug reports, are welcome.</p>
+
+<p>Miguel Garcia
+<a href="http://lampwww.epfl.ch/%7Emagarcia">http://lampwww.epfl.ch/~magarcia</a></p>
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">A new backend and optimizer for scalac maintained by <a href="https://github.com/magarciaEPFL">magarciaEPFL</a></p>
+        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+    
+
+  </body>
+</html>
