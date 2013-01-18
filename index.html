@@ -136,7 +136,7 @@ that would cause IllegalAccessError from class scala/tools/nsc/transform/Special
 
 <p>These features are more useful on Android (besides micro-benchmarks) where a vast RAM doesn't masquerade redundant allocations.</p>
 
-<h2>Optimizations already in place</h2>
+<h2>Supported optimizations</h2>
 
 <h3>Intra-method optimizations</h3>
 
@@ -171,7 +171,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>closure inlining</li>
 </ul><h1>Evaluation</h1>
 
-<h2>Task parallelism</h2>
+<h2>How much does it add to compilation time?</h2>
 
 <p>The new optimizer (except a brief whole-program component) is task-parallel:</p>
 
@@ -206,7 +206,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>Your input is welcome!</p>
 
-<h2>Yes but, does it make <code>scalac</code> run faster?</h2>
+<h2>Speeding up scalac</h2>
 
 <p>No, it doesn't. That's normal: scalac is dominated by factors not optimized yet. Examples abound: </p>
 
