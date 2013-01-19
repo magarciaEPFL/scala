@@ -135,23 +135,55 @@ abstract class GenBCode extends BCodeOptInter {
     private var mirrorCodeGen   : JMirrorBuilder   = null
     private var beanInfoCodeGen : JBeanInfoBuilder = null
 
-    // q1
+    /* ---------------- q1 ---------------- */
+
     case class Item1(arrivalPos: Int, cd: ClassDef, cunit: CompilationUnit) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
     private val poison1 = Item1(Int.MaxValue, null, null)
     private val q1 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item1]
 
-    // q2
+    /* ---------------- q2 ---------------- */
+
     case class Item2(arrivalPos: Int, mirror: SubItem2NonPlain, plain: SubItem2Plain, bean: SubItem2NonPlain) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
+    // for inter-procedural optimization, we'd like to start working first on "large" classes for better load balanching of Worker2 threads
+    private val i2LargeClassesFirst = new _root_.java.util.Comparator[Item2] {
+      override def compare(a: Item2, b: Item2): Int = {
+        if(a.isPoison) { return  1 }
+        if(b.isPoison) { return -1 }
+        val aSize = a.plain.cnode.methods.size()
+        val bSize = b.plain.cnode.methods.size()
+
+        if     (aSize  > bSize) -1
+        else if(aSize == bSize)  0
+        else 1
+      }
+    }
+
+    // for intra-procedural or no optimization, we'd like process classes according to arrival order, to serialize them faster.
+    private val i2ArrivalOrder = new _root_.java.util.Comparator[Item2] {
+      override def compare(a: Item2, b: Item2): Int = {
+        val aSize = a.arrivalPos
+        val bSize = b.arrivalPos
+
+        if     (aSize <  bSize) -1
+        else if(aSize == bSize)  0
+        else 1
+      }
+    }
     private val poison2 = Item2(Int.MaxValue, null, null, null)
-    private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
+    private val q2 =
+      new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](
+        1000,
+        if(isInterProcOptimizOn) i2LargeClassesFirst else i2ArrivalOrder
+      )
 
     private val limboForDClosures = mutable.Map.empty[BType, Item2] // a single Worker1 adds, many Worker2 read.
 
-    // q3
+    /* ---------------- q3 ---------------- */
+
     case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
       def isPoison  = { arrivalPos == Int.MaxValue }
       /*
@@ -255,10 +287,20 @@ abstract class GenBCode extends BCodeOptInter {
     } // end of class BCodePhase.Worker1
 
     /**
-     *  Pipeline that takes ClassNodes from queue-2 and:
-     *    - performs intra-method and intra-class optimizations on them,
-     *    - lowers them into byte array classfiles,
-     *    - placing them on the queue where they wait to be written to disk.
+     *  Pipeline that takes ClassNodes from queue-2. The unit of work depends on the optimization level:
+     *
+     *    (a) no optimization involves just converting the plain ClassNode to byte array and placing it on queue-3
+     *
+     *    (b) with intra-procedural optimization on,
+     *          - cleanseClass() is invoked on the plain class, and then
+     *          - the plain class is serialized as above (ending up in queue-3)
+     *
+     *    (c) with inter-procedural optimization on,
+     *          - cleanseClass() runs first.
+     *            The difference with (b) however has to do with master-classes and their dclosures.
+     *            In the inter-procedural case, they are processed as a single (larger) unit of work by cleanseClass.
+     *            That's why in this case "large classes" (see `i2LargeClassesFirst`) bubble up to queue-2's head.
+     *          - once that (larger) unit of work is complete, all of its constituent classes are placed on queue-3.
      *
      *  can-multi-thread
      */
@@ -290,7 +332,7 @@ abstract class GenBCode extends BCodeOptInter {
       def visit(item: Item2) {
 
         if(isIntraMethodOptimizOn || isInterProcOptimizOn) {
-          (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() actually doesn't touch dclosures.
+          (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() mutates those dclosures cnode is responsible for.
         }
 
         if(!isInterProcOptimizOn) {
@@ -307,7 +349,8 @@ abstract class GenBCode extends BCodeOptInter {
             }
           } else {
             addToQ3(item) // the master class
-            for(d <- closuRepo.dclosures(bt)) { // elided dclosures must also go to q3: their arrivalPos required for progress.
+            for(d <- closuRepo.dclosures(bt)) {
+              // both live and elided dclosures go to q3: the arrivalPos of elided ones is required for progress in drainQ3()
               addToQ3(limboForDClosures(d))
             }
           }
@@ -556,29 +599,6 @@ abstract class GenBCode extends BCodeOptInter {
       private var lastEmittedLineNr          = -1
 
       /* ---------------- caches to avoid asking the same questions over and over to typer ---------------- */
-
-      /*
-
-      private def trackMentionedInners(tk: BType) {
-        (tk.sort: @switch) match {
-          case asm.Type.OBJECT =>
-            if(!tk.isPhantomType && exemplars.get(tk).isInnerClass) {
-              innerClassBufferASM += tk
-            }
-          case asm.Type.ARRAY  => trackMentionedInners(tk.getElementType)
-          case asm.Type.METHOD =>
-            trackMentionedInners(tk.getReturnType)
-            trackMentionedInners(tk.getArgumentTypes)
-          case _ => ()
-        }
-      }
-      private def trackMentionedInners(arr: Array[BType]) {
-        var i = 0; while(i < arr.length) { trackMentionedInners(arr(i)); i += 1 }
-      }
-      private def trackMentionedInners(lst: List[BType]) {
-        var rest = lst; while(rest.nonEmpty) { trackMentionedInners(rest.head); rest = rest.tail }
-      }
-      */
 
       def paramTKs(app: Apply): List[BType] = {
         val Apply(fun, _)  = app
