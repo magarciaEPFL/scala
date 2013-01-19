@@ -2087,7 +2087,7 @@ abstract class GenBCode extends BCodeOptInter {
               generatedType = genPrimitiveOp(app, expectedType)
             } else {  // normal method call
 
-                  def genNormalMethodCall(): BType = {
+                  def genNormalMethodCall() {
 
                     val invokeStyle =
                       if (sym.isStaticMember) Static(false)
@@ -2127,12 +2127,20 @@ abstract class GenBCode extends BCodeOptInter {
                       genCallMethod(sym, invokeStyle, hostClass, app.pos)
                     }
 
-                    asmMethodType(sym).getReturnType
-
                   } // end of genNormalMethodCall()
 
-              // TODO if (sym == ctx1.method.symbol) { ctx1.method.recursive = true }
-              generatedType = genNormalMethodCall()
+              // TODO only if optimizing
+              val detour = mixer.detouredFinalTraitMethods.getOrElse(sym, null)
+              if(detour != null) {
+                log(s"Detouring from $sym to $detour")
+                genLoadQualifier(fun)
+                genLoadArguments(args, paramTKs(app))
+                genCallMethod(detour, Static(false), detour.owner, app.pos)
+              } else {
+                genNormalMethodCall()
+              }
+
+              generatedType = asmMethodType(sym).getReturnType
             }
 
         }
@@ -2456,29 +2464,6 @@ abstract class GenBCode extends BCodeOptInter {
         } // intra-procedural optimizations
 
         if(isInterProcOptimizOn) {
-
-          /**
-           *  `method.isEffectivelyFinal` implies `method` pinpoints the implementation to dispatch at runtime.
-           *  Nevertheless, in order to appease the JVM verifier, it's necessary sometimes to emit INVOKEVIRTUAL
-           *  instead of INVOKESPECIAL. There's nothing we can do about it.
-           *
-           *  However, an INVOKEINTERFACE callsite targeting an isEffectivelyFinal method *could* be rewritten.
-           *  This indicates a trait-method that is final, whose counterpart in the implementation class can be targeted directly.
-           */
-          if(!style.isSuper) {
-            val callsite = mnode.instructions.getLast.asInstanceOf[MethodInsnNode]
-            val opc = callsite.getOpcode
-            if(opc == asm.Opcodes.INVOKEINTERFACE && method.isEffectivelyFinal) {
-              // TODO Let's find the forwarded method in the impl-class, and call it directly thus fixing SI-4767.
-              // TODO The alternative being to chase the final callee bytecode level, given `callsite`. Seems over-complicated.
-              assert(receiver.isTrait)
-              val implClazz = receiver.implClass
-              if(implClazz != NoSymbol) {
-                // val implMethod = ... take overloading into account
-              }
-
-            }
-          }
 
           /**
            * Gather data for "method inlining".
