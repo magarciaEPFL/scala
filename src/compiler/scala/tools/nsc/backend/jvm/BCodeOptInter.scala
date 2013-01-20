@@ -406,6 +406,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def clear() {
       uncurry.closuresAndDelegates = Nil
+      mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()
       nonMasterUsers.clear()
@@ -559,8 +560,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  must-single-thread
      *
      * */
-    def getMethodAccess(bt: BType, name: String, desc: String): Option[Int] = {
-      val cn = getClassNodeOrNull(bt)
+    def getMethodAccess(bt: BType, name: String, desc: String, isMultithread: Boolean): Option[Int] = {
+      val cn =
+        if(isMultithread) { getClassNodeOrNull(bt) }
+        else              {       getClassNode(bt) }
       if(cn == null) { return None }
       val iter = cn.methods.iterator()
       while(iter.hasNext) {
@@ -570,11 +573,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
       for(ifaceIName <- JListWrapper(cn.interfaces)) {
-        val outcome = getMethodAccess(lookupRefBType(ifaceIName), name, desc)
+        val outcome = getMethodAccess(lookupRefBType(ifaceIName), name, desc, isMultithread)
         if(outcome.nonEmpty) { return outcome }
       }
       if(cn.superName != null) {
-        val outcome = getMethodAccess(lookupRefBType(cn.superName), name, desc)
+        val outcome = getMethodAccess(lookupRefBType(cn.superName), name, desc, isMultithread)
         if(outcome.nonEmpty) { return outcome }
       }
       None
@@ -651,8 +654,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       res
     }
 
+    /**
+     *  can-multi-thread
+     * */
     def getClassNodeOrNull(bt: BType): asm.tree.ClassNode = {
-      try { getClassNode(bt) }
+      try {
+        var res = classes.get(bt)
+        if(res == null) {
+          res = parsed.get(bt)
+          // we can't call parseClassAndEnterExemplar(bt) because in the time window from the checks above and
+          // the time parseClassAndEnterExemplar() runs, Worker1 may have added to codeRepo.classes the class we didn't find.
+        }
+        res
+      }
       catch {
         case ex: MissingRequirementError =>
           null // TODO bytecode parsing shouldn't fail, otherwise how could the callsite have compiled?
@@ -844,7 +858,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * TODO break up into two or more classes
    */
-  final class WholeProgramAnalysis {
+  final class WholeProgramAnalysis(val isMultithread: Boolean) {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
@@ -1482,7 +1496,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           case mi: MethodInsnNode =>
             val thereSymRef: BType  = lookupRefBType(mi.owner)
-            val mAccess: Option[Int] = codeRepo.getMethodAccess(thereSymRef, mi.name, mi.desc)
+            val mAccess: Option[Int] = codeRepo.getMethodAccess(thereSymRef, mi.name, mi.desc, isMultithread)
             mAccess.nonEmpty && memberAccess(mAccess.get, thereSymRef)
 
           case ivd: InvokeDynamicInsnNode => false // TODO
@@ -3692,7 +3706,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          s"from endpoint ${methodSignature(masterCNode, dep)} to dclosure ${dCNode.name}"
         )
 
-        val wp = new WholeProgramAnalysis
+        val wp = new WholeProgramAnalysis(isMultithread = true)
         val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
           for(
             applyMethod <- JListWrapper(dCNode.methods).toList;
