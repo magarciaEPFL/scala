@@ -406,6 +406,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def clear() {
       uncurry.closuresAndDelegates = Nil
+      mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()
       nonMasterUsers.clear()

@@ -135,14 +135,16 @@ abstract class GenBCode extends BCodeOptInter {
     private var mirrorCodeGen   : JMirrorBuilder   = null
     private var beanInfoCodeGen : JBeanInfoBuilder = null
 
-    // q1
+    /* ---------------- q1 ---------------- */
+
     case class Item1(arrivalPos: Int, cd: ClassDef, cunit: CompilationUnit) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
     private val poison1 = Item1(Int.MaxValue, null, null)
     private val q1 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item1]
 
-    // q2
+    /* ---------------- q2 ---------------- */
+
     case class Item2(arrivalPos: Int, mirror: SubItem2NonPlain, plain: SubItem2Plain, bean: SubItem2NonPlain) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
@@ -151,7 +153,8 @@ abstract class GenBCode extends BCodeOptInter {
 
     private val limboForDClosures = mutable.Map.empty[BType, Item2] // a single Worker1 adds, many Worker2 read.
 
-    // q3
+    /* ---------------- q3 ---------------- */
+
     case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
       def isPoison  = { arrivalPos == Int.MaxValue }
       /*
@@ -255,10 +258,19 @@ abstract class GenBCode extends BCodeOptInter {
     } // end of class BCodePhase.Worker1
 
     /**
-     *  Pipeline that takes ClassNodes from queue-2 and:
-     *    - performs intra-method and intra-class optimizations on them,
-     *    - lowers them into byte array classfiles,
-     *    - placing them on the queue where they wait to be written to disk.
+     *  Pipeline that takes ClassNodes from queue-2. The unit of work depends on the optimization level:
+     *
+     *    (a) no optimization involves just converting the plain ClassNode to byte array and placing it on queue-3
+     *
+     *    (b) with intra-procedural optimization on,
+     *          - cleanseClass() is invoked on the plain class, and then
+     *          - the plain class is serialized as above (ending up in queue-3)
+     *
+     *    (c) with inter-procedural optimization on,
+     *          - cleanseClass() runs first.
+     *            The difference with (b) however has to do with master-classes and their dclosures.
+     *            In the inter-procedural case, they are processed as a single (larger) unit of work by cleanseClass.
+     *          - once that (larger) unit of work is complete, all of its constituent classes are placed on queue-3.
      *
      *  can-multi-thread
      */
@@ -290,7 +302,7 @@ abstract class GenBCode extends BCodeOptInter {
       def visit(item: Item2) {
 
         if(isIntraMethodOptimizOn || isInterProcOptimizOn) {
-          (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() actually doesn't touch dclosures.
+          (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() mutates those dclosures cnode is responsible for.
         }
 
         if(!isInterProcOptimizOn) {
@@ -307,7 +319,8 @@ abstract class GenBCode extends BCodeOptInter {
             }
           } else {
             addToQ3(item) // the master class
-            for(d <- closuRepo.dclosures(bt)) { // elided dclosures must also go to q3: their arrivalPos required for progress.
+            for(d <- closuRepo.dclosures(bt)) {
+              // both live and elided dclosures go to q3: the arrivalPos of elided ones is required for progress in drainQ3()
               addToQ3(limboForDClosures(d))
             }
           }
@@ -556,29 +569,6 @@ abstract class GenBCode extends BCodeOptInter {
       private var lastEmittedLineNr          = -1
 
       /* ---------------- caches to avoid asking the same questions over and over to typer ---------------- */
-
-      /*
-
-      private def trackMentionedInners(tk: BType) {
-        (tk.sort: @switch) match {
-          case asm.Type.OBJECT =>
-            if(!tk.isPhantomType && exemplars.get(tk).isInnerClass) {
-              innerClassBufferASM += tk
-            }
-          case asm.Type.ARRAY  => trackMentionedInners(tk.getElementType)
-          case asm.Type.METHOD =>
-            trackMentionedInners(tk.getReturnType)
-            trackMentionedInners(tk.getArgumentTypes)
-          case _ => ()
-        }
-      }
-      private def trackMentionedInners(arr: Array[BType]) {
-        var i = 0; while(i < arr.length) { trackMentionedInners(arr(i)); i += 1 }
-      }
-      private def trackMentionedInners(lst: List[BType]) {
-        var rest = lst; while(rest.nonEmpty) { trackMentionedInners(rest.head); rest = rest.tail }
-      }
-      */
 
       def paramTKs(app: Apply): List[BType] = {
         val Apply(fun, _)  = app
@@ -2067,7 +2057,7 @@ abstract class GenBCode extends BCodeOptInter {
               generatedType = genPrimitiveOp(app, expectedType)
             } else {  // normal method call
 
-                  def genNormalMethodCall(): BType = {
+                  def genNormalMethodCall() {
 
                     val invokeStyle =
                       if (sym.isStaticMember) Static(false)
@@ -2107,13 +2097,36 @@ abstract class GenBCode extends BCodeOptInter {
                       genCallMethod(sym, invokeStyle, hostClass, app.pos)
                     }
 
-                    asmMethodType(sym).getReturnType
-
                   } // end of genNormalMethodCall()
 
-              // TODO if (sym == ctx1.method.symbol) { ctx1.method.recursive = true }
-              generatedType = genNormalMethodCall()
-            }
+              // inter-procedural optimization: directly target final method in trait
+              val detour = mixer.detouredFinalTraitMethods.getOrElse(sym, null)
+              if(detour != null) {
+                val selfRefBType          = toTypeKind(detour.firstParam.tpe)
+                val Select(qualifier, _)  = fun
+                val qualifierExpectedType = tpeTK(qualifier)
+                val isCastOutcomeKnown    = exemplars.get(selfRefBType).isSubtypeOf(qualifierExpectedType)
+                log(
+                  s"Rewiring to directly invokestatic final method $detour in trait $qualifierExpectedType , " +
+                  s"used to be an invokeinterface to $sym"
+                )
+                genLoad(qualifier, qualifierExpectedType)
+                val lastInsn = mnode.instructions.getLast
+                if(lastInsn.getOpcode == asm.Opcodes.CHECKCAST) {
+                  val ti = lastInsn.asInstanceOf[asm.tree.TypeInsnNode]
+                  if(lookupRefBType(ti.desc) != selfRefBType) {
+                    log(s"As part of rewiring a final trait method (SI-4767), removed ${insnPosInMethodSignature(ti, mnode, cnode)} ")
+                    mnode.instructions.remove(lastInsn)
+                  }
+                }
+                genLoadArguments(args, paramTKs(app))
+                genCallMethod(detour, Static(false), detour.owner, app.pos)
+              } else {
+                genNormalMethodCall()
+              }
+
+              generatedType = asmMethodType(sym).getReturnType
+        }
 
         }
 
@@ -2436,29 +2449,6 @@ abstract class GenBCode extends BCodeOptInter {
         } // intra-procedural optimizations
 
         if(isInterProcOptimizOn) {
-
-          /**
-           *  `method.isEffectivelyFinal` implies `method` pinpoints the implementation to dispatch at runtime.
-           *  Nevertheless, in order to appease the JVM verifier, it's necessary sometimes to emit INVOKEVIRTUAL
-           *  instead of INVOKESPECIAL. There's nothing we can do about it.
-           *
-           *  However, an INVOKEINTERFACE callsite targeting an isEffectivelyFinal method *could* be rewritten.
-           *  This indicates a trait-method that is final, whose counterpart in the implementation class can be targeted directly.
-           */
-          if(!style.isSuper) {
-            val callsite = mnode.instructions.getLast.asInstanceOf[MethodInsnNode]
-            val opc = callsite.getOpcode
-            if(opc == asm.Opcodes.INVOKEINTERFACE && method.isEffectivelyFinal) {
-              // TODO Let's find the forwarded method in the impl-class, and call it directly thus fixing SI-4767.
-              // TODO The alternative being to chase the final callee bytecode level, given `callsite`. Seems over-complicated.
-              assert(receiver.isTrait)
-              val implClazz = receiver.implClass
-              if(implClazz != NoSymbol) {
-                // val implMethod = ... take overloading into account
-              }
-
-            }
-          }
 
           /**
            * Gather data for "method inlining".
