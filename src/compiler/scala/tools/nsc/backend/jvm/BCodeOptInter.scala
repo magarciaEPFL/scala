@@ -1716,7 +1716,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           case None =>
             val quickOptimizer = new BCodeCleanser(hostOwner)
-            quickOptimizer.basicIntraMethodOpt(hostOwner.name, host)
+            quickOptimizer.basicIntraMethodOpt(host)
             Util.computeMaxLocalsMaxStack(host)
             return true // not really "successful closure-inlining" (see comment above) but the closest we can get.
 
@@ -2246,7 +2246,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
 
         val quickOptimizer = new BCodeCleanser(closureClass)
-        quickOptimizer.basicIntraMethodOpt(closureClassName, result)
+        quickOptimizer.basicIntraMethodOpt(result)
         Util.computeMaxLocalsMaxStack(result)
 
         if(escapingThis(closureClassName, result).nonEmpty) {
@@ -2555,7 +2555,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         // (9) update maxStack, run TFA for debug purposes
         Util.computeMaxLocalsMaxStack(shio)
         val quickOptimizer = new BCodeCleanser(hostOwner)
-        quickOptimizer.basicIntraMethodOpt(hostOwner.name, shio)
+        quickOptimizer.basicIntraMethodOpt(shio)
         Util.computeMaxLocalsMaxStack(shio)
         // val txtShioAfter = Util.textify(shio)
         // val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
@@ -3368,7 +3368,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    *  Rather than checking at allocation-site whether the arguments to the ctor match
    *  those of a cached representative (an "Available Expressions" or "Definite Alias" problem),
-   *  we rely on each STORE to a local as above also "killing" the cached reprsentative,
+   *  we rely on each STORE to a local as above also "killing" the cached representative,
    *  by assigning null to the local holding it.
    *
    *  The above works well enough: for example, in case closure-state is loop invariant,
@@ -3526,7 +3526,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // Step (4) run an intra-method fixpoint on all methods
         val cleanser = new BCodeCleanser(cnode)
-        cleanser.intraMethodFixpoints()
+        cleanser.basicIntraMethodOpt(mnode)
 
         // val txtAfter = Util.textify(mnode); println("After -------------------------------- " + txtAfter)
       }

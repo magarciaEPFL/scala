@@ -262,14 +262,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
         val isConcrete = ((mnode.access & (asm.Opcodes.ACC_ABSTRACT | asm.Opcodes.ACC_NATIVE)) == 0)
         if(isConcrete) {
 
-          basicIntraMethodOpt(cName, mnode)     // intra-method optimizations performed until a fixpoint is reached
+          basicIntraMethodOpt(mnode)     // intra-method optimizations performed until a fixpoint is reached
 
-          cacheRepeatableReads(cName, mnode)    // caching repeatable reads of stable values
+          cacheRepeatableReads(mnode)    // caching repeatable reads of stable values
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
 
           if(settings.debug.value) {
-            runTypeFlowAnalysis(cName, mnode)
+            runTypeFlowAnalysis(mnode)
           }
         }
       }
@@ -487,7 +487,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  Intra-method optimizations performed until a fixpoint is reached.
      */
-    def basicIntraMethodOpt(cName: String, mnode: asm.tree.MethodNode) {
+    def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
+      val cName = cnode.name
       var keepGoing = false
       do {
         keepGoing = false
@@ -649,9 +650,11 @@ abstract class BCodeOptIntra extends BCodeTypes {
      * TODO 3: Stable-values accessed only via getters are taken into account, unlike those via GETFIELD or GETSTATIC.
      *
      */
-    def cacheRepeatableReads(cName: String, mnode: asm.tree.MethodNode) {
+    def cacheRepeatableReads(mnode: asm.tree.MethodNode) {
 
       import asm.tree.analysis.Frame
+
+      val cName = cnode.name
 
       // ---------------------- Step (1) ----------------------
 
@@ -1028,13 +1031,13 @@ abstract class BCodeOptIntra extends BCodeTypes {
     // Type-flow analysis
     //--------------------------------------------------------------------
 
-    def runTypeFlowAnalysis(owner: String, mnode: MethodNode) {
+    def runTypeFlowAnalysis(mnode: MethodNode) {
 
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
 
       val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
-      tfa.analyze(owner, mnode)
+      tfa.analyze(cnode.name, mnode)
       val frames: Array[Frame[TFValue]]   = tfa.getFrames()
       val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
       var i = 0
