@@ -40,10 +40,17 @@
 <p>The experimental optimizer instead:</p>
 
 <ul>
-<li>explores what can be made today to improve performance (say, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8).</li>
+<li>explores what can be made today to improve performance (you know, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8).</li>
 <li>while leaving a door open to future developments (closures are converted in a manner amenable to a future MethodHandle implementation).</li>
 <li>consisting of many focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>
 </li>
+</ul><h3>And a faster code emitter, too</h3>
+
+<p>Before the new optimizer runs (<code>GenBCodeOpt</code>), a bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
+
+<ul>
+<li>the intermediate step to build Control Flow Graphs is not needed,</li>
+<li>overlapping of class file disk writing and their construction (the more source files, the larger the speedup)</li>
 </ul><p>A summary follows of the capabilities of the new optimizer I've been working on.</p>
 
 <h1>Features</h1>
