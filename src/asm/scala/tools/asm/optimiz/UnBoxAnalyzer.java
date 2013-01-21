@@ -47,6 +47,12 @@ public class UnBoxAnalyzer extends ProdConsAnalyzer {
         return new SourceValue(size, new FakeParamLoad(idx, ctype, isInstanceMethod));
     }
 
+    @Override
+    public SourceValue newNonFormalLocal(int idx) {
+        final int size = 1;
+        return new SourceValue(size, new Uninitialized());
+    }
+
     /**
      *  Serves the purpose of "materializing" the sources of:
      *    (a) local-vars standing for params (as well as THIS) and
@@ -112,6 +118,8 @@ public class UnBoxAnalyzer extends ProdConsAnalyzer {
         @Override final public boolean isEHException() { return true; }
 
     }
+
+    final static public class Uninitialized extends FakeInsn { }
 
     static private class UnBoxInterpreter extends ProdConsInterpreter {
 

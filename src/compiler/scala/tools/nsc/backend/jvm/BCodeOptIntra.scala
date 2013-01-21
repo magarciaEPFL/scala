@@ -456,7 +456,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
               label = entry.getValue
             ) {
               log(
-                s"Backedge found in a contructor-args section, in method ${methodSignature(cnode, m)} " +
+                s"Backedge found in contructor-args section, in method ${methodSignature(cnode, m)} " +
                 s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
                  "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
               )

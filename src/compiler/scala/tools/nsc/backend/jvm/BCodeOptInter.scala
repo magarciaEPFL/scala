@@ -1248,7 +1248,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * TODO why weren't those TypeNames entered as part of parsing callee from bytecode?
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
+      if(!isMultithread) {
       codeRepo.enterExemplarsForUnseenTypeNames(body) // must-single-thread
+      }
 
       val hostOwnerBT = lookupRefBType(hostOwner)
 
@@ -1647,7 +1649,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val callerId = hostOwner.name + "::" + host.name + host.desc
 
-      codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions)
+      assert(!isMultithread)
+      codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions) // must-single-thread
 
       if(Util.isSynchronizedMethod(hiO)) {
         inlineTarget.warn(s"Closure-inlining failed because ${inlineTarget.calleeId} is synchronized.")
