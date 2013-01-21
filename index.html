@@ -255,7 +255,9 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>The first step is checking out branch <code>GenBCodeOpt</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<p>After <code>ant all.clean &amp;&amp; ant</code> , the new optimizer runs by default <em>unless</em> an option to activate the "old" optimizer is given ( <code>-optimise</code>, <code>-Yinline</code> , <code>-Yinline-handlers</code> , <code>-Yclosure-elim</code> , or <code>-Ydead-code</code> ). Simply stay away from those options and you'll be running the new optimizer. Diagnostics displayed via <code>-Ylog:jvm</code> . For even more details <code>-Ydebug -Yinline-warnings</code></p>
+<p>After <code>ant all.clean &amp;&amp; ant</code> , the new optimizer runs by default <em>unless</em> an option to activate the "old" optimizer is given ( <code>-optimise</code>, <code>-Yinline</code> , <code>-Yinline-handlers</code> , <code>-Yclosure-elim</code> , or <code>-Ydead-code</code> ). Simply stay away from those options and you'll be running the new optimizer. </p>
+
+<p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
 
 <h1>Future Work</h1>
 
