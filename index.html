@@ -92,7 +92,7 @@ that would cause IllegalAccessError from class scala/tools/nsc/transform/Special
                                ^
 </code></pre>
 
-<p>Thinking about the warning above, it makes sense: loop() is a local method:</p>
+<p>The warning makes sense: <code>loop()</code> is a local method:</p>
 
 <div class="highlight"><pre><span class="c1">// scala.collection.immutable.List</span>
   <span class="nd">@inline</span> <span class="k">final</span> <span class="k">def</span> <span class="n">mapConserve</span><span class="o">[</span><span class="kt">B</span> <span class="k">&gt;:</span> <span class="kt">A</span> <span class="k">&lt;:</span> <span class="kt">AnyRef</span><span class="o">](</span><span class="n">f</span><span class="k">:</span> <span class="kt">A</span> <span class="o">=&gt;</span> <span class="n">B</span><span class="o">)</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">B</span><span class="o">]</span> <span class="k">=</span> <span class="o">{</span>
@@ -100,6 +100,17 @@ that would cause IllegalAccessError from class scala/tools/nsc/transform/Special
     <span class="k">def</span> <span class="n">loop</span><span class="o">(</span><span class="n">mapped</span><span class="k">:</span> <span class="kt">ListBuffer</span><span class="o">[</span><span class="kt">B</span><span class="o">],</span> <span class="n">unchanged</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">A</span><span class="o">],</span> <span class="n">pending</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">A</span><span class="o">])</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">B</span><span class="o">]</span> <span class="k">=</span>
        <span class="o">...</span>
 </pre></div>
+
+<p>The bytecode-level counterpart, <code>loop$1()</code>, was emitted as private, as javap output shows:</p>
+
+<pre lang="javap"><code>private final
+scala.collection.immutable.List
+loop$1(scala.collection.mutable.ListBuffer,
+       scala.collection.immutable.List,
+       scala.collection.immutable.List,
+       scala.Function1);
+  ...
+</code></pre>
 
 <h2>Final methods in traits as fast as invokestatic, and can be inlined too</h2>
 
