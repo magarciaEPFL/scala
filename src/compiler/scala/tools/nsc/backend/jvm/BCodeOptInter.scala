@@ -1249,7 +1249,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
       if(!isMultithread) {
-      codeRepo.enterExemplarsForUnseenTypeNames(body) // must-single-thread
+        codeRepo.enterExemplarsForUnseenTypeNames(body) // must-single-thread
       }
 
       val hostOwnerBT = lookupRefBType(hostOwner)
