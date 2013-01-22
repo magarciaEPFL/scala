@@ -223,7 +223,7 @@ abstract class UnCurry extends InfoTransform
         // nullary or parameterless
         case fun1 if fun1 ne fun => fun1
         case _ =>
-          if((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value || !settings.canUseBCode) {
+          if((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value || !settings.isBCodeActive) {
             // checking inConstructorFlag prevents hitting SI-6666
             closureConversionTraditional(fun)
           }

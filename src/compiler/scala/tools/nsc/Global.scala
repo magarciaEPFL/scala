@@ -1362,6 +1362,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       _unitbufSize += 1 // counting as they're added so size is cheap
       compiledFiles += unit.source.file.path
     }
+    private def checkQuestionableSettings(unit: CompilationUnit) {
+      checkDeprecatedSettings(unit)
+      checkIncompatibleSettings(unit)
+    }
     private def checkDeprecatedSettings(unit: CompilationUnit) {
       // issue warnings for any usage of deprecated settings
       settings.userSetSettings filter (_.isDeprecated) foreach { s =>
@@ -1369,6 +1373,25 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       }
       if (settings.target.value.contains("jvm-1.5"))
         unit.deprecationWarning(NoPosition, settings.target.name + ":" + settings.target.value + " is deprecated: use target for Java 1.6 or above.")
+    }
+    private def checkIncompatibleSettings(unit: CompilationUnit) {
+      val c1 = settings.isICodeAskedFor
+      val c2 = settings.isBCodeAskedFor
+      if(c1 && c2) {
+
+        var whyICode: List[String] =
+             List(settings.inline, settings.inlineHandlers, settings.Xcloselim, settings.Xdce)
+            .filter(_.value)
+            .map(s => s.name)
+
+        if (settings.writeICode.isSetByUser) { whyICode ::= settings.writeICode.name }
+        if (settings.neo.value == "GenASM")  { whyICode ::= settings.neo.toString }
+
+        unit.error(
+          NoPosition,
+          s"Settings ${whyICode.mkString(" , ")} (requesting the GenASM backend) and ${settings.neo.toString} (requesting the GenBCode backend) are contradictory."
+        )
+      }
     }
 
     /* An iterator returning all the units being compiled in this run */
@@ -1475,7 +1498,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
       // nothing to compile, but we should still report use of deprecated options
       if (sources.isEmpty) {
-        checkDeprecatedSettings(newCompilationUnit(""))
+        checkQuestionableSettings(newCompilationUnit(""))
         reportCompileErrors()
         return
       }
@@ -1503,7 +1526,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       val startTime = currentTime
 
       reporter.reset()
-      checkDeprecatedSettings(unitbuf.head)
+      checkQuestionableSettings(unitbuf.head)
       globalPhase = fromPhase
 
      while (globalPhase.hasNext && !reporter.hasErrors) {

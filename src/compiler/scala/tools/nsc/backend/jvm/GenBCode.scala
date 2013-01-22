@@ -118,10 +118,6 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    // TODO for now lumped together, but in principle intra-method and inter-proc could be on/off independent of each other.
-    val isIntraMethodOptimizOn = settings.optimise.value || settings.canUseBCode // TODO "|| canUseBCode" is debug only
-    val isInterProcOptimizOn   = isIntraMethodOptimizOn && !settings.skipInterProcOptimiz.value
-
     // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(
       32,
@@ -301,11 +297,11 @@ abstract class GenBCode extends BCodeOptInter {
 
       def visit(item: Item2) {
 
-        if(isIntraMethodOptimizOn || isInterProcOptimizOn) {
+        if(settings.isIntraMethodOptimizOn || settings.isInterProcOptimizOn) {
           (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() mutates those dclosures cnode is responsible for.
         }
 
-        if(!isInterProcOptimizOn) {
+        if(!settings.isInterProcOptimizOn) {
           addToQ3(item)
         } else {
           /* A master classes and the dclosures it's responsible for are transformed together by BCodeCleanser.cleanseClass().
@@ -369,7 +365,7 @@ abstract class GenBCode extends BCodeOptInter {
       mirrorCodeGen   = new JMirrorBuilder(  needsOutfileForSymbol)
       beanInfoCodeGen = new JBeanInfoBuilder(needsOutfileForSymbol)
 
-      if(isInterProcOptimizOn) {
+      if(settings.isInterProcOptimizOn) {
         wholeProgramThenWriteToDisk(needsOutfileForSymbol)
       } else {
         buildAndSendToDiskInParallel(needsOutfileForSymbol)
@@ -412,13 +408,13 @@ abstract class GenBCode extends BCodeOptInter {
      *        and we don't want to write to disk an old version. For details see comments in method body.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
-      assert(isInterProcOptimizOn)
+      assert(settings.isInterProcOptimizOn)
 
       // sequentially
       feedPipeline1()
       (new Worker1(needsOutfileForSymbol)).run()
       (new WholeProgramAnalysis(isMultithread = false)).optimize()
-      if(isInterProcOptimizOn) {
+      if(settings.isInterProcOptimizOn) {
         limboForDClosures.clear()
         val iter = q2.iterator()
         while(iter.hasNext) {
@@ -439,7 +435,7 @@ abstract class GenBCode extends BCodeOptInter {
     }
 
     private def buildAndSendToDiskInParallel(needsOutfileForSymbol: Boolean) {
-      assert(!isInterProcOptimizOn)
+      assert(!settings.isInterProcOptimizOn)
 
       // as soon as each individual ClassNode is ready (if needed intra-class optimized) it's also ready for disk serialization.
       new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
@@ -836,7 +832,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         addInnerClassesASM(cnode, innerClassBufferASM.toList)
 
-        if(isInterProcOptimizOn) {
+        if(settings.isInterProcOptimizOn) {
           val bt = lookupRefBType(cnode.name)
           assert(!codeRepo.containsKey(bt))
           codeRepo.classes.put(bt, cnode)
@@ -2439,7 +2435,7 @@ abstract class GenBCode extends BCodeOptInter {
           initModule()
         }
 
-        if(isIntraMethodOptimizOn) {
+        if(settings.isIntraMethodOptimizOn) {
 
           /**
            * Gather data for "caching of stable values".
@@ -2452,7 +2448,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         } // intra-procedural optimizations
 
-        if(isInterProcOptimizOn) {
+        if(settings.isInterProcOptimizOn) {
 
           /**
            * Gather data for "method inlining".

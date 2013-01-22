@@ -65,13 +65,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
   def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
 
   def isAdaptingPrivateMembersOK(cnode: ClassNode): Boolean = {
-
-    if(settings.keepUnusedPrivateClassMembers.value) { return false }
-
     val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
-    if(cnodeEx.isSerializable) { return false }
 
-    true
+    !cnodeEx.isSerializable
   }
 
   final def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
@@ -240,8 +236,11 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       } while(keepGoing)
 
-      minimizeDClosureAllocations(cnode)
-      closureCachingAndEviction(cnode)
+      if(settings.isInterProcOptimizOn) {
+        minimizeDClosureAllocations(cnode)
+        closureCachingAndEviction(cnode)
+      }
+
       avoidBackedgesInConstructorArgs(cnode)
 
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
@@ -288,8 +287,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *
      * */
     private def privatCompacter(): Boolean = {
-
-      if(settings.keepUnusedPrivateClassMembers.value) { return false }
 
       val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
       if(cnodeEx.isSerializable) { return false }

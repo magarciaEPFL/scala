@@ -39,7 +39,7 @@ trait JavaPlatform extends Platform {
     // types would be conjoined and everything would work out. Yet another reason to push for DOT.
 
   private def classEmitPhase =
-    if (settings.canUseBCode) genBCode
+    if (settings.isBCodeActive) genBCode
     else genASM
 
   def platformPhases = List(

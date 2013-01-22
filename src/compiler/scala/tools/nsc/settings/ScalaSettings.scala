@@ -200,8 +200,8 @@ trait ScalaSettings extends AbsScalaSettings
   /**
    * Settings motivated by GenBCode's optimizer
    */
-  val keepUnusedPrivateClassMembers = BooleanSetting("-YkeepUnusedPrivateClassMembers", "Class members that are private and lacking usages are left in place")
-  val skipInterProcOptimiz          = BooleanSetting("-YskipInterProcOptimiz",          "Skip inter-procedural optimizations")
+  val neo = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
+                           List("GenASM", "GenBCode", "o1", "o2"), "o2") // TODO once merge into trunk "GenASM" should be the default
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -227,8 +227,12 @@ trait ScalaSettings extends AbsScalaSettings
   def isScaladoc = false
 
   /** Test whether GenBCode will run instead of GenASM */
-  def isBCodeActive = !mustUseGenASM && canUseBCode
+  def isBCodeActive   = !isICodeAskedFor
+  def isBCodeAskedFor = (neo.value != "GenASM")
 
-  def canUseBCode   = !(optimiseSettings.exists(_.value)) // TODO && !(writeICode.isSetByUser)
-  def mustUseGenASM = (target.value == "jvm-1.5-asm") || (target.value == "jvm-1.6-asm")
+  def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
+
+  def isIntraMethodOptimizOn = (neo.value == "o1")
+  def isInterProcOptimizOn   = (neo.value == "o2")
+
 }
