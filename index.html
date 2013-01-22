@@ -46,7 +46,7 @@
 </li>
 </ul><h3>And a faster code emitter, too</h3>
 
-<p>Before the new optimizer runs (<code>GenBCodeOpt</code>), a bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
+<p>Before the new optimizer runs (<code>GenBCodeOpt</code>) a bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
 
 <ul>
 <li>the intermediate step to build Control Flow Graphs is not needed,</li>
@@ -259,7 +259,18 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
 
-<h1>Future Work</h1>
+<h2>Choosing the optimization level via compiler flags</h2>
+
+<table>
+<tr>
+<td><code>-neo:GenASM</code></td>   <td>use the old backend</td> </tr>
+<tr>
+<td><code>-neo:GenBCode</code></td> <td>use the new code emitter</td> </tr>
+<tr>
+<td><code>-neo:o1</code></td>       <td>use the new code emitter, perform intra-method optimization</td> </tr>
+<tr>
+<td><code>-neo:o2</code></td>       <td>use the new code emitter, perform intra-class and whole-program optimizations  (default)</td> </tr>
+</table><h1>Future Work</h1>
 
 <ul>
 <li>
