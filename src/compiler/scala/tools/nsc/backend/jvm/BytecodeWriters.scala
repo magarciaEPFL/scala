@@ -118,7 +118,7 @@ trait BytecodeWriters {
    * The ASM textual representation for bytecode overcomes disadvantages of javap ouput in three areas:
    *    (a) pickle dingbats undecipherable to the naked eye;
    *    (b) two constant pools, while having identical contents, are displayed differently due to physical layout.
-   *    (c) stack maps (classfile version 50 and up) are displayed in encoded form by javap, their expansion makes more sense instead.
+   *    (c) stack maps (classfile version 50 and up) are displayed in encoded form by javap, their expansionby ASM is more readable.
    *
    * */
   trait AsmpBytecodeWriter extends BytecodeWriter {
