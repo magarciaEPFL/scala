@@ -1371,27 +1371,41 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       settings.userSetSettings filter (_.isDeprecated) foreach { s =>
         unit.deprecationWarning(NoPosition, s.name + " is deprecated: " + s.deprecationMessage.get)
       }
-      if (settings.target.value.contains("jvm-1.5"))
+      if (settings.target.value.contains("jvm-1.5")) {
         unit.deprecationWarning(NoPosition, settings.target.name + ":" + settings.target.value + " is deprecated: use target for Java 1.6 or above.")
+      }
     }
     private def checkIncompatibleSettings(unit: CompilationUnit) {
+
+      // ------------ ICode and GenBCode exclude each other
+
       val c1 = settings.isICodeAskedFor
       val c2 = settings.isBCodeAskedFor
       if(c1 && c2) {
 
-        var whyICode: List[String] =
-             List(settings.inline, settings.inlineHandlers, settings.Xcloselim, settings.Xdce)
-            .filter(_.value)
-            .map(s => s.name)
+        var whyICode: List[String] = Nil
+
+        if (settings.optimise.isSetByUser) {
+          whyICode ::= settings.optimise.name
+        } else {
+          whyICode :::= settings.optimiseSettings.filter(_.value).map(s => s.name)
+        }
 
         if (settings.writeICode.isSetByUser) { whyICode ::= settings.writeICode.name }
         if (settings.neo.value == "GenASM")  { whyICode ::= settings.neo.toString }
 
         unit.error(
           NoPosition,
-          s"Settings ${whyICode.mkString(" , ")} (requesting the GenASM backend) and ${settings.neo.toString} (requesting the GenBCode backend) are contradictory."
+          s"Settings ${whyICode.mkString(" , ")} (requesting the GenASM backend) and " +
+          s"${settings.neo.toString} (requesting the GenBCode backend) are contradictory."
         )
+
       }
+
+      // ------------ emitting method handles require target JDK7 or higher
+
+      // TODO
+
     }
 
     /* An iterator returning all the units being compiled in this run */

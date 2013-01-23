@@ -38,7 +38,7 @@ trait ScalaSettings extends AbsScalaSettings
   protected def futureSettings = List[BooleanSetting]()
 
   /** Enabled under -optimise. */
-  protected def optimiseSettings = List[BooleanSetting](inline, inlineHandlers, Xcloselim, Xdce)
+  def optimiseSettings = List[BooleanSetting](inline, inlineHandlers, Xcloselim, Xdce)
 
   /** Internal use - syntax enhancements. */
   private class EnableSettings[T <: BooleanSetting](val s: T) {
