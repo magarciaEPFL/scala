@@ -65,10 +65,10 @@ trait BytecodeWriters {
    *  the class file to be disassembled.
    */
   trait JavapBytecodeWriter extends BytecodeWriter {
-    val baseDir = Directory(settings.Ygenjavap.value).createDirectory()
-    val cl      = ScalaClassLoader.appLoader
+    private val baseDir = Directory(settings.Ygenjavap.value).createDirectory()
+    private val cl      = ScalaClassLoader.appLoader
 
-    def emitJavap(classFile: AbstractFile, javapFile: File) {
+    private def emitJavap(classFile: AbstractFile, javapFile: File) {
       val pw = javapFile.printWriter()
       try {
         val javap = new JavapClass(cl, pw) {
@@ -86,6 +86,35 @@ trait BytecodeWriters {
 
       if (Javap.isAvailable(cl)) emitJavap(outfile, javapFile)
       else warning("No javap on classpath, skipping javap output.")
+    }
+  }
+
+  trait AsmpBytecodeWriter extends BytecodeWriter {
+    import scala.tools.asm
+
+    private val baseDir = Directory(settings.Ygenasmp.value).createDirectory()
+
+    private def emitAsmp(jclassBytes: Array[Byte], asmpFile: io.File) {
+      val pw = asmpFile.printWriter()
+      try {
+        val cnode = new asm.tree.ClassNode()
+        val cr    = new asm.ClassReader(jclassBytes)
+        cr.accept(cnode, 0)
+        val trace = new scala.tools.asm.util.TraceClassVisitor(new java.io.PrintWriter(new java.io.StringWriter()))
+        cnode.accept(trace)
+        trace.p.print(pw)
+      }
+      finally pw.close()
+    }
+
+    abstract override def writeClass(label: String, jclassName: String, jclassBytes: Array[Byte], outfile: AbstractFile) {
+      super.writeClass(label, jclassName, jclassBytes, outfile)
+
+      val segments  = jclassName.split("[./]")
+      val asmpFile = segments.foldLeft(baseDir: Path)(_ / _) changeExtension "asmp" toFile;
+
+      asmpFile.parent.createDirectory()
+      emitAsmp(jclassBytes, asmpFile)
     }
   }
 

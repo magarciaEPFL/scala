@@ -2671,13 +2671,29 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         new DirectToJarfileWriter(f.file)
 
       case _                               =>
-        if (settings.Ygenjavap.isDefault) {
+
+        val emitJavap = !settings.Ygenjavap.isDefault && {
+          scala.tools.util.Javap.isAvailable() || {
+            warning("No javap on classpath, skipping javap output.");
+            false
+          }
+        }
+        val emitAsmp  = !settings.Ygenasmp.isDefault
+
+            def textualOutput(): BytecodeWriter = {
+              if     ( emitJavap &&  emitAsmp) { new ClassBytecodeWriter with JavapBytecodeWriter with AsmpBytecodeWriter }
+              else if(!emitJavap &&  emitAsmp) { new ClassBytecodeWriter                          with AsmpBytecodeWriter }
+              else if( emitJavap && !emitAsmp) { new ClassBytecodeWriter with JavapBytecodeWriter                         }
+              else { assert(false, "Wrong arguments: at least one of -Ygen-asmp or -Ygen-javap expected"); null }
+            }
+
+        if (emitJavap || emitAsmp) { textualOutput() }
+        else {
           if(settings.Ydumpclasses.isDefault)
             new ClassBytecodeWriter { }
           else
             new ClassBytecodeWriter with DumpBytecodeWriter { }
         }
-        else new ClassBytecodeWriter with JavapBytecodeWriter { }
 
         // TODO A ScalapBytecodeWriter could take asm.util.Textifier as starting point.
         //      Three areas where javap ouput is less than ideal (e.g. when comparing versions of the same classfile) are:
@@ -3316,7 +3332,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         val isValidSignature = wrap {
           // Alternative: scala.tools.reflect.SigParser (frontend to sun.reflect.generics.parser.SignatureParser)
           import scala.tools.asm.util.CheckClassAdapter
-          if (sym.isMethod)    { CheckClassAdapter checkMethodSignature sig } // requires asm-util.jar
+          if (sym.isMethod)    { CheckClassAdapter checkMethodSignature sig }
           else if (sym.isTerm) { CheckClassAdapter checkFieldSignature  sig }
           else                 { CheckClassAdapter checkClassSignature  sig }
         }
