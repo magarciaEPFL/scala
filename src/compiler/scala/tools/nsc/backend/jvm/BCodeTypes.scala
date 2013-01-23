@@ -2670,36 +2670,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
         new DirectToJarfileWriter(f.file)
 
-      case _                               =>
-
-        val emitJavap = !settings.Ygenjavap.isDefault && {
-          scala.tools.util.Javap.isAvailable() || {
-            warning("No javap on classpath, skipping javap output.");
-            false
-          }
-        }
-        val emitAsmp  = !settings.Ygenasmp.isDefault
-
-            def textualOutput(): BytecodeWriter = {
-              if     ( emitJavap &&  emitAsmp) { new ClassBytecodeWriter with JavapBytecodeWriter with AsmpBytecodeWriter }
-              else if(!emitJavap &&  emitAsmp) { new ClassBytecodeWriter                          with AsmpBytecodeWriter }
-              else if( emitJavap && !emitAsmp) { new ClassBytecodeWriter with JavapBytecodeWriter                         }
-              else { assert(false, "Wrong arguments: at least one of -Ygen-asmp or -Ygen-javap expected"); null }
-            }
-
-        if (emitJavap || emitAsmp) { textualOutput() }
-        else {
-          if(settings.Ydumpclasses.isDefault)
-            new ClassBytecodeWriter { }
-          else
-            new ClassBytecodeWriter with DumpBytecodeWriter { }
-        }
-
-        // TODO A ScalapBytecodeWriter could take asm.util.Textifier as starting point.
-        //      Three areas where javap ouput is less than ideal (e.g. when comparing versions of the same classfile) are:
-        //        (a) unreadable pickle;
-        //        (b) two constant pools, while having identical contents, are displayed differently due to physical layout.
-        //        (c) stack maps (classfile version 50 and up) are displayed in encoded form by javap, their expansion makes more sense instead.
+      case _ => factoryNonJarBytecodeWriter()
     }
   }
 
