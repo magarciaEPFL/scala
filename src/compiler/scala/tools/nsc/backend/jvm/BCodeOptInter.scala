@@ -181,6 +181,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       dclosures(master) filter { dc => nonMasterUsers(dc).isEmpty }
     }
 
+    final def isDClosureExclusiveTo(d: BType, master: BType): Boolean = {
+      exclusiveDClosures(master) contains d
+    }
+
     /**
      * The set of delegating-closures used by no other class than the argument
      * (besides the trivial usage of each dclosure by itself)
@@ -188,7 +192,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     final def liveDClosures(masterCNode: ClassNode): List[BType] = {
       val master = lookupRefBType(masterCNode.name)
-      assert(isMasterClass(master), "Not a master class for some dclosure: " + master.getInternalName)
+      assert(isMasterClass(master), "Not a master class for any dclosure: " + master.getInternalName)
       for(
         d <- exclusiveDClosures(master);
         if !elidedClasses.contains(d);
@@ -386,14 +390,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     // --------------------- closuRepo post-initialization utilities ---------------------
 
+    /**
+     *  TODO documentation
+     * */
     def retractAsDClosure(dc: BType) {
       assert(
         nonMasterUsers(dc).isEmpty,
         s"A dclosure can't be retracted unless used only by its master class, but ${dc.getInternalName} in use by ${nonMasterUsers(dc).mkString}"
-      )
-      assert(
-        elidedClasses.contains(dc),
-        s"A dclosure can't be retracted before being elided:  ${dc.getInternalName}"
       )
       val exMaster = masterClass(dc)
       endpoint.remove(dc)
@@ -2665,9 +2668,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         removeAll(dupInsns)
         removeAll(initInsns)
 
-        for(cloBT <- (closureClassUtils map { ccu => lookupRefBType(ccu.closureClass.name) })) {
-          elidedClasses.add(cloBT)
-        }
+        /*
+         * No need to attempt eliding here those closure classes for which hostOwner is the only "master class".
+         * Intra-class analysis `shakeAndMinimizeClosures()` will do that.
+         * Actually, information on `nonMasterUsers` is complete by now
+         * (because `populateNonMasterUsers()` runs before `inlining()`).
+         * Thus in theory eliding could be done here. But that would add to the code to understand, unlike this comment, right? ;-)
+         *
+         * */
 
         val rewiredInvocation = new MethodInsnNode(Opcodes.INVOKESTATIC, hostOwner.name, staticHiO.name, staticHiO.desc)
         host.instructions.set(callsite, rewiredInvocation)
