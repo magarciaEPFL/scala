@@ -261,7 +261,7 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
             detouredFinalTraitMethods.put(imember, staticMethod)
           }
         }
-      if(settings.isInterProcOptimizOn) {
+      if(settings.isInterTraitOptimizOn) {
         detourFinalMethodsInTraits()
       }
 

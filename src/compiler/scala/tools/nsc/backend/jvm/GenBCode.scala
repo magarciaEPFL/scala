@@ -297,11 +297,11 @@ abstract class GenBCode extends BCodeOptInter {
 
       def visit(item: Item2) {
 
-        if(settings.isIntraMethodOptimizOn || settings.isInterProcOptimizOn) {
+        if(settings.isIntraMethodOptimizOn) {
           (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() mutates those dclosures cnode is responsible for.
         }
 
-        if(!settings.isInterProcOptimizOn) {
+        if(!settings.isInterBasicOptimizOn) {
           addToQ3(item)
         } else {
           /* A master classes and the dclosures it's responsible for are transformed together by BCodeCleanser.cleanseClass().
@@ -365,7 +365,7 @@ abstract class GenBCode extends BCodeOptInter {
       mirrorCodeGen   = new JMirrorBuilder(  needsOutfileForSymbol)
       beanInfoCodeGen = new JBeanInfoBuilder(needsOutfileForSymbol)
 
-      if(settings.isInterProcOptimizOn) {
+      if(settings.isInterBasicOptimizOn) {
         wholeProgramThenWriteToDisk(needsOutfileForSymbol)
       } else {
         buildAndSendToDiskInParallel(needsOutfileForSymbol)
@@ -408,13 +408,13 @@ abstract class GenBCode extends BCodeOptInter {
      *        and we don't want to write to disk an old version. For details see comments in method body.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
-      assert(settings.isInterProcOptimizOn)
+      assert(settings.isInterBasicOptimizOn)
 
       // sequentially
       feedPipeline1()
       (new Worker1(needsOutfileForSymbol)).run()
       (new WholeProgramAnalysis(isMultithread = false)).optimize()
-      if(settings.isInterProcOptimizOn) {
+      if(settings.isInterBasicOptimizOn) {
         limboForDClosures.clear()
         val iter = q2.iterator()
         while(iter.hasNext) {
@@ -435,7 +435,7 @@ abstract class GenBCode extends BCodeOptInter {
     }
 
     private def buildAndSendToDiskInParallel(needsOutfileForSymbol: Boolean) {
-      assert(!settings.isInterProcOptimizOn)
+      assert(!settings.isInterBasicOptimizOn)
 
       // as soon as each individual ClassNode is ready (if needed intra-class optimized) it's also ready for disk serialization.
       new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
@@ -832,7 +832,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         addInnerClassesASM(cnode, innerClassBufferASM.toList)
 
-        if(settings.isInterProcOptimizOn) {
+        if(settings.isInterBasicOptimizOn) {
           val bt = lookupRefBType(cnode.name)
           assert(!codeRepo.containsKey(bt))
           codeRepo.classes.put(bt, cnode)
@@ -2448,7 +2448,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         } // intra-procedural optimizations
 
-        if(settings.isInterProcOptimizOn) {
+        if(settings.isInterBasicOptimizOn) {
 
           /**
            * Gather data for "method inlining".

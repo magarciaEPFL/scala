@@ -202,7 +202,7 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode's optimizer
    */
   val neo = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
-                           List("GenASM", "GenBCode", "o1", "o2"), "o2") // TODO once merge into trunk "GenASM" should be the default
+                           List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"), "o2") // TODO once merge into trunk "GenASM" should be the default
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -233,7 +233,10 @@ trait ScalaSettings extends AbsScalaSettings
 
   def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
 
-  def isIntraMethodOptimizOn = (neo.value == "o1")
-  def isInterProcOptimizOn   = (neo.value == "o2")
+  def neoLevel: Int           = neo.value.substring(1).toInt
+  def isIntraMethodOptimizOn  = (neoLevel >= 1)
+  def isInterBasicOptimizOn   = (neoLevel >= 2)
+  def isInterClosureOptimizOn = (neoLevel >= 3)
+  def isInterTraitOptimizOn   = (neoLevel >= 4)
 
 }

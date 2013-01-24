@@ -169,7 +169,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
     val staticMaker         = new asm.optimiz.StaticMaker()
 
-    val isInterProcOptimizOn   = settings.isInterProcOptimizOn
+    val isInterClosureOptimizOn = settings.isInterClosureOptimizOn
 
     /**
      *  The intra-method optimizations below are performed until a fixpoint is reached.
@@ -233,14 +233,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
         // (2) intra-class
         keepGoing  = privatCompacter()
 
-        if(isInterProcOptimizOn) {
+        if(isInterClosureOptimizOn) {
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= shakeAndMinimizeClosures(cnode)
         }
 
       } while(keepGoing)
 
-      if(isInterProcOptimizOn) {
+      if(isInterClosureOptimizOn) {
         minimizeDClosureAllocations(cnode)
         closureCachingAndEviction(cnode)
       }
@@ -271,10 +271,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
           unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
 
-          if(settings.debug.value) {
-            runTypeFlowAnalysis(mnode)
-          }
-          runTypeFlowAnalysis(mnode) // TODO debug
+          // if(settings.debug.value) {
+            runTypeFlowAnalysis(mnode) // TODO debug
+          // }
         }
       }
 
