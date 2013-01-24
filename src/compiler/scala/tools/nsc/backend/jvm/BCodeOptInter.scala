@@ -71,7 +71,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * -----------------------------------
    *
    * "delegating closure": (dclosure for short) an anonymous-closure-class
-   *                       created by UnCurry's `closureConversionMethodHandle()`.
+   *                       created by UnCurry's `closureConversionModern()`.
    *
    * "dclosure endpoint":  method consisting of the closure's body, its name contains "dlgt$".
    *
@@ -1565,7 +1565,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * stack-allocates the anonymous closures received as arguments.
      *
      * "Stack-allocating" in the sense of "scalar replacement of aggregates" (see also "object fusion").
-     * This can always be done for closures converted in UnCurry via `closureConversionMethodHandle()`
+     * This can always be done for closures converted in UnCurry via `closureConversionModern()`
      * a conversion that has the added benefit of minimizing pointer-chasing (heap navigation).
      *
      *
@@ -1601,7 +1601,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * closure-methods: apply() which possibly forwards to a specialized variant after unboxing some of its arguments.
      *                  For a closure converted in UnCurry:
-     *                    - via `closureConversionMethodHandle()` there are no additional closure-methods.
+     *                    - via `closureConversionModern()` there are no additional closure-methods.
      *                    - via `closureConversionTraditional()`  those methods that were local to the source-level apply()
      *                      also become closure-methods after lambdalift.
      *
@@ -2119,7 +2119,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       /**
        *  As part of building staticHiO, closure-usages in hiO are replaced by either:
        *    (a) self-contained code snippets; or
-       *    (b) invocation to the delegate created during `closureConversionMethodHandle()`
+       *    (b) invocation to the delegate created during `closureConversionModern()`
        *
        *  In both cases the snippet of instructions to paste (let's call it "stub") should:
        *    (c) avoid using the closure's THIS; and
@@ -3776,7 +3776,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
  *
  *  In particular after inlining:
  *    (a) what used to be local-method; or
- *    (b) the delegate invoked by a closure converted via "closureConversionMethodHandle()"
+ *    (b) the delegate invoked by a closure converted via "closureConversionModern()"
  *
  *  In addition to not escaping, there should be no doubt as to what Ref value is being manipulated
  *  (e.g., merging two Refs prevents from "un-wrapping" it). This can be checked
