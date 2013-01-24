@@ -203,7 +203,8 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val neo = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
                            List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"), "o2") // TODO once merge into trunk "GenASM" should be the default
-  val emitMH = BooleanSetting("-emitMH", "(Requires -target:jvm-1.7 or higher) Anonymous closures use JSR-292 MethodHandles.")
+  val closureConv = ChoiceSetting ("-closureConversion", "closure desugaring", "Code generation approach for anonymous closures.",
+                                   List("traditional", "delegating", "methodhandle"), "delegating") // see interdependency with -neo in `checkIncompatibleSettings()`
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -240,7 +241,7 @@ trait ScalaSettings extends AbsScalaSettings
    *
    *    case 0 => Just emit trees as delivered by CleanUp, -neo indicates whether GenASM or GenBCode is to be used.
    *
-   *    case 1 => Strictly intra-method optimizations, ie no inlining, no closure optimizations.
+   *    case 1 => Intra-method optimizations only, ie no inlining, no closure optimizations.
    *              Implies GenBCode code emitter. For details on individual transforms see `BCodeCleanser.cleanseClass()`
    *
    *    case 2 => Method inlining and closure stack-allocation, without "advanced" closure optimization.
@@ -257,5 +258,25 @@ trait ScalaSettings extends AbsScalaSettings
   def isInterBasicOptimizOn   = (neoLevel >= 2)
   def isInterClosureOptimizOn = (neoLevel >= 3)
   def isInterTraitOptimizOn   = (neoLevel >= 4)
+
+  /**
+   *  Appraches to lower anonymous closures:
+   *
+   *    case "traditional"  => Good ol' dedicated inner class for each closure.
+   *                           Available under GenASM (the only option there), and also with GenBCode but only up to -neo:o1.
+   *
+   *    case "delegating"   => aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
+   *                           thus lowering the working set during compilation.
+   *                           Allows closure-related optimizations (actually all optimization levels are supported).
+   *
+   *    case "methodhandle" => A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
+   *                           is given as constructor-argument to a *standard* closure-class
+   *                           (thus doing away with the need for as many individual classes as closure definitions).
+   *                           Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode.
+   *
+   * */
+  def isClosureConvTraditional = (closureConv.value == "traditional")
+  def isClosureConvDelegating  = (closureConv.value == "delegating")
+  def isClosureConvMH          = (closureConv.value == "methodhandle")
 
 }
