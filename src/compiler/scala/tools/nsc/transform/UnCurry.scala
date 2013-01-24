@@ -223,12 +223,13 @@ abstract class UnCurry extends InfoTransform
         // nullary or parameterless
         case fun1 if fun1 ne fun => fun1
         case _ =>
-          if((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value || !settings.isInterBasicOptimizOn) {
-            // checking inConstructorFlag prevents hitting SI-6666
+          // checking inConstructorFlag prevents hitting SI-6666
+          val cantConvertModern = ((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value)
+          if(cantConvertModern || settings.isClosureConvTraditional) {
             closureConversionTraditional(fun)
           }
           else {
-            closureConversionMethodHandle(fun)
+            closureConversionModern(fun)
           }
       }
     }
@@ -352,7 +353,7 @@ abstract class UnCurry extends InfoTransform
      *  TODO Compiling the compiler with `closureConversionMethodHandle()` active results in weird Infer.scala behavior unless the following workaround is used:
      *       https://github.com/magarciaEPFL/scala/commit/3e7a3519d13d006bd34016c130b94605d5ea441f
      */
-    def closureConversionMethodHandle(fun: Function): Tree = {
+    def closureConversionModern(fun: Function): Tree = {
       val parents = (
         if (isFunctionType(fun.tpe)) addSerializable(abstractFunctionForFunctionType(fun.tpe))
         else addSerializable(ObjectClass.tpe, fun.tpe)

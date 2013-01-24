@@ -1377,6 +1377,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
     private def checkIncompatibleSettings(unit: CompilationUnit) {
 
+          def complain(msg: String) { unit.error(NoPosition, msg) }
+
       // ------------ ICode and GenBCode exclude each other
 
       val c1 = settings.isICodeAskedFor
@@ -1394,19 +1396,39 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         if (settings.writeICode.isSetByUser) { whyICode ::= settings.writeICode.name }
         if (settings.neo.value == "GenASM")  { whyICode ::= settings.neo.toString }
 
-        unit.error(
-          NoPosition,
+        complain(
           s"Settings ${whyICode.mkString(" , ")} (requesting the GenASM backend) and " +
           s"${settings.neo.toString} (requesting the GenBCode backend) are contradictory."
         )
 
       }
 
-      // ------------ emitting method handles require target JDK7 or higher
+      // ------------ allowed combinations of closure-conversion approach, bytecode emitter, and target platform.
 
-      // TODO
+      if(settings.isClosureConvTraditional && (settings.neoLevel >= 2)) {
+        complain(
+          s"Optimization level ${settings.neoLevel.toString} isn't compatible with ${settings.closureConv.toString}. " +
+           "That optimization level requires -closureConversion:delegating or -closureConversion:methodhandle"
+        )
+      }
 
-    }
+      if(settings.isClosureConvDelegating || settings.isClosureConvMH) {
+        if(!settings.isBCodeActive) {
+          complain(
+            settings.closureConv.toString + " is supported by the GenBCode bytecode emitter, " +
+            "that can be activated via -neo:GenBCode , or optimization level -neo:o1 or higher."
+          )
+        }
+      }
+
+      if(settings.isClosureConvMH) {
+        val isTargetOK = (settings.target == "jvm-1.7") || (settings.target == "jvm-1.8")
+        if(!isTargetOK) {
+          complain(settings.target.toString + " does not support MethodHandles. They require -target:jvm-1.7 or higher.")
+        }
+      }
+
+    } // end of method checkIncompatibleSettings()
 
     /* An iterator returning all the units being compiled in this run */
     /* !!! Note: changing this to unitbuf.toList.iterator breaks a bunch
