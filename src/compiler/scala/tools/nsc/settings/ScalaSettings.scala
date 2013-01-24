@@ -236,20 +236,20 @@ trait ScalaSettings extends AbsScalaSettings
   def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
 
   /**
-   *  Each optimization level (neoLevel) includes all optimizations of lower levels:
+   *  Each optimization level (neoLevel) includes all optimizations from lower levels:
    *
    *    case 0 => Just emit trees as delivered by CleanUp, -neo indicates whether GenASM or GenBCode is to be used.
    *
-   *    case 1 => Strictly intra-method optimizatins, ie no inlining, no closure optimizations.
+   *    case 1 => Strictly intra-method optimizations, ie no inlining, no closure optimizations.
    *              Implies GenBCode code emitter. For details on individual transforms see `BCodeCleanser.cleanseClass()`
    *
-   *    case 2 => method inlining and closure stack-allocation, without "advanced" closure optimization.
+   *    case 2 => Method inlining and closure stack-allocation, without "advanced" closure optimization.
    *              For details on individual transforms see `WholeProgramAnalysis.inlining()`
    *
    *    case 3 => "Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching.
    *               For details see privatCompacter()  shakeAndMinimizeClosures()  minimizeDClosureAllocations() closureCachingAndEviction()
    *
-   *    case 4 => Rewiring of final methods of traits to directyl target them using invokestatic rather than invokeinterface.
+   *    case 4 => Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface.
    *
    * */
   def neoLevel: Int           = { if(neo.value.startsWith("o")) neo.value.substring(1).toInt else 0 }
