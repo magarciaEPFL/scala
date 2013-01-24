@@ -203,6 +203,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val neo = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
                            List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"), "o2") // TODO once merge into trunk "GenASM" should be the default
+  val emitMH = BooleanSetting("-emitMH", "(Requires -target:jvm-1.7 or higher) Anonymous closures use JSR-292 MethodHandles.")
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -227,13 +228,31 @@ trait ScalaSettings extends AbsScalaSettings
   /** Test whether this is scaladoc we're looking at */
   def isScaladoc = false
 
-  /** Test whether GenBCode will run instead of GenASM */
+  /**
+   * Helper utilities for the new optimizer, GenBCodeOpt
+   */
   def isBCodeActive   = !isICodeAskedFor
   def isBCodeAskedFor = (neo.value != "GenASM")
-
   def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
 
-  def neoLevel: Int           = neo.value.substring(1).toInt
+  /**
+   *  Each optimization level (neoLevel) includes all optimizations of lower levels:
+   *
+   *    case 0 => Just emit trees as delivered by CleanUp, -neo indicates whether GenASM or GenBCode is to be used.
+   *
+   *    case 1 => Strictly intra-method optimizatins, ie no inlining, no closure optimizations.
+   *              Implies GenBCode code emitter. For details on individual transforms see `BCodeCleanser.cleanseClass()`
+   *
+   *    case 2 => method inlining and closure stack-allocation, without "advanced" closure optimization.
+   *              For details on individual transforms see `WholeProgramAnalysis.inlining()`
+   *
+   *    case 3 => "Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching.
+   *               For details see privatCompacter()  shakeAndMinimizeClosures()  minimizeDClosureAllocations() closureCachingAndEviction()
+   *
+   *    case 4 => Rewiring of final methods of traits to directyl target them using invokestatic rather than invokeinterface.
+   *
+   * */
+  def neoLevel: Int           = { if(neo.value.startsWith("o")) neo.value.substring(1).toInt else 0 }
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
   def isInterBasicOptimizOn   = (neoLevel >= 2)
   def isInterClosureOptimizOn = (neoLevel >= 3)

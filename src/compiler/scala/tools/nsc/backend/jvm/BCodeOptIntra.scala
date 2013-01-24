@@ -230,10 +230,10 @@ abstract class BCodeOptIntra extends BCodeTypes {
         // (1) intra-method
         intraMethodFixpoints()
 
-        // (2) intra-class
-        keepGoing  = privatCompacter()
-
         if(isInterClosureOptimizOn) {
+          // (2) intra-class
+          keepGoing  = privatCompacter()
+
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= shakeAndMinimizeClosures(cnode)
         }
