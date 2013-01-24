@@ -270,14 +270,16 @@ the producer has its value consumed only by the DROP in question.</li>
 <tr>
 <td><code>-neo:GenBCode</code></td> <td>use the new code emitter, just emitting trees as delivered by CleanUp</td> </tr>
 <tr>
-<td><code>-neo:o1</code></td>       <td>Strictly intra-method optimizatins, ie no inlining, no closure optimizations</td> </tr>
+<td><code>-neo:o1</code></td>       <td>Intra-method optimizations only, ie no inlining, no closure optimizations</td> </tr>
 <tr>
 <td><code>-neo:o2</code></td>       <td>Method inlining and closure stack-allocation, without "advanced" closure optimization (this is the default)</td> </tr>
 <tr>
 <td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching</td> </tr>
 <tr>
 <td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
-</table><h2>Diagnostics</h2>
+</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking the default at <a href="https://github.com/magarciaEPFL/scala/blob/GenBCodeOpt/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L204">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+
+<h2>Diagnostics</h2>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
 
