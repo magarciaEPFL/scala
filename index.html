@@ -31,7 +31,7 @@
     <!-- MAIN CONTENT -->
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
-        <h1>1. Goodies</h1>
+        <h1>1 Goodies</h1>
 
 <p>This experimental branch of <code>scalac</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact. These features are compiler-only, ie the standard library available in the distribution remains unchanged.</p>
 
@@ -66,7 +66,9 @@
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code>. This option requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format that JDK8 will introduce. In the meantime,  <code>-target:jvm-1.7</code> class files can be used on that platform to leverage the latest performance improvements and bug fixes available for the JSR-292 implementation. </li>
-</ul><h1>2. Focus on the new optimizer's capabilities</h1>
+</ul><p>Implementation aspects of this work-in-progress can be found <a href="https://groups.google.com/d/msg/scala-internals/XmiWt2kcHDY/yit5pTyDFF0J">here</a></p>
+
+<h1>2 Focus on the new optimizer's capabilities</h1>
 
 <h2>2.1 Inlining</h2>
 
@@ -183,9 +185,9 @@ loop$1(scala.collection.mutable.ListBuffer,
 
 <p>These features are more useful on Android (besides micro-benchmarks) where a vast RAM doesn't masquerade redundant allocations.</p>
 
-<h2>2.3 Supported optimizations</h2>
+<h2>2.4 Supported optimizations</h2>
 
-<h3>2.3.1 Intra-method optimizations</h3>
+<h3>2.4.1 Intra-method optimizations</h3>
 
 <ul>
 <li>collapse a multi-jump chain to target its final destination via a single jump</li>
@@ -203,7 +205,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>eliding box/unbox pairs</li>
 <li>eliding redundant local vars</li>
 <li>SI-6720: Uninitialized object exists on backward branch</li>
-</ul><h3>2.3.2 Intra-class optimizations</h3>
+</ul><h3>2.4.2 Intra-class optimizations</h3>
 
 <ul>
 <li>those private members of a class which see no use are elided</li>
@@ -211,12 +213,12 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>minimization of closure-allocations</li>
 <li>add caching for closure recycling</li>
 <li>refresh the InnerClasses JVM attribute</li>
-</ul><h3>2.3.3 Whole-program optimizations</h3>
+</ul><h3>2.4.3 Whole-program optimizations</h3>
 
 <ul>
 <li>method inlining</li>
 <li>closure inlining</li>
-</ul><h1>3. Evaluation</h1>
+</ul><h1>3 Initial evaluation of the new optimizer</h1>
 
 <h2>3.1 How much does it add to compilation time?</h2>
 
@@ -255,7 +257,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <h2>3.4 Speeding up scalac</h2>
 
-<p><strong>N.B.: A speedup is expected once Leaner Closure Conversion has been fully implemented.</strong></p>
+<p><strong>N.B.: Once fully implemented, Leaner Closure Conversion is expected to improve compilation speed.</strong></p>
 
 <p>Right now the new optimizer alone doesn't make scalac run faster. That's normal: scalac is dominated by factors not optimized yet. Examples abound: </p>
 
@@ -266,7 +268,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>actually, tools like Caliper or ScalaMeter, by themselves, tell how much faster sthg runs. When building an optimizer, it's more useful to know "why" stgh runs faster (specially with 20+ optimizations at play). With some work, the toolset that Grzegorz has jumpstarted can provide those insights. </li>
 </ul><p>The new optimizer may well make <em>your</em> code run faster. To find out, give it a try.</p>
 
-<h1>Getting Started</h1>
+<h1>4 Getting Started</h1>
 
 <p>The first step is checking out branch <code>GenBCodeOpt</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
@@ -275,7 +277,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <ul>
 <li>fine grained optimization levels (shown below) to progressively move into more advanced (more recent, less tested) optimizations.</li>
 <li>backdoor to use the "old" optimizer and backend, to ease comparison. All options of the "old" optimizer are available in this case ( <code>-optimise</code> <code>-Yinline</code>  <code>-Yinline-handlers</code>  <code>-Yclosure-elim</code>  and <code>-Ydead-code</code> ).</li>
-</ul><h2>Choosing the optimization level via compiler flags</h2>
+</ul><h2>4.1 Choosing optimization level via compiler flags</h2>
 
 <p>Each optimization level includes all optimizations from lower levels. Levels <code>o1</code> and up activate the new code emitter (<code>GenBCode</code>):</p>
 
@@ -296,19 +298,37 @@ the producer has its value consumed only by the DROP in question.</li>
 <td><code>-neo:o5</code></td>       <td>Inlining of "small" private methods invoked from a single place</td> </tr>
 </table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking the default at <a href="https://github.com/magarciaEPFL/scala/blob/GenBCodeOpt/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L204">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<h2>Diagnostics</h2>
+<h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
+
+<p><strong>N.B.: this subsection describes work in progress.</strong></p>
+
+<table>
+<tr>
+<td><code>-closurify:traditional</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to -neo:o1</td> </tr>
+<tr>
+<td><code>-closurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
+<tr>
+<td><code>-closurify:MH</code></td>       <td>A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
+is given as constructor-argument to a *standard* closure-class
+(thus doing away with the need for as many individual classes as closure definitions).
+Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode</td> </tr>
+</table><p>Upon choosing conflicting flags, the compiler will not only call them out but also mention corrective action. For example, upon choosing <code>-closurify:traditional -neo:o2</code> the compiler reports:</p>
+
+<pre><code>error: Optimization level 2 isn't compatible with -closurify = traditional.
+That optimization level requires --closurify:delegating or --closurify:MH
+</code></pre>
+
+<h2>4.3 Diagnostics</h2>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
 
 <p>Another useful flag is <code>-Ygen-asmp &lt;folder&gt;</code> which similar to <code>-Ygen-javap</code> will emit textual files but in ASM format.</p>
 
-<h1>Future Work</h1>
+<h1>5 Future Work</h1>
 
 <ul>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6941">SI-6941</a> Pattern matcher inefficiency for basic constructor patterns</li>
-<li>
-<a href="https://groups.google.com/d/msg/scala-internals/XmiWt2kcHDY/yit5pTyDFF0J">Late closure classes</a> For a smaller working set during compilation, postpone the creation of AST nodes for closure classes until bytecode generation</li>
 </ul><p><code>scala.runtim.IntRef</code> and friends offer opportunities to simplify code (which in itself gains no performance, but may well trigger other optimizations that do). For example, whenever there's a single left-hand-side use of a captured value, an <code>IntRef</code> is passed around all over, even to those private methods that only require read-access. </p>
 
 <div class="highlight"><pre>  <span class="k">def</span> <span class="n">main</span><span class="o">(</span><span class="n">args</span><span class="k">:</span> <span class="kt">Array</span><span class="o">[</span><span class="kt">String</span><span class="o">])</span> <span class="o">{</span>
@@ -347,7 +367,7 @@ invokespecial   #20; //Method scala/runtime/IntRef."&lt;init&gt;":(I)V
 
 <p>to just a static invocation (of a factory method added for that common case in <code>scala.runtime.IntRef</code>). And so on so forth.</p>
 
-<h1>Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+<h1>6 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
