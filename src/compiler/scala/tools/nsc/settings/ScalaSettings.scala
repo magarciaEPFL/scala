@@ -202,7 +202,7 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode's optimizer
    */
   val neo = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
-                           List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"),
+                           List("GenASM", "GenBCode", "o1", "o2", "o3", "o4", "o5"),
                            "o2") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closureConversion", "closure desugaring", "Code generation approach for anonymous closures.",
                                    List("traditional", "delegating", "methodhandle"), // see interdependency with -neo in `checkIncompatibleSettings()`
@@ -260,6 +260,7 @@ trait ScalaSettings extends AbsScalaSettings
   def isInterBasicOptimizOn   = (neoLevel >= 2)
   def isInterClosureOptimizOn = (neoLevel >= 3)
   def isInterTraitOptimizOn   = (neoLevel >= 4)
+  def isSmallPrivateInlineOn  = (neoLevel >= 5)
 
   /**
    *  Appraches to lower anonymous closures:

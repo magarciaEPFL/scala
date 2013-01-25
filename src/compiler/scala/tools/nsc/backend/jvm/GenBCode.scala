@@ -24,7 +24,7 @@ import collection.immutable.HashMap
  *  (There's another pipeline so to speak, the one that populates queue-1 by traversing a CompilationUnit until ClassDefs are found,
  *   but the "interesting" pipelines are the ones described below)
  *
- *    (1) In the first queue, an item consists of a ClassDef along with its arrival insnval position.
+ *    (1) In the first queue, an item consists of a ClassDef along with its arrival position.
  *        This position is needed at the time classfiles are serialized to disk,
  *        so as to emit classfiles in the same order CleanUp handed them over.
  *        As a result, two runs of the compiler on the same files produce jars that are identical on a byte basis.

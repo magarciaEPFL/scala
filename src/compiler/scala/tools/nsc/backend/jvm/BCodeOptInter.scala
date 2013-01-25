@@ -890,10 +890,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // val howManyShared   : Float = closuRepo.nonMasterUsers.keySet.size
       // println("Proportion of dclosures in use by non-master to those used only from master:" howManyShared / howManyDClosures)
 
-      // val compiledClassesIter = codeRepo.classes.values().iterator()
-      // while(compiledClassesIter.hasNext) {
-      //   percolateUpwards(compiledClassesIter.next())
-      // }
+      if(settings.isSmallPrivateInlineOn) {
+        val compiledClassesIter = codeRepo.classes.values().iterator()
+        while(compiledClassesIter.hasNext) {
+          percolateUpwards(compiledClassesIter.next())
+        }
+      }
 
     }
 
@@ -2947,8 +2949,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           val callsiteIndex = caller.instructions.indexOf(callsite)
 
 
-          val txtCalee  = Util.textify(callee)
-          val txtBefore = Util.textify(caller)
+          // val txtCalee  = Util.textify(callee)
+          // val txtBefore = Util.textify(caller)
 
           val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
           tfa.analyze(cnode.name, caller)
@@ -2962,7 +2964,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               doTrackClosureUsage = true
             )
 
-          val txtAfter = Util.textify(caller)
+          // val txtAfter = Util.textify(caller)
 
           inlineOutcome match {
             case Some(problem) =>
