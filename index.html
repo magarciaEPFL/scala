@@ -31,7 +31,11 @@
     <!-- MAIN CONTENT -->
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
-        <h1>Why a new optimizer</h1>
+        <h1>1. Goodies</h1>
+
+<p>This experimental branch of <code>scalac</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact. These features are compiler-only, ie the standard library available in the distribution remains unchanged.</p>
+
+<h2>1.1 Why a new optimizer</h2>
 
 <blockquote>
 <p>Aren't <em>upcoming-silver-bullet</em> going to give us top performance, without any effort from our part?</p>
@@ -41,21 +45,30 @@
 
 <ul>
 <li>explores what can be made today to improve performance (you know, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8).</li>
-<li>while leaving a door open to future developments (closures are converted in a manner amenable to a future MethodHandle implementation).</li>
+<li>while leaving a door open to future developments (closures via method handles are <em>also</em> optimized).</li>
 <li>consisting of many focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>
 </li>
-</ul><h3>And a faster code emitter, too</h3>
+</ul><h2>1.2 And a faster code emitter, too</h2>
 
 <p>Before the new optimizer runs (<code>GenBCodeOpt</code>) a bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
 
 <ul>
 <li>the intermediate step to build Control Flow Graphs is not needed,</li>
 <li>overlapping of class file disk writing and their construction (the more source files, the larger the speedup)</li>
-</ul><p>A summary follows of the capabilities of the new optimizer I've been working on.</p>
+</ul><h2>1.3 Leaner ASTs for closures</h2>
 
-<h1>Features</h1>
+<p><strong>N.B.: this subsection describes work in progress.</strong></p>
 
-<h2>Inlining</h2>
+<p>Currently scalac processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). In this prototype, the creation of AST nodes for closures is postponed, simplifying the job of erasure, specialization, and other compiler phases. </p>
+
+<p>Under "non-traditional" closure conversion, the  bytecode emitter takes responsibility of producing the JVM-level representation of closures. The implementation-level representation can be chosen between:</p>
+
+<ul>
+<li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
+<li>JSR-292 Method Handles, when using <code>-closurify:MH</code>. This option requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format that JDK8 will introduce. In the meantime,  <code>-target:jvm-1.7</code> class files can be used on that platform to leverage the latest performance improvements and bug fixes available for the JSR-292 implementation. </li>
+</ul><h1>2. Focus on the new optimizer's capabilities</h1>
+
+<h2>2.1 Inlining</h2>
 
 <p>The inliner currently used in scalac has a few problems:</p>
 
@@ -112,7 +125,7 @@ loop$1(scala.collection.mutable.ListBuffer,
   ...
 </code></pre>
 
-<h2>Final methods in traits as fast as invokestatic, and can be inlined too</h2>
+<h2>2.2 Final methods in traits as fast as invokestatic, and can be inlined too</h2>
 
 <p>Without any developer action, a final method in a trait is invoked via <code>invokestatic</code> (before: virtual dispatch followed by forwarding to implementation class). </p>
 
@@ -128,7 +141,7 @@ loop$1(scala.collection.mutable.ListBuffer,
 <span class="o">}</span>
 </pre></div>
 
-<h2>Fewer closure allocations: Singleton closures, Closure recycling</h2>
+<h2>2.3 Fewer closure allocations: Singleton closures, Closure recycling</h2>
 
 <p>Some anonymous closures depend only on <code>apply()</code> arguments, for example the char filter function:</p>
 
@@ -170,9 +183,9 @@ loop$1(scala.collection.mutable.ListBuffer,
 
 <p>These features are more useful on Android (besides micro-benchmarks) where a vast RAM doesn't masquerade redundant allocations.</p>
 
-<h2>Supported optimizations</h2>
+<h2>2.3 Supported optimizations</h2>
 
-<h3>Intra-method optimizations</h3>
+<h3>2.3.1 Intra-method optimizations</h3>
 
 <ul>
 <li>collapse a multi-jump chain to target its final destination via a single jump</li>
@@ -190,7 +203,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>eliding box/unbox pairs</li>
 <li>eliding redundant local vars</li>
 <li>SI-6720: Uninitialized object exists on backward branch</li>
-</ul><h3>Intra-class optimizations</h3>
+</ul><h3>2.3.2 Intra-class optimizations</h3>
 
 <ul>
 <li>those private members of a class which see no use are elided</li>
@@ -198,14 +211,14 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>minimization of closure-allocations</li>
 <li>add caching for closure recycling</li>
 <li>refresh the InnerClasses JVM attribute</li>
-</ul><h3>Whole-program optimizations</h3>
+</ul><h3>2.3.3 Whole-program optimizations</h3>
 
 <ul>
 <li>method inlining</li>
 <li>closure inlining</li>
-</ul><h1>Evaluation</h1>
+</ul><h1>3. Evaluation</h1>
 
-<h2>How much does it add to compilation time?</h2>
+<h2>3.1 How much does it add to compilation time?</h2>
 
 <p>The new optimizer (except a brief whole-program component) is task-parallel:</p>
 
@@ -224,7 +237,7 @@ the producer has its value consumed only by the DROP in question.</li>
     <span class="o">)</span>
 </pre></div>
 
-<h2>Emitted code size</h2>
+<h2>3.2 Emitted code size</h2>
 
 <p>Let's take scala/scala as case study, compiling src/compiler and src/reflect together using:</p>
 
@@ -236,13 +249,15 @@ the producer has its value consumed only by the DROP in question.</li>
 <ol>
 <li><code>"Old": Total length 32'772'116, packed length 12'744'903</code></li>
 <li><code>"New": Total length 32'296'894, packed length 12'405'682</code></li>
-</ol><h2>Benchmarks</h2>
+</ol><h2>3.3 Benchmarks</h2>
 
 <p>Your input is welcome!</p>
 
-<h2>Speeding up scalac</h2>
+<h2>3.4 Speeding up scalac</h2>
 
-<p>No, it doesn't. That's normal: scalac is dominated by factors not optimized yet. Examples abound: </p>
+<p><strong>N.B.: A speedup is expected once Leaner Closure Conversion has been fully implemented.</strong></p>
+
+<p>Right now the new optimizer alone doesn't make scalac run faster. That's normal: scalac is dominated by factors not optimized yet. Examples abound: </p>
 
 <ul>
 <li>millions of <code>::</code> allocated. Neither the old nor the new optimizer are tuned to reduce that.</li>
