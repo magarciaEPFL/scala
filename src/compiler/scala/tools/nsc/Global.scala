@@ -1364,7 +1364,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     }
     private def checkQuestionableSettings(unit: CompilationUnit) {
       checkDeprecatedSettings(unit)
-      checkIncompatibleSettings(unit)
+      checkConflictingSettings(unit)
     }
     private def checkDeprecatedSettings(unit: CompilationUnit) {
       // issue warnings for any usage of deprecated settings
@@ -1375,7 +1375,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         unit.deprecationWarning(NoPosition, settings.target.name + ":" + settings.target.value + " is deprecated: use target for Java 1.6 or above.")
       }
     }
-    private def checkIncompatibleSettings(unit: CompilationUnit) {
+    private def checkConflictingSettings(unit: CompilationUnit) {
 
           def complain(msg: String) { unit.error(NoPosition, msg) }
 
@@ -1408,7 +1408,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       if(settings.isClosureConvTraditional && (settings.neoLevel >= 2)) {
         complain(
           s"Optimization level ${settings.neoLevel.toString} isn't compatible with ${settings.closureConv.toString}. " +
-           "That optimization level requires -closureConversion:delegating or -closureConversion:methodhandle"
+          s"That optimization level requires -${settings.closureConv.name}:delegating or -${settings.closureConv.name}:MH"
         )
       }
 
@@ -1416,7 +1416,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         if(!settings.isBCodeActive) {
           complain(
             settings.closureConv.toString + " is supported by the GenBCode bytecode emitter, " +
-            "that can be activated via -neo:GenBCode , or optimization level -neo:o1 or higher."
+           s"that can be activated via -${settings.neo.name}:GenBCode , or optimization level -${settings.neo.name}:o1 or higher."
           )
         }
       }
@@ -1428,7 +1428,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         }
       }
 
-    } // end of method checkIncompatibleSettings()
+    } // end of method checkConflictingSettings()
 
     /* An iterator returning all the units being compiled in this run */
     /* !!! Note: changing this to unitbuf.toList.iterator breaks a bunch
