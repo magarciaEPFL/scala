@@ -153,7 +153,7 @@ trait Types extends api.Types { self: SymbolTable =>
     }
 
     /** No sync necessary, because record should only
-     *  be called from within a undo or undoUnless block,
+     *  be called from within an undo or undoUnless block,
      *  which is already synchronized.
      */
     private[reflect] def record(tv: TypeVar) = {
@@ -234,7 +234,14 @@ trait Types extends api.Types { self: SymbolTable =>
    *  forwarded here. Some operations are rewrapped again.
    */
   trait RewrappingTypeProxy extends SimpleTypeProxy {
-    protected def maybeRewrap(newtp: Type) = if (newtp eq underlying) this else rewrap(newtp)
+    protected def maybeRewrap(newtp: Type) = (
+      if (newtp eq underlying) this
+      // BoundedWildcardTypes reach here during erroneous compilation: neg/t6258
+      // Higher-kinded exclusion is because [x]CC[x] compares =:= to CC: pos/t3800
+      // Otherwise, if newtp =:= underlying, don't rewrap it.
+      else if (!newtp.isWildcard && !newtp.isHigherKinded && (newtp =:= underlying)) this
+      else rewrap(newtp)
+    )
     protected def rewrap(newtp: Type): Type
 
     // the following are all operations in class Type that are overridden in some subclass
