@@ -127,7 +127,7 @@ loop$1(scala.collection.mutable.ListBuffer,
   ...
 </code></pre>
 
-<h2>2.2 Final methods in traits as fast as invokestatic, and can be inlined too</h2>
+<h2>2.2 Final methods in traits as fast as invokestatic, amenable to inlining too</h2>
 
 <p>Without any developer action, a final method in a trait is invoked via <code>invokestatic</code> (before: virtual dispatch followed by forwarding to implementation class). </p>
 
