@@ -202,9 +202,11 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode's optimizer
    */
   val neo = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
-                           List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"), "o2") // TODO once merge into trunk "GenASM" should be the default
+                           List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"),
+                           "o2") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closureConversion", "closure desugaring", "Code generation approach for anonymous closures.",
-                                   List("traditional", "delegating", "methodhandle"), "delegating") // see interdependency with -neo in `checkIncompatibleSettings()`
+                                   List("traditional", "delegating", "methodhandle"), // see interdependency with -neo in `checkIncompatibleSettings()`
+                                   "delegating") // TODO once merged into trunk "traditional" should be the default
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")

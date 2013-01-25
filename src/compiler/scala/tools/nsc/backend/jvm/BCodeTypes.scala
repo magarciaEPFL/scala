@@ -1177,7 +1177,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       // Additional interface parents based on annotations and other cues
       def newParentForAttr(attr: Symbol): Option[Symbol] = attr match {
-        case definitions.CloneableAttr    => Some(definitions.CloneableClass)
         case definitions.RemoteAttr       => Some(definitions.RemoteInterfaceClass)
         case _ => None
       }

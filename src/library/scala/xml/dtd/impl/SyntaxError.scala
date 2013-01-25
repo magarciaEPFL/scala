@@ -1,14 +1,20 @@
 /*                     __                                               *\
 **     ________ ___   / /  ___     Scala API                            **
-**    / __/ __// _ | / /  / _ |    (c) 2002-2013, LAMP/EPFL             **
+**    / __/ __// _ | / /  / _ |    (c) 2003-2013, LAMP/EPFL             **
 **  __\ \/ /__/ __ |/ /__/ __ |    http://scala-lang.org/               **
 ** /____/\___/_/ |_/____/_/ | |                                         **
 **                          |/                                          **
 \*                                                                      */
 
-package scala
 
-/** A common supertype for companion classes which specialization takes into account.
+
+package scala.xml.dtd.impl
+
+/** This runtime exception is thrown if an attempt to instantiate a
+ *  syntactically incorrect expression is detected.
+ *
+ *  @author  Burak Emir
+ *  @version 1.0
  */
-@deprecated("Use Specializable instead", "2.10.0")
-private[scala] trait SpecializableCompanion
+@deprecated("This class will be removed", "2.10.0")
+private[dtd] class SyntaxError(e: String) extends RuntimeException(e)
