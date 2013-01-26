@@ -320,15 +320,12 @@ abstract class UnCurry extends InfoTransform
      *
      *  TODO SI-6666 , SI-6727 (pos/z1730) . Also: not a bug but beware: SI-6730
      *
-     *  TODO In case the closure-body captures nothing AND accesses nothing from outer instances,
-     *       it need not be hoisted out of the closure and `inlineClosures()` could still stack-allocate it.
-     *
      *  TODO Related approach: https://github.com/retronym/scala/compare/topic/closure-sharing
      *       Why not constrain isSafeToUseConstantFunction to just Function whose apply()'s body has constant type?
      *       Useful e.g. with assert(cond, msg) when msg is string literal
      *       (otherwise, the anon-closure-class refers to the enclosing method, which refers to inner classes chain, not to mention the ConstantPool grows, etc.)
      *
-     *  TODO Compiling the compiler with `closureConversionModern()` active results in weird Infer.scala behavior unless the following workaround is used:
+     *  TODO Compiling the compiler with `closureConversionModern()` results in weird Infer.scala behavior unless the following workaround is used:
      *       https://github.com/magarciaEPFL/scala/commit/3e7a3519d13d006bd34016c130b94605d5ea441f
      */
     def closureConversionModern(fun: Function): Tree = {
