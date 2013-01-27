@@ -1787,7 +1787,7 @@ abstract class GenBCode extends BCodeOptInter {
               case app: Apply if false && isLateClosuresOn && uncurry.closureDelegates(app.symbol.asInstanceOf[MethodSymbol]) =>
                 // we arrive here when closureConversionModern found a Function node with Nothing return type,
                 // that it desugared into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
-                genLateClosure(app, null)
+                genLateClosure(app, tpeTK(tree))
               case _ => genLoad(expr, expectedType)
             }
 
@@ -1984,15 +1984,19 @@ abstract class GenBCode extends BCodeOptInter {
                   if (cast) r else BOOL
                 } // end of genTypeApply()
 
-            var fakeCallsite: Apply = null
-            if(isLateClosuresOn && cast) {
-              val arity = abstractFunctionArity(r)
-              if(arity != -1) {
+                def fakeCallsiteExtractor(): Apply = {
+                  if(isLateClosuresOn && cast) {
+                    val arity = abstractFunctionArity(r)
+                    if(arity != -1) {
 
 
-                fakeCallsite = null // TODO
-              }
-            }
+                      // TODO return
+                    }
+                  }
+                  null
+                }
+
+            val fakeCallsite: Apply = fakeCallsiteExtractor()
 
             generatedType =
               if(fakeCallsite == null) genTypeApply()
