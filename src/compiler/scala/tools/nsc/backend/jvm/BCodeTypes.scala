@@ -1644,6 +1644,42 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     false
   }
 
+  /**
+   *  Whether the argument is a subtype of scala.runtime.AbstractFunctionX where 0 <= X <= definitions.MaxFunctionArity
+   *
+   *  can-multi-thread
+   */
+  def isAbstractFunctionType(t: BType): Boolean = {
+    if(!t.hasObjectSort) return false
+    var idx = 0
+    val et: Tracked = exemplars.get(t)
+    while(idx < definitions.MaxFunctionArity) {
+      if(et.isSubtypeOf(AbstractFunctionReference(idx).c)) {
+        return true
+      }
+      idx += 1
+    }
+    false
+  }
+
+  /**
+   *  For an argument of exactly one of the types
+   *  scala.runtime.AbstractFunctionX where 0 <= X <= definitions.MaxFunctionArity
+   *  returns the function arity, -1 otherwise.
+   *
+   *  can-multi-thread
+   */
+  def abstractFunctionArity(t: BType): Int = {
+    var idx = 0
+    while(idx < definitions.MaxFunctionArity) {
+      if(t == AbstractFunctionReference(idx).c) {
+        return idx
+      }
+      idx += 1
+    }
+    -1
+  }
+
   /** Just a namespace for utilities that encapsulate MethodVisitor idioms.
    *  In the ASM world, org.objectweb.asm.commons.InstructionAdapter plays a similar role,
    *  but the methods here allow choosing when to transition from ICode to ASM types

@@ -118,6 +118,8 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
+    val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
+
     // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(
       32,
@@ -1780,7 +1782,14 @@ abstract class GenBCode extends BCodeOptInter {
 
           case Typed(Super(_, _), _) => genLoad(This(claszSymbol), expectedType)
 
-          case Typed(expr, _) => genLoad(expr, expectedType)
+          case Typed(expr, _) =>
+            expr match {
+              case app: Apply if false && isLateClosuresOn && uncurry.closureDelegates(app.symbol.asInstanceOf[MethodSymbol]) =>
+                // we arrive here when closureConversionModern found a Function node with Nothing return type,
+                // that it desugared into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
+                genLateClosure(app, null)
+              case _ => genLoad(expr, expectedType)
+            }
 
           case Assign(_, _) =>
             generatedType = UNIT
@@ -1936,17 +1945,18 @@ abstract class GenBCode extends BCodeOptInter {
 
           case Apply(TypeApply(fun, targs), _) =>
 
-                def genTypeApply(): BType = {
-                  val sym = fun.symbol
-                  val cast = sym match {
-                    case Object_isInstanceOf  => false
-                    case Object_asInstanceOf  => true
-                    case _                    => abort("Unexpected type application " + fun + "[sym: " + sym.fullName + "]" + " in: " + app)
-                  }
+            val sym = fun.symbol
+            val cast = sym match {
+              case Object_isInstanceOf  => false
+              case Object_asInstanceOf  => true
+              case _                    => abort("Unexpected type application " + fun + "[sym: " + sym.fullName + "]" + " in: " + app)
+            }
 
-                  val Select(obj, _) = fun
-                  val l = tpeTK(obj)
-                  val r = tpeTK(targs.head)
+            val Select(obj, _) = fun
+            val l = tpeTK(obj)
+            val r = tpeTK(targs.head)
+
+                def genTypeApply(): BType = {
                   genLoadQualifier(fun)
 
                   if (l.isValueType && r.isValueType)
@@ -1974,7 +1984,19 @@ abstract class GenBCode extends BCodeOptInter {
                   if (cast) r else BOOL
                 } // end of genTypeApply()
 
-            generatedType = genTypeApply()
+            var fakeCallsite: Apply = null
+            if(isLateClosuresOn && cast) {
+              val arity = abstractFunctionArity(r)
+              if(arity != -1) {
+
+
+                fakeCallsite = null // TODO
+              }
+            }
+
+            generatedType =
+              if(fakeCallsite == null) genTypeApply()
+              else genLateClosure(fakeCallsite, r)
 
           // 'super' call: Note: since constructors are supposed to
           // return an instance of what they construct, we have to take
@@ -2141,6 +2163,11 @@ abstract class GenBCode extends BCodeOptInter {
 
         generatedType
       } // end of GenBCode's genApply()
+
+      private def genLateClosure(fakeCallsite: Apply, closureBT: BType): BType = {
+
+        closureBT
+      } // end of GenBCode's genLateClosure()
 
       private def genArrayValue(av: ArrayValue): BType = {
         val ArrayValue(tpt @ TypeTree(), elems) = av
