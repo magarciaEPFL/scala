@@ -2167,7 +2167,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       /**
-       *  A Match node contains one or more case clauses,
+       * A Match node contains one or more case clauses,
        * each case clause lists one or more Int values to use as keys, and a code block.
        * Except the "default" case clause which (if it exists) doesn't list any Int key.
        *

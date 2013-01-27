@@ -873,7 +873,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   // scala.FunctionX and scala.PartialFunction
   var PartialFunctionReference: BType   = null
-  var FunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
+  val FunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
+  val AbstractFunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
   var AbstractPartialFunctionReference: BType = null
 
   /**
@@ -955,6 +956,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 until definitions.MaxFunctionArity) {
       FunctionReference(idx) = exemplar(FunctionClass(idx))
+      AbstractFunctionReference(idx) = exemplar(AbstractFunctionClass(idx))
     }
     AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
 

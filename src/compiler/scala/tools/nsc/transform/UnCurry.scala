@@ -57,6 +57,13 @@ abstract class UnCurry extends InfoTransform
   def newTransformer(unit: CompilationUnit): Transformer = new UnCurryTransformer(unit)
   override def changesBaseClasses = false
 
+  /**
+   *  Both UnCurry and GenBCode do part of the job for "Late closure classes".
+   *  UnCurry lowers a Function node as discussed in `closureConversionModern()`
+   *  and populates the `uncurry.closureDelegates` set with MethodSymbols of delegate method.
+   *  That information is used by GenBCode to build on the spot an AbstractFunctionX subclass + instantiation
+   *  just like UnCurry used to do.
+   * */
   val closureDelegates = mutable.Set.empty[MethodSymbol]
 
 // ------ Type transformation --------------------------------------------------------
@@ -352,8 +359,6 @@ abstract class UnCurry extends InfoTransform
         hmethDef
       }
 
-      closureDelegates += hoistedMethodDef.symbol.asInstanceOf[MethodSymbol]
-
       val zeroes: List[Tree] = (formals map gen.mkZero)
       val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 
@@ -361,6 +366,8 @@ abstract class UnCurry extends InfoTransform
       val closureType: Type = abstractFunctionForFunctionType(fun.tpe) // Serializable not yet here
 
       val callDisguisedAsClosure = gen.mkAsInstanceOf(fakeCallsite, closureType, wrapInApply = false)
+
+      closureDelegates += hoistedMethodDef.symbol.asInstanceOf[MethodSymbol]
 
       localTyper.typedPos(fun.pos) {
         Block(
