@@ -1428,6 +1428,12 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
         }
       }
 
+      // ------------ not yet implemented.
+
+      if(settings.isClosureConvMH) {
+        complain(s"-${settings.closureConv.name}:MH not yet supported.")
+      }
+
     } // end of method checkConflictingSettings()
 
     /* An iterator returning all the units being compiled in this run */
