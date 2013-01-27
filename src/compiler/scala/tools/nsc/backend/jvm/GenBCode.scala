@@ -1988,9 +1988,23 @@ abstract class GenBCode extends BCodeOptInter {
                   if(isLateClosuresOn && cast) {
                     val arity = abstractFunctionArity(r)
                     if(arity != -1) {
+                      val result =
+                        obj match {
+                          case Block(List(found), expr) =>
+                            // this case results for example from scala.runtime.AbstractFunction1[Int,Unit]
+                            // TODO assert expr is scala.runtime.BoxedUnit.UNIT . Somewhat weaker: l == Lscala/runtime/BoxedUnit;
+                            found
+                          case Apply(boxOp, List(found)) =>
+                            // this case results for example from scala.runtime.AbstractFunction1[Int,Int]
+                            // TODO assert boxOp is boxing (e.g. "scala.Int.box"). Somewhat weaker: l == Ljava/lang/Object;
+                            found
+                          case found =>
+                            // this case results for example from scala.runtime.AbstractFunction1[Int,String]
+                            // TODO assert l == delegate.resultType
+                            found
+                        }
 
-
-                      // TODO return
+                      return null // TODO result.asInstanceOf[Apply]
                     }
                   }
                   null
