@@ -1784,10 +1784,12 @@ abstract class GenBCode extends BCodeOptInter {
 
           case Typed(expr, _) =>
             expr match {
-              case app: Apply if false && isLateClosuresOn && uncurry.closureDelegates(app.symbol.asInstanceOf[MethodSymbol]) =>
+              case app: Apply if isLateClosuresOn && uncurry.closureDelegates(app.symbol.asInstanceOf[MethodSymbol]) =>
                 // we arrive here when closureConversionModern found a Function node with Nothing return type,
                 // that it desugared into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
                 genLateClosure(app, tpeTK(tree))
+
+                genLoad(expr, expectedType) // TODO remove
               case _ => genLoad(expr, expectedType)
             }
 
@@ -1994,7 +1996,7 @@ abstract class GenBCode extends BCodeOptInter {
                             // this case results for example from scala.runtime.AbstractFunction1[Int,Unit]
                             // TODO assert expr is scala.runtime.BoxedUnit.UNIT . Somewhat weaker: l == Lscala/runtime/BoxedUnit;
                             found
-                          case Apply(boxOp, List(found)) =>
+                          case Apply(boxOp, List(found)) if definitions.isBox(boxOp.symbol) =>
                             // this case results for example from scala.runtime.AbstractFunction1[Int,Int]
                             // TODO assert boxOp is boxing (e.g. "scala.Int.box"). Somewhat weaker: l == Ljava/lang/Object;
                             found
@@ -2004,7 +2006,7 @@ abstract class GenBCode extends BCodeOptInter {
                             found
                         }
 
-                      return null // TODO result.asInstanceOf[Apply]
+                      return result.asInstanceOf[Apply]
                     }
                   }
                   null
@@ -2014,7 +2016,11 @@ abstract class GenBCode extends BCodeOptInter {
 
             generatedType =
               if(fakeCallsite == null) genTypeApply()
-              else genLateClosure(fakeCallsite, r)
+              else {
+                genLateClosure(fakeCallsite, r) // TODO for now emits nothing but checks asserts
+
+                genTypeApply() // TODO remove
+              }
 
           // 'super' call: Note: since constructors are supposed to
           // return an instance of what they construct, we have to take
@@ -2183,6 +2189,15 @@ abstract class GenBCode extends BCodeOptInter {
       } // end of GenBCode's genApply()
 
       private def genLateClosure(fakeCallsite: Apply, closureBT: BType): BType = {
+        val Apply(Select(rcv, _), args) = fakeCallsite
+        val delegateSym = fakeCallsite.symbol
+
+        // checking working assumptions
+
+        val outerTK = brefType(internalName(delegateSym.owner))
+        assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
+        assert(outerTK == brefType(cnode.name)) // TODO doesn't hold in presence of delayedInit
+
 
         closureBT
       } // end of GenBCode's genLateClosure()
