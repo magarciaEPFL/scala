@@ -57,9 +57,7 @@ abstract class UnCurry extends InfoTransform
   def newTransformer(unit: CompilationUnit): Transformer = new UnCurryTransformer(unit)
   override def changesBaseClasses = false
 
-  case class ClosureAndDelegate(closureClassSymbol: ClassSymbol, delegateMethodSymbol: MethodSymbol)
-
-  var closuresAndDelegates: List[ClosureAndDelegate] = Nil
+  val closureDelegates = mutable.Set.empty[MethodSymbol]
 
 // ------ Type transformation --------------------------------------------------------
 
@@ -312,8 +310,8 @@ abstract class UnCurry extends InfoTransform
      *  Under the new scheme, loading anon-closure-classes is faster because there's less code to verify.
      *  It's true however that a "closures-via-invokedynamic" approach would further reduce that overhead
      *  (because materializing the inner class is delayed until runtime, see java/lang/invoke/LambdaMetafactory).
-     *  Another tradeoff, under a "closures-as-method-handles" approach: classloading-time vs methodhandle-initialization-time.
-     *
+     *  Another approach is "method-handle wrapped-in-closure": instead of generating a custom inner class,
+     *  all closure instances are obtained by instantiating a single common class whose single constructor argument is a MethodHandle.
      *
      *  For comparison, a discussion of the difficulties when attempting to stack-allocate closures after (a) has been performed can be found at:
      *    https://groups.google.com/d/topic/scala-internals/Hnftko0MzDM/discussion
@@ -329,10 +327,6 @@ abstract class UnCurry extends InfoTransform
      *       https://github.com/magarciaEPFL/scala/commit/3e7a3519d13d006bd34016c130b94605d5ea441f
      */
     def closureConversionModern(fun: Function): Tree = {
-      val parents = (
-        if (isFunctionType(fun.tpe)) addSerializable(abstractFunctionForFunctionType(fun.tpe))
-        else addSerializable(ObjectClass.tpe, fun.tpe)
-      )
 
       val targs = fun.tpe.typeArgs
       val (formals, restpe) = (targs.init, targs.last)
@@ -358,34 +352,20 @@ abstract class UnCurry extends InfoTransform
         hmethDef
       }
 
-      val anonClass = closureOwner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation serialVersionUIDAnnotation
-      anonClass setInfo ClassInfoType(parents, newScope, anonClass)
+      closureDelegates += hoistedMethodDef.symbol.asInstanceOf[MethodSymbol]
 
-      val applyMethodDef: DefDef = {
-        val appmethSym  = anonClass.newMethod(nme.apply, fun.pos, FINAL)
-        val appvparamsS = map2(formals, fun.vparams) {
-          (tp, param) => appmethSym.newSyntheticValueParam(tp, param.name)
-        }
-        appmethSym setInfoAndEnter MethodType(appvparamsS, restpe)
+      val zeroes: List[Tree] = (formals map gen.mkZero)
+      val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 
-        val appbody     = Apply(hoistedMethodDef.symbol, (appvparamsS map Ident): _*)
-        val amethDef    = DefDef(appmethSym, List(appvparamsS map ValDef), appbody)
+      assert(isFunctionType(fun.tpe), "Not all Function nodes have function type")
+      val closureType: Type = abstractFunctionForFunctionType(fun.tpe) // Serializable not yet here
 
-        // Have to repack the type to avoid mismatches when existentials
-        // appear in the result - see SI-4869.
-        // TODO causes NPE why? amethDef.tpt setType localTyper.packedType(appbody, appmethSym)
-        amethDef
-      }
-
-      closuresAndDelegates ::= ClosureAndDelegate(anonClass, hoistedMethodDef.symbol.asInstanceOf[MethodSymbol])
+      val callDisguisedAsClosure = gen.mkAsInstanceOf(fakeCallsite, closureType, wrapInApply = false)
 
       localTyper.typedPos(fun.pos) {
         Block(
-          List(
-            hoistedMethodDef,
-            ClassDef(anonClass, NoMods, ListOfNil, List(applyMethodDef), fun.pos)
-          ),
-          New(anonClass.tpe) // was Typed(New(anonClass.tpe), TypeTree(fun.tpe))
+          hoistedMethodDef :: Nil,
+          callDisguisedAsClosure
         )
       }
     }

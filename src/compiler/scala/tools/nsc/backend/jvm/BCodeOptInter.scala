@@ -318,8 +318,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def populateDClosureMaps() {
 
-      import uncurry.{ ClosureAndDelegate, closuresAndDelegates }
+      import uncurry.closureDelegates
       endpoint.clear()
+
+      /*
       for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
         val closureTR = exemplar(closureClassSymbol)
         assert(closureTR.isClosureClass, "Not a closure class: " + closureTR.c.getInternalName)
@@ -342,7 +344,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
         endpoint.put(closureBT, delegateMethodRef)
       }
-      closuresAndDelegates = Nil
+      */
+
+      closureDelegates.clear()
 
       for(cep <- endpoint) {
         val endpointOwningClass: BType = cep._2.ownerClass
@@ -408,7 +412,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     def clear() {
-      uncurry.closuresAndDelegates = Nil
+      uncurry.closureDelegates.clear()
       mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()
