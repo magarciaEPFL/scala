@@ -65,6 +65,9 @@ abstract class TreeInfo {
       false
   }
 
+  // TODO SI-5304 tighten this up so we don't elide side effect in module loads
+  def isQualifierSafeToElide(tree: Tree): Boolean = isExprSafeToInline(tree)
+
   /** Is tree an expression which can be inlined without affecting program semantics?
    *
    *  Note that this is not called "isExprPure" since purity (lack of side-effects)
@@ -370,6 +373,14 @@ abstract class TreeInfo {
     case _                                                          => false
   }
 
+  /** Translates an Assign(_, _) node to AssignOrNamedArg(_, _) if
+   *  the lhs is a simple ident. Otherwise returns unchanged.
+   */
+  def assignmentToMaybeNamedArg(tree: Tree) = tree match {
+    case t @ Assign(id: Ident, rhs) => atPos(t.pos)(AssignOrNamedArg(id, rhs))
+    case t                          => t
+  }
+
   /** Is name a left-associative operator? */
   def isLeftAssoc(operator: Name) = operator.nonEmpty && (operator.endChar != ':')
 
@@ -467,7 +478,7 @@ abstract class TreeInfo {
 
       tp match {
         case TypeRef(pre, sym, args) =>
-          args.isEmpty && (sym.owner.isPackageClass || isSimple(pre))
+          args.isEmpty && (sym.isTopLevel || isSimple(pre))
         case NoPrefix =>
           true
         case _ =>
@@ -604,6 +615,12 @@ abstract class TreeInfo {
         case _                      => 0
       }
       loop(tree)
+    }
+
+    override def toString = {
+      val tstr = if (targs.isEmpty) "" else targs.mkString("[", ", ", "]")
+      val astr = argss map (args => args.mkString("(", ", ", ")")) mkString ""
+      s"$core$tstr$astr"
     }
   }
 

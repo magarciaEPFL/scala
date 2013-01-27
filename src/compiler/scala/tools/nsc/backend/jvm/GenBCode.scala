@@ -1742,9 +1742,18 @@ abstract class GenBCode extends BCodeOptInter {
             generatedType = symInfoTK(sym)
             val hostClass = findHostClass(qualifier.tpe, sym)
             log(s"Host class of $sym with qual $qualifier (${qualifier.tpe}) is $hostClass")
+            val qualSafeToElide = treeInfo isQualifierSafeToElide qualifier
 
-            if (sym.isModule)            { genLoadModule(tree) }
-            else if (sym.isStaticMember) { fieldLoad(sym, hostClass) }
+            def genLoadQualUnlessElidable() { if (!qualSafeToElide) { genLoadQualifier(tree) } }
+
+            if (sym.isModule) {
+              genLoadQualUnlessElidable()
+              genLoadModule(tree)
+            }
+            else if (sym.isStaticMember) {
+              genLoadQualUnlessElidable()
+              fieldLoad(sym, hostClass)
+            }
             else {
               genLoadQualifier(tree)
               fieldLoad(sym, hostClass)

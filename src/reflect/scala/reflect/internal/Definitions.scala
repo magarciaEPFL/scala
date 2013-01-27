@@ -714,7 +714,10 @@ trait Definitions extends api.StandardDefinitions {
      *    C[E1, ..., En] forSome { E1 >: LB1 <: UB1 ... en >: LBn <: UBn }.
      */
     def classExistentialType(clazz: Symbol): Type =
-      newExistentialType(clazz.typeParams, clazz.tpe_*)
+      existentialAbstraction(clazz.typeParams, clazz.tpe_*)
+
+    def unsafeClassExistentialType(clazz: Symbol): Type =
+      existentialAbstraction(clazz.unsafeTypeParams, clazz.tpe_*)
 
     // members of class scala.Any
     lazy val Any_==       = enterNewMethod(AnyClass, nme.EQ, anyparam, booltype, FINAL)
@@ -1145,7 +1148,7 @@ trait Definitions extends api.StandardDefinitions {
       }
       def flatNameString(sym: Symbol, separator: Char): String =
         if (sym == NoSymbol) ""   // be more resistant to error conditions, e.g. neg/t3222.scala
-        else if (sym.owner.isPackageClass) sym.javaClassName
+        else if (sym.isTopLevel) sym.javaClassName
         else flatNameString(sym.owner, separator) + nme.NAME_JOIN_STRING + sym.simpleName
       def signature1(etp: Type): String = {
         if (etp.typeSymbol == ArrayClass) "[" + signature1(erasure(etp.normalize.typeArgs.head))
