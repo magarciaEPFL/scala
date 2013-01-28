@@ -13,7 +13,7 @@ import scala.tools.nsc.symtab._
 import scala.annotation.switch
 
 import scala.tools.asm
-import asm.tree.{MethodInsnNode, MethodNode}
+import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
 import collection.immutable.HashMap
 
 /**
@@ -356,11 +356,15 @@ abstract class GenBCode extends BCodeOptInter {
 
     var arrivalPos = 0
 
+    val spclztion = mutable.Map.empty[String, Option[asm.tree.ClassNode]]
+
     override def run() {
 
       arrivalPos = 0 // just in case
       scalaPrimitives.init
       initBCodeTypes()
+      clearBCodePhase()
+
       // initBytecodeWriter invokes fullName, thus we have to run it before the typer-dependent thread is activated.
       bytecodeWriter  = initBytecodeWriter(cleanup.getEntryPoints)
       val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
@@ -391,7 +395,12 @@ abstract class GenBCode extends BCodeOptInter {
 
       // clearing maps
       clearBCodeTypes()
+      clearBCodePhase()
+    }
+
+    private def clearBCodePhase() {
       limboForDClosures.clear()
+      spclztion.clear()
     }
 
     /**
@@ -2188,16 +2197,229 @@ abstract class GenBCode extends BCodeOptInter {
         generatedType
       } // end of GenBCode's genApply()
 
+      /**
+       *  Rather than emitting a fakeCallsite, the initialization of a closure instance is emitted, along with
+       *  a closure class synthesized on the spot.
+       *  The result is undistinguishable from what UnCurry, Specialization, Erasure, would have produced.
+       *
+       *  The starting point is the "fake calliste" targeting the closure entrypoint.
+       *  Structure of that callsite:
+       *
+       *    (a) it may target a static method (e.g., for closures enclosed in modules, or in implementation classes);
+       *        or an instance (to be used as outer instance by the closure).
+       *
+       *    (b) its first `arity` arguments are Trees denoting zeroes,
+       *        where arity is used throughout `genLateClosure()` as shorthand for closure-arity
+       *
+       *    (c) the remaining arguments denote non-outer captured values.
+       *        Whether an outer-instance is needed is determined by whether the delegate will be invoked via
+       *        invokevirtual or invokestatic, in turn determined by isStaticMember.
+       *
+       *  The resulting closure class is registered in `codeRepo.classes`, and `exemplars`. It consists of:
+       *
+       *    (d) a single constructor taking as argument the outer value (if needed) followed by (c).
+       *    (e) a private final field for each constructor param
+       *    (f) one, two, or three "apply()" overrides to account for specialization.
+       *
+       *  @return the closure-type, ie the 2nd argument
+       * */
       private def genLateClosure(fakeCallsite: Apply, closureBT: BType): BType = {
         val Apply(Select(rcv, _), args) = fakeCallsite
-        val delegateSym = fakeCallsite.symbol
+        val arity = abstractFunctionArity(closureBT)
+
+        val delegateSym    = fakeCallsite.symbol
+        val pos            = fakeCallsite.pos
+        val isInvokeStatic = delegateSym.isStaticMember
+        val hasOuter       = !isInvokeStatic
 
         // checking working assumptions
 
+        // TODO outerTK is a poor name choice because sometimes there's no outer yet there's always a delegateOwnerTK
         val outerTK = brefType(internalName(delegateSym.owner))
+        val cnodeBT = brefType(cnode.name)
         assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
-        assert(outerTK == brefType(cnode.name)) // TODO doesn't hold in presence of delayedInit
+        assert(outerTK == cnodeBT) // TODO doesn't hold in presence of delayedInit
 
+        // relevant items to build the closure class
+
+        val delegateMT: BType = asmMethodType(delegateSym)
+
+        val closuStateBTs:   List[BType]  = {
+          val tmp = delegateMT.getArgumentTypes.toList.drop(arity)
+          if(hasOuter) outerTK :: tmp else tmp
+        }
+
+        val closuStateNames: List[String] = {
+          val tmp = delegateSym.paramss.head.drop(arity).map(p => p.name.toString)
+          if(hasOuter) nme.OUTER.toString :: tmp else tmp
+        }
+
+        val delegateApplySection: List[BType] = delegateMT.getArgumentTypes.toList.take(arity)
+
+
+            /** primitive and void erase to themselves, all others (including arrays) to j.l.Object */
+            def spzldErasure(bt: BType): BType = { if(bt.isPrimitiveOrVoid) bt else ObjectReference }
+            def spzldDescriptors(bts: List[BType]): List[String] = {
+              bts map { bt => spzldErasure(bt).getDescriptor }
+            }
+
+        /*
+         * method descriptor for the "ultimate apply" ie the final destination after
+         * redirection over plumbing apply's, if you know what I mean.
+         * */
+        val ultimateApplyDescriptor: String = {
+          spzldDescriptors(delegateApplySection).mkString("(", "", ")") +
+          spzldErasure(delegateMT.getReturnType).getDescriptor
+        }
+
+            /**
+             *  @param candidate internal name of the AbstractFunctionX presumed-subclass whose specializedness is being checked
+             * */
+            def isValidSpclztion(candidate: String): Boolean = {
+              // TODO the proper thing would be to check the most up-to-date info, ie Symbols
+              val spOpt: Option[asm.tree.ClassNode] = spclztion.getOrElse(candidate, null)
+              spOpt match {
+
+                case null =>
+                  // on purpose not adding to codeRepo, for we don't know whether `candidate` is being compiled.
+                  val dotName = candidate.replace('/', '.')
+                  classPath.findSourceFile(dotName) match {
+
+                    case Some(classFile) =>
+                      val cn = new asm.tree.ClassNode()
+                      val cr = new asm.ClassReader(classFile.toByteArray)
+                      cr.accept(cn, asm.ClassReader.SKIP_FRAMES)
+                      spclztion.put(candidate, Some(cn))
+                      true
+
+                    case _ =>
+                      spclztion.put(candidate, None)
+                      false
+                  }
+
+                case opt => opt.nonEmpty
+              }
+            }
+
+            def getSuperClassName(): String = {
+              if(arity <= 2) { // TODO for now hardcoded
+
+                val maybeSpzld = {
+                  (delegateApplySection exists { bt => bt.isNonUnitValueType } ) ||
+                  (delegateMT.getReturnType.isPrimitiveOrVoid)
+                }
+
+                if(maybeSpzld) {
+                  val key = {
+                    spzldErasure(delegateMT.getReturnType).getDescriptor +
+                    spzldDescriptors(delegateApplySection).mkString
+                  }
+                  val candidate = closureBT.getInternalName + "$mc" + key + "$sp"
+
+                  if(isValidSpclztion(candidate)) { return candidate }
+                }
+
+              }
+
+              val nonSpzld = closureBT.getInternalName
+              assert(!closureBT.getInternalName.contains('$'), s"Unexpected specialized AbstractFunction: $nonSpzld")
+
+              nonSpzld
+            }
+
+        val superClassName: String = getSuperClassName()
+        val superClassBT = brefType(superClassName)
+
+
+            /**
+             *  Initializes a ClassNode for the closure class.
+             *  Except for the apply methods everything else is added: parents, fields, and constructor.
+             * */
+            def createAnonClosu(): asm.tree.ClassNode = {
+              val c = new asm.tree.ClassNode() // interfaces, innerClasses, fields, methods
+
+              val simpleName = cunit.freshTypeName(cnode.name + nme.ANON_FUN_NAME.toString).toString
+              c.name         = {
+                val pak = cnodeBT.getRuntimePackage
+                if(pak.isEmpty) simpleName else (pak + "/" + simpleName)
+              }
+              c.version      = classfileVersion
+              c.access       = asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL | asm.Opcodes.ACC_SUPER // TODO is ACC_SUPER also needed?
+              c.superName    = superClassName
+
+              c.interfaces.add(scalaSerializableReference.getInternalName)
+              addSerialVUID(0, c)
+
+              c.outerClass      = outerTK.getInternalName // internal name of the enclosing class of the class
+              c.outerMethod     = mnode.name              // name of the method that contains the class
+              c.outerMethodDesc = mnode.desc              // descriptor of the method that contains the class
+
+              // add closure state (fields)
+              for(Pair(name, bt) <- closuStateNames.zip(closuStateBTs)) {
+                val fn = new FieldNode(
+                  asm.Opcodes.ACC_PRIVATE | asm.Opcodes.ACC_FINAL,
+                  name, bt.getDescriptor,
+                  null, null
+                )
+                c.fields.add(fn)
+              }
+
+                def createClosuCtor(): asm.tree.MethodNode = {
+
+                  val ctorDescr = {
+                    // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
+                    BType.getMethodType(BType.VOID_TYPE, closuStateBTs.toArray).getDescriptor
+                  }
+
+                  val ctor = new asm.tree.MethodNode(
+                    asm.Opcodes.ASM4, asm.Opcodes.ACC_PUBLIC,
+                    "<init>", ctorDescr,
+                    null, null
+                  )
+
+                     def loadTHIS() { ctor.visitVarInsn(asm.Opcodes.ALOAD, 0) }
+
+                     def loadLocal(idx: Int, tk: BType) {
+                        ctor.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
+                      }
+
+                  /*
+                   *  ALOAD 0
+                   *  INVOKESPECIAL scala/runtime/AbstractFunctionX.<init> ()V // or a specialized subclass
+                   *  ... init fields from params
+                   *  RETURN
+                   *
+                   */
+                  loadTHIS()
+                  ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, superClassName, "<init>", "()V")
+                  var paramIdx = 1
+                  import collection.convert.Wrappers.JListWrapper
+                  for(Pair(fieldName, fieldType) <- closuStateNames.zip(closuStateBTs)) {
+                    loadTHIS()
+                    loadLocal(paramIdx, fieldType)
+                    ctor.visitFieldInsn(asm.Opcodes.PUTFIELD, c.name, fieldName, fieldType.getDescriptor)
+                    paramIdx += fieldType.getSize
+                  }
+                  ctor.visitInsn(asm.Opcodes.RETURN)
+                  // TODO is it really necessary emitting instructions to check for $outer non-nullness?
+                  // If needed after all, let a scala.runtime utility (a static method) encapsulate that boilerplate.
+
+                  // asm.optimiz.Util.computeMaxLocalsMaxStack(ctor)
+                  ctor
+                }
+
+              c.methods.add(createClosuCtor())
+
+              c
+            } // end of method createAnonClosu()
+
+        val closuCNode = createAnonClosu()
+
+        val txtClosuClass = asm.optimiz.Util.textify(closuCNode)
+
+        val capturedArgs = args.drop(arity)
+
+        // TODO codeRepo.classes, exemplars, eventually add closuCNode to q2
 
         closureBT
       } // end of GenBCode's genLateClosure()

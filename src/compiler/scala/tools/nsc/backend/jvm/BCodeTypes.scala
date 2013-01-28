@@ -842,6 +842,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   var ThrowableReference       : BType = null
   var jlCloneableReference     : BType = null // java/lang/Cloneable
   var jioSerializableReference : BType = null // java/io/Serializable
+  var scalaSerializableReference  : BType = null // scala/Serializable
   var classCastExceptionReference : BType = null // java/lang/ClassCastException
   val StringBuilderClassName   = "scala/collection/mutable/StringBuilder"
 
@@ -951,6 +952,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     ThrowableReference          = exemplar(ThrowableClass).c
     jlCloneableReference        = exemplar(JavaCloneableClass).c
     jioSerializableReference    = exemplar(JavaSerializableClass).c
+    scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
 
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
