@@ -15,6 +15,7 @@ import scala.annotation.switch
 import scala.tools.asm
 import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
 import collection.immutable.HashMap
+import collection.convert.Wrappers.JListWrapper
 
 /**
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -356,7 +357,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     var arrivalPos = 0
 
-    val spclztion = mutable.Map.empty[String, Option[asm.tree.ClassNode]]
+    val spclztion = mutable.Map.empty[String, asm.tree.ClassNode]
 
     override def run() {
 
@@ -2263,45 +2264,81 @@ abstract class GenBCode extends BCodeOptInter {
               bts map { bt => spzldErasure(bt).getDescriptor }
             }
 
-        /*
-         * method descriptor for the "ultimate apply" ie the final destination after
-         * redirection over plumbing apply's, if you know what I mean.
-         * */
-        val ultimateApplyDescriptor: String = {
-          spzldDescriptors(delegateApplySection).mkString("(", "", ")") +
-          spzldErasure(delegateMT.getReturnType).getDescriptor
-        }
+            /** "isolated" because on purpose not adding to codeRepo, for we don't know whether `candidate` is being compiled. */
+            def isolatedClassLoad(iname: String): asm.tree.ClassNode = {
+              val dotName = iname.replace('/', '.')
+              classPath.findSourceFile(dotName) match {
+
+                case Some(classFile) =>
+                  val cn = new asm.tree.ClassNode()
+                  val cr = new asm.ClassReader(classFile.toByteArray)
+                  cr.accept(cn, asm.ClassReader.SKIP_FRAMES)
+                  cn
+
+                case _ =>
+                  error("As part of generating late closures, couldn't find bytecode for class" + dotName)
+                  null
+              }
+            }
 
             /**
              *  @param candidate internal name of the AbstractFunctionX presumed-subclass whose specializedness is being checked
              * */
-            def isValidSpclztion(candidate: String): Boolean = {
+            def isValidSpclztion(key: String): Boolean = {
+              val candidate = closureBT.getInternalName
               // TODO the proper thing would be to check the most up-to-date info, ie Symbols
-              val spOpt: Option[asm.tree.ClassNode] = spclztion.getOrElse(candidate, null)
-              spOpt match {
 
-                case null =>
-                  // on purpose not adding to codeRepo, for we don't know whether `candidate` is being compiled.
-                  val dotName = candidate.replace('/', '.')
-                  classPath.findSourceFile(dotName) match {
+              val spCNode: asm.tree.ClassNode = spclztion.getOrElseUpdate(candidate, isolatedClassLoad(candidate))
 
-                    case Some(classFile) =>
-                      val cn = new asm.tree.ClassNode()
-                      val cr = new asm.ClassReader(classFile.toByteArray)
-                      cr.accept(cn, asm.ClassReader.SKIP_FRAMES)
-                      spclztion.put(candidate, Some(cn))
-                      true
 
-                    case _ =>
-                      spclztion.put(candidate, None)
-                      false
-                  }
-
-                case opt => opt.nonEmpty
-              }
+              JListWrapper(spCNode.methods).exists(mn => mn.name == "apply" + key)
             }
 
-            def getSuperClassName(): String = {
+            /**
+             *  Two cases:
+             *
+             *  (a) In case the closure can be specialized,
+             *      the closure class to create should extend a class with name of the form s.r.AbstractFunctionX$mc...$sp ,
+             *      and override an "ultimate apply()" (ie an apply method with most-specific types)
+             *      and another (and maybe yet another) apply-methods whose task is:
+             *        - unboxing arguments,
+             *        - invoking the ultimate apply, and
+             *        - boxing the result.
+             *
+             *  (b) In case the closure can't be specialized,
+             *      the closure class to create extends closuBType, and
+             *      overrides the fully-erased apply() method corresponding to the closure's arity.
+             *
+             *  That's what this method figures out, by loading bytecode from the library we're compiling against.
+             * */
+            def takingIntoAccountSpecialization(): Pair[String, List[MethodNode]] = {
+
+                  def getUltimateAndPlumbing(mdescr: String): List[asm.tree.MethodNode] = {
+                    val closuIName = closureBT.getInternalName
+                    val spCNode = spclztion.getOrElseUpdate(closuIName, isolatedClassLoad(closuIName))
+                    val fullyErasedDescr = BType.getMethodDescriptor(ObjectReference, Array.fill(arity){ ObjectReference })
+                    val fullyErasedMNode = new asm.tree.MethodNode(
+                      asm.Opcodes.ASM4, asm.Opcodes.ACC_PUBLIC,
+                      "apply", fullyErasedDescr,
+                      null, null
+                    )
+                    val plumbings: List[asm.tree.MethodNode] =
+                       JListWrapper(spCNode.methods)
+                      .filter(mn => mn.name.startsWith("apply") && mn.desc == mdescr)
+                      .map(mn => asm.optimiz.Util.clonedMethodNode(mn).mnode)
+                      .toList
+
+                    lazy val msg = "More plumbing methods than warranted: " + plumbings.map(mn => mn.desc).mkString
+                    if(mdescr == null) { assert(plumbings.isEmpty,   msg) }
+                    else               { assert(plumbings.size == 1, msg) }
+
+                    // TODO bridge apply, for example int apply(int), is it needed? If so append to `ultimateFst`
+
+                    val ultimateFst = plumbings ::: List(fullyErasedMNode)
+
+                    ultimateFst
+                  }
+
               if(arity <= 2) { // TODO for now hardcoded
 
                 val maybeSpzld = {
@@ -2311,23 +2348,30 @@ abstract class GenBCode extends BCodeOptInter {
 
                 if(maybeSpzld) {
                   val key = {
+                    "$mc" +
                     spzldErasure(delegateMT.getReturnType).getDescriptor +
-                    spzldDescriptors(delegateApplySection).mkString
+                    spzldDescriptors(delegateApplySection).mkString +
+                    "$sp"
                   }
-                  val candidate = closureBT.getInternalName + "$mc" + key + "$sp"
-
-                  if(isValidSpclztion(candidate)) { return candidate }
+                  if(isValidSpclztion(key)) {
+                    /* method descriptor for the "ultimate apply" ie the one with primitive types. */
+                    val spzldDescr: String = {
+                      spzldDescriptors(delegateApplySection).mkString("(", "", ")") +
+                      spzldErasure(delegateMT.getReturnType).getDescriptor
+                    }
+                    return Pair(closureBT.getInternalName + key, getUltimateAndPlumbing(spzldDescr))
+                  }
                 }
 
               }
 
               val nonSpzld = closureBT.getInternalName
-              assert(!closureBT.getInternalName.contains('$'), s"Unexpected specialized AbstractFunction: $nonSpzld")
+              assert(!nonSpzld.contains('$'), s"Unexpected specialized AbstractFunction: $nonSpzld")
 
-              nonSpzld
-            }
+              Pair(nonSpzld, getUltimateAndPlumbing(null))
+            } // end of helper method takingIntoAccountSpecialization()
 
-        val superClassName: String = getSuperClassName()
+        val Pair(superClassName: String, ultimateAndPlumbing: List[MethodNode]) = takingIntoAccountSpecialization()
         val superClassBT = brefType(superClassName)
 
 
