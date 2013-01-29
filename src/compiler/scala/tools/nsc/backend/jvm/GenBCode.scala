@@ -1798,9 +1798,8 @@ abstract class GenBCode extends BCodeOptInter {
                 // we arrive here when closureConversionModern found a Function node with Nothing return type,
                 // that it desugared into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
                 genLateClosure(app, tpeTK(tree))
-
-                genLoad(expr, expectedType) // TODO remove
-              case _ => genLoad(expr, expectedType)
+              case _ =>
+                genLoad(expr, expectedType)
             }
 
           case Assign(_, _) =>
@@ -2026,11 +2025,7 @@ abstract class GenBCode extends BCodeOptInter {
 
             generatedType =
               if(fakeCallsite == null) genTypeApply()
-              else {
-                genLateClosure(fakeCallsite, r) // TODO for now emits nothing but checks asserts
-
-                genTypeApply() // TODO remove
-              }
+              else { genLateClosure(fakeCallsite, r) }
 
           // 'super' call: Note: since constructors are supposed to
           // return an instance of what they construct, we have to take
@@ -2259,9 +2254,9 @@ abstract class GenBCode extends BCodeOptInter {
 
 
             /** primitive and void erase to themselves, all others (including arrays) to j.l.Object */
-            def spzldErasure(bt: BType): BType = { if(bt.isPrimitiveOrVoid) bt else ObjectReference }
-            def spzldDescriptors(bts: List[BType]): List[String] = {
-              bts map { bt => spzldErasure(bt).getDescriptor }
+            def spclzdErasure(bt: BType): BType = { if(bt.isPrimitiveOrVoid) bt else ObjectReference }
+            def spclzdDescriptors(bts: List[BType]): List[String] = {
+              bts map { bt => spclzdErasure(bt).getDescriptor }
             }
 
             /** "isolated" because on purpose not adding to codeRepo, for we don't know whether
@@ -2359,15 +2354,15 @@ abstract class GenBCode extends BCodeOptInter {
                 if(maybeSpzld) {
                   val key = {
                     "$mc" +
-                    spzldErasure(delegateMT.getReturnType).getDescriptor +
-                    spzldDescriptors(delegateApplySection).mkString +
+                    spclzdErasure(delegateMT.getReturnType).getDescriptor +
+                    spclzdDescriptors(delegateApplySection).mkString +
                     "$sp"
                   }
                   if(isValidSpclztion(key)) {
                     /* method descriptor for the "ultimate apply" ie the one with primitive types. */
                     val spzldDescr: String = {
-                      spzldDescriptors(delegateApplySection).mkString("(", "", ")") +
-                      spzldErasure(delegateMT.getReturnType).getDescriptor
+                      spclzdDescriptors(delegateApplySection).mkString("(", "", ")") +
+                      spclzdErasure(delegateMT.getReturnType).getDescriptor
                     }
                     return Pair(castToBT.getInternalName + key, getUltimateAndPlumbing(spzldDescr))
                   }
@@ -2387,8 +2382,10 @@ abstract class GenBCode extends BCodeOptInter {
             /**
              *  Initializes a ClassNode for the closure class.
              *  Except for the apply methods everything else is added: parents, fields, and constructor.
+             *
+             *  @return the initialized closure-class, and its only constructor.
              * */
-            def createAnonClosu(): asm.tree.ClassNode = {
+            def createAnonClosu(): Pair[asm.tree.ClassNode, asm.tree.MethodNode] = {
               val c = new asm.tree.ClassNode() // interfaces, innerClasses, fields, methods
 
               val simpleName = cunit.freshTypeName(cnode.name + nme.ANON_FUN_NAME.toString).toString
@@ -2462,19 +2459,43 @@ abstract class GenBCode extends BCodeOptInter {
                   ctor
                 }
 
-              c.methods.add(createClosuCtor())
+              val ctor = createClosuCtor()
+              c.methods.add(ctor)
 
-              c
+              Pair(c, ctor)
             } // end of method createAnonClosu()
 
-        val closuCNode = createAnonClosu()
+        val Pair(closuCNode, ctor) = createAnonClosu()
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
             /**
-             *  TODO documentation
+             *  A plumbing-apply needs to unbox arguments before invoking the ultimate apply,
+             *  and box the result ( in case Object is expected but void produced, insert scala.runtime.BoxedUnit.UNIT )
              * */
-            def spzldAdapt(mnode: MethodNode, from: BType, to: BType) {
-              // TODO ???
+            def spclzdAdapt(mnode: MethodNode, from: BType, to: BType) {
+              if(from == to) { return }
+              if(from.isUnitType) {
+                assert(to == ObjectReference, "Expecting j.l.Object but got: " + to)
+                // GETSTATIC scala/runtime/BoxedUnit.UNIT : Lscala/runtime/BoxedUnit;
+                val buIName = "scala/runtime/BoxedUnit"
+                mnode.visitFieldInsn(asm.Opcodes.GETSTATIC, buIName, "UNIT", buIName)
+              }
+              else if(to.isNonUnitValueType) {
+                // must be on the way towards ultimate
+                assert(from == ObjectReference, "Expecting j.l.Object but got: " + from)
+                val MethodNameAndType(mname, mdesc) = asmUnboxTo(to)
+                mnode.visitMethodInsn(asm.Opcodes.INVOKESTATIC, BoxesRunTime.getInternalName, mname, mdesc)
+              }
+              else if(from.isNonUnitValueType) {
+                // must be on the way towards ultimate
+                assert(to == ObjectReference, "Expecting j.l.Object but got: " + to)
+                val MethodNameAndType(mname, mdesc) = asmBoxTo(from)
+                mnode.visitMethodInsn(asm.Opcodes.INVOKESTATIC, BoxesRunTime.getInternalName, mname, mdesc)
+              } else {
+                assert(from.isRefOrArrayType, "Expecting array or object type but got: " + from)
+                assert(to.isRefOrArrayType,   "Expecting array or object type but got: " + to)
+                mnode.visitTypeInsn(asm.Opcodes.CHECKCAST, to.getInternalName)
+              }
             }
 
             /**
@@ -2507,7 +2528,7 @@ abstract class GenBCode extends BCodeOptInter {
               var idx = 1
               for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(calleeParamsBTs)) {
                 loadLocal(idx, callerParamBT)
-                spzldAdapt(ultimate, callerParamBT, calleeParamBT)
+                spclzdAdapt(ultimate, callerParamBT, calleeParamBT)
                 idx += callerParamBT.getSize
               }
 
@@ -2526,7 +2547,7 @@ abstract class GenBCode extends BCodeOptInter {
                 delegateMT.getDescriptor
               )
 
-              spzldAdapt(ultimate, delegateMT.getReturnType, ultimateMT.getReturnType)
+              spclzdAdapt(ultimate, delegateMT.getReturnType, ultimateMT.getReturnType)
 
               ultimate.visitInsn(ultimateMT.getReturnType.getOpcode(asm.Opcodes.IRETURN))
 
@@ -2560,7 +2581,7 @@ abstract class GenBCode extends BCodeOptInter {
               var idx = 1
               for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(calleeParamsBTs)) {
                 loadLocal(idx, callerParamBT)
-                spzldAdapt(caller, callerParamBT, calleeParamBT)
+                spclzdAdapt(caller, callerParamBT, calleeParamBT)
                 idx += callerParamBT.getSize
               }
 
@@ -2571,7 +2592,7 @@ abstract class GenBCode extends BCodeOptInter {
                 ultimate.desc
               )
 
-              spzldAdapt(caller, ultimateMT.getReturnType, callerMT.getReturnType)
+              spclzdAdapt(caller, ultimateMT.getReturnType, callerMT.getReturnType)
 
               caller.visitInsn(callerMT.getReturnType.getOpcode(asm.Opcodes.IRETURN))
 
@@ -2585,9 +2606,36 @@ abstract class GenBCode extends BCodeOptInter {
           closuCNode.methods.add(plumbing)
         }
 
-        val txtClosuClass = asm.optimiz.Util.textify(closuCNode)
+        val txtClosuClass = asm.optimiz.Util.textify(closuCNode) // debug
 
-        // TODO instantiation, codeRepo.classes, exemplars, eventually add closuCNode to q2
+            def emitClosureInstantiation() {
+              // NEW, DUP
+              mnode.visitTypeInsn(asm.Opcodes.NEW, closuCNode.name)
+              mnode.visitInsn(asm.Opcodes.DUP)
+              // outer value, if any
+              val restClosureStateBTs: List[BType] =
+                if(hasOuter) {
+                  genLoad(rcv, outerTK)
+                  closuStateBTs.drop(1)
+                } else {
+                  closuStateBTs
+                }
+              // the rest of captured values
+              val capturedValues: List[Tree] = args.drop(arity)
+              assert(
+                restClosureStateBTs.size == capturedValues.size,
+                s"Mismatch btw ${restClosureStateBTs.mkString} and ${capturedValues.mkString}"
+              )
+              for(Pair(ctorParamBT, captureValue) <- restClosureStateBTs.zip(capturedValues)) {
+                genLoad(captureValue, ctorParamBT)
+              }
+              // <init> invocation
+              mnode.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, closuCNode.name, ctor.name, ctor.desc)
+            }
+
+        emitClosureInstantiation()
+
+        // TODO test for outer nullness, codeRepo.classes, exemplars, add closuCNode to q2
 
         castToBT
       } // end of GenBCode's genLateClosure()
