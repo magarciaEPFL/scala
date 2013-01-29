@@ -2388,7 +2388,9 @@ abstract class GenBCode extends BCodeOptInter {
             def createAnonClosu(): Pair[asm.tree.ClassNode, asm.tree.MethodNode] = {
               val c = new asm.tree.ClassNode() // interfaces, innerClasses, fields, methods
 
-              val simpleName = cunit.freshTypeName(cnode.name + nme.ANON_FUN_NAME.toString).toString
+              val simpleName = cunit.freshTypeName(
+                cnode.name + "$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
+              ).toString
               c.name         = {
                 val pak = cnodeBT.getRuntimePackage
                 if(pak.isEmpty) simpleName else (pak + "/" + simpleName)
@@ -2434,14 +2436,33 @@ abstract class GenBCode extends BCodeOptInter {
                       }
 
                   /*
-                   *  ALOAD 0
-                   *  INVOKESPECIAL scala/runtime/AbstractFunctionX.<init> ()V // or a specialized subclass
-                   *  ... init fields from params
-                   *  RETURN
+                   * In case of outer instance, emit the following preamble,
+                   * consisting of six instructions and a LabelNode, at the beginning of the ctor.
                    *
+                   *     ALOAD 1
+                   *     IFNONNULL L0
+                   *     NEW java/lang/NullPointerException
+                   *     DUP
+                   *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
+                   *     ATHROW
+                   *  L1:
+                   *
+                   * */
+                  if(hasOuter) {
+                    ctor.visitVarInsn(asm.Opcodes.ALOAD, 1)
+                    val lnode = new asm.tree.LabelNode(new asm.Label)
+                    ctor.instructions.add(new asm.tree.JumpInsnNode(asm.Opcodes.IFNONNULL, lnode))
+                    val jlNPE = "java/lang/NullPointerException"
+                    ctor.visitTypeInsn(asm.Opcodes.NEW, jlNPE)
+                    ctor.visitInsn(asm.Opcodes.DUP)
+                    ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, jlNPE, "<init>", "()V")
+                    ctor.visitInsn(asm.Opcodes.ATHROW)
+                    ctor.instructions.add(lnode)
+                  }
+
+                  /*
+                   *  ... init fields from params
                    */
-                  loadTHIS()
-                  ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, superClassName, "<init>", "()V")
                   var paramIdx = 1
                   import collection.convert.Wrappers.JListWrapper
                   for(Pair(fieldName, fieldType) <- closuStateNames.zip(closuStateBTs)) {
@@ -2449,12 +2470,22 @@ abstract class GenBCode extends BCodeOptInter {
                     loadLocal(paramIdx, fieldType)
                     if(hasOuter && paramIdx == 1) {
                       // TODO emit instructions to check for $outer non-nullness
-                      // In 2.100, let a scala.runtime utility added for that purpose (a static method) encapsulate that boilerplate.
+                      // TODO Scala v2.11 should let a scala.runtime static method encapsulate that boilerplate.
                     }
                     ctor.visitFieldInsn(asm.Opcodes.PUTFIELD, c.name, fieldName, fieldType.getDescriptor)
                     paramIdx += fieldType.getSize
                   }
+
+                  /*
+                   *  ALOAD 0
+                   *  INVOKESPECIAL scala/runtime/AbstractFunctionX.<init> ()V // or a specialized subclass
+                   *  RETURN
+                   *
+                   */
+                  loadTHIS()
+                  ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, superClassName, "<init>", "()V")
                   ctor.visitInsn(asm.Opcodes.RETURN)
+
                   // asm.optimiz.Util.computeMaxLocalsMaxStack(ctor)
                   ctor
                 }
