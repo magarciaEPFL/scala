@@ -2224,9 +2224,9 @@ abstract class GenBCode extends BCodeOptInter {
        *
        *  @return the closure-type, ie the 2nd argument
        * */
-      private def genLateClosure(fakeCallsite: Apply, closureBT: BType): BType = {
+      private def genLateClosure(fakeCallsite: Apply, castToBT: BType): BType = {
         val Apply(Select(rcv, _), args) = fakeCallsite
-        val arity = abstractFunctionArity(closureBT)
+        val arity = abstractFunctionArity(castToBT)
 
         val delegateSym    = fakeCallsite.symbol
         val pos            = fakeCallsite.pos
@@ -2264,7 +2264,8 @@ abstract class GenBCode extends BCodeOptInter {
               bts map { bt => spzldErasure(bt).getDescriptor }
             }
 
-            /** "isolated" because on purpose not adding to codeRepo, for we don't know whether `candidate` is being compiled. */
+            /** "isolated" because on purpose not adding to codeRepo, for we don't know whether
+              * s.r.AbstractFunctionX are being compiled in this run. */
             def isolatedClassLoad(iname: String): asm.tree.ClassNode = {
               val dotName = iname.replace('/', '.')
               classPath.findSourceFile(dotName) match {
@@ -2282,14 +2283,13 @@ abstract class GenBCode extends BCodeOptInter {
             }
 
             /**
-             *  @param candidate internal name of the AbstractFunctionX presumed-subclass whose specializedness is being checked
+             *  @param key a string of the form $mc...$sp which may be the postfix of the internal name of
+             *             an AbstractFunctionX specialized subclass.
              * */
             def isValidSpclztion(key: String): Boolean = {
-              val candidate = closureBT.getInternalName
+              val candidate = castToBT.getInternalName
               // TODO the proper thing would be to check the most up-to-date info, ie Symbols
-
               val spCNode: asm.tree.ClassNode = spclztion.getOrElseUpdate(candidate, isolatedClassLoad(candidate))
-
 
               JListWrapper(spCNode.methods).exists(mn => mn.name == "apply" + key)
             }
@@ -2298,23 +2298,29 @@ abstract class GenBCode extends BCodeOptInter {
              *  Two cases:
              *
              *  (a) In case the closure can be specialized,
-             *      the closure class to create should extend a class with name of the form s.r.AbstractFunctionX$mc...$sp ,
-             *      and override an "ultimate apply()" (ie an apply method with most-specific types)
-             *      and another (and maybe yet another) apply-methods whose task is:
+             *      the closure class to create should extend a subclass of `castToBTyoe`,
+             *      a subclass with name of the form s.r.AbstractFunctionX$mc...$sp ,
+             *      and override an "ultimate apply()" (ie an apply method with most-specific types).
+             *      Another apply-method (with "fully-erased" method signature) should also be added whose task is:
              *        - unboxing arguments,
              *        - invoking the ultimate apply, and
              *        - boxing the result.
              *
              *  (b) In case the closure can't be specialized,
-             *      the closure class to create extends closuBType, and
+             *      the closure class to create extends `castToBType`, and
              *      overrides the fully-erased apply() method corresponding to the closure's arity.
              *
              *  That's what this method figures out, by loading bytecode from the library we're compiling against.
-             * */
+             *
+             *  @return a Pair(superClassName, list-of-methods-to-override)
+             *          where the head of the method list denotes the override (in the closure-class being built)
+             *          that will invoke the delegate (so called "ultimate-apply"),
+             *          and the rest are "plumbing" methods that will invoke the aforementioned ultimate-apply.
+             **/
             def takingIntoAccountSpecialization(): Pair[String, List[MethodNode]] = {
 
                   def getUltimateAndPlumbing(mdescr: String): List[asm.tree.MethodNode] = {
-                    val closuIName = closureBT.getInternalName
+                    val closuIName = castToBT.getInternalName
                     val spCNode = spclztion.getOrElseUpdate(closuIName, isolatedClassLoad(closuIName))
                     val fullyErasedDescr = BType.getMethodDescriptor(ObjectReference, Array.fill(arity){ ObjectReference })
                     val fullyErasedMNode = new asm.tree.MethodNode(
@@ -2325,18 +2331,22 @@ abstract class GenBCode extends BCodeOptInter {
                     val plumbings: List[asm.tree.MethodNode] =
                        JListWrapper(spCNode.methods)
                       .filter(mn => mn.name.startsWith("apply") && mn.desc == mdescr)
-                      .map(mn => asm.optimiz.Util.clonedMethodNode(mn).mnode)
+                      .map(mn =>
+                         new MethodNode(
+                           asm.Opcodes.ASM4,
+                           (asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL),
+                           mn.name, mn.desc,
+                           null, null
+                         )
+                       )
                       .toList
 
                     lazy val msg = "More plumbing methods than warranted: " + plumbings.map(mn => mn.desc).mkString
                     if(mdescr == null) { assert(plumbings.isEmpty,   msg) }
                     else               { assert(plumbings.size == 1, msg) }
+                    // TODO bridge apply, for example int apply(int), is it needed? If so append to `plumbings`
 
-                    // TODO bridge apply, for example int apply(int), is it needed? If so append to `ultimateFst`
-
-                    val ultimateFst = plumbings ::: List(fullyErasedMNode)
-
-                    ultimateFst
+                    plumbings ::: List(fullyErasedMNode)
                   }
 
               if(arity <= 2) { // TODO for now hardcoded
@@ -2359,21 +2369,20 @@ abstract class GenBCode extends BCodeOptInter {
                       spzldDescriptors(delegateApplySection).mkString("(", "", ")") +
                       spzldErasure(delegateMT.getReturnType).getDescriptor
                     }
-                    return Pair(closureBT.getInternalName + key, getUltimateAndPlumbing(spzldDescr))
+                    return Pair(castToBT.getInternalName + key, getUltimateAndPlumbing(spzldDescr))
                   }
                 }
 
               }
 
-              val nonSpzld = closureBT.getInternalName
+              val nonSpzld = castToBT.getInternalName
               assert(!nonSpzld.contains('$'), s"Unexpected specialized AbstractFunction: $nonSpzld")
 
               Pair(nonSpzld, getUltimateAndPlumbing(null))
             } // end of helper method takingIntoAccountSpecialization()
 
-        val Pair(superClassName: String, ultimateAndPlumbing: List[MethodNode]) = takingIntoAccountSpecialization()
+        val Pair(superClassName, ultimate :: plumbings) = takingIntoAccountSpecialization()
         val superClassBT = brefType(superClassName)
-
 
             /**
              *  Initializes a ClassNode for the closure class.
@@ -2441,13 +2450,14 @@ abstract class GenBCode extends BCodeOptInter {
                   for(Pair(fieldName, fieldType) <- closuStateNames.zip(closuStateBTs)) {
                     loadTHIS()
                     loadLocal(paramIdx, fieldType)
+                    if(hasOuter && paramIdx == 1) {
+                      // TODO emit instructions to check for $outer non-nullness
+                      // In 2.100, let a scala.runtime utility added for that purpose (a static method) encapsulate that boilerplate.
+                    }
                     ctor.visitFieldInsn(asm.Opcodes.PUTFIELD, c.name, fieldName, fieldType.getDescriptor)
                     paramIdx += fieldType.getSize
                   }
                   ctor.visitInsn(asm.Opcodes.RETURN)
-                  // TODO is it really necessary emitting instructions to check for $outer non-nullness?
-                  // If needed after all, let a scala.runtime utility (a static method) encapsulate that boilerplate.
-
                   // asm.optimiz.Util.computeMaxLocalsMaxStack(ctor)
                   ctor
                 }
@@ -2458,14 +2468,128 @@ abstract class GenBCode extends BCodeOptInter {
             } // end of method createAnonClosu()
 
         val closuCNode = createAnonClosu()
+        val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
+
+            /**
+             *  TODO documentation
+             * */
+            def spzldAdapt(mnode: MethodNode, from: BType, to: BType) {
+              // TODO ???
+            }
+
+            /**
+             *  Adds instrucitons to the ultimate-apply (received as argument) to invoke the delegate.
+             *
+             *  TODO snippet as example to make things concrete
+             * */
+            def buildUltimateBody() {
+              ultimate.instructions = new asm.tree.InsnList
+
+                  def loadField(fieldName: String) {
+                    ultimate.visitVarInsn(asm.Opcodes.ALOAD, 0)
+                    val fieldType = fieldsMap(fieldName)
+                    ultimate.visitFieldInsn(asm.Opcodes.GETFIELD, closuCNode.name, fieldName, fieldType.getDescriptor)
+                  }
+
+                  def loadLocal(idx: Int, tk: BType) {
+                    ultimate.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
+                  }
+
+              val ultimateMT = BType.getMethodType(ultimate.desc)
+
+              // in order to invoke the delegate, load the receiver if any
+              if(hasOuter) { loadField(nme.OUTER.toString) }
+
+              // after that, load each apply-argument
+              val callerParamsBTs = ultimateMT.getArgumentTypes.toList
+              val calleeParamsBTs = delegateApplySection
+              assert(callerParamsBTs.size == calleeParamsBTs.size)
+              var idx = 1
+              for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(calleeParamsBTs)) {
+                loadLocal(idx, callerParamBT)
+                spzldAdapt(ultimate, callerParamBT, calleeParamBT)
+                idx += callerParamBT.getSize
+              }
+
+              // now it only remains to load non-outer closure-state fields
+              val restFieldNames = if(hasOuter) closuStateNames.tail else closuStateNames;
+              for(fieldName <- restFieldNames) {
+                loadField(fieldName)
+                // no adapt needed because the closure-fields were derived from the delegate's params for captured valued.
+              }
+
+              val callOpc = if(hasOuter) asm.Opcodes.INVOKEVIRTUAL else asm.Opcodes.INVOKESTATIC
+              ultimate.visitMethodInsn(
+                callOpc,
+                outerTK.getInternalName,
+                delegateSym.javaSimpleName.toString,
+                delegateMT.getDescriptor
+              )
+
+              spzldAdapt(ultimate, delegateMT.getReturnType, ultimateMT.getReturnType)
+
+              ultimate.visitInsn(ultimateMT.getReturnType.getOpcode(asm.Opcodes.IRETURN))
+
+            } // end of helper method buildUltimateBody()
+
+            /**
+             *  Emit in `caller` instructions that convey the arguments it receives
+             *  to the invocation of `ultimate` (after adapting those arguments),
+             *  also adapting the result before returning.
+             *
+             *  TODO snippet as example to make things concrete
+             * */
+            def buildPlumbingBody(caller: MethodNode) {
+
+              caller.instructions = new asm.tree.InsnList
+
+                  def loadLocal(idx: Int, tk: BType) {
+                    caller.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
+                  }
+
+              val ultimateMT = BType.getMethodType(ultimate.desc)
+              val callerMT   = BType.getMethodType(caller.desc)
+
+              // first, load the receiver (THIS)
+              caller.visitVarInsn(asm.Opcodes.ALOAD, 0)
+
+              // then, proceed to load each apply-argument
+              val callerParamsBTs = callerMT.getArgumentTypes.toList
+              val calleeParamsBTs = ultimateMT.getArgumentTypes.toList
+              assert(callerParamsBTs.size == calleeParamsBTs.size)
+              var idx = 1
+              for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(calleeParamsBTs)) {
+                loadLocal(idx, callerParamBT)
+                spzldAdapt(caller, callerParamBT, calleeParamBT)
+                idx += callerParamBT.getSize
+              }
+
+              caller.visitMethodInsn(
+                asm.Opcodes.INVOKEVIRTUAL,
+                closuCNode.name,
+                ultimate.name,
+                ultimate.desc
+              )
+
+              spzldAdapt(caller, ultimateMT.getReturnType, callerMT.getReturnType)
+
+              caller.visitInsn(callerMT.getReturnType.getOpcode(asm.Opcodes.IRETURN))
+
+            } // end of helper method buildPlumbingBody()
+
+        buildUltimateBody()
+        closuCNode.methods.add(ultimate)
+
+        for(plumbing <- plumbings) {
+          buildPlumbingBody(plumbing)
+          closuCNode.methods.add(plumbing)
+        }
 
         val txtClosuClass = asm.optimiz.Util.textify(closuCNode)
 
-        val capturedArgs = args.drop(arity)
+        // TODO instantiation, codeRepo.classes, exemplars, eventually add closuCNode to q2
 
-        // TODO codeRepo.classes, exemplars, eventually add closuCNode to q2
-
-        closureBT
+        castToBT
       } // end of GenBCode's genLateClosure()
 
       private def genArrayValue(av: ArrayValue): BType = {
