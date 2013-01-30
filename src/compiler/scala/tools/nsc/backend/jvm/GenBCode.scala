@@ -853,15 +853,30 @@ abstract class GenBCode extends BCodeOptInter {
 
         gen(cd.impl)
 
-        addInnerClassesASM(cnode, innerClassBufferASM.toList)
+        assert(cd.symbol == claszSymbol, "Someone messed up BCodePhase.claszSymbol during genPlainClass().")
+
+        // ----------- all classes compiled in this run land in codeRepo.classes
 
         if(settings.isInterBasicOptimizOn) {
-          val bt = lookupRefBType(cnode.name)
-          assert(!codeRepo.containsKey(bt))
-          codeRepo.classes.put(bt, cnode)
+
+              def trackInRepo(compiled: asm.tree.ClassNode) {
+                val bt = lookupRefBType(compiled.name)
+                assert(!codeRepo.containsKey(bt))
+                codeRepo.classes.put(bt, compiled)
+              }
+
+          trackInRepo(cnode)
+          for(lateC <- lateClosures) { trackInRepo(lateC) }
         }
 
-        assert(cd.symbol == claszSymbol, "Someone messed up BCodePhase.claszSymbol during genPlainClass().")
+        // ----------- track late closures in exemplars (cnode already tracked by virtue of initJClass() )
+
+        // ----------- populate InnerClass JVM attribute, including late closure classes
+
+        val refedInnerClasses = {
+          innerClassBufferASM.toList // ::: lateClosures.map(lateC => lookupRefBType(lateC.name))
+        }
+        addInnerClassesASM(cnode, refedInnerClasses) // this requires exemplars to track each `refedInnerClasses`
 
       } // end of method genPlainClass()
 
@@ -2683,7 +2698,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         lateClosures ::= closuCNode
 
-        // TODO codeRepo.classes, exemplars
+        // TODO exemplars, InnerClass, populateDClosureMaps, remove txtClosuClass
 
         castToBT
       } // end of PlainClassBuilder's genLateClosure()
