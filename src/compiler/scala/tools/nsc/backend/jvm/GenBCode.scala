@@ -894,10 +894,17 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- populate InnerClass JVM attribute, including late closure classes
 
+        val lateClosuresBTs: List[BType] = lateClosures.map(lateC => lookupRefBType(lateC.name))
         val refedInnerClasses = {
-          innerClassBufferASM.toList ::: lateClosures.map(lateC => lookupRefBType(lateC.name))
+          lateClosuresBTs ::: innerClassBufferASM.toList
         }
         addInnerClassesASM(cnode, refedInnerClasses) // this requires exemplars to already track each `refedInnerClasses`
+
+        for(Pair(lateC, lateBT) <- lateClosures.zip(lateClosuresBTs)) {
+          // under -closurify:delegating or -closurify:MH , an anon-closure-class has itself no member classes.
+          exemplars.get(lateBT).directMemberClasses = Nil
+          refreshInnerClasses(lateC)
+        }
 
       } // end of method genPlainClass()
 
@@ -2387,7 +2394,8 @@ abstract class GenBCode extends BCodeOptInter {
                     val spCNode = spclztion.getOrElseUpdate(closuIName, isolatedClassLoad(closuIName))
                     val fullyErasedDescr = BType.getMethodDescriptor(ObjectReference, Array.fill(arity){ ObjectReference })
                     val fullyErasedMNode = new asm.tree.MethodNode(
-                      asm.Opcodes.ASM4, asm.Opcodes.ACC_PUBLIC,
+                      asm.Opcodes.ASM4,
+                      (asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL),
                       "apply", fullyErasedDescr,
                       null, null
                     )
@@ -2576,8 +2584,7 @@ abstract class GenBCode extends BCodeOptInter {
               if(from.isUnitType) {
                 assert(to == ObjectReference, "Expecting j.l.Object but got: " + to)
                 // GETSTATIC scala/runtime/BoxedUnit.UNIT : Lscala/runtime/BoxedUnit;
-                val buIName = "scala/runtime/BoxedUnit"
-                mnode.visitFieldInsn(asm.Opcodes.GETSTATIC, buIName, "UNIT", buIName)
+                mnode.visitFieldInsn(asm.Opcodes.GETSTATIC, srBoxedUnit.getInternalName, "UNIT", srBoxedUnit.getDescriptor)
               }
               else if(to.isNonUnitValueType) {
                 // must be on the way towards ultimate
@@ -2591,9 +2598,12 @@ abstract class GenBCode extends BCodeOptInter {
                 val MethodNameAndType(mname, mdesc) = asmBoxTo(from)
                 mnode.visitMethodInsn(asm.Opcodes.INVOKESTATIC, BoxesRunTime.getInternalName, mname, mdesc)
               } else {
-                assert(from.isRefOrArrayType, "Expecting array or object type but got: " + from)
-                assert(to.isRefOrArrayType,   "Expecting array or object type but got: " + to)
-                mnode.visitTypeInsn(asm.Opcodes.CHECKCAST, to.getInternalName)
+                // no need to CHECKCAST the result of a method that returns Lscala/runtime/Nothing$;
+                if(!from.isNothingType) {
+                  assert(from.isRefOrArrayType, "Expecting array or object type but got: " + from)
+                  assert(to.isRefOrArrayType,   "Expecting array or object type but got: " + to)
+                  mnode.visitTypeInsn(asm.Opcodes.CHECKCAST, to.getInternalName)
+                }
               }
             }
 

@@ -836,6 +836,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val srFloatRef   = brefType("scala/runtime/FloatRef")
   val srDoubleRef  = brefType("scala/runtime/DoubleRef")
 
+  val srBoxedUnit  = brefType("scala/runtime/BoxedUnit")
+
   val ObjectReference   = brefType("java/lang/Object")
   val AnyRefReference   = ObjectReference
   val objArrayReference = arrayOf(ObjectReference)
@@ -843,6 +845,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   var StringReference          : BType = null
   var ThrowableReference       : BType = null
   var jlCloneableReference     : BType = null // java/lang/Cloneable
+  var jlNPEReference           : BType = null // java/lang/NullPointerException
   var jioSerializableReference : BType = null // java/io/Serializable
   var scalaSerializableReference  : BType = null // scala/Serializable
   var classCastExceptionReference : BType = null // java/lang/ClassCastException
@@ -953,6 +956,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     StringBuilderReference      = exemplar(StringBuilderClass).c
     ThrowableReference          = exemplar(ThrowableClass).c
     jlCloneableReference        = exemplar(JavaCloneableClass).c
+    jlNPEReference              = exemplar(NullPointerExceptionClass).c
     jioSerializableReference    = exemplar(JavaSerializableClass).c
     scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
@@ -966,8 +970,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       if(isLateClosuresOn) {
         /*
          * When isLaterClosuresOn, GenBCode emits bytecode binary compatible with anonymous closure classes.
-         * As part of that, GenBCode enters those classes into exemplars, thus entries for the parents of those (potentially specialized) closures
-         * should be already available in `exemplars`. That's why we enter them in advance here.
+         * As part of that, GenBCode enters those classes into exemplars, which in turn requires
+         * entries for the parents of those (potentially specialized) closures
+         * to be already available in `exemplars`.
+         * That's why we enter those parents in advance here.
          */
         val abstractFnXClazz = AbstractFunctionClass(idx)
         val subclasses =
@@ -1093,7 +1099,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     private var _directMemberClasses: List[BType] = null
 
     def directMemberClasses: List[BType] = {
-      assert(_directMemberClasses != null)
+      assert(_directMemberClasses != null, s"getter directMemberClasses() invoked too early for $c")
       _directMemberClasses
     }
 
