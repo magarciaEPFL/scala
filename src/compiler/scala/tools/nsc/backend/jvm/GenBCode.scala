@@ -254,11 +254,11 @@ abstract class GenBCode extends BCodeOptInter {
         q2 put Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC)
 
         if(pcb.lateClosures.nonEmpty) {
-          val outF = plainC.outF
+          val outFolder = plainC.outFolder
           var howMany = 0
           for(lateC <- pcb.lateClosures.reverse) {
             lateClosuresCount += 1
-            q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outF), null)
+            q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outFolder), null)
           }
         }
 
@@ -344,19 +344,19 @@ abstract class GenBCode extends BCodeOptInter {
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
           if (mirror != null) {
-            SubItem3(mirror.label, mirror.jclassName, mirror.jclass.toByteArray(), mirror.outF)
+            SubItem3(mirror.label, mirror.jclassName, mirror.jclass.toByteArray(), mirror.outFolder)
           } else null
 
         // -------------- "plain" class --------------
         val cw = new CClassWriter(extraProc)
         plain.cnode.accept(cw)
         val plainC =
-          SubItem3(plain.label, plain.cnode.name, cw.toByteArray, plain.outF)
+          SubItem3(plain.label, plain.cnode.name, cw.toByteArray, plain.outFolder)
 
         // -------------- bean info class, if needed --------------
         val beanC: SubItem3 =
           if (bean != null) {
-            SubItem3(bean.label, bean.jclassName, bean.jclass.toByteArray(), bean.outF)
+            SubItem3(bean.label, bean.jclassName, bean.jclass.toByteArray(), bean.outFolder)
           } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
@@ -2212,11 +2212,13 @@ abstract class GenBCode extends BCodeOptInter {
        *  The starting point is the "fake calliste" targeting the closure entrypoint.
        *  Structure of that callsite:
        *
-       *    (a) it may target a static method (e.g., for closures enclosed in modules, or in implementation classes);
-       *        or an instance (to be used as outer instance by the closure).
+       *    (a) it may target:
+       *          - a static method (e.g., for closures enclosed in modules, or in implementation classes);
+       *        or
+       *          - an instance (to be used as outer instance by the closure).
        *
-       *    (b) its first `arity` arguments are Trees denoting zeroes,
-       *        where arity is used throughout `genLateClosure()` as shorthand for closure-arity
+       *    (b) the leading `arity` arguments are Trees denoting zeroes.
+       *        Terminology: arity is used throughout `genLateClosure()` as shorthand for closure-arity
        *
        *    (c) the remaining arguments denote non-outer captured values.
        *        Whether an outer-instance is needed is determined by whether the delegate will be invoked via
@@ -2684,7 +2686,7 @@ abstract class GenBCode extends BCodeOptInter {
         // TODO codeRepo.classes, exemplars
 
         castToBT
-      } // end of GenBCode's genLateClosure()
+      } // end of PlainClassBuilder's genLateClosure()
 
       private def genArrayValue(av: ArrayValue): BType = {
         val ArrayValue(tpt @ TypeTree(), elems) = av

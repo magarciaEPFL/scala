@@ -359,6 +359,7 @@ abstract class UnCurry extends InfoTransform
         hmethDef
       }
 
+      // TODO reusing a singleton (already typed, from then on immutable) Tree per zero-constant would save space and time.
       val zeroes: List[Tree] = (formals map gen.mkZero)
       val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 

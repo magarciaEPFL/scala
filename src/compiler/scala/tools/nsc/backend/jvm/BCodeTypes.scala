@@ -275,27 +275,27 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  @param label      used in log messages
    *  @param jclassName internal name of the class
    *  @param jclass     bytecode emitted for the (mirror or bean) class SubItem2NonPlain represents
-   *  @param outF       folder on disk where a file will be created to serialize jclass
+   *  @param outFolder  folder on disk where a file will be created to serialize jclass
    * */
   case class SubItem2NonPlain(
     label:      String,
     jclassName: String,
     jclass:     asm.ClassWriter,
-    outF:       _root_.scala.tools.nsc.io.AbstractFile
+    outFolder:  _root_.scala.tools.nsc.io.AbstractFile
   )
 
   /**
    *  An item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains
    *  a value of this class for the plain-class denoted by that item.
    *
-   *  @param label used in log messages
-   *  @param cnode bytecode emitted for the plain-class SubItem2Plain represents
-   *  @param outF  folder on disk where a file will be created to serialize cnode
+   *  @param label     used in log messages
+   *  @param cnode     bytecode emitted for the plain-class SubItem2Plain represents
+   *  @param outFolder folder on disk where a file will be created to serialize cnode
    * */
   case class SubItem2Plain(
-    label: String,
-    cnode: asm.tree.ClassNode,
-    outF:  _root_.scala.tools.nsc.io.AbstractFile
+    label:     String,
+    cnode:     asm.tree.ClassNode,
+    outFolder: _root_.scala.tools.nsc.io.AbstractFile
   )
 
   /**
@@ -305,13 +305,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  @param label       used in log messages
    *  @param jclassName  internal name of the class
    *  @param jclassBytes bytecode emitted for the class SubItem3 represents
-   *  @param outF        folder on disk where a file will be created to serialize jclassBytes
+   *  @param outFolder   folder on disk where a file will be created to serialize jclassBytes
    * */
   case class SubItem3(
     label:       String,
     jclassName:  String,
     jclassBytes: Array[Byte],
-    outF:        _root_.scala.tools.nsc.io.AbstractFile
+    outFolder:   _root_.scala.tools.nsc.io.AbstractFile
   )
 
   /**
@@ -2315,7 +2315,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  The chain thus cached is valid during this compiler run, see in contrast
    *  `innerClassBufferASM` for a cache that is valid only for the class being emitted.
    *
-   *  The argument can be any symbol, but given that this method is invoked only from `buildExemplar()`, in practice it has been vetted to be a class-symbol.
+   *  The argument can be any symbol, but given that this method is invoked only from `buildExemplar()`,
+   *  in practice it has been vetted to be a class-symbol.
    *
    *  Returns:
    *    - a non-empty array of entries for an inner-class argument
