@@ -2748,7 +2748,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         lateClosures ::= closuCNode
 
-        // TODO exemplars, InnerClass, populateDClosureMaps, remove txtClosuClass
+        // TODO populateDClosureMaps, StringOps, remove txtClosuClass
 
         castToBT
       } // end of PlainClassBuilder's genLateClosure()
