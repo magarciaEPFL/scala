@@ -275,7 +275,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  @param label      used in log messages
    *  @param jclassName internal name of the class
    *  @param jclass     bytecode emitted for the (mirror or bean) class SubItem2NonPlain represents
-   *  @param outF       file on disk the bytes of cnode will be serialized to
+   *  @param outF       folder on disk where a file will be created to serialize jclass
    * */
   case class SubItem2NonPlain(
     label:      String,
@@ -290,7 +290,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    *  @param label used in log messages
    *  @param cnode bytecode emitted for the plain-class SubItem2Plain represents
-   *  @param outF  file on disk the bytes of cnode will be serialized to
+   *  @param outF  folder on disk where a file will be created to serialize cnode
    * */
   case class SubItem2Plain(
     label: String,
@@ -305,7 +305,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  @param label       used in log messages
    *  @param jclassName  internal name of the class
    *  @param jclassBytes bytecode emitted for the class SubItem3 represents
-   *  @param outF        file on disk the bytes of cnode will be serialized to
+   *  @param outF        folder on disk where a file will be created to serialize jclassBytes
    * */
   case class SubItem3(
     label:       String,

@@ -201,6 +201,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
+      var lateClosuresCount = 0
 
       def visit(item: Item1) {
         val Item1(arrivalPos, cd, cunit) = item
@@ -250,7 +251,16 @@ abstract class GenBCode extends BCodeOptInter {
             )
         }
 
-        q2 put Item2(arrivalPos, mirrorC, plainC, beanC)
+        q2 put Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC)
+
+        if(pcb.lateClosures.nonEmpty) {
+          val outF = plainC.outF
+          var howMany = 0
+          for(lateC <- pcb.lateClosures.reverse) {
+            lateClosuresCount += 1
+            q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outF), null)
+          }
+        }
 
       } // end of method visit(Item1)
 
@@ -555,6 +565,7 @@ abstract class GenBCode extends BCodeOptInter {
       // current class
       var cnode: asm.tree.ClassNode  = null
       var thisName: String           = null // the internal name of the class being emitted
+      var lateClosures: List[asm.tree.ClassNode] = Nil
 
       private var claszSymbol: Symbol        = null
       private var isCZParcelable             = false
@@ -2491,12 +2502,12 @@ abstract class GenBCode extends BCodeOptInter {
                 }
 
               val ctor = createClosuCtor()
-              c.methods.add(ctor)
 
               Pair(c, ctor)
             } // end of method createAnonClosu()
 
         val Pair(closuCNode, ctor) = createAnonClosu()
+        brefType(closuCNode.name) // registers the closure's internal name
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
             /**
@@ -2637,6 +2648,8 @@ abstract class GenBCode extends BCodeOptInter {
           closuCNode.methods.add(plumbing)
         }
 
+        closuCNode.methods.add(ctor)
+
         val txtClosuClass = asm.optimiz.Util.textify(closuCNode) // debug
 
             def emitClosureInstantiation() {
@@ -2666,7 +2679,9 @@ abstract class GenBCode extends BCodeOptInter {
 
         emitClosureInstantiation()
 
-        // TODO test for outer nullness, codeRepo.classes, exemplars, add closuCNode to q2
+        lateClosures ::= closuCNode
+
+        // TODO codeRepo.classes, exemplars
 
         castToBT
       } // end of GenBCode's genLateClosure()
