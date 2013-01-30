@@ -21,6 +21,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   import global._
 
+  val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
+
   object BType {
 
     import global.chrs
@@ -957,10 +959,34 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 until definitions.MaxFunctionArity) {
-      FunctionReference(idx) = exemplar(FunctionClass(idx))
-      AbstractFunctionReference(idx) = exemplar(AbstractFunctionClass(idx))
+      FunctionReference(idx)           = exemplar(FunctionClass(idx))
+      AbstractFunctionReference(idx)   = exemplar(AbstractFunctionClass(idx))
+      AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
+
+      if(isLateClosuresOn) {
+        /*
+         * When isLaterClosuresOn, GenBCode emits bytecode binary compatible with anonymous closure classes.
+         * As part of that, GenBCode enters those classes into exemplars, thus entries for the parents of those (potentially specialized) closures
+         * should be already available in `exemplars`. That's why we enter them in advance here.
+         */
+        val abstractFnXClazz = AbstractFunctionClass(idx)
+        val subclasses =
+          enteringErasure {
+            val environs = specializeTypes.specializations(abstractFnXClazz.info.typeParams) filter specializeTypes.satisfiable
+
+            for(env <- environs)
+            yield specializeTypes.specializedClass(abstractFnXClazz, env)
+          }
+        for(spcClazz <- subclasses) {
+          /*
+           * Example: spcClazz.javaBinaryName == scala/runtime/AbstractFunction2$mcJJI$sp
+           * buildExemplar() also tracks the implemented interfaces, things like scala/Function0$mcB$sp
+           */
+          exemplar(spcClazz)
+        }
+      }
+
     }
-    AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
 
     initBCodeOpt()
   }
@@ -2319,8 +2345,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  in practice it has been vetted to be a class-symbol.
    *
    *  Returns:
-   *    - a non-empty array of entries for an inner-class argument
-   *      (ie the argument is inner-class itself or having an associated inner-class),
+   *
+   *    - a non-empty array of entries for an inner-class argument.
+   *      The array's first element is the outermost top-level class,
+   *      the array's last element corresponds to csym.
+   *
    *    - null otherwise.
    *
    *  This method does not add to `innerClassBufferASM`, use instead `exemplar()` for that.

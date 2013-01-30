@@ -119,8 +119,6 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
-
     // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(
       32,
@@ -869,16 +867,58 @@ abstract class GenBCode extends BCodeOptInter {
           for(lateC <- lateClosures) { trackInRepo(lateC) }
         }
 
-        // ----------- track late closures in exemplars (cnode already tracked by virtue of initJClass() )
+        // ----------- track late closures in exemplars ( cnode already tracked by virtue of initJClass() )
+
+        val trackedCNode = exemplars.get(lookupRefBType(cnode.name))
+        for(lateC <- lateClosures) {
+          val innersChain: Array[InnerClassEntry] = {
+            /*
+             * the list of classes containing a closure amounts to innersChain of its containing class
+             * with the closure appended last.
+             */
+            val closuBT  = lookupRefBType(lateC.name)
+            val closuICE = InnerClassEntry(lateC.name, cnode.name, closuBT.getSimpleName, lateC.access)
+            if(trackedCNode.innersChain == null) {
+              val outer = InnerClassEntry(cnode.name, null, null, cnode.access)
+              Array(outer, closuICE)
+            } else {
+              val arr = new Array[InnerClassEntry](trackedCNode.innersChain.size + 1)
+              trackedCNode.innersChain.copyToArray(arr)
+              arr(arr.size - 1) = closuICE
+              arr
+            }
+          }
+          val trackedClosu = buildExemplarForClassNode(lateC, innersChain)
+          exemplars.put(trackedClosu.c, trackedClosu)
+        }
 
         // ----------- populate InnerClass JVM attribute, including late closure classes
 
         val refedInnerClasses = {
-          innerClassBufferASM.toList // ::: lateClosures.map(lateC => lookupRefBType(lateC.name))
+          innerClassBufferASM.toList ::: lateClosures.map(lateC => lookupRefBType(lateC.name))
         }
-        addInnerClassesASM(cnode, refedInnerClasses) // this requires exemplars to track each `refedInnerClasses`
+        addInnerClassesASM(cnode, refedInnerClasses) // this requires exemplars to already track each `refedInnerClasses`
 
       } // end of method genPlainClass()
+
+      /**
+       *  precondition: the argument's internal name already registered as BType
+       * */
+      private def buildExemplarForClassNode(lateC: asm.tree.ClassNode, innersChain: Array[InnerClassEntry]): Tracked = {
+        val key = lookupRefBType(lateC.name)
+        assert(!exemplars.containsKey(key))
+
+        // the only interface an anonymous closure class implements is scala.Serializable,
+        val ifacesArr: Array[Tracked] =
+          if(lateC.interfaces.isEmpty) EMPTY_TRACKED_ARRAY
+          else {
+            (JListWrapper(lateC.interfaces) map lookupRefBType).map(bt => exemplars.get(bt)).toArray
+           }
+
+        val tsc: Tracked = if(lateC.superName == null) null else exemplars.get(lookupRefBType(lateC.superName))
+
+        Tracked(key, lateC.access, tsc, ifacesArr, innersChain)
+      } // end of method buildExemplarForLateClosure()
 
       /**
        * must-single-thread
