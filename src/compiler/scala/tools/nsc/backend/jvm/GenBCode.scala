@@ -847,7 +847,9 @@ abstract class GenBCode extends BCodeOptInter {
         if(optSerial.isDefined) { addSerialVUID(optSerial.get, cnode)}
 
         addClassFields()
-        innerClassBufferASM ++= trackMemberClasses(claszSymbol)
+
+        val lateClosuresBTs: List[BType] = lateClosures.map(lateC => lookupRefBType(lateC.name))
+        innerClassBufferASM ++= trackMemberClasses(claszSymbol, lateClosuresBTs)
 
         gen(cd.impl)
 
@@ -894,14 +896,11 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- populate InnerClass JVM attribute, including late closure classes
 
-        val lateClosuresBTs: List[BType] = lateClosures.map(lateC => lookupRefBType(lateC.name))
-        val refedInnerClasses = {
-          lateClosuresBTs ::: innerClassBufferASM.toList
-        }
-        addInnerClassesASM(cnode, refedInnerClasses) // this requires exemplars to already track each `refedInnerClasses`
+        // this requires exemplars to already track each `refedInnerClasses`
+        addInnerClassesASM(cnode, innerClassBufferASM.toList)
 
         for(Pair(lateC, lateBT) <- lateClosures.zip(lateClosuresBTs)) {
-          // under -closurify:delegating or -closurify:MH , an anon-closure-class has itself no member classes.
+          // under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
           exemplars.get(lateBT).directMemberClasses = Nil
           refreshInnerClasses(lateC)
         }
@@ -2267,8 +2266,10 @@ abstract class GenBCode extends BCodeOptInter {
       } // end of GenBCode's genApply()
 
       /**
+       *  This method works in tandem with UnCurry's closureConversionModern()
+       *
        *  Rather than emitting a fakeCallsite, the initialization of a closure instance is emitted, along with
-       *  a closure class synthesized on the spot.
+       *  a closure class that is synthesized on the spot.
        *  The result is undistinguishable from what UnCurry, Specialization, Erasure, would have produced.
        *
        *  The starting point is the "fake calliste" targeting the closure entrypoint.
@@ -2279,14 +2280,17 @@ abstract class GenBCode extends BCodeOptInter {
        *        or
        *          - an instance (to be used as outer instance by the closure).
        *
-       *    (b) the leading `arity` arguments are Trees denoting zeroes.
+       *    (b) leading `arity` arguments are Trees denoting zeroes.
        *        Terminology: arity is used throughout `genLateClosure()` as shorthand for closure-arity
        *
-       *    (c) the remaining arguments denote non-outer captured values.
+       *    (c) remaining arguments denote non-outer captured values.
        *        Whether an outer-instance is needed is determined by whether the delegate will be invoked via
        *        invokevirtual or invokestatic, in turn determined by isStaticMember.
        *
-       *  The resulting closure class is registered in `codeRepo.classes`, and `exemplars`. It consists of:
+       *  The resulting closure class is registered in `codeRepo.classes` and `exemplars`
+       *  by `PlainClassBuilder.plainClass()` , see `PlainClassBuilder.lateClosures`
+       *
+       *  The resulting closure consists of:
        *
        *    (d) a single constructor taking as argument the outer value (if needed) followed by (c).
        *    (e) a private final field for each constructor param
@@ -2299,9 +2303,7 @@ abstract class GenBCode extends BCodeOptInter {
         val arity = abstractFunctionArity(castToBT)
 
         val delegateSym    = fakeCallsite.symbol
-        val pos            = fakeCallsite.pos
-        val isInvokeStatic = delegateSym.isStaticMember
-        val hasOuter       = !isInvokeStatic
+        val hasOuter       = !delegateSym.isStaticMember
 
         // checking working assumptions
 
@@ -2371,7 +2373,7 @@ abstract class GenBCode extends BCodeOptInter {
              *      the closure class to create should extend a subclass of `castToBTyoe`,
              *      a subclass with name of the form s.r.AbstractFunctionX$mc...$sp ,
              *      and override an "ultimate apply()" (ie an apply method with most-specific types).
-             *      Another apply-method (with "fully-erased" method signature) should also be added whose task is:
+             *      Another apply-method (with "fully-erased" method signature) is also added whose task is:
              *        - unboxing arguments,
              *        - invoking the ultimate apply, and
              *        - boxing the result.
@@ -2383,9 +2385,9 @@ abstract class GenBCode extends BCodeOptInter {
              *  That's what this method figures out, by loading bytecode from the library we're compiling against.
              *
              *  @return a Pair(superClassName, list-of-methods-to-override)
-             *          where the head of the method list denotes the override (in the closure-class being built)
-             *          that will invoke the delegate (so called "ultimate-apply"),
-             *          and the rest are "plumbing" methods that will invoke the aforementioned ultimate-apply.
+             *          where the head of the method list denotes the "ultimate-apply" override (in the closure-class being built)
+             *          to invokes the delegate, and the rest are "plumbing" methods
+             *          to invoke the aforementioned ultimate-apply. The method bodies themselves are not added yet.
              **/
             def takingIntoAccountSpecialization(): Pair[String, List[MethodNode]] = {
 
@@ -2514,6 +2516,7 @@ abstract class GenBCode extends BCodeOptInter {
                   /*
                    * In case of outer instance, emit the following preamble,
                    * consisting of six instructions and a LabelNode, at the beginning of the ctor.
+                   * TODO Scala v2.11 should let a scala.runtime static method encapsulate that boilerplate.
                    *
                    *     ALOAD 1
                    *     IFNONNULL L0
@@ -2528,10 +2531,9 @@ abstract class GenBCode extends BCodeOptInter {
                     ctor.visitVarInsn(asm.Opcodes.ALOAD, 1)
                     val lnode = new asm.tree.LabelNode(new asm.Label)
                     ctor.instructions.add(new asm.tree.JumpInsnNode(asm.Opcodes.IFNONNULL, lnode))
-                    val jlNPE = "java/lang/NullPointerException"
-                    ctor.visitTypeInsn(asm.Opcodes.NEW, jlNPE)
+                    ctor.visitTypeInsn(asm.Opcodes.NEW, jlNPEReference.getInternalName)
                     ctor.visitInsn(asm.Opcodes.DUP)
-                    ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, jlNPE, "<init>", "()V")
+                    ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, jlNPEReference.getInternalName, "<init>", "()V")
                     ctor.visitInsn(asm.Opcodes.ATHROW)
                     ctor.instructions.add(lnode)
                   }
@@ -2544,10 +2546,6 @@ abstract class GenBCode extends BCodeOptInter {
                   for(Pair(fieldName, fieldType) <- closuStateNames.zip(closuStateBTs)) {
                     loadTHIS()
                     loadLocal(paramIdx, fieldType)
-                    if(hasOuter && paramIdx == 1) {
-                      // TODO emit instructions to check for $outer non-nullness
-                      // TODO Scala v2.11 should let a scala.runtime static method encapsulate that boilerplate.
-                    }
                     ctor.visitFieldInsn(asm.Opcodes.PUTFIELD, c.name, fieldName, fieldType.getDescriptor)
                     paramIdx += fieldType.getSize
                   }
@@ -2748,7 +2746,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         lateClosures ::= closuCNode
 
-        // TODO populateDClosureMaps, StringOps, remove txtClosuClass
+        // TODO populateDClosureMaps, StringOps, delayedInit, remove txtClosuClass
 
         castToBT
       } // end of PlainClassBuilder's genLateClosure()

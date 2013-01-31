@@ -3073,7 +3073,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      *  must-single-thread
      **/
-    final def trackMemberClasses(csym: Symbol): List[BType] = {
+    final def trackMemberClasses(csym: Symbol, lateClosuresBTs: List[BType]): List[BType] = {
       val lateInnerClasses = exitingErasure {
         for (sym <- List(csym, csym.linkedClassOfClass); memberc <- sym.info.decls.map(innerClassSymbolFor) if memberc.isClass)
         yield memberc
@@ -3087,7 +3087,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         memberCTK
       }
 
-      exemplar(csym).directMemberClasses = result
+      exemplar(csym).directMemberClasses = (result ::: lateClosuresBTs)
 
       result
     }
@@ -3681,7 +3681,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       addForwarders(isRemote(modsym), mirrorClass, mirrorName, modsym)
 
-      innerClassBufferASM ++= trackMemberClasses(modsym)
+      innerClassBufferASM ++= trackMemberClasses(modsym, Nil /* TODO what about Late-Closure-Classes */ )
       addInnerClassesASM(mirrorClass, innerClassBufferASM.toList)
 
       mirrorClass.visitEnd()
@@ -3798,7 +3798,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       constructor.visitMaxs(0, 0) // just to follow protocol, dummy arguments
       constructor.visitEnd()
 
-      innerClassBufferASM ++= trackMemberClasses(cls)
+      innerClassBufferASM ++= trackMemberClasses(cls, Nil /* TODO what about Late-Closure-Classes */ )
       addInnerClassesASM(beanInfoClass, innerClassBufferASM.toList)
 
       beanInfoClass.visitEnd()
