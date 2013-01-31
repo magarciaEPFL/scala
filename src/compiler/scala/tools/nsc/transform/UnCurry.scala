@@ -229,7 +229,9 @@ abstract class UnCurry extends InfoTransform
         case fun1 if fun1 ne fun => fun1
         case _ =>
           // checking inConstructorFlag prevents hitting SI-6666
-          val cantConvertModern = ((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value)
+          val cantConvertModern = {
+            ((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value) || !hasZeroableParams(fun)
+          }
           if(cantConvertModern || settings.isClosureConvTraditional) {
             closureConversionTraditional(fun)
           }
@@ -361,6 +363,7 @@ abstract class UnCurry extends InfoTransform
 
       // TODO reusing a singleton (already typed, from then on immutable) Tree per zero-constant would save space and time.
       val zeroes: List[Tree] = (formals map gen.mkZero)
+
       val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 
       assert(isFunctionType(fun.tpe), "Not all Function nodes have function type")
@@ -376,7 +379,34 @@ abstract class UnCurry extends InfoTransform
           callDisguisedAsClosure
         )
       }
-    }
+    } // end of method closureConversionModern()
+
+    /**
+     *  Currently closureConversionModern goes after closures with param-types that unproblematically
+     *  accept either 0, false, or null, as valid values. Unlike the following example from test/files/run/byname.scala
+     *
+     *      private[this] val testAllR: (Int, => Int, Seq[Int]) => Int = {
+     *           (x: Int,
+     *            y: => Int,
+     *            z: Seq[Int]) => Test.this.testAll(x, y, (z: _*))
+     *         };
+     *
+     *  If left to its own devices, gen.mkZero builds stuff (for the 2nd param above, the by-name param)
+     *  that after transformation by closureConversionModern gets stuck in the bytecode emitter.
+     *
+     *  TODO devise a less restrictive solution for the above.
+     * */
+    def hasZeroableParams(fun: Function): Boolean = {
+      val targs = fun.tpe.typeArgs
+      val (formals, restpe) = (targs.init, targs.last)
+
+      formals forall { frml =>
+        val isNonUnitPrimitiveValueType = ScalaValueClassesNoUnit contains (frml.typeSymbol);
+
+        isNonUnitPrimitiveValueType ||
+        ((frml <:< AnyRefTpe) && !isByNameParamType(frml) && !isRepeatedParamType(frml))
+      }
+    } // end of method isAmenableToModernClosureConversion()
 
     def transformArgs(pos: Position, fun: Symbol, args: List[Tree], formals: List[Type]) = {
       val isJava = fun.isJavaDefined

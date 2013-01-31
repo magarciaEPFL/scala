@@ -2304,6 +2304,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
         val hasOuter    = !delegateSym.isStaticMember
+
+        /*
+         *  This alone doesn't achieve the desired effect, because the master class for the dclosure
+         *  has already been emitted (including the dclosure-entrypoint, as private).
+         *  It's a job for populateDClosureMaps().
+         * */
         delegateSym.makePublic
 
         // checking working assumptions
@@ -2312,7 +2318,7 @@ abstract class GenBCode extends BCodeOptInter {
         val outerTK = brefType(internalName(delegateSym.owner))
         val cnodeBT = brefType(cnode.name)
         assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
-        assert(outerTK == cnodeBT) // TODO doesn't hold in presence of delayedInit
+        // doesn't hold in presence of delayedInit: assert(outerTK == cnodeBT)
 
         // relevant items to build the closure class
 

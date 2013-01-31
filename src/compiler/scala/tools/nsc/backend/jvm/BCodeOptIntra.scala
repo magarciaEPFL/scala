@@ -78,6 +78,10 @@ abstract class BCodeOptIntra extends BCodeTypes {
     methodSignature(ownerBT, methodName, methodType.getDescriptor)
   }
 
+  final def methodSignature(ownerBT: BType, mnode: MethodNode): String = {
+    methodSignature(ownerBT, mnode.name, mnode.desc)
+  }
+
   final def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
     methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
   }
