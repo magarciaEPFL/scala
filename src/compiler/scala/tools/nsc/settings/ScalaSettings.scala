@@ -268,7 +268,7 @@ trait ScalaSettings extends AbsScalaSettings
    *    case "traditional"  => Good ol' dedicated inner class for each closure.
    *                           Available under GenASM (the only option there), and also with GenBCode but only up to -neo:o1.
    *
-   *    case "delegating"   => aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
+   *    case "delegating"   => aka "Late-Closure-Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
    *                           thus lowering the working set during compilation.
    *                           Allows closure-related optimizations (actually all optimization levels are supported).
    *

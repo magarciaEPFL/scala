@@ -894,7 +894,7 @@ abstract class GenBCode extends BCodeOptInter {
           exemplars.put(trackedClosu.c, trackedClosu)
         }
 
-        // ----------- populate InnerClass JVM attribute, including late closure classes
+        // ----------- populate InnerClass JVM attribute, including Late-Closure-Classes
 
         // this requires exemplars to already track each `refedInnerClasses`
         addInnerClassesASM(cnode, innerClassBufferASM.toList)
@@ -1868,7 +1868,7 @@ abstract class GenBCode extends BCodeOptInter {
             expr match {
               case app: Apply if isLateClosuresOn && uncurry.closureDelegates(app.symbol.asInstanceOf[MethodSymbol]) =>
                 // we arrive here when closureConversionModern found a Function node with Nothing return type,
-                // that it desugared into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
+                // was desugared there into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
                 genLateClosure(app, tpeTK(tree))
               case _ =>
                 genLoad(expr, expectedType)
@@ -2302,8 +2302,9 @@ abstract class GenBCode extends BCodeOptInter {
         val Apply(Select(rcv, _), args) = fakeCallsite
         val arity = abstractFunctionArity(castToBT)
 
-        val delegateSym    = fakeCallsite.symbol
-        val hasOuter       = !delegateSym.isStaticMember
+        val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
+        val hasOuter    = !delegateSym.isStaticMember
+        delegateSym.makePublic
 
         // checking working assumptions
 
@@ -2570,7 +2571,10 @@ abstract class GenBCode extends BCodeOptInter {
             } // end of method createAnonClosu()
 
         val Pair(closuCNode, ctor) = createAnonClosu()
-        brefType(closuCNode.name) // registers the closure's internal name
+
+        // registers the closure's internal name in Names.chrs, and let populateDClosureMaps() know about closure endpoint
+        closuresForDelegates ::= ClosureAndDelegate(brefType(closuCNode.name), delegateSym)
+
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
             /**

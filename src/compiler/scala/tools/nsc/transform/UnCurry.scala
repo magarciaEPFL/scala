@@ -58,7 +58,7 @@ abstract class UnCurry extends InfoTransform
   override def changesBaseClasses = false
 
   /**
-   *  Both UnCurry and GenBCode do part of the job for "Late closure classes".
+   *  Both UnCurry and GenBCode do part of the job for "Late-Closure-Classes".
    *  UnCurry lowers a Function node as discussed in `closureConversionModern()`
    *  and populates the `uncurry.closureDelegates` set with MethodSymbols of delegate method.
    *  That information is used by GenBCode to build on the spot an AbstractFunctionX subclass + instantiation

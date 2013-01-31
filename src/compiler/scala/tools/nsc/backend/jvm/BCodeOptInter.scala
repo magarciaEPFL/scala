@@ -33,6 +33,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   import global._
 
   val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
+  var closuresForDelegates: List[ClosureAndDelegate] = Nil
+
 
   /**
    * must-single-thread
@@ -321,11 +323,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       import uncurry.closureDelegates
       endpoint.clear()
 
-      /*
-      for (ClosureAndDelegate(closureClassSymbol, delegateMethodSymbol) <- closuresAndDelegates) {
-        val closureTR = exemplar(closureClassSymbol)
-        assert(closureTR.isClosureClass, "Not a closure class: " + closureTR.c.getInternalName)
-        val closureBT: BType = closureTR.c
+      for (ClosureAndDelegate(closureBT, delegateMethodSymbol) <- closuresForDelegates) {
         val delegateMethodRef = {
           val delegateOwnerBT:    BType = exemplar(delegateMethodSymbol.owner).c
           val delegateMethodType: BType = asmMethodType(delegateMethodSymbol)
@@ -344,9 +342,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
         endpoint.put(closureBT, delegateMethodRef)
       }
-      */
 
       closureDelegates.clear()
+      closuresForDelegates = Nil
 
       for(cep <- endpoint) {
         val endpointOwningClass: BType = cep._2.ownerClass
@@ -413,6 +411,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def clear() {
       uncurry.closureDelegates.clear()
+      closuresForDelegates = Nil
       mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()
