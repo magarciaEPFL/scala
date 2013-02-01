@@ -4284,6 +4284,4 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   }
 
-  case class ClosureAndDelegate(closureBT: BType, delegate: MethodSymbol)
-
 } // end of class BCodeTypes

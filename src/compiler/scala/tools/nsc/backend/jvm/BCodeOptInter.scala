@@ -33,7 +33,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   import global._
 
   val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
-  var closuresForDelegates: List[ClosureAndDelegate] = Nil
+
+  // dclosure-endpoint -> BType-of-Late-Closure-Class
+  val closuresForDelegates = mutable.Map.empty[MethodSymbol, BType]
 
 
   /**
@@ -320,10 +322,25 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def populateDClosureMaps() {
 
-      import uncurry.closureDelegates
-      endpoint.clear()
+      // all dclosure-endpoints accounted for (ie a dclosure created for each)
+      {
+        val endpointsLackingDClosure = (uncurry.closureDelegates filterNot (closuresForDelegates.keySet))
+        assert(
+          endpointsLackingDClosure.isEmpty,
+          s"The following dclosure-endpoints (created by UnCurry) got from genLateClosure() no dclosure-class: ${endpointsLackingDClosure.mkString}"
+        )
+        val endpointsFromNowhere = ((closuresForDelegates.keySet) filterNot uncurry.closureDelegates)
+        assert(
+          endpointsFromNowhere.isEmpty,
+          s"The following dclosure-endpoints were not created by UnCurry's closureConversionModern(): ${endpointsFromNowhere.mkString}"
+        )
+      }
 
-      for (ClosureAndDelegate(closureBT, delegateMethodSymbol) <- closuresForDelegates) {
+      assert(endpoint.isEmpty)
+      assert(dclosures.isEmpty)
+      assert(nonMasterUsers.isEmpty)
+
+      for (Pair(delegateMethodSymbol, closureBT) <- closuresForDelegates) {
         val delegateMethodRef = {
           val delegateOwnerBT:    BType = exemplar(delegateMethodSymbol.owner).c
           val delegateMethodType: BType = asmMethodType(delegateMethodSymbol)
@@ -343,9 +360,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
         endpoint.put(closureBT, delegateMethodRef)
       }
-
-      closureDelegates.clear()
-      closuresForDelegates = Nil
 
       for(cep <- endpoint) {
         val endpointOwningClass: BType = cep._2.ownerClass
@@ -416,7 +430,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def clear() {
       uncurry.closureDelegates.clear()
-      closuresForDelegates = Nil
+      closuresForDelegates.clear()
       mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()

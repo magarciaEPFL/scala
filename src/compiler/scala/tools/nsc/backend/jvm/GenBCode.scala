@@ -258,6 +258,7 @@ abstract class GenBCode extends BCodeOptInter {
             lateClosuresCount += 1
             q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outFolder), null)
           }
+          pcb.lateClosures = Nil
         }
 
       } // end of method visit(Item1)
@@ -869,7 +870,7 @@ abstract class GenBCode extends BCodeOptInter {
           for(lateC <- lateClosures) { trackInRepo(lateC) }
         }
 
-        // ----------- track late closures in exemplars ( cnode already tracked by virtue of initJClass() )
+        // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
 
         val trackedCNode = exemplars.get(lookupRefBType(cnode.name))
         for(lateC <- lateClosures) {
@@ -896,7 +897,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- populate InnerClass JVM attribute, including Late-Closure-Classes
 
-        // this requires exemplars to already track each `refedInnerClasses`
+        // this requires exemplars to already track each BType in `innerClassBufferASM`, including those for Late-Closure-Classes
         addInnerClassesASM(cnode, innerClassBufferASM.toList)
 
         for(Pair(lateC, lateBT) <- lateClosures.zip(lateClosuresBTs)) {
@@ -2071,7 +2072,7 @@ abstract class GenBCode extends BCodeOptInter {
                   if(isLateClosuresOn && cast) {
                     val arity = abstractFunctionArity(r)
                     if(arity != -1) {
-                      val result =
+                      val preScreened =
                         obj match {
                           case Block(List(found), expr) =>
                             // this case results for example from scala.runtime.AbstractFunction1[Int,Unit]
@@ -2087,7 +2088,14 @@ abstract class GenBCode extends BCodeOptInter {
                             found
                         }
 
-                      return result.asInstanceOf[Apply]
+                      if(preScreened.isInstanceOf[Apply]) {
+                        val fakeApp = preScreened.asInstanceOf[Apply]
+                        val calleeSym = fakeApp.fun.symbol.asInstanceOf[MethodSymbol]
+                        if(uncurry.closureDelegates(calleeSym)) {
+                          return fakeApp
+                        }
+                      }
+
                     }
                   }
                   null
@@ -2305,9 +2313,17 @@ abstract class GenBCode extends BCodeOptInter {
         val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
         val hasOuter    = !delegateSym.isStaticMember
 
+        assert(uncurry.closureDelegates.contains(delegateSym), s"Not a dclosure-endpoint: $delegateSym")
+
+        assert(
+          !closuresForDelegates.contains(delegateSym),
+           "Visiting a second time a dclosure-endpoint E for which a Late-Closure-Class LCC has been created already. " +
+          s"Who plays each role: E is $delegateSym , LCC is ${closuresForDelegates(delegateSym)}"
+        )
+
         /*
          *  This alone doesn't achieve the desired effect, because the master class for the dclosure
-         *  has already been emitted (including the dclosure-entrypoint, as private).
+         *  has been emitted already (including the dclosure-endpoint, as private).
          *  It's a job for populateDClosureMaps().
          * */
         delegateSym.makePublic
@@ -2578,8 +2594,9 @@ abstract class GenBCode extends BCodeOptInter {
 
         val Pair(closuCNode, ctor) = createAnonClosu()
 
+        // hand-off from UnCurry's set-of-endpoints-as-methodsymbols to (see below) BCodeOptInter's map-endpoint-to-dclosure
         // registers the closure's internal name in Names.chrs, and let populateDClosureMaps() know about closure endpoint
-        closuresForDelegates ::= ClosureAndDelegate(brefType(closuCNode.name), delegateSym)
+        closuresForDelegates += Pair(delegateSym, brefType(closuCNode.name))
 
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
