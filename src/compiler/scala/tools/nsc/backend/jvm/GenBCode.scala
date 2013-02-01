@@ -2465,7 +2465,7 @@ abstract class GenBCode extends BCodeOptInter {
         val superClassBT = brefType(superClassName)
 
             /**
-             *  Initializes a ClassNode for the closure class.
+             *  A Late-Closure-Class is created as a ClassNode.
              *  Except for the apply methods everything else is added: parents, fields, and constructor.
              *
              *  @return the initialized closure-class, and its only constructor.

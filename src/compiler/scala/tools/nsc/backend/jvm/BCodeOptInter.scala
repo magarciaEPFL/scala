@@ -367,13 +367,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * Right after GenBCode, 99% of all "NEW dclosure" instructions are found in masterClass(dclosure).
      * The exceptions (due to delayedInit) are found here.
      *
-     * Together with the tracking of non-master-class users of dclosures performed during inlining,
-     * we can know where to look for usages of a given dclosure.
+     * Additionally, non-master-class users of dclosures are also spotted during inlining
+     * (those uses are tracked from then on, see `trackClosureUsageIfAny()`).
      *
-     * During intra-class optimizatin, we need to know about such usages to decide whether:
-     *   (a) a dclosure endpoint can be made private
-     *   (b) a dclosure endpoint can be made static.
-     * In the affirmative case, we'll need to adapt usages.
+     * As a result, after `WholeProgramAnalysis.optimize()` has run
+     * we know where to look for usages of a given dclosure.
+     * "All users of a dclosure" is needed to partition the set of dclosures
+     * so that different Worker2 threads have exclusive access to different partitions.
+     *
+     * For example, as part of intra-class optimizations exclusive access is required to
+     * the gropus of (master class, its dclosures) to decide whether a dclosure endpoint
+     * can be made private or static. In the affirmative case, we'll need to adapt (all) its usages.
      *
      * */
     def populateNonMasterUsers() {
@@ -875,7 +879,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  TODO documentation
      *
      *  must-single-thread due to
-     *    - `allowFindingDelegateGivenClosure()`
+     *    - `populateDClosureMaps()`
      *    - `inlining()`
      *
      **/
