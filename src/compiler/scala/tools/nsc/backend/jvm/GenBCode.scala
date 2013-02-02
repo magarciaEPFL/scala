@@ -370,6 +370,8 @@ abstract class GenBCode extends BCodeOptInter {
 
     override def run() {
 
+      log(s"convertedTraditional = ${uncurry.convertedTraditional} , convertedModern = ${uncurry.convertedModern}")
+
       arrivalPos = 0 // just in case
       scalaPrimitives.init
       initBCodeTypes()
@@ -900,9 +902,7 @@ abstract class GenBCode extends BCodeOptInter {
         // this requires exemplars to already track each BType in `innerClassBufferASM`, including those for Late-Closure-Classes
         addInnerClassesASM(cnode, innerClassBufferASM.toList)
 
-        for(Pair(lateC, lateBT) <- lateClosures.zip(lateClosuresBTs)) {
-          // under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
-          exemplars.get(lateBT).directMemberClasses = Nil
+        for(lateC <- lateClosures) {
           refreshInnerClasses(lateC)
         }
 
@@ -924,7 +924,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         val tsc: Tracked = if(lateC.superName == null) null else exemplars.get(lookupRefBType(lateC.superName))
 
-        Tracked(key, lateC.access, tsc, ifacesArr, innersChain)
+        val tr = Tracked(key, lateC.access, tsc, ifacesArr, innersChain)
+
+        // under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
+        tr.directMemberClasses = Nil
+
+        tr
       } // end of method buildExemplarForLateClosure()
 
       /**
@@ -2315,11 +2320,15 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(uncurry.closureDelegates.contains(delegateSym), s"Not a dclosure-endpoint: $delegateSym")
 
-        assert(
-          !closuresForDelegates.contains(delegateSym),
-           "Visiting a second time a dclosure-endpoint E for which a Late-Closure-Class LCC has been created already. " +
-          s"Who plays each role: E is $delegateSym , LCC is ${closuresForDelegates(delegateSym)}"
-        )
+        {
+          val alreadyLCC: BType = closuresForDelegates.getOrElse(delegateSym, null)
+          assert(
+            alreadyLCC == null,
+             "Visiting a second time a dclosure-endpoint E for which a Late-Closure-Class LCC has been created already. " +
+            s"Who plays each role: E is ${delegateSym.fullLocationString} , LCC is ${alreadyLCC.getInternalName} , " +
+            s" method enclosing the closure instantation: ${methodSignature(cnode, mnode)} , position in source file: ${fakeCallsite.pos}"
+          )
+        }
 
         /*
          *  This alone doesn't achieve the desired effect, because the master class for the dclosure
@@ -2501,7 +2510,7 @@ abstract class GenBCode extends BCodeOptInter {
               c.superName    = superClassName
 
               c.interfaces.add(scalaSerializableReference.getInternalName)
-              addSerialVUID(0, c)
+              addSerialVUID(123, c) // TODO "123" is a marker for debug purposes
 
               c.outerClass      = outerTK.getInternalName // internal name of the enclosing class of the class
               c.outerMethod     = mnode.name              // name of the method that contains the class
@@ -2769,11 +2778,16 @@ abstract class GenBCode extends BCodeOptInter {
               mnode.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, closuCNode.name, ctor.name, ctor.desc)
             }
 
+        log(
+          s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
+          s"for endpoint ${delegateSym.javaSimpleName.toString}${delegateMT} " +
+          s"in class ${outerTK.getInternalName}. Enclosing method ${methodSignature(cnode, mnode)} , " +
+          s"position in source file: ${fakeCallsite.pos}"
+        )
+
         emitClosureInstantiation()
 
         lateClosures ::= closuCNode
-
-        // TODO populateDClosureMaps, StringOps, delayedInit, remove txtClosuClass
 
         castToBT
       } // end of PlainClassBuilder's genLateClosure()

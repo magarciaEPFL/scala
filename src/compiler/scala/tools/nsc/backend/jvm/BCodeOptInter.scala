@@ -324,15 +324,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       // all dclosure-endpoints accounted for (ie a dclosure created for each)
       {
+            def locations(msyms: collection.Set[MethodSymbol]): String = {
+              msyms map { m => m.fullLocationString } mkString(" , ")
+            }
+
         val endpointsLackingDClosure = (uncurry.closureDelegates filterNot (closuresForDelegates.keySet))
         assert(
           endpointsLackingDClosure.isEmpty,
-          s"The following dclosure-endpoints (created by UnCurry) got from genLateClosure() no dclosure-class: ${endpointsLackingDClosure.mkString}"
+          s"The following dclosure-endpoints (created by UnCurry) got from genLateClosure() no dclosure-class: ${locations(endpointsLackingDClosure)}"
         )
         val endpointsFromNowhere = ((closuresForDelegates.keySet) filterNot uncurry.closureDelegates)
         assert(
           endpointsFromNowhere.isEmpty,
-          s"The following dclosure-endpoints were not created by UnCurry's closureConversionModern(): ${endpointsFromNowhere.mkString}"
+          s"The following dclosure-endpoints were not created by UnCurry's closureConversionModern(): ${locations(endpointsFromNowhere)}"
         )
       }
 

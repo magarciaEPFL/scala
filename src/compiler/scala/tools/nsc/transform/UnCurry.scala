@@ -66,6 +66,9 @@ abstract class UnCurry extends InfoTransform
    * */
   val closureDelegates = mutable.Set.empty[MethodSymbol]
 
+  var convertedTraditional = 0
+  var convertedModern = 0
+
 // ------ Type transformation --------------------------------------------------------
 
 // uncurry and uncurryType expand type aliases
@@ -228,14 +231,22 @@ abstract class UnCurry extends InfoTransform
         // nullary or parameterless
         case fun1 if fun1 ne fun => fun1
         case _ =>
-          // checking inConstructorFlag prevents hitting SI-6666
-          val cantConvertModern = {
-            ((inConstructorFlag != 0) || settings.etaExpandKeepsStar.value) || !hasZeroableParams(fun)
-          }
-          if(cantConvertModern || settings.isClosureConvTraditional) {
+
+              // checking inConstructorFlag prevents hitting SI-6666
+              def isAmenableToModernConversion = {
+                val isAmenableToEarlyCC = {
+                  (inConstructorFlag == 0) && !settings.etaExpandKeepsStar.value
+                }
+
+                isAmenableToEarlyCC && isAmenableToLateCC(fun)
+              }
+
+          if(settings.isClosureConvTraditional || !isAmenableToModernConversion) {
+            convertedTraditional += 1
             closureConversionTraditional(fun)
           }
           else {
+            convertedModern += 1
             closureConversionModern(fun)
           }
       }
@@ -396,7 +407,7 @@ abstract class UnCurry extends InfoTransform
      *
      *  TODO devise a less restrictive solution for the above.
      * */
-    def hasZeroableParams(fun: Function): Boolean = {
+    def isAmenableToLateCC(fun: Function): Boolean = {
       val targs = fun.tpe.typeArgs
       val (formals, restpe) = (targs.init, targs.last)
 
