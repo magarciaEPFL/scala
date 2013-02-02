@@ -2320,16 +2320,6 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(uncurry.closureDelegates.contains(delegateSym), s"Not a dclosure-endpoint: $delegateSym")
 
-        {
-          val alreadyLCC: BType = closuresForDelegates.getOrElse(delegateSym, null)
-          assert(
-            alreadyLCC == null,
-             "Visiting a second time a dclosure-endpoint E for which a Late-Closure-Class LCC has been created already. " +
-            s"Who plays each role: E is ${delegateSym.fullLocationString} , LCC is ${alreadyLCC.getInternalName} , " +
-            s" method enclosing the closure instantation: ${methodSignature(cnode, mnode)} , position in source file: ${fakeCallsite.pos}"
-          )
-        }
-
         /*
          *  This alone doesn't achieve the desired effect, because the master class for the dclosure
          *  has been emitted already (including the dclosure-endpoint, as private).
@@ -2361,6 +2351,52 @@ abstract class GenBCode extends BCodeOptInter {
 
         val delegateApplySection: List[BType] = delegateMT.getArgumentTypes.toList.take(arity)
 
+            def emitClosureInstantiation(closuInternalName: String, ctorDescr: String) {
+              assert(closuInternalName != null)
+              assert(ctorDescr != null)
+              // NEW, DUP
+              mnode.visitTypeInsn(asm.Opcodes.NEW, closuInternalName)
+              mnode.visitInsn(asm.Opcodes.DUP)
+              // outer value, if any
+              val restClosureStateBTs: List[BType] =
+                if(hasOuter) {
+                  genLoad(rcv, outerTK)
+                  closuStateBTs.drop(1)
+                } else {
+                  closuStateBTs
+                }
+              // the rest of captured values
+              val capturedValues: List[Tree] = args.drop(arity)
+              assert(
+                restClosureStateBTs.size == capturedValues.size,
+                s"Mismatch btw ${restClosureStateBTs.mkString} and ${capturedValues.mkString}"
+              )
+              for(Pair(ctorParamBT, captureValue) <- restClosureStateBTs.zip(capturedValues)) {
+                genLoad(captureValue, ctorParamBT)
+              }
+              // <init> invocation
+              mnode.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, closuInternalName, nme.CONSTRUCTOR.toString, ctorDescr)
+            }
+
+        {
+          val alreadyLCC: BType = closuresForDelegates.getOrElse(delegateSym, null)
+          if(alreadyLCC != null) {
+            log(
+               "Visiting a second time a dclosure-endpoint E for which a Late-Closure-Class LCC has been created already. " +
+              s"Who plays each role: E is ${delegateSym.fullLocationString} , LCC is ${alreadyLCC.getInternalName} , " +
+              s" method enclosing the closure instantation: ${methodSignature(cnode, mnode)} , position in source file: ${fakeCallsite.pos}. " +
+               "This happens when duplicating an exception-handler or finally clause (which exist in two forms: " +
+               "reachable-via-fall-through and reachable-via-exceptional-control-flow)."
+            )
+            val closuIName = alreadyLCC.getInternalName
+            val closuCtor: MethodNode  = {
+              // TODO this will be simplified in due time.
+              lateClosures.find(c => c.name == closuIName).get.toMethodList.find(m => m.name == nme.CONSTRUCTOR.toString).get
+            }
+            emitClosureInstantiation(closuIName, closuCtor.desc)
+            return castToBT
+          }
+        }
 
             /** primitive and void erase to themselves, all others (including arrays) to j.l.Object */
             def spclzdErasure(bt: BType): BType = { if(bt.isPrimitiveOrVoid) bt else ObjectReference }
@@ -2535,7 +2571,7 @@ abstract class GenBCode extends BCodeOptInter {
 
                   val ctor = new asm.tree.MethodNode(
                     asm.Opcodes.ASM4, asm.Opcodes.ACC_PUBLIC,
-                    "<init>", ctorDescr,
+                    nme.CONSTRUCTOR.toString, ctorDescr,
                     null, null
                   )
 
@@ -2565,7 +2601,7 @@ abstract class GenBCode extends BCodeOptInter {
                     ctor.instructions.add(new asm.tree.JumpInsnNode(asm.Opcodes.IFNONNULL, lnode))
                     ctor.visitTypeInsn(asm.Opcodes.NEW, jlNPEReference.getInternalName)
                     ctor.visitInsn(asm.Opcodes.DUP)
-                    ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, jlNPEReference.getInternalName, "<init>", "()V")
+                    ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, jlNPEReference.getInternalName, nme.CONSTRUCTOR.toString, "()V")
                     ctor.visitInsn(asm.Opcodes.ATHROW)
                     ctor.instructions.add(lnode)
                   }
@@ -2589,7 +2625,7 @@ abstract class GenBCode extends BCodeOptInter {
                    *
                    */
                   loadTHIS()
-                  ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, superClassName, "<init>", "()V")
+                  ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, superClassName, nme.CONSTRUCTOR.toString, "()V")
                   ctor.visitInsn(asm.Opcodes.RETURN)
 
                   // asm.optimiz.Util.computeMaxLocalsMaxStack(ctor)
@@ -2603,9 +2639,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         val Pair(closuCNode, ctor) = createAnonClosu()
 
-        // hand-off from UnCurry's set-of-endpoints-as-methodsymbols to (see below) BCodeOptInter's map-endpoint-to-dclosure
         // registers the closure's internal name in Names.chrs, and let populateDClosureMaps() know about closure endpoint
-        closuresForDelegates += Pair(delegateSym, brefType(closuCNode.name))
+        val closuBT = brefType(closuCNode.name)
+        assert(!codeRepo.containsKey(closuBT))
+
+        // hand-off from UnCurry's set-of-endpoints-as-methodsymbols to (see below) BCodeOptInter's map-endpoint-to-dclosure
+        closuresForDelegates += Pair(delegateSym, closuBT)
 
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
@@ -2751,33 +2790,6 @@ abstract class GenBCode extends BCodeOptInter {
 
         closuCNode.methods.add(ctor)
 
-        val txtClosuClass = asm.optimiz.Util.textify(closuCNode) // debug
-
-            def emitClosureInstantiation() {
-              // NEW, DUP
-              mnode.visitTypeInsn(asm.Opcodes.NEW, closuCNode.name)
-              mnode.visitInsn(asm.Opcodes.DUP)
-              // outer value, if any
-              val restClosureStateBTs: List[BType] =
-                if(hasOuter) {
-                  genLoad(rcv, outerTK)
-                  closuStateBTs.drop(1)
-                } else {
-                  closuStateBTs
-                }
-              // the rest of captured values
-              val capturedValues: List[Tree] = args.drop(arity)
-              assert(
-                restClosureStateBTs.size == capturedValues.size,
-                s"Mismatch btw ${restClosureStateBTs.mkString} and ${capturedValues.mkString}"
-              )
-              for(Pair(ctorParamBT, captureValue) <- restClosureStateBTs.zip(capturedValues)) {
-                genLoad(captureValue, ctorParamBT)
-              }
-              // <init> invocation
-              mnode.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, closuCNode.name, ctor.name, ctor.desc)
-            }
-
         log(
           s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
           s"for endpoint ${delegateSym.javaSimpleName.toString}${delegateMT} " +
@@ -2785,7 +2797,7 @@ abstract class GenBCode extends BCodeOptInter {
           s"position in source file: ${fakeCallsite.pos}"
         )
 
-        emitClosureInstantiation()
+        emitClosureInstantiation(closuCNode.name, ctor.desc)
 
         lateClosures ::= closuCNode
 

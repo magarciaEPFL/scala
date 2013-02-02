@@ -10,6 +10,7 @@ import scala.tools.asm
 import scala.annotation.switch
 import scala.collection.{ immutable, mutable }
 import scala.tools.nsc.io.AbstractFile
+import collection.convert.Wrappers.JListWrapper
 
 /**
  *  Utilities to mediate between types as represented in Scala ASTs and ASM trees.
@@ -4256,6 +4257,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     override def opLDCMethodTypeValue(insn: asm.tree.AbstractInsnNode, cst: asm.Type):   TFValue = { ??? }
 
     override def opLDCRefTypeValue(insn: asm.tree.AbstractInsnNode,    cst: asm.Type):   TFValue = { newValue(toBType(cst)) }
+
+  }
+
+  implicit class MethodIterClassNode(cnode: asm.tree.ClassNode) {
+
+    @inline final def foreachMethod(f: (asm.tree.MethodNode) => Unit) { toMethodList.foreach(f) }
+
+    @inline final def toMethodList: List[asm.tree.MethodNode] = { JListWrapper(cnode.methods).toList }
+
+    @inline final def toFieldList:  List[asm.tree.FieldNode] = { JListWrapper(cnode.fields).toList }
 
   }
 
