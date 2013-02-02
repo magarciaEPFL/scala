@@ -2768,7 +2768,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               val cloned = new VarInsnNode(vi.getOpcode, updatedIdx)
               stub.add(cloned)
             }
-          } else if(insn.getOpcode == Opcodes.GETFIELD) {
+          } else if(
+            (insn.getOpcode == Opcodes.GETFIELD) &&
+            (insn.asInstanceOf[FieldInsnNode].owner == ccu.closureClass.name)
+          ) {
             /*
              * case C: Given a GETFIELD in applyMethod, its localVarIdx in staticHiO is given by:
              *         shifted-localvaridx-of-closure-param + localvaridx-of-corresponding-constructor-param
