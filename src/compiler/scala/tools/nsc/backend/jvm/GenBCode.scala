@@ -2535,7 +2535,7 @@ abstract class GenBCode extends BCodeOptInter {
               val c = new asm.tree.ClassNode() // interfaces, innerClasses, fields, methods
 
               val simpleName = cunit.freshTypeName(
-                cnode.name + "$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
+                cnodeBT.getSimpleName + "$LCC$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
               ).toString
               c.name         = {
                 val pak = cnodeBT.getRuntimePackage
