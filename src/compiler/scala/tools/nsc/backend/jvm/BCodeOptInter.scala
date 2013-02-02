@@ -2088,12 +2088,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             def findClosureStateField(localVarIdx: Int): String = {
               val consumers = cpConstructor.consumersOfLocalVar(localVarIdx)
               if(localVarIdx == 1) {
-                // for outer-param, don't count IFNULL instruction as consumer
+                // for outer-param, don't count IFNULL, or IFNONNULL, (in general any jump instruction) as consumer
                 val consumerIter = consumers.iterator()
                 var stop = false
                 while(consumerIter.hasNext && !stop) {
                   val cnext = consumerIter.next
-                  if(cnext.getOpcode == Opcodes.IFNULL) {
+                  if(cnext.getType == AbstractInsnNode.JUMP_INSN) {
                     consumers.remove(cnext)
                     stop = true
                   }
