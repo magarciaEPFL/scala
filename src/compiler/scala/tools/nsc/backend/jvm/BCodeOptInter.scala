@@ -322,7 +322,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def populateDClosureMaps() {
 
-      // all dclosure-endpoints accounted for (ie a dclosure created for each)
+      // all dclosure-endpoints accounted for (ie a dclosure created for each) TODO this check should also run under -neo:GenBCode and -neo:o1
       {
             def locations(msyms: collection.Set[MethodSymbol]): String = {
               msyms map { m => m.fullLocationString } mkString(" , ")

@@ -370,7 +370,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     override def run() {
 
-      log(s"convertedTraditional = ${uncurry.convertedTraditional} , convertedModern = ${uncurry.convertedModern}")
+      log(s"closure conversions: Traditional = ${uncurry.convertedTraditional} , Modern = ${uncurry.convertedModern}")
 
       arrivalPos = 0 // just in case
       scalaPrimitives.init
