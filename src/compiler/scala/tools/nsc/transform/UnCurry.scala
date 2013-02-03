@@ -411,10 +411,11 @@ abstract class UnCurry extends InfoTransform
       val targs = fun.tpe.typeArgs
       val (formals, restpe) = (targs.init, targs.last)
 
-      val isFineResult = {
-        isPrimitiveValueType(restpe) ||
-        ((restpe <:< AnyRefTpe) && !restpe.typeSymbol.isExistentiallyBound)
-      }
+          def isFineType(t: Type) = {
+            (t <:< AnyRefTpe) && !t.typeSymbol.isExistentiallyBound && (t.typeSymbol != NothingClass)
+          }
+
+      val isFineResult = { isPrimitiveValueType(restpe) || isFineType(restpe) }
 
       if(!isFineResult) {
         return false // TODO debug
@@ -424,7 +425,7 @@ abstract class UnCurry extends InfoTransform
         val isNonUnitPrimitiveValueType = ScalaValueClassesNoUnit contains (frml.typeSymbol)
 
         isNonUnitPrimitiveValueType ||
-        ((frml <:< AnyRefTpe) && !isByNameParamType(frml) && !isRepeatedParamType(frml) && !frml.typeSymbol.isExistentiallyBound)
+        (isFineType(frml) && !isByNameParamType(frml) && !isRepeatedParamType(frml))
       }
     } // end of method isAmenableToModernClosureConversion()
 
