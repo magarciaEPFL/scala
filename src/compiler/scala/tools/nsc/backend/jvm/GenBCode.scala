@@ -2289,6 +2289,8 @@ abstract class GenBCode extends BCodeOptInter {
        *  a closure class that is synthesized on the spot.
        *  The result is undistinguishable from what UnCurry, Specialization, Erasure, would have produced.
        *
+       *  Terminology: arity is used throughout `genLateClosure()` as shorthand for closure-arity
+       *
        *  The starting point is the "fake calliste" targeting the closure entrypoint.
        *  Structure of that callsite:
        *
@@ -2297,8 +2299,12 @@ abstract class GenBCode extends BCodeOptInter {
        *        or
        *          - an instance (to be used as outer instance by the closure).
        *
-       *    (b) leading `arity` arguments are Trees denoting zeroes.
-       *        Terminology: arity is used throughout `genLateClosure()` as shorthand for closure-arity
+       *    (b) Whenever the delegate is an instance method,
+       *        the leading `arity` arguments to the fakeCallsite are Trees denoting zeroes.
+       *        The above also applies in case of a static delegate unless declared in an implementation class.
+       *        In that case:
+       *          - the first argument stands for the self-instance, which should be captured by the closure.
+       *          - the following arity arguments are zeroes.
        *
        *    (c) remaining arguments denote non-outer captured values.
        *        Whether an outer-instance is needed is determined by whether the delegate will be invoked via
@@ -2307,7 +2313,7 @@ abstract class GenBCode extends BCodeOptInter {
        *  The resulting closure class is registered in `codeRepo.classes` and `exemplars`
        *  by `PlainClassBuilder.plainClass()` , see `PlainClassBuilder.lateClosures`
        *
-       *  The resulting closure consists of:
+       *  The resulting closure-class consists of:
        *
        *    (d) a single constructor taking as argument the outer value (if needed) followed by (c).
        *    (e) a private final field for each constructor param
@@ -2322,7 +2328,9 @@ abstract class GenBCode extends BCodeOptInter {
 
         val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
         val hasOuter    = !delegateSym.isStaticMember
+        val isStaticImplMethod = delegateSym.owner.isImplClass
 
+        assert(hasOuter != isStaticImplMethod)
         assert(uncurry.closureDelegates.contains(delegateSym), s"Not a dclosure-endpoint: $delegateSym")
 
         /*
@@ -2344,17 +2352,32 @@ abstract class GenBCode extends BCodeOptInter {
 
         val delegateMT: BType = asmMethodType(delegateSym)
 
+        val delegateParamTs = delegateMT.getArgumentTypes.toList
         val closuStateBTs:   List[BType]  = {
-          val tmp = delegateMT.getArgumentTypes.toList.drop(arity)
-          if(hasOuter) outerTK :: tmp else tmp
+          if(!isStaticImplMethod) {
+            val tmp = delegateParamTs.drop(arity)
+            if(hasOuter) outerTK :: tmp else tmp
+          }
+          else {
+            delegateParamTs.head :: delegateParamTs.drop(arity + 1)
+          }
         }
 
         val closuStateNames: List[String] = {
-          val tmp = delegateSym.paramss.head.drop(arity).map(p => p.name.toString)
-          if(hasOuter) nme.OUTER.toString :: tmp else tmp
+          val delegateParamNames = delegateSym.paramss.head.map(p => p.name.toString)
+          if(!isStaticImplMethod) {
+            val tmp = delegateParamNames.drop(arity)
+            if(hasOuter) nme.OUTER.toString :: tmp else tmp
+          }
+          else {
+            delegateParamNames.head :: delegateParamNames.drop(arity + 1)
+          }
         }
 
-        val delegateApplySection: List[BType] = delegateMT.getArgumentTypes.toList.take(arity)
+        val delegateApplySection: List[BType] = {
+          if(!isStaticImplMethod) { delegateParamTs.take(arity) }
+          else { delegateParamTs.tail.take(arity) }
+        }
 
             def emitClosureInstantiation(closuInternalName: String, ctorDescr: String) {
               assert(closuInternalName != null)
@@ -2371,7 +2394,10 @@ abstract class GenBCode extends BCodeOptInter {
                   closuStateBTs
                 }
               // the rest of captured values
-              val capturedValues: List[Tree] = args.drop(arity)
+              val capturedValues: List[Tree] = {
+                if(!isStaticImplMethod) { args.drop(arity) }
+                else { args.head :: args.drop(arity + 1) }
+              }
               assert(
                 restClosureStateBTs.size == capturedValues.size,
                 s"Mismatch btw ${restClosureStateBTs.mkString} and ${capturedValues.mkString}"
@@ -2444,7 +2470,7 @@ abstract class GenBCode extends BCodeOptInter {
              *
              *  (a) In case the closure can be specialized,
              *      the closure class to create should extend a subclass of `castToBTyoe`,
-             *      a subclass with name of the form s.r.AbstractFunctionX$mc...$sp ,
+             *      ie a subclass with name of the form s.r.AbstractFunctionX$mc...$sp ,
              *      and override an "ultimate apply()" (ie an apply method with most-specific types).
              *      Another apply-method (with "fully-erased" method signature) is also added whose task is:
              *        - unboxing arguments,
@@ -2456,6 +2482,7 @@ abstract class GenBCode extends BCodeOptInter {
              *      overrides the fully-erased apply() method corresponding to the closure's arity.
              *
              *  That's what this method figures out, by loading bytecode from the library we're compiling against.
+             *  TODO in the future by consulting symbols and types
              *
              *  @return a Pair(superClassName, list-of-methods-to-override)
              *          where the head of the method list denotes the "ultimate-apply" override (in the closure-class being built)
@@ -2527,6 +2554,7 @@ abstract class GenBCode extends BCodeOptInter {
               Pair(nonSpzld, getUltimateAndPlumbing(null))
             } // end of helper method takingIntoAccountSpecialization()
 
+
         val Pair(superClassName, ultimate :: plumbings) = takingIntoAccountSpecialization()
         val superClassBT = brefType(superClassName)
 
@@ -2551,7 +2579,7 @@ abstract class GenBCode extends BCodeOptInter {
               c.superName    = superClassName
 
               c.interfaces.add(scalaSerializableReference.getInternalName)
-              addSerialVUID(123, c) // TODO "123" is a marker for debug purposes
+              addSerialVUID(0, c)
 
               c.outerClass      = outerTK.getInternalName // internal name of the enclosing class of the class
               c.outerMethod     = mnode.name              // name of the method that contains the class
@@ -2615,7 +2643,6 @@ abstract class GenBCode extends BCodeOptInter {
                    *  ... init fields from params
                    */
                   var paramIdx = 1
-                  import collection.convert.Wrappers.JListWrapper
                   for(Pair(fieldName, fieldType) <- closuStateNames.zip(closuStateBTs)) {
                     loadTHIS()
                     loadLocal(paramIdx, fieldType)
@@ -2706,7 +2733,11 @@ abstract class GenBCode extends BCodeOptInter {
               val ultimateMT = BType.getMethodType(ultimate.desc)
 
               // in order to invoke the delegate, load the receiver if any
-              if(hasOuter) { loadField(nme.OUTER.toString) }
+              if(!isStaticImplMethod) {
+                if(hasOuter) { loadField(nme.OUTER.toString) }
+              } else {
+                loadField(closuStateNames.head)
+              }
 
               // after that, load each apply-argument
               val callerParamsBTs = ultimateMT.getArgumentTypes.toList
@@ -2720,7 +2751,13 @@ abstract class GenBCode extends BCodeOptInter {
               }
 
               // now it only remains to load non-outer closure-state fields
-              val restFieldNames = if(hasOuter) closuStateNames.tail else closuStateNames;
+              val restFieldNames = {
+                if(!isStaticImplMethod) {
+                  if(hasOuter) closuStateNames.tail else closuStateNames
+                } else {
+                  closuStateNames.tail
+                }
+              }
               for(fieldName <- restFieldNames) {
                 loadField(fieldName)
                 // no adapt needed because the closure-fields were derived from the delegate's params for captured valued.
