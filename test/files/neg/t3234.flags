@@ -1,1 +1,1 @@
--Yinline -Yinline-warnings -Xfatal-warnings
+-neo:GenASM -closurify:traditional -Yinline -Yinline-warnings -Xfatal-warnings
