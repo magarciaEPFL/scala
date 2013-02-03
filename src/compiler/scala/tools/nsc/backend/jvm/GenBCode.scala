@@ -2832,6 +2832,11 @@ abstract class GenBCode extends BCodeOptInter {
 
         closuCNode.methods.add(ctor)
 
+        for(closuMethod <- closuCNode.toMethodList) {
+          // exemplars can be added only after all classes being compiled have been added to codeRepo.classes
+          codeRepo.registerUnseenTypeNames(closuMethod.instructions, enterExemplars = false) // must-single-thread
+        }
+
         log(
           s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
           s"for endpoint ${delegateSym.javaSimpleName.toString}${delegateMT} " +

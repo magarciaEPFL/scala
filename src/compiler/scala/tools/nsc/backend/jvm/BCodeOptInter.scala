@@ -821,14 +821,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      *  must-single-thread
      */
-    def enterExemplarsForUnseenTypeNames(insns: InsnList) {
+    def registerUnseenTypeNames(insns: InsnList, enterExemplars: Boolean = true) {
 
         def enterInternalName(iname: String) {
           var bt = brefType(iname)
           if(bt.isArray) {
             bt = bt.getElementType
           }
-          if(bt.isNonSpecial && !exemplars.containsKey(bt)) {
+          if(bt.isNonSpecial && enterExemplars && !exemplars.containsKey(bt)) {
+            // exemplars can be added only after all classes being compiled have been added to codeRepo.classes
             codeRepo.parseClassAndEnterExemplar(bt)
           }
         }
@@ -1280,7 +1281,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
       if(!isMultithread) {
-        codeRepo.enterExemplarsForUnseenTypeNames(body) // must-single-thread
+        codeRepo.registerUnseenTypeNames(body, enterExemplars = true) // must-single-thread
       }
 
       val hostOwnerBT = lookupRefBType(hostOwner)
@@ -1681,7 +1682,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val callerId = hostOwner.name + "::" + host.name + host.desc
 
       assert(!isMultithread)
-      codeRepo.enterExemplarsForUnseenTypeNames(hiO.instructions) // must-single-thread
+      codeRepo.registerUnseenTypeNames(hiO.instructions, enterExemplars = true) // must-single-thread
 
       if(Util.isSynchronizedMethod(hiO)) {
         inlineTarget.warn(s"Closure-inlining failed because ${inlineTarget.calleeId} is synchronized.")
