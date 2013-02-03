@@ -564,6 +564,26 @@ trait Types extends api.Types { self: SymbolTable =>
      *  Example: (in the below, <List> is the type constructor of List)
      *    TypeRef(pre, <List>, List()) is replaced by
      *    PolyType(X, TypeRef(pre, <List>, List(X)))
+     *
+     *  Discussion: normalize is NOT usually what you want to be calling.
+     *  The (very real) danger with normalize is that it will force types
+     *  which would not otherwise have been forced, leading to mysterious
+     *  behavioral differences, cycles, and other elements of mysteries.
+     *  Under most conditions the method you should be calling is `dealiasWiden`
+     *  (see that method for more info.)
+     *
+     *  Here are a few of the side-effect-trail-leaving methods called
+     *  by various implementations of normalize:
+     *
+     *   - sym.info
+     *   - tpe.etaExpand
+     *   - tpe.betaReduce
+     *   - tpe.memberType
+     *   - sym.nextOverriddenSymbol
+     *   - constraint.inst
+     *
+     *  If you've been around the compiler a while that list must fill
+     *  your heart with fear.
      */
     def normalize = this // @MAT
 
@@ -573,6 +593,8 @@ trait Types extends api.Types { self: SymbolTable =>
     /** Repeatedly apply widen and dealias until they have no effect.
      *  This compensates for the fact that type aliases can hide beneath
      *  singleton types and singleton types can hide inside type aliases.
+     *  !!! - and yet it is still inadequate, because aliases and singletons
+     *  might lurk in the upper bounds of an abstract type. See SI-7051.
      */
     def dealiasWiden: Type = (
       if (this ne widen) widen.dealiasWiden
@@ -710,7 +732,7 @@ trait Types extends api.Types { self: SymbolTable =>
         val trivial = (
              this.isTrivial
           || phase.erasedTypes && pre.typeSymbol != ArrayClass
-          || pre.normalize.isTrivial && !isPossiblePrefix(clazz)
+          || skipPrefixOf(pre, clazz)
         )
         if (trivial) this
         else {
@@ -2456,7 +2478,7 @@ trait Types extends api.Types { self: SymbolTable =>
       case RepeatedParamClass => args.head + "*"
       case ByNameParamClass   => "=> " + args.head
       case _                  =>
-        def targs = normalize.typeArgs
+        def targs = dealiasWiden.typeArgs
 
         if (isFunctionType(this)) {
           // Aesthetics: printing Function1 as T => R rather than (T) => R
@@ -4319,14 +4341,15 @@ trait Types extends api.Types { self: SymbolTable =>
    */
   def isPossiblePrefix(clazz: Symbol) = clazz.isClass && !clazz.isPackageClass
 
+  private def skipPrefixOf(pre: Type, clazz: Symbol) = (
+    (pre eq NoType) || (pre eq NoPrefix) || !isPossiblePrefix(clazz)
+  )
+
   /** A map to compute the asSeenFrom method  */
   class AsSeenFromMap(pre: Type, clazz: Symbol) extends TypeMap with KeepOnlyTypeConstraints {
     var capturedSkolems: List[Symbol] = List()
     var capturedParams: List[Symbol] = List()
 
-    private def skipPrefixOf(pre: Type, clazz: Symbol) = (
-      (pre eq NoType) || (pre eq NoPrefix) || !isPossiblePrefix(clazz)
-    )
     override def mapOver(tree: Tree, giveup: ()=>Nothing): Tree = {
       object annotationArgRewriter extends TypeMapTransformer {
         private def canRewriteThis(sym: Symbol) = (
@@ -4359,8 +4382,7 @@ trait Types extends api.Types { self: SymbolTable =>
     }
 
     def apply(tp: Type): Type =
-      if (skipPrefixOf(pre, clazz)) tp
-      else tp match {
+      tp match {
         case ThisType(sym) =>
           def toPrefix(pre: Type, clazz: Symbol): Type =
             if (skipPrefixOf(pre, clazz)) tp

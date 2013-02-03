@@ -153,7 +153,7 @@ trait ContextErrors {
         // members present, then display along with the expected members. This is done here because
         // this is the last point where we still have access to the original tree, rather than just
         // the found/req types.
-        val foundType: Type = req.normalize match {
+        val foundType: Type = req.dealiasWiden match {
           case RefinedType(parents, decls) if !decls.isEmpty && found.typeSymbol.isAnonOrRefinementClass =>
             val retyped    = typed (tree.duplicate.clearType())
             val foundDecls = retyped.tpe.decls filter (sym => !sym.isConstructor && !sym.isSynthetic)
@@ -772,10 +772,14 @@ trait ContextErrors {
         ))
       }
 
-      def MacroImplementationNotFoundError(expandee: Tree) =
-        macroExpansionError(expandee,
+      def MacroImplementationNotFoundError(expandee: Tree) = {
+        val message =
           "macro implementation not found: " + expandee.symbol.name + " " +
-          "(the most common reason for that is that you cannot use macro implementations in the same compilation run that defines them)")
+          "(the most common reason for that is that you cannot use macro implementations in the same compilation run that defines them)" +
+          (if (forScaladoc) ". When generating scaladocs for multiple projects at once, consider using -Ymacro-no-expand to disable macro expansions altogether."
+           else "")
+        macroExpansionError(expandee, message)
+      }
     }
   }
 
