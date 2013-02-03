@@ -1,1 +1,1 @@
--optimise -Xelide-below 900
+-neo:GenASM -closurify:traditional -optimise -Xelide-below 900

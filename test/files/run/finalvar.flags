@@ -1,1 +1,1 @@
--Yoverride-vars -Yinline
+-neo:GenASM -closurify:traditional -Yoverride-vars -Yinline
