@@ -11,7 +11,7 @@ package <empty> {
     def foo(methodParam: Int): Function0 = {
       val methodLocal: Int = 0;
       {
-        new anonymous class $anonfun$foo$1(T.this, methodParam, methodLocal)
+        scala.Int.box(T.this.dlgt$1$1(methodParam, methodLocal)).$asInstanceOf[runtime.AbstractFunction0]()
       }
     };
     def bar(barParam: Int): Object = {
@@ -21,23 +21,13 @@ package <empty> {
     def tryy(tryyParam: Int): Function0 = {
       var tryyLocal: runtime.IntRef = new runtime.IntRef(0);
       {
-        new anonymous class $anonfun$tryy$1(T.this, tryyParam, tryyLocal)
+        {
+  T.this.dlgt$2$1(tryyParam, tryyLocal);
+  scala.runtime.BoxedUnit.UNIT
+}.$asInstanceOf[runtime.AbstractFunction0]()
       }
     };
-    final def T$$dlgt$1$1(methodParam$1: Int, methodLocal$1: Int): Int = T.this.classParam.+(T.this.field()).+(methodParam$1).+(methodLocal$1);
-    @SerialVersionUID(0) final <synthetic> class $anonfun$foo$1 extends runtime.AbstractFunction0$mcI$sp with Serializable {
-      def <init>($outer: T, methodParam$1: Int, methodLocal$1: Int): anonymous class $anonfun$foo$1 = {
-        $anonfun$foo$1.super.<init>();
-        ()
-      };
-      final def apply(): Int = $anonfun$foo$1.this.apply$mcI$sp();
-      <specialized> def apply$mcI$sp(): Int = $anonfun$foo$1.this.$outer.T$$dlgt$1$1($anonfun$foo$1.this.methodParam$1, $anonfun$foo$1.this.methodLocal$1);
-      <synthetic> <paramaccessor> <artifact> private[this] val $outer: T = _;
-      <synthetic> <stable> <artifact> def T$$anonfun$$$outer(): T = $anonfun$foo$1.this.$outer;
-      final <bridge> <artifact> def apply(): Object = scala.Int.box($anonfun$foo$1.this.apply());
-      <synthetic> <paramaccessor> private[this] val methodParam$1: Int = _;
-      <synthetic> <paramaccessor> private[this] val methodLocal$1: Int = _
-    };
+    final private[this] def dlgt$1$1(methodParam$1: Int, methodLocal$1: Int): Int = T.this.classParam.+(T.this.field()).+(methodParam$1).+(methodLocal$1);
     abstract trait MethodLocalTrait$1 extends Object {
       <synthetic> <stable> <artifact> def T$MethodLocalTrait$$$outer(): T
     };
@@ -61,25 +51,9 @@ package <empty> {
       };
       scala.this.Predef.print(scala.Int.box(barParam$1))
     };
-    final def T$$dlgt$2$1(tryyParam$1: Int, tryyLocal$1: runtime.IntRef): Unit = try {
+    final private[this] def dlgt$2$1(tryyParam$1: Int, tryyLocal$1: runtime.IntRef): Unit = try {
       tryyLocal$1.elem = tryyParam$1
-    } finally ();
-    @SerialVersionUID(0) final <synthetic> class $anonfun$tryy$1 extends runtime.AbstractFunction0$mcV$sp with Serializable {
-      def <init>($outer: T, tryyParam$1: Int, tryyLocal$1: runtime.IntRef): anonymous class $anonfun$tryy$1 = {
-        $anonfun$tryy$1.super.<init>();
-        ()
-      };
-      final def apply(): Unit = $anonfun$tryy$1.this.apply$mcV$sp();
-      <specialized> def apply$mcV$sp(): Unit = $anonfun$tryy$1.this.$outer.T$$dlgt$2$1($anonfun$tryy$1.this.tryyParam$1, $anonfun$tryy$1.this.tryyLocal$1);
-      <synthetic> <paramaccessor> <artifact> private[this] val $outer: T = _;
-      <synthetic> <stable> <artifact> def T$$anonfun$$$outer(): T = $anonfun$tryy$1.this.$outer;
-      final <bridge> <artifact> def apply(): Object = {
-        $anonfun$tryy$1.this.apply();
-        scala.runtime.BoxedUnit.UNIT
-      };
-      <synthetic> <paramaccessor> private[this] val tryyParam$1: Int = _;
-      <synthetic> <paramaccessor> private[this] val tryyLocal$1: runtime.IntRef = _
-    }
+    } finally ()
   }
 }
 
