@@ -2314,6 +2314,7 @@ abstract class GenBCode extends BCodeOptInter {
        *    (f) one, two, or three "apply()" overrides to account for specialization.
        *
        *  @return the closure-type, ie the 2nd argument
+       *
        * */
       private def genLateClosure(fakeCallsite: Apply, castToBT: BType): BType = {
         val Apply(Select(rcv, _), args) = fakeCallsite
@@ -2326,7 +2327,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         /*
          *  This alone doesn't achieve the desired effect, because the master class for the dclosure
-         *  has been emitted already (including the dclosure-endpoint, as private).
+         *  has been built already (including the dclosure-endpoint, as private).
          *  It's a job for populateDClosureMaps().
          * */
         delegateSym.makePublic
