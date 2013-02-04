@@ -353,7 +353,7 @@ abstract class UnCurry extends InfoTransform
       val closureOwner = fun.symbol.owner
 
       val hoistedMethodDef: DefDef = {
-        val hoistedName  = unit.freshTermName("dlgt$")
+        val hoistedName  = unit.freshTermName("dlgt$" + currentClass.fullName.hashCode)
         val hoistmethSym = closureOwner.newMethod(hoistedName, fun.pos, inConstructorFlag | FINAL)
         val paramSyms = map2(formals, fun.vparams) {
           (tp, param) => hoistmethSym.newSyntheticValueParam(tp, param.name)
