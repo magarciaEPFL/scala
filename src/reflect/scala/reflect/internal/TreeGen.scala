@@ -270,18 +270,21 @@ abstract class TreeGen extends macros.TreeBuilder {
     CharClass    -> (Literal(Constant(0.toChar))  setType CharClass.toTypeConstructor)
   )
 
-  def mkConstantZero(tp: Type): Constant = tp.typeSymbol match {
-    case UnitClass    => Constant(())
-    case BooleanClass => Constant(false)
-    case FloatClass   => Constant(0.0f)
-    case DoubleClass  => Constant(0.0d)
-    case ByteClass    => Constant(0.toByte)
-    case ShortClass   => Constant(0.toShort)
-    case IntClass     => Constant(0)
-    case LongClass    => Constant(0L)
-    case CharClass    => Constant(0.toChar)
-    case _            => Constant(null)
-  }
+  def mkConstantZero(tp: Type): Constant = { sharedConstants.getOrElse(tp.typeSymbol, sharedNullConstant) }
+
+  private lazy val sharedConstants = Map[Symbol, Constant](
+    UnitClass    -> Constant(()),
+    BooleanClass -> Constant(false),
+    FloatClass   -> Constant(0.0f),
+    DoubleClass  -> Constant(0.0d),
+    ByteClass    -> Constant(0.toByte),
+    ShortClass   -> Constant(0.toShort),
+    IntClass     -> Constant(0),
+    LongClass    -> Constant(0L),
+    CharClass    -> Constant(0.toChar)
+  )
+
+  private lazy val sharedNullConstant = Constant(null)
 
   /** Wrap an expression in a named argument. */
   def mkNamedArg(name: Name, tree: Tree): Tree = mkNamedArg(Ident(name), tree)
