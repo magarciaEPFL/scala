@@ -358,7 +358,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             delegateMethodNode != null,
             "A method being compiled can't be found via codeRepo: " + methodSignature(delegateOwnerBT, delegateName, delegateMethodType)
           )
-          Util.makePublicMethod(delegateMethodNode)
 
           MethodRef(delegateOwnerBT, delegateMethodNode)
         }

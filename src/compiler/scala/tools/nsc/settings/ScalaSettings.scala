@@ -202,7 +202,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val neo         = ChoiceSetting ("-neo", "new optimizations", "Level of optimization by the experimental optimizer.",
                                    List("GenASM", "GenBCode", "o1", "o2", "o3", "o4", "o5"),
-                                   "o2") // TODO once merged into trunk "GenASM" should be the default
+                                   "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
                                    List("traditional", "delegating", "MH"),
                                    "delegating") // TODO once merged into trunk "traditional" should be the default

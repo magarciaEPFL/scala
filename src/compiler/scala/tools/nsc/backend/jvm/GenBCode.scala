@@ -1132,6 +1132,10 @@ abstract class GenBCode extends BCodeOptInter {
         if(definitions.isGetClass(dd.symbol)) { return }
         assert(mnode == null, "GenBCode detected nested method.")
 
+        if(isClosureDelegate(dd.symbol)) {
+          dd.symbol.makePublic
+        }
+
         methSymbol  = dd.symbol
         jMethodName = methSymbol.javaSimpleName.toString
         returnType  = asmMethodType(dd.symbol).getReturnType
@@ -1872,11 +1876,7 @@ abstract class GenBCode extends BCodeOptInter {
 
           case Typed(expr, _) =>
             expr match {
-              case app: Apply
-              if isLateClosuresOn &&
-                 app.symbol.isInstanceOf[MethodSymbol] &&
-                 uncurry.closureDelegates(app.symbol.asInstanceOf[MethodSymbol])
-              =>
+              case app: Apply if isLateClosuresOn && isClosureDelegate(app.symbol) =>
                 // we arrive here when closureConversionModern found a Function node with Nothing return type,
                 // was desugared there into: fakeCallsite.asInstanceOf[scala.runtime.AbstractFunctionX[...,Nothing]]
                 genLateClosure(app, tpeTK(tree))
@@ -3052,6 +3052,12 @@ abstract class GenBCode extends BCodeOptInter {
 
       /** Is the given symbol a primitive operation? */
       def isPrimitive(fun: Symbol): Boolean = scalaPrimitives.isPrimitive(fun)
+
+      /** Is the given symbol a MethodSymbol that was created by UnCurry's closureConversionModern() ? */
+      def isClosureDelegate(msym: Symbol): Boolean = {
+        msym.isInstanceOf[MethodSymbol] &&
+        uncurry.closureDelegates(msym.asInstanceOf[MethodSymbol])
+      }
 
       /** Generate coercion denoted by "code" */
       def genCoercion(code: Int) = {
