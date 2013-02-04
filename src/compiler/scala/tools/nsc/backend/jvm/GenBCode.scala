@@ -2330,8 +2330,20 @@ abstract class GenBCode extends BCodeOptInter {
         val hasOuter    = !delegateSym.isStaticMember
         val isStaticImplMethod = delegateSym.owner.isImplClass
 
-        assert(hasOuter != isStaticImplMethod)
-        assert(uncurry.closureDelegates.contains(delegateSym), s"Not a dclosure-endpoint: $delegateSym")
+        assert(
+          uncurry.closureDelegates.contains(delegateSym),
+          s"Not a dclosure-endpoint: ${delegateSym.fullLocationString}"
+        )
+        assert(
+          if(isStaticImplMethod) !hasOuter else true,
+           "How come a delegate-method (for a Late-Closure-Class) is static yet the dclosure is supposed to have an outer-instance. " +
+          s"Delegate: ${delegateSym.fullLocationString}"
+        )
+        assert(
+          if(hasOuter) !isStaticImplMethod else true,
+           "A Late-Closure-Class that captures an outer-instance can't delegate to a (static) method in an implementation class. " +
+          s"Delegate: ${delegateSym.fullLocationString}"
+        )
 
         // checking working assumptions
 
