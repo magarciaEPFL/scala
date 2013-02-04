@@ -2369,13 +2369,10 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         val closuStateNames: List[String] = {
-          val delegateParamNames: List[String] = {
-            for(
-              paramSym <- delegateSym.paramss.head;
-              uniquified = cunit.freshTermName(paramSym.name.toString)
-            ) yield uniquified.toString
-          }
-          assert(allDifferent(delegateParamNames), "Duplicate param names found among " + delegateParamNames.mkString)
+          val delegateParamNames: List[String] = uniquify(
+            for(paramSym <- delegateSym.paramss.head) yield paramSym.name.toString
+          )
+          assert(allDifferent(delegateParamNames), "Duplicate param names found among " + delegateParamNames.mkString(" , "))
           if(!isStaticImplMethod) {
             val tmp = delegateParamNames.drop(arity)
             if(hasOuter) nme.OUTER.toString :: tmp else tmp
