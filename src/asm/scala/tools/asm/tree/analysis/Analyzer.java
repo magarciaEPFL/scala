@@ -296,10 +296,10 @@ public class Analyzer<V extends Value> implements Opcodes {
                 }
             } catch (AnalyzerException e) {
                 throw new AnalyzerException(e.node, "Error at instruction "
-                        + insn + ": " + e.getMessage(), e);
+                        + insn + ": " + e.getMessage() + " in method " + m.name + m.desc + " in class " + owner, e);
             } catch (Exception e) {
                 throw new AnalyzerException(insnNode, "Error at instruction "
-                        + insn + ": " + e.getMessage(), e);
+                        + insn + ": " + e.getMessage() + " in method " + m.name + m.desc + " in class " + owner, e);
             }
         }
 
