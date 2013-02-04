@@ -4295,4 +4295,15 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   }
 
+  def allDifferent[ElemType](xs: Iterable[ElemType]): Boolean = {
+    val seen = mutable.Set.empty[ElemType]
+    val iter = xs.iterator
+    while(iter.hasNext) {
+      val nxt = iter.next()
+      if(seen contains nxt) { return false }
+      seen += nxt
+    }
+    true
+  }
+
 } // end of class BCodeTypes

@@ -2333,13 +2333,6 @@ abstract class GenBCode extends BCodeOptInter {
         assert(hasOuter != isStaticImplMethod)
         assert(uncurry.closureDelegates.contains(delegateSym), s"Not a dclosure-endpoint: $delegateSym")
 
-        /*
-         *  This alone doesn't achieve the desired effect, because the master class for the dclosure
-         *  has been built already (including the dclosure-endpoint, as private).
-         *  It's a job for populateDClosureMaps().
-         * */
-        delegateSym.makePublic
-
         // checking working assumptions
 
         // TODO outerTK is a poor name choice because sometimes there's no outer yet there's always a delegateOwnerTK
@@ -2364,7 +2357,13 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         val closuStateNames: List[String] = {
-          val delegateParamNames = delegateSym.paramss.head.map(p => p.name.toString)
+          val delegateParamNames: List[String] = {
+            for(
+              paramSym <- delegateSym.paramss.head;
+              uniquified = cunit.freshTermName(paramSym.name.toString)
+            ) yield uniquified.toString
+          }
+          assert(allDifferent(delegateParamNames), "Duplicate param names found among " + delegateParamNames.mkString)
           if(!isStaticImplMethod) {
             val tmp = delegateParamNames.drop(arity)
             if(hasOuter) nme.OUTER.toString :: tmp else tmp
@@ -2741,10 +2740,9 @@ abstract class GenBCode extends BCodeOptInter {
 
               // after that, load each apply-argument
               val callerParamsBTs = ultimateMT.getArgumentTypes.toList
-              val calleeParamsBTs = delegateApplySection
-              assert(callerParamsBTs.size == calleeParamsBTs.size)
+              assert(callerParamsBTs.size == delegateApplySection.size)
               var idx = 1
-              for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(calleeParamsBTs)) {
+              for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(delegateApplySection)) {
                 loadLocal(idx, callerParamBT)
                 spclzdAdapt(ultimate, callerParamBT, calleeParamBT)
                 idx += callerParamBT.getSize

@@ -354,10 +354,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             "A class being compiled can't be found via codeRepo: " + delegateOwnerBT.getInternalName
           )
           val delegateMethodNode = codeRepo.getMethod(delegateOwnerBT, delegateName, delegateMethodType.getDescriptor).mnode
-          assert(
-            delegateMethodNode != null,
-            "A method being compiled can't be found via codeRepo: " + methodSignature(delegateOwnerBT, delegateName, delegateMethodType)
-          )
+
+              def delegateMethodNodeId: String = { methodSignature(delegateOwnerBT, delegateName, delegateMethodType) }
+
+          assert(delegateMethodNode != null, "A late-closure-endpoint can't be found via codeRepo: " + delegateMethodNodeId )
+          assert(Util.isPublicMethod(delegateMethodNode), "PlainClassBuilder.genDefDef() forgot to make public: " + delegateMethodNodeId)
 
           MethodRef(delegateOwnerBT, delegateMethodNode)
         }
@@ -1192,7 +1193,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (d) re-computing the maxLocals and maxStack of the host method.
      *   (e) return None (this indicates success).
      *
-     * Inlining is considered unfeasible in three cases, summarized below and described in more detail on the spot:
+     * Inlining is considered unfeasible in four cases, summarized below and described in more detail on the spot:
      *   (a.0) callee is a synchronized method
      *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
      *   (a.2) inlining would lead to illegal access errors.
