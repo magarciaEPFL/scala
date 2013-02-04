@@ -353,7 +353,7 @@ abstract class UnCurry extends InfoTransform
       val closureOwner = fun.symbol.owner
 
       val hoistedMethodDef: DefDef = {
-        val hoistedName  = unit.freshTermName("dlgt$" + currentClass.fullName.hashCode)
+        val hoistedName  = unit.freshTermName("dlgt$" + currentClass.fullName.hashCode.toHexString)
         val hoistmethSym = closureOwner.newMethod(hoistedName, fun.pos, inConstructorFlag | FINAL)
         val paramSyms = map2(formals, fun.vparams) {
           (tp, param) => hoistmethSym.newSyntheticValueParam(tp, param.name)
@@ -372,8 +372,7 @@ abstract class UnCurry extends InfoTransform
         hmethDef
       }
 
-      // TODO reusing a singleton (already typed, from then on immutable) Tree per zero-constant would save space and time.
-      val zeroes: List[Tree] = (formals map gen.mkZero)
+      val zeroes: List[Tree] = (formals map { frml => sharedLiterals.getOrElse(frml.typeSymbol, gen.mkZero(frml)) })
 
       val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 
@@ -391,6 +390,18 @@ abstract class UnCurry extends InfoTransform
         )
       }
     } // end of method closureConversionModern()
+
+    private lazy val sharedLiterals = Map[Symbol, Literal](
+      UnitClass    -> (Literal(Constant(()))        setType UnitClass.toTypeConstructor),
+      BooleanClass -> (Literal(Constant(false))     setType BooleanClass.toTypeConstructor),
+      FloatClass   -> (Literal(Constant(0.0f))      setType FloatClass.toTypeConstructor),
+      DoubleClass  -> (Literal(Constant(0.0d))      setType DoubleClass.toTypeConstructor),
+      ByteClass    -> (Literal(Constant(0.toByte))  setType ByteClass.toTypeConstructor),
+      ShortClass   -> (Literal(Constant(0.toShort)) setType ShortClass.toTypeConstructor),
+      IntClass     -> (Literal(Constant(0))         setType IntClass.toTypeConstructor),
+      LongClass    -> (Literal(Constant(0L))        setType LongClass.toTypeConstructor),
+      CharClass    -> (Literal(Constant(0.toChar))  setType CharClass.toTypeConstructor)
+    )
 
     /**
      *  Currently closureConversionModern goes after closures with param-types that unproblematically
