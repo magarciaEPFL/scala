@@ -6,8 +6,8 @@ package <empty> {
       ()
     };
     private[this] val f: Int => Int = {
-      final def dlgt$1(param: Int): Int = param;
-      dlgt$1(0).asInstanceOf[scala.runtime.AbstractFunction1[Int,Int]]()
+      final def dlgt$114a61(param: Int): Int = param;
+      dlgt$114a61(0).asInstanceOf[scala.runtime.AbstractFunction1[Int,Int]]()
     };
     <stable> <accessor> def f(): Int => Int = Foo.this.f
   }
