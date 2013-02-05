@@ -234,11 +234,11 @@ abstract class UnCurry extends InfoTransform
 
               // checking inConstructorFlag prevents hitting SI-6666
               def isAmenableToModernConversion = {
-                val isAmenableToEarlyCC = {
+                val isAmenableToEarlyDelegatingClosures = {
                   (inConstructorFlag == 0) && !settings.etaExpandKeepsStar.value
                 }
 
-                isAmenableToEarlyCC && isAmenableToLateCC(fun)
+                isAmenableToEarlyDelegatingClosures && isAmenableToLateDelegatingClosures(fun)
               }
 
           if(settings.isClosureConvTraditional || !isAmenableToModernConversion) {
@@ -372,7 +372,10 @@ abstract class UnCurry extends InfoTransform
         hmethDef
       }
 
-      val zeroes: List[Tree] = (formals map gen.mkZero)
+      val zeroes: List[Tree] = (formals map { frml =>
+        if (isRepeatedParamType(frml)) { gen.sharedNullLiteral }
+        else { gen.mkZero(frml) }
+      })
 
       val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 
@@ -406,12 +409,12 @@ abstract class UnCurry extends InfoTransform
      *
      *  TODO devise a less restrictive solution for the above.
      * */
-    def isAmenableToLateCC(fun: Function): Boolean = {
+    def isAmenableToLateDelegatingClosures(fun: Function): Boolean = {
       val targs = fun.tpe.typeArgs
       val (formals, restpe) = (targs.init, targs.last)
 
           def isFineType(t: Type) = {
-            (t <:< AnyRefTpe) && !t.typeSymbol.isExistentiallyBound && (t.typeSymbol != NothingClass)
+            (t.typeSymbol != NothingClass) && (t <:< AnyRefTpe) && !t.typeSymbol.isExistentiallyBound
           }
 
       val isFineResult = { isPrimitiveValueType(restpe) || isFineType(restpe) }
@@ -424,7 +427,7 @@ abstract class UnCurry extends InfoTransform
         val isNonUnitPrimitiveValueType = ScalaValueClassesNoUnit contains (frml.typeSymbol)
 
         isNonUnitPrimitiveValueType ||
-        (isFineType(frml) && !isByNameParamType(frml) && !isRepeatedParamType(frml))
+        (isFineType(frml) && !isByNameParamType(frml))
       }
     } // end of method isAmenableToModernClosureConversion()
 

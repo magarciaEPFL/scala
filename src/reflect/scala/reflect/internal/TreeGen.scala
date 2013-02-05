@@ -270,6 +270,8 @@ abstract class TreeGen extends macros.TreeBuilder {
     CharClass    -> (Literal(Constant(0.toChar))  setType CharClass.toTypeConstructor)
   )
 
+  lazy val sharedNullLiteral = { Literal(sharedNullConstant) setType NullClass.typeConstructor }
+
   def mkConstantZero(tp: Type): Constant = { sharedConstants.getOrElse(tp.typeSymbol, sharedNullConstant) }
 
   private lazy val sharedConstants = Map[Symbol, Constant](
