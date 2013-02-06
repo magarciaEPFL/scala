@@ -28,6 +28,11 @@ import scala.tools.asm.tree.JumpInsnNode;
 
 import scala.tools.asm.util.Textifier;
 
+import scala.tools.asm.tree.analysis.Analyzer;
+import scala.tools.asm.tree.analysis.BasicInterpreter;
+import scala.tools.asm.tree.analysis.BasicValue;
+import scala.tools.asm.tree.analysis.AnalyzerException;
+
 import java.util.*;
 
 /**
@@ -581,6 +586,18 @@ public class Util {
     // ------------------------------------------------------------------------
     // miscellaneous
     // ------------------------------------------------------------------------
+
+    public static void basicInterpret(final ClassNode cnode) throws AnalyzerException {
+        Analyzer ca = new Analyzer<BasicValue>(new BasicInterpreter());
+        Iterator<MethodNode> iterMethod = cnode.methods.iterator();
+        while(iterMethod.hasNext()) {
+            MethodNode mnode = iterMethod.next();
+            if(!isReadyForAnalyzer(mnode)) {
+                computeMaxLocalsMaxStack(mnode);
+            }
+            ca.analyze(cnode.name, mnode);
+        }
+    }
 
     // ------------------------------------------------------------------------
     // Textification

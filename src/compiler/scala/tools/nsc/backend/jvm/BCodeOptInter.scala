@@ -1273,7 +1273,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * In case the callee has been parsed from bytecode,
        * its instructions may refer to type descriptors and internal names
        * that as of yet lack a corresponding TypeName in Names.chrs
-       * (the GenBCode infrastructure standardizes on TypeNames for lookups.
+       * (the GenBCode infrastructure standardizes on TypeNames for lookups).
        * The utility below takes care of creating TypeNames for those descriptors and internal names.
        * Even if inlining proves unfeasible, those TypeNames won't cause any harm.
        *
@@ -1363,9 +1363,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val ca = new Analyzer[BasicValue](new BasicInterpreter)
             ca.analyze(callsite.owner, callee)
             val insnArr = callee.instructions.toArray // iterate this array while mutating callee.instructions at will
-            for(calleeInsn <- insnArr;
-                if calleeInsn.getOpcode >= Opcodes.IRETURN && calleeInsn.getOpcode <= Opcodes.RETURN)
-            {
+            for(calleeInsn <- insnArr; if Util.isRETURN(calleeInsn)) {
               val retInsn = calleeInsn.asInstanceOf[InsnNode]
               val frame   = ca.frameAt(retInsn) // NPE means dead-code wasn't removed from the callee before calling inlineMethod
               val height  = frame.getStackSize
@@ -1947,11 +1945,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         return false
       }
 
-      val shio = StaticHiOUtil(hiO, closureClassUtils)
-      val staticHiO: MethodNode = shio.buildStaticHiO(hostOwner, callsite, inlineTarget)
+      val shioUtil = StaticHiOUtil(hiO, closureClassUtils)
+      val staticHiO: MethodNode = shioUtil.buildStaticHiO(hostOwner, callsite, inlineTarget)
       if(staticHiO == null) { return false }
       assert(Util.isPublicMethod(staticHiO), "Not a public method: " + methodSignature(hostOwner, staticHiO))
-      if(!shio.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
+      if(!shioUtil.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
         return false
       }
 
@@ -2016,10 +2014,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     /**
      *  For a given pair (hiO method, closure-argument) an instance of ClosureUsages
-     *  records the apply() invocations inside hiO for a particular closure-argument.
+     *  records the apply() invocations inside hiO for that closure-argument.
      *
      *  @param formalParamPosHiO zero-based position in the formal-params-list of hiO method
-     *  @param localVarIdxHiO    corresponding index into the locals-array of hiO method
+     *  @param localVarIdxHiO    corresponding index in the locals-array of hiO method
      *                           (in general different from formalParamPosHiO due to JVM-type-sizes)
      *  @param closureClass      final class of the closure (ie not e.g. Function1 but an anon-closure-class)
      *  @param applyMethod       the apply method invoked inside hiO (which in turn may invoke another).
@@ -2174,9 +2172,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *          < specialized > def apply$mcVI$sp(v1: Int): Unit = $outer.C$$dlgt1$1(v1);
        *
        *  This utility method returns a fabricated MethodNode, where invocation chains as above have been
-       *  collapsed into a self-contained method. In case this is not possible, this method returns null.
+       *  collapsed into a self-contained method. In case this is not possible,
+       *  this method returns a scala.Util.Left reporting the reason for unfeasibility as a String.
        *
-       *  For example, this method returns `null` for a closure converted by `closureConversionTraditional()`
+       *  For example, this method returns `Left` for a closure converted by `closureConversionTraditional()`
        *  where the original closure-body contained local-methods that lambdalift turned into
        *  closure-methods. In general it's not always possible to "un-do" all the dependencies on the closure's THIS,
        *  and in the example we don't even try.
@@ -2291,11 +2290,20 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           )
         }
 
+        if(!result.tryCatchBlocks.isEmpty) {
+          return Left(
+            s"The stub computed for class $closureClassName has try-catch block(s), " +
+             "and we don't check whether all apply() invocations occur in statement program points " +
+             "(as opposed to non-empty-operand-stack program points)."
+          )
+        }
+
             def hasMultipleRETURNs: Boolean = {
               var returnSeen = false
               val iter = result.instructions.iterator
               while(iter.hasNext) {
-                if(Util.isRETURN(iter.next())) {
+                val nxt = iter.next()
+                if(Util.isRETURN(nxt) || (nxt.getOpcode == Opcodes.ATHROW)) {
                   if (returnSeen) { return true; }
                   returnSeen = true
                 }
@@ -2305,7 +2313,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
 
         if(hasMultipleRETURNs) {
-          return Left(s"The stub computed for class $closureClassName has multiple returns.")
+          return Left(s"The stub computed for class $closureClassName has multiple exists (ie two or more returns or throw instructions).")
         }
 
         assert(result.desc == closureUsages.applyMethod.desc)
@@ -2319,7 +2327,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       def diagnostics: String = {
         var diags: List[String] = Nil
-        if(!areAllFiledsAccountedFor) {
+        if(!areAllFieldsAccountedFor) {
           diags ::= s"Number of closure-state fields should be one less than number of fields in ${closureClass.name}" +
                      "(static field SerialVersionUID isn't part of closure-state)"
         }
@@ -2334,13 +2342,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * Number of closure-state fields should be one less than number of fields in closure-class
        * (static field SerialVersionUID isn't part of closure-state).
        */
-      def areAllFiledsAccountedFor: Boolean = {
+      def areAllFieldsAccountedFor: Boolean = {
         (stateField2constrParam.size == (closureClass.fields.size() - 1)) &&
         (stateField2constrParam.size == field.size)
       }
 
       def isRepOK: Boolean = {
-        areAllFiledsAccountedFor && stubCreatorOutcome.isRight
+        areAllFieldsAccountedFor && stubCreatorOutcome.isRight
       }
 
     } // end of class ClosureClassUtil
@@ -2466,8 +2474,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        */
       def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode, inlineTarget: InlineTarget): MethodNode = {
 
-        // val txtHiOBefore = Util.textify(hiO)
-
         // (1) method name
         val name = {
           var attempt = 1
@@ -2482,7 +2488,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           candidate
         }
 
-        // (2) method descriptor, computing initial value of staticHiO's maxLocals (will be updated again once stubs are pasted)
+        // (2.a) compute method descriptor
+        // (2.b) compute initial value of staticHiO's maxLocals (will be updated again once stubs are pasted)
         var formals: List[BType] = Nil
         if(Util.isInstanceMethod(hiO)) {
           formals ::= lookupRefBType(callsite.owner)
@@ -2560,7 +2567,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val shio: MethodNode =
           new MethodNode(
             Opcodes.ASM4,
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC, // TODO why public? should be private (just one invoker, in the same class).
             name,
             shiOMethodType.getDescriptor,
             null,
@@ -2592,9 +2599,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val quickOptimizer = new BCodeCleanser(hostOwner)
         quickOptimizer.basicIntraMethodOpt(shio)
         Util.computeMaxLocalsMaxStack(shio)
-        // val txtShioAfter = Util.textify(shio)
-        // val tfaDebug = new Analyzer[TFValue](new TypeFlowInterpreter)
-        // tfaDebug.analyze(hostOwner.name, shio)
 
         shio
       } // end of method buildStaticHiO()
@@ -2732,6 +2736,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *    (3) properly shifting locals so that the resulting stub makes sense.
        */
       private def getStubsIterator(ccu: ClosureClassUtil, shio: MethodNode): Iterator[InsnList] = {
+
         val labelMap = Util.clonedLabels(ccu.stubTemplate)
         val stub = new InsnList
 

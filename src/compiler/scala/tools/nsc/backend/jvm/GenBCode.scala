@@ -2855,6 +2855,10 @@ abstract class GenBCode extends BCodeOptInter {
 
         lateClosures ::= closuCNode
 
+        ifDebug {
+          asm.optimiz.Util.basicInterpret(closuCNode)
+        }
+
         castToBT
       } // end of PlainClassBuilder's genLateClosure()
 
