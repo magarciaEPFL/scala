@@ -145,8 +145,38 @@ abstract class GenBCode extends BCodeOptInter {
     case class Item2(arrivalPos: Int, mirror: SubItem2NonPlain, plain: SubItem2Plain, bean: SubItem2NonPlain) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
+
+    // for inter-procedural optimization, we'd like to start working first on "large" classes for better load balanching of Worker2 threads
+    private val i2LargeClassesFirst = new _root_.java.util.Comparator[Item2] {
+      override def compare(a: Item2, b: Item2): Int = {
+        if(a.isPoison) { return  1 }
+        if(b.isPoison) { return -1 }
+        val aSize = a.plain.cnode.methods.size()
+        val bSize = b.plain.cnode.methods.size()
+
+        if     (aSize  > bSize) -1
+        else if(aSize == bSize)  0
+        else 1
+      }
+    }
+
+    // for intra-procedural or no optimization, we'd like to process classes according to arrival order, so as to serialize them faster.
+    private val i2ArrivalOrder = new _root_.java.util.Comparator[Item2] {
+      override def compare(a: Item2, b: Item2): Int = {
+        val aSize = a.arrivalPos
+        val bSize = b.arrivalPos
+
+        if     (aSize <  bSize) -1
+        else if(aSize == bSize)  0
+        else 1
+      }
+    }
     private val poison2 = Item2(Int.MaxValue, null, null, null)
-    private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
+    private val q2 =
+      new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](
+        1000,
+        if(settings.isInterBasicOptimizOn) i2LargeClassesFirst else i2ArrivalOrder
+      )
 
     private val limboForDClosures = mutable.Map.empty[BType, Item2] // a single Worker1 adds, many Worker2 read.
 
@@ -278,6 +308,7 @@ abstract class GenBCode extends BCodeOptInter {
      *          - cleanseClass() runs first.
      *            The difference with (b) however has to do with master-classes and their dclosures.
      *            In the inter-procedural case, they are processed as a single (larger) unit of work by cleanseClass.
+     *            That's why in this case "large classes" (see `i2LargeClassesFirst`) bubble up to queue-2's head.
      *          - once that (larger) unit of work is complete, all of its constituent classes are placed on queue-3.
      *
      *  can-multi-thread

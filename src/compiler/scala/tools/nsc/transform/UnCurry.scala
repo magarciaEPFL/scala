@@ -334,13 +334,14 @@ abstract class UnCurry extends InfoTransform
      *    https://wikis.oracle.com/display/HotSpotInternals/EscapeAnalysis
      *    http://dl.acm.org/citation.cfm?id=945892
      *
-     *  Under the new scheme, loading anon-closure-classes is faster because there's less code to verify.
+     *  Under the "modern" closure-conversion scheme, loading anon-closure-classes is faster because there's less code to verify.
      *  It's true however that a "closures-via-invokedynamic" approach would further reduce that overhead
      *  (because materializing the inner class is delayed until runtime, see java/lang/invoke/LambdaMetafactory).
      *  Another approach is "method-handle wrapped-in-closure": instead of generating a custom inner class,
      *  all closure instances are obtained by instantiating a single common class whose single constructor argument is a MethodHandle.
      *
-     *  For comparison, a discussion of the difficulties when attempting to stack-allocate closures after (a) has been performed can be found at:
+     *  For comparison, a discussion of the difficulties when attempting to stack-allocate closures
+     *  under the `closureConversionTraditional()` secheme can be found at:
      *    https://groups.google.com/d/topic/scala-internals/Hnftko0MzDM/discussion
      *
      *  TODO SI-6666 , SI-6727 (pos/z1730) . Also: not a bug but beware: SI-6730

@@ -74,7 +74,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * Terminology for delegating closures
    * -----------------------------------
    *
-   * "delegating closure": (dclosure for short) an anonymous-closure-class
+   * "delegating closure": ("dclosure" for short) an anonymous-closure-class
    *                       created by UnCurry's `closureConversionModern()`.
    *
    * "dclosure endpoint":  method consisting of the closure's body, its name contains "dlgt$".
@@ -113,7 +113,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *                     in the master class (one ore more callsites), if the dclosure has been inlined.
    *
    *               (This whole nit-pick about not losing track of callsites to endpoints is
-   *               explained by our desire to optimize).
+   *               justified by our desire to optimize).
    *
    *   (c) a class C owning a closure-endpoint method isn't a delegating-closure itself
    *       (it's fine for C to be a traditional-closure or a non-closure).
@@ -123,7 +123,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    *   (1) Not really an invariant but almost:
    *       "all instantiations of dclosure D are enclosed in a method of the master class of D"
-   *       With inlining, "transplanting" a method's instructions to another class may break the condition above.
+   *       With inlining, "transplanting" a method's instructions to another class may break the property above.
    *       Apparently few program points contradict the above right after GenBCode.
    *
    *
@@ -2313,7 +2313,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             }
 
         if(hasMultipleRETURNs) {
-          return Left(s"The stub computed for class $closureClassName has multiple exists (ie two or more returns or throw instructions).")
+          return Left(s"The stub computed for class $closureClassName has multiple exits (ie two or more returns or throw instructions).")
         }
 
         assert(result.desc == closureUsages.applyMethod.desc)
