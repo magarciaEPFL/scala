@@ -11,7 +11,7 @@ package <empty> {
     def foo(methodParam: Int): Function0 = {
       val methodLocal: Int = 0;
       {
-        scala.Int.box(T.this.dlgt$1$1(methodParam, methodLocal)).$asInstanceOf[runtime.AbstractFunction0]()
+        scala.Int.box(T.this.dlgt$541$1(methodParam, methodLocal)).$asInstanceOf[runtime.AbstractFunction0]()
       }
     };
     def bar(barParam: Int): Object = {
@@ -22,12 +22,12 @@ package <empty> {
       var tryyLocal: runtime.IntRef = new runtime.IntRef(0);
       {
         {
-  T.this.dlgt$2$1(tryyParam, tryyLocal);
+  T.this.dlgt$542$1(tryyParam, tryyLocal);
   scala.runtime.BoxedUnit.UNIT
 }.$asInstanceOf[runtime.AbstractFunction0]()
       }
     };
-    final private[this] def dlgt$1$1(methodParam$1: Int, methodLocal$1: Int): Int = T.this.classParam.+(T.this.field()).+(methodParam$1).+(methodLocal$1);
+    final private[this] def dlgt$541$1(methodParam$1: Int, methodLocal$1: Int): Int = T.this.classParam.+(T.this.field()).+(methodParam$1).+(methodLocal$1);
     abstract trait MethodLocalTrait$1 extends Object {
       <synthetic> <stable> <artifact> def T$MethodLocalTrait$$$outer(): T
     };
@@ -51,7 +51,7 @@ package <empty> {
       };
       scala.this.Predef.print(scala.Int.box(barParam$1))
     };
-    final private[this] def dlgt$2$1(tryyParam$1: Int, tryyLocal$1: runtime.IntRef): Unit = try {
+    final private[this] def dlgt$542$1(tryyParam$1: Int, tryyLocal$1: runtime.IntRef): Unit = try {
       tryyLocal$1.elem = tryyParam$1
     } finally ()
   }
