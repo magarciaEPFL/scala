@@ -329,29 +329,10 @@ That optimization level requires --closurify:delegating or --closurify:MH
 <ul>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6941">SI-6941</a> Pattern matcher inefficiency for basic constructor patterns</li>
-</ul><p><code>scala.runtim.IntRef</code> and friends offer opportunities to simplify code (which in itself gains no performance, but may well trigger other optimizations that do). For example, whenever there's a single left-hand-side use of a captured value, an <code>IntRef</code> is passed around all over, even to those private methods that only require read-access. </p>
-
-<div class="highlight"><pre>  <span class="k">def</span> <span class="n">main</span><span class="o">(</span><span class="n">args</span><span class="k">:</span> <span class="kt">Array</span><span class="o">[</span><span class="kt">String</span><span class="o">])</span> <span class="o">{</span>
-    <span class="k">var</span> <span class="n">capturedW</span> <span class="k">=</span> <span class="mi">0</span>
-        <span class="k">def</span> <span class="n">childR</span><span class="o">()</span> <span class="o">{</span> <span class="n">println</span><span class="o">(</span><span class="n">capturedW</span><span class="o">)</span> <span class="o">}</span>
-        <span class="k">def</span> <span class="n">childW</span><span class="o">()</span> <span class="o">{</span> <span class="n">capturedW</span> <span class="k">=</span> <span class="n">args</span><span class="o">.</span><span class="n">size</span> <span class="o">}</span>
-    <span class="k">if</span> <span class="o">(</span><span class="n">args</span> <span class="o">==</span> <span class="kc">null</span><span class="o">)</span> <span class="n">childR</span><span class="o">()</span> <span class="k">else</span> <span class="n">childW</span><span class="o">();</span>
-  <span class="o">}</span>
-</pre></div>
-
-<p>Bytecode-level, <code>childR()</code> could receive an <code>Int</code>, or be inlined altogether. Currently:</p>
-
-<pre lang="javap"><code>    private static final void childR$1(scala.runtime.IntRef);
-      Code:
-       0:  getstatic    #31; //Field scala/Predef$.MODULE$:Lscala/Predef$;
-       3:  aload_0
-       4:  getfield #35; //Field scala/runtime/IntRef.elem:I
-       7:  invokestatic #41; //Method scala/runtime/BoxesRunTime.boxToInteger:(I)Ljava/lang/Integer;
-       10: invokevirtual    #45; //Method scala/Predef$.println:(Ljava/lang/Object;)V
-       13: return
-</code></pre>
-
-<p>What others are doing:</p>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-6863">SI-6863</a> Remember "Attempt to entry try block with non-empty stack" ? To circumvent that limitation, a try-occurrence found at an expression position is "refactored" into a dedicated method (see <code>liftTree()</code> in <code>UnCurry</code>). The performance problem with that are slower compilation (more <code>Tree</code> nodes) and slower run time (larger constant pool, more bytecode instructions, more <code>IntRef</code>s all over). An alternative approach consists in leaving try's in place, with a post-<code>Cleanup</code> step guaranteeing empty-stack-on-try-entry. A proposal (in the form of pseudocode) for that transformation can be found at <a href="https://groups.google.com/d/msg/scala-internals/VkEL7wOVQpE/aSiNnF3ym-cJ">this thread</a>
+</li>
+</ul><p>What others are doing:</p>
 
 <ul>
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
