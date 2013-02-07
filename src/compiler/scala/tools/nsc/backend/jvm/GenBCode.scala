@@ -397,8 +397,6 @@ abstract class GenBCode extends BCodeOptInter {
 
     var arrivalPos = 0
 
-    val spclztion = mutable.Map.empty[String, asm.tree.ClassNode]
-
     override def run() {
 
       log(s"Number of early vs late anon-closures, Traditional: ${uncurry.convertedTraditional} , Modern: ${uncurry.convertedModern}")
@@ -443,7 +441,6 @@ abstract class GenBCode extends BCodeOptInter {
 
     private def clearBCodePhase() {
       limboForDClosures.clear()
-      spclztion.clear()
     }
 
     /**
@@ -2514,7 +2511,7 @@ abstract class GenBCode extends BCodeOptInter {
              *  Two cases:
              *
              *  (a) In case the closure can be specialized,
-             *      the closure class to create should extend a subclass of `castToBTyoe`,
+             *      the closure class to create should extend a subclass of `castToBT`,
              *      ie a subclass with name of the form s.r.AbstractFunctionX$mc...$sp ,
              *      and override an "ultimate apply()" (ie an apply method with most-specific types).
              *      Another apply-method (with "fully-erased" method signature) is also added whose task is:
@@ -2523,22 +2520,24 @@ abstract class GenBCode extends BCodeOptInter {
              *        - boxing the result.
              *
              *  (b) In case the closure can't be specialized,
-             *      the closure class to create extends `castToBType`, and
+             *      the closure class to create extends `castToBT`, and
              *      overrides the fully-erased apply() method corresponding to the closure's arity.
              *
              *  That's what this method figures out, by loading bytecode from the library we're compiling against.
              *  TODO in the future by consulting symbols and types
              *
-             *  @return a Pair(superClassName, list-of-methods-to-override)
-             *          where the head of the method list denotes the "ultimate-apply" override (in the closure-class being built)
-             *          to invokes the delegate, and the rest are "plumbing" methods
-             *          to invoke the aforementioned ultimate-apply. The method bodies themselves are not added yet.
+             *  @return a Pair(superClassName, list-of-overriding-methods) where:
+             *
+             *            - the head of the method list denotes the "ultimate-apply" override that invokes the delegate
+             *
+             *            - the rest are "plumbing" methods to invoke the aforementioned ultimate-apply.
+             *
+             *  The returned overrides are part of the closure-class being built, but the method bodies themselves are not added yet.
              **/
             def takingIntoAccountSpecialization(): Pair[String, List[MethodNode]] = {
 
-                  def getUltimateAndPlumbing(mdescr: String): List[asm.tree.MethodNode] = {
+                  def getUltimateAndPlumbing(key: String, mdescr: String): List[asm.tree.MethodNode] = {
                     val closuIName = castToBT.getInternalName
-                    val spCNode = spclztion.getOrElseUpdate(closuIName, isolatedClassLoad(closuIName))
                     val fullyErasedDescr = BType.getMethodDescriptor(ObjectReference, Array.fill(arity){ ObjectReference })
                     val fullyErasedMNode = new asm.tree.MethodNode(
                       asm.Opcodes.ASM4,
@@ -2547,22 +2546,32 @@ abstract class GenBCode extends BCodeOptInter {
                       null, null
                     )
                     val plumbings: List[asm.tree.MethodNode] =
-                       JListWrapper(spCNode.methods)
-                      .filter(mn => mn.name.startsWith("apply") && mn.desc == mdescr)
-                      .map(mn =>
-                         new MethodNode(
-                           asm.Opcodes.ASM4,
-                           (asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL),
-                           mn.name, mn.desc,
-                           null, null
-                         )
-                       )
-                      .toList
+                      if(mdescr == null) Nil
+                      else {
 
-                    lazy val msg = "More plumbing methods than warranted: " + plumbings.map(mn => mn.desc).mkString
-                    if(mdescr == null) { assert(plumbings.isEmpty,   msg) }
-                    else               { assert(plumbings.size == 1, msg) }
-                    // TODO bridge apply, for example int apply(int), is it needed? If so append to `plumbings`
+                        assert(key    != null)
+                        assert(mdescr != fullyErasedDescr, "Fully-erased-apply and bridge-apply undistinguishable (same name, ie apply, same method descriptor)")
+
+                        /*
+                         * The 2nd plumbing method (called simply "apply") is a so called "bridge apply", for example `int apply(int)`.
+                         * You might think it isn't needed, bc nobody invokes it (spclztion rewrites callsites to target the spclzd version instead)
+                         * HOWEVER, just because an "specialized interface" (in the example, scala.Function1$mcII$sp) declares it,
+                         * and s.r.AbstractFunction1$mcII$sp extends that interface, we've got to add bytecode in each subclass,
+                         * TODO THEREFORE a lot of boilerplate would be saved if that method were implemented in s.r.AbstractFunction1$mcII$sp already.
+                         * */
+
+                         List(
+                          "apply" + key,
+                          "apply"
+                        ).map( applyName =>
+                          new MethodNode(
+                            asm.Opcodes.ASM4,
+                            (asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL),
+                            applyName, mdescr,
+                            null, null
+                          )
+                        )
+                      }
 
                     plumbings ::: List(fullyErasedMNode)
                   }
@@ -2587,7 +2596,7 @@ abstract class GenBCode extends BCodeOptInter {
                       spclzdDescriptors(delegateApplySection).mkString("(", "", ")") +
                       spclzdErasure(delegateMT.getReturnType).getDescriptor
                     }
-                    return Pair(castToBT.getInternalName + key, getUltimateAndPlumbing(spzldDescr))
+                    return Pair(castToBT.getInternalName + key, getUltimateAndPlumbing(key, spzldDescr))
                   }
                 }
 
@@ -2596,7 +2605,7 @@ abstract class GenBCode extends BCodeOptInter {
               val nonSpzld = castToBT.getInternalName
               assert(!nonSpzld.contains('$'), s"Unexpected specialized AbstractFunction: $nonSpzld")
 
-              Pair(nonSpzld, getUltimateAndPlumbing(null))
+              Pair(nonSpzld, getUltimateAndPlumbing(null, null))
             } // end of helper method takingIntoAccountSpecialization()
 
 
