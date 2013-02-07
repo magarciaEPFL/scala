@@ -1289,7 +1289,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val illegalAccessInsn = allAccessesLegal(body, hostOwnerBT)
       if(illegalAccessInsn != null) {
         return Some(
-          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)}that would cause IllegalAccessError from class $hostOwner"
+          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)} that would cause IllegalAccessError from class $hostOwner"
         )
       }
 
@@ -1690,7 +1690,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val illegalAccessInsn = allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))
       if(illegalAccessInsn != null) {
         inlineTarget.warn(
-          s"Closure-inlining failed because ${inlineTarget.calleeId} contains instruction \n${Util.textify(illegalAccessInsn)}" +
+          s"Closure-inlining failed because ${inlineTarget.calleeId} contains instruction \n${Util.textify(illegalAccessInsn)} " +
           s"that would cause IllegalAccessError from class ${hostOwner.name}"
         )
         return false

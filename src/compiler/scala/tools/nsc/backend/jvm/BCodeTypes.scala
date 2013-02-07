@@ -878,12 +878,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   var StringBuilderReference: BType = null
 
-  // scala.FunctionX and scala.PartialFunction
-  var PartialFunctionReference: BType   = null
-  val FunctionReference = new Array[Tracked](definitions.MaxFunctionArity + 1)
-  val AbstractFunctionReference = new Array[Tracked](definitions.MaxFunctionArity + 1)
-  var AbstractPartialFunctionReference: BType = null
+  // scala.FunctionX and scala.runtim.AbstractFunctionX
+  val FunctionReference                 = new Array[Tracked](definitions.MaxFunctionArity + 1)
+  val AbstractFunctionReference         = new Array[Tracked](definitions.MaxFunctionArity + 1)
   val abstractFunctionArityMap = mutable.Map.empty[BType, Int]
+
+  var PartialFunctionReference:         BType = null // scala.PartialFunction
+  var AbstractPartialFunctionReference: BType = null // scala.runtime.AbstractPartialFunction
 
   /**
    * must-single-thread
@@ -978,7 +979,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
          * to be already available in `exemplars`.
          * That's why we enter those parents in advance here.
          */
-        val abstractFnXClazz = AbstractFunctionClass(idx)
+        val abstractFnXClazz: ClassSymbol = AbstractFunctionClass(idx)
         val subclasses =
           enteringErasure {
             val environs = specializeTypes.specializations(abstractFnXClazz.info.typeParams) filter specializeTypes.satisfiable
@@ -1250,6 +1251,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     assert(superInterfaces.forall(s => s.isInterface || s.isTrait), "found non-interface among: " + superInterfaces.mkString)
 
     minimizeInterfaces(superInterfaces)
+  }
+
+  final def exemplarIfExisting(iname: String): Tracked = {
+    val bt = lookupRefBTypeIfExisting(iname)
+    if(bt != null) exemplars.get(bt)
+    else null
   }
 
   /**
@@ -4038,6 +4045,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val n    = global.lookupTypeName(iname.toCharArray)
     val sort = if(chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
     new BType(sort, n.start, n.length)
+  }
+
+  def lookupRefBTypeIfExisting(iname: String): BType = {
+    try   { lookupRefBType(iname) }
+    catch { case _ : AssertionError => null }
   }
 
   /**

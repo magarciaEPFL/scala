@@ -255,10 +255,10 @@ abstract class TreeGen extends macros.TreeBuilder {
    */
   def mkZero(tp: Type): Tree = tp.typeSymbol match {
     case NothingClass => mkMethodCall(Predef_???, Nil) setType NothingClass.tpe
-    case tpsym        => sharedLiterals.getOrElse(tpsym, Literal(mkConstantZero(tp)) setType tp)
+    case tpsym        => sharedZeroLiterals.getOrElse(tpsym, Literal(mkConstantZero(tp)) setType tp)
   }
 
-  private lazy val sharedLiterals = Map[Symbol, Literal](
+  private lazy val sharedZeroLiterals = Map[Symbol, Literal](
     UnitClass    -> (Literal(Constant(()))        setType UnitClass.toTypeConstructor),
     BooleanClass -> (Literal(Constant(false))     setType BooleanClass.toTypeConstructor),
     FloatClass   -> (Literal(Constant(0.0f))      setType FloatClass.toTypeConstructor),

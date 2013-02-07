@@ -2443,7 +2443,7 @@ abstract class GenBCode extends BCodeOptInter {
                 restClosureStateBTs.size == capturedValues.size,
                 s"Mismatch btw ${restClosureStateBTs.mkString} and ${capturedValues.mkString}"
               )
-              for(Pair(ctorParamBT, captureValue) <- restClosureStateBTs.zip(capturedValues)) {
+              map2(capturedValues, restClosureStateBTs) { (captureValue, ctorParamBT) =>
                 genLoad(captureValue, ctorParamBT)
               }
               // <init> invocation
@@ -2473,7 +2473,11 @@ abstract class GenBCode extends BCodeOptInter {
             /** primitive and void erase to themselves, all others (including arrays) to j.l.Object */
             def spclzdErasure(bt: BType): BType = { if(bt.isPrimitiveOrVoid) bt else ObjectReference }
             def spclzdDescriptors(bts: List[BType]): List[String] = {
-              bts map { bt => spclzdErasure(bt).getDescriptor }
+              for(bt <- bts; spEra = spclzdErasure(bt))
+              yield {
+                if(spEra.isPrimitiveOrVoid) { spEra.getDescriptor }
+                else { assert(spEra.hasObjectSort); "L" }
+              }
             }
 
             /** "isolated" because on purpose not adding to codeRepo, for we don't know whether
@@ -2495,15 +2499,15 @@ abstract class GenBCode extends BCodeOptInter {
             }
 
             /**
+             *  initBCodeTypes() populates exemplars for all s.r.AbstractFunctionX and any specialized subclasses.
+             *  We query that map to find out whether the specialization given by `key` exists.
+             *
              *  @param key a string of the form $mc...$sp which may be the postfix of the internal name of
              *             an AbstractFunctionX specialized subclass.
              * */
             def isValidSpclztion(key: String): Boolean = {
-              val candidate = castToBT.getInternalName
-              // TODO the proper thing would be to check the most up-to-date info, ie Symbols
-              val spCNode: asm.tree.ClassNode = spclztion.getOrElseUpdate(candidate, isolatedClassLoad(candidate))
-
-              JListWrapper(spCNode.methods).exists(mn => mn.name == "apply" + key)
+              val candidate = castToBT.getInternalName // `castToBT` is a non-specialized s.r.AbstractFunctionX class
+              exemplarIfExisting(candidate + key) != null
             }
 
             /**
@@ -2565,12 +2569,12 @@ abstract class GenBCode extends BCodeOptInter {
 
               if(arity <= 2) { // TODO for now hardcoded
 
-                val maybeSpzld = {
-                  (delegateApplySection exists { bt => bt.isNonUnitValueType } ) ||
+                val maybeSpczld = {
+                  (delegateApplySection exists { bt => bt.isNonUnitValueType }) ||
                   (delegateMT.getReturnType.isPrimitiveOrVoid)
                 }
 
-                if(maybeSpzld) {
+                if(maybeSpczld) {
                   val key = {
                     "$mc" +
                     spclzdErasure(delegateMT.getReturnType).getDescriptor +
