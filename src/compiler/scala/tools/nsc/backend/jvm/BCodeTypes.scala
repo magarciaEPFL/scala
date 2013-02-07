@@ -4291,7 +4291,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   /**
-   *  Upon finding a name already seen in the argument, adds a numeric postfix to make it unique.
+   *  Upon finding a name already seen among previous List elements, adds a numeric postfix to make it unique.
    * */
   def uniquify(names: List[String]): List[String] = {
     val seen = mutable.Set.empty[String]
@@ -4308,7 +4308,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     var rest = names
     var result: List[String] = Nil
     while(rest.nonEmpty) {
-      val u = uniquified(rest.head.trim, 1)
+      val u    = uniquified(rest.head.trim, 1)
       seen    += u
       result ::= u
       rest     = rest.tail

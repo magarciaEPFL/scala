@@ -2310,7 +2310,7 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         generatedType
-      } // end of GenBCode's genApply()
+      } // end of PlainClassBuilder's genApply()
 
       /**
        *  This method works in tandem with UnCurry's closureConversionModern()
@@ -2321,35 +2321,34 @@ abstract class GenBCode extends BCodeOptInter {
        *
        *  Terminology: arity is used throughout `genLateClosure()` as shorthand for closure-arity
        *
-       *  The starting point is the "fake calliste" targeting the closure entrypoint.
-       *  Structure of that callsite:
+       *  The starting point is the "fake calliste" targeting the closure entrypoint (aka "delegate").
        *
-       *    (a) it may target:
+       *    (a) The "fake calliste" callsite may target:
        *          - a static method (e.g., for closures enclosed in modules, or in implementation classes);
        *        or
-       *          - an instance (to be used as outer instance by the closure).
+       *          - an instance method (the receiver being the outer instance of the closure).
        *
        *    (b) Whenever the delegate is an instance method,
        *        the leading `arity` arguments to the fakeCallsite are Trees denoting zeroes.
        *        The above also applies in case of a static delegate unless declared in an implementation class.
        *        In that case:
        *          - the first argument stands for the self-instance, which should be captured by the closure.
-       *          - the following arity arguments are zeroes.
+       *          - the following `arity` arguments are zeroes.
        *
        *    (c) remaining arguments denote non-outer captured values.
        *        Whether an outer-instance is needed is determined by whether the delegate will be invoked via
-       *        invokevirtual or invokestatic, in turn determined by isStaticMember.
+       *        invokevirtual or invokestatic, in turn determined by `delegateSym.isStaticMember`.
        *
-       *  The resulting closure class is registered in `codeRepo.classes` and `exemplars`
+       *  The resulting Late-Closure-Class is registered in `codeRepo.classes` and `exemplars`
        *  by `PlainClassBuilder.plainClass()` , see `PlainClassBuilder.lateClosures`
        *
-       *  The resulting closure-class consists of:
+       *  The resulting Late-Closure-Class consists of:
        *
-       *    (d) a single constructor taking as argument the outer value (if needed) followed by (c).
+       *    (d) one public constructor taking as argument the outer value (if needed) followed by (c).
        *    (e) a private final field for each constructor param
        *    (f) one, two, or three "apply()" overrides to account for specialization.
        *
-       *  @return the closure-type, ie the 2nd argument
+       *  @return the closure-type, ie the 2nd argument (`castToBT`)
        *
        * */
       private def genLateClosure(fakeCallsite: Apply, castToBT: BType): BType = {
@@ -2377,18 +2376,22 @@ abstract class GenBCode extends BCodeOptInter {
 
         // checking working assumptions
 
-        // TODO outerTK is a poor name choice because sometimes there's no outer yet there's always a delegateOwnerTK
-        val outerTK = brefType(internalName(delegateSym.owner))
-        val cnodeBT = brefType(cnode.name)
+        // TODO outerTK is a poor name choice because sometimes there's no outer instance yet there's always a delegateOwnerTK
+        val outerTK     = brefType(internalName(delegateSym.owner))
+        val enclClassBT = brefType(cnode.name)
         assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
-        // doesn't hold in presence of delayedInit: assert(outerTK == cnodeBT)
+        // doesn't hold in presence of delayedInit: assert(outerTK == enclClassBT)
 
-        // relevant items to build the closure class
+        /*
+         * Pieces of information for building the closure class:
+         *   - closure-state (names and types),
+         *   - apply-params-section (types).
+         */
 
         val delegateMT: BType = asmMethodType(delegateSym)
 
         val delegateParamTs = delegateMT.getArgumentTypes.toList
-        val closuStateBTs:   List[BType]  = {
+        val closuStateBTs: List[BType] = {
           if(!isStaticImplMethod) {
             val tmp = delegateParamTs.drop(arity)
             if(hasOuter) outerTK :: tmp else tmp
@@ -2486,7 +2489,7 @@ abstract class GenBCode extends BCodeOptInter {
                   cn
 
                 case _ =>
-                  error("As part of generating late closures, couldn't find bytecode for class" + dotName)
+                  error("As part of generating late closures, couldn't find bytecode for class " + dotName)
                   null
               }
             }
@@ -2606,10 +2609,10 @@ abstract class GenBCode extends BCodeOptInter {
               val c = new asm.tree.ClassNode() // interfaces, innerClasses, fields, methods
 
               val simpleName = cunit.freshTypeName(
-                cnodeBT.getSimpleName + "$LCC$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
+                enclClassBT.getSimpleName + "$LCC$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
               ).toString
               c.name         = {
-                val pak = cnodeBT.getRuntimePackage
+                val pak = enclClassBT.getRuntimePackage
                 if(pak.isEmpty) simpleName else (pak + "/" + simpleName)
               }
               c.version      = classfileVersion
