@@ -880,9 +880,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   // scala.FunctionX and scala.PartialFunction
   var PartialFunctionReference: BType   = null
-  val FunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
-  val AbstractFunctionReference = new Array[Tracked](definitions.MaxFunctionArity)
+  val FunctionReference = new Array[Tracked](definitions.MaxFunctionArity + 1)
+  val AbstractFunctionReference = new Array[Tracked](definitions.MaxFunctionArity + 1)
   var AbstractPartialFunctionReference: BType = null
+  val abstractFunctionArityMap = mutable.Map.empty[BType, Int]
 
   /**
    * must-single-thread
@@ -963,9 +964,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
 
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
-    for(idx <- 0 until definitions.MaxFunctionArity) {
+    for(idx <- 0 to definitions.MaxFunctionArity) {
       FunctionReference(idx)           = exemplar(FunctionClass(idx))
       AbstractFunctionReference(idx)   = exemplar(AbstractFunctionClass(idx))
+      abstractFunctionArityMap        += (AbstractFunctionReference(idx).c -> idx)
       AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
 
       if(isLateClosuresOn) {
@@ -1670,7 +1672,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     if(!t.hasObjectSort) return false
     var idx = 0
     val et: Tracked = exemplars.get(t)
-    while(idx < definitions.MaxFunctionArity) {
+    while(idx <= definitions.MaxFunctionArity) {
       if(et.isSubtypeOf(FunctionReference(idx).c)) {
         return true
       }
@@ -1688,7 +1690,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     if(!t.hasObjectSort) return false
     var idx = 0
     val et: Tracked = exemplars.get(t)
-    while(idx < definitions.MaxFunctionArity) {
+    while(idx <= definitions.MaxFunctionArity) {
       if(et.isSubtypeOf(AbstractFunctionReference(idx).c)) {
         return true
       }
@@ -1705,14 +1707,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *  can-multi-thread
    */
   def abstractFunctionArity(t: BType): Int = {
-    var idx = 0
-    while(idx < definitions.MaxFunctionArity) {
-      if(t == AbstractFunctionReference(idx).c) {
-        return idx
-      }
-      idx += 1
-    }
-    -1
+    abstractFunctionArityMap.getOrElse(t, -1)
   }
 
   /** Just a namespace for utilities that encapsulate MethodVisitor idioms.

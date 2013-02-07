@@ -2130,8 +2130,7 @@ abstract class GenBCode extends BCodeOptInter {
 
                       if(preScreened.isInstanceOf[Apply]) {
                         val fakeApp = preScreened.asInstanceOf[Apply]
-                        val calleeSym = fakeApp.fun.symbol.asInstanceOf[MethodSymbol]
-                        if(uncurry.closureDelegates(calleeSym)) {
+                        if(isClosureDelegate(fakeApp.fun.symbol)) {
                           return fakeApp
                         }
                       }
