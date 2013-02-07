@@ -57,18 +57,16 @@
 <li>disk writing and class file building overlap (the more source files, the larger the speedup)</li>
 </ul><h2>1.3 Leaner Closure ASTs</h2>
 
-<p><strong>N.B.: this subsection describes work in progress.</strong></p>
+<p><strong>N.B.: MethodHandles are work in progress, the rest works already.</strong></p>
 
-<p>Currently scalac processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). In this prototype, the creation of AST nodes for closures is postponed, simplifying the job of erasure, specialization, and other compiler phases. </p>
+<p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). In this prototype, the creation of AST nodes for closures is postponed, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
-<p>Under "non-traditional" closure conversion, the  bytecode emitter takes responsibility of producing the JVM-level representation of closures. The implementation-level representation can be chosen between:</p>
+<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility of producing the JVM-level representation of closures. The implementation-level representation can be chosen between:</p>
 
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code>. This option requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format that JDK8 will introduce. In the meantime,  <code>-target:jvm-1.7</code> class files can be used on that platform to leverage the latest performance improvements and bug fixes available for the JSR-292 implementation. </li>
-</ul><p>Implementation aspects of this work-in-progress can be found <a href="https://groups.google.com/d/msg/scala-internals/XmiWt2kcHDY/yit5pTyDFF0J">here</a></p>
-
-<h1>2 What's new in the new optimizer</h1>
+</ul><h1>2 What's new in the new optimizer</h1>
 
 <h2>2.1 Inlining</h2>
 
@@ -302,7 +300,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
 
-<p><strong>N.B.: this subsection describes work in progress.</strong></p>
+<p><strong>N.B.: MethodHandles are work in progress, the rest works already.</strong></p>
 
 <table>
 <tr>
