@@ -2373,7 +2373,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         // checking working assumptions
 
-        // TODO outerTK is a poor name choice because sometimes there's no outer instance yet there's always a delegateOwnerTK
+        // outerTK is a poor name choice because sometimes there's no outer instance yet there's always a delegateOwnerTK
         val outerTK     = brefType(internalName(delegateSym.owner))
         val enclClassBT = brefType(cnode.name)
         assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
@@ -2477,24 +2477,6 @@ abstract class GenBCode extends BCodeOptInter {
               }
             }
 
-            /** "isolated" because on purpose not adding to codeRepo, for we don't know whether
-              * s.r.AbstractFunctionX are being compiled in this run. */
-            def isolatedClassLoad(iname: String): asm.tree.ClassNode = {
-              val dotName = iname.replace('/', '.')
-              classPath.findSourceFile(dotName) match {
-
-                case Some(classFile) =>
-                  val cn = new asm.tree.ClassNode()
-                  val cr = new asm.ClassReader(classFile.toByteArray)
-                  cr.accept(cn, asm.ClassReader.SKIP_FRAMES)
-                  cn
-
-                case _ =>
-                  error("As part of generating late closures, couldn't find bytecode for class " + dotName)
-                  null
-              }
-            }
-
             /**
              *  initBCodeTypes() populates exemplars for all s.r.AbstractFunctionX and any specialized subclasses.
              *  We query that map to find out whether the specialization given by `key` exists.
@@ -2523,8 +2505,7 @@ abstract class GenBCode extends BCodeOptInter {
              *      the closure class to create extends `castToBT`, and
              *      overrides the fully-erased apply() method corresponding to the closure's arity.
              *
-             *  That's what this method figures out, by loading bytecode from the library we're compiling against.
-             *  TODO in the future by consulting symbols and types
+             *  That's what this method figures out, based on symbols inspected during initBCodeTypes()
              *
              *  @return a Pair(superClassName, list-of-overriding-methods) where:
              *
@@ -2553,7 +2534,7 @@ abstract class GenBCode extends BCodeOptInter {
                         assert(mdescr != fullyErasedDescr, "Fully-erased-apply and bridge-apply undistinguishable (same name, ie apply, same method descriptor)")
 
                         /*
-                         * The 2nd plumbing method (called simply "apply") is a so called "bridge apply", for example `int apply(int)`.
+                         * The 2nd plumbing method below (called simply "apply") is a so called "bridge apply", for example `int apply(int)`.
                          * You might think it isn't needed, bc nobody invokes it (spclztion rewrites callsites to target the spclzd version instead)
                          * HOWEVER, just because an "specialized interface" (in the example, scala.Function1$mcII$sp) declares it,
                          * and s.r.AbstractFunction1$mcII$sp extends that interface, we've got to add bytecode in each subclass,
@@ -2624,13 +2605,13 @@ abstract class GenBCode extends BCodeOptInter {
               val simpleName = cunit.freshTypeName(
                 enclClassBT.getSimpleName + "$LCC$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
               ).toString
-              c.name         = {
+              c.name = {
                 val pak = enclClassBT.getRuntimePackage
                 if(pak.isEmpty) simpleName else (pak + "/" + simpleName)
               }
-              c.version      = classfileVersion
-              c.access       = asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL | asm.Opcodes.ACC_SUPER // TODO is ACC_SUPER also needed?
-              c.superName    = superClassName
+              c.version   = classfileVersion
+              c.access    = asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL | asm.Opcodes.ACC_SUPER // TODO is ACC_SUPER also needed?
+              c.superName = superClassName
 
               c.interfaces.add(scalaSerializableReference.getInternalName)
               addSerialVUID(0, c)
@@ -2651,10 +2632,8 @@ abstract class GenBCode extends BCodeOptInter {
 
                 def createClosuCtor(): asm.tree.MethodNode = {
 
-                  val ctorDescr = {
-                    // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
-                    BType.getMethodType(BType.VOID_TYPE, closuStateBTs.toArray).getDescriptor
-                  }
+                  // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
+                  val ctorDescr = BType.getMethodType(BType.VOID_TYPE, closuStateBTs.toArray).getDescriptor
 
                   val ctor = new asm.tree.MethodNode(
                     asm.Opcodes.ASM4, asm.Opcodes.ACC_PUBLIC,
@@ -2664,9 +2643,7 @@ abstract class GenBCode extends BCodeOptInter {
 
                      def loadTHIS() { ctor.visitVarInsn(asm.Opcodes.ALOAD, 0) }
 
-                     def loadLocal(idx: Int, tk: BType) {
-                        ctor.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
-                      }
+                     def loadLocal(idx: Int, tk: BType) { ctor.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx) }
 
                   /*
                    * In case of outer instance, emit the following preamble,
@@ -2768,8 +2745,6 @@ abstract class GenBCode extends BCodeOptInter {
 
             /**
              *  Adds instrucitons to the ultimate-apply (received as argument) to invoke the delegate.
-             *
-             *  TODO snippet as example to make things concrete
              * */
             def buildUltimateBody() {
               ultimate.instructions = new asm.tree.InsnList
@@ -2834,16 +2809,12 @@ abstract class GenBCode extends BCodeOptInter {
              *  Emit in `caller` instructions that convey the arguments it receives
              *  to the invocation of `ultimate` (after adapting those arguments),
              *  also adapting the result before returning.
-             *
-             *  TODO snippet as example to make things concrete
              * */
             def buildPlumbingBody(caller: MethodNode) {
 
               caller.instructions = new asm.tree.InsnList
 
-                  def loadLocal(idx: Int, tk: BType) {
-                    caller.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
-                  }
+                  def loadLocal(idx: Int, tk: BType) { caller.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx) }
 
               val ultimateMT = BType.getMethodType(ultimate.desc)
               val callerMT   = BType.getMethodType(caller.desc)
