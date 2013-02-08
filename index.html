@@ -312,7 +312,7 @@ the producer has its value consumed only by the DROP in question.</li>
 is given as constructor-argument to a *standard* closure-class
 (thus doing away with the need for as many individual classes as closure definitions).
 Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode</td> </tr>
-</table><p>Upon choosing conflicting flags, the compiler will not only call them out but also mention corrective action. For example, upon choosing <code>-closurify:traditional -neo:o2</code> the compiler reports:</p>
+</table><p>Upon choosing conflicting flags, the compiler will not only call them out but also suggest corrective action. For example, upon choosing <code>-closurify:traditional -neo:o2</code> the compiler reports:</p>
 
 <pre><code>error: Optimization level 2 isn't compatible with -closurify = traditional.
 That optimization level requires --closurify:delegating or --closurify:MH
