@@ -2093,7 +2093,7 @@ abstract class GenBCode extends BCodeOptInter {
                     }
                   }
                   else if (r.isValueType && cast) {
-                    assert(false, "Erasure should have added an unboxing operation to prevent this cast. Tree: " + app)
+                    abort("Erasure should have added an unboxing operation to prevent this cast. Tree: " + app)
                   }
                   else if (r.isValueType) {
                     bc isInstance classLiteral(r)
@@ -3043,7 +3043,7 @@ abstract class GenBCode extends BCodeOptInter {
         val module = (
           if (!tree.symbol.isPackageClass) tree.symbol
           else tree.symbol.info.member(nme.PACKAGE) match {
-            case NoSymbol => assert(false, "Cannot use package as value: " + tree) ; NoSymbol
+            case NoSymbol => abort("Cannot use package as value: " + tree) ; NoSymbol
             case s        => devWarning("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
           }
         )

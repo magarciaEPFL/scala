@@ -2971,7 +2971,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
             val sym = (
               if (!sym0.isPackageClass) sym0
               else sym0.info.member(nme.PACKAGE) match {
-                case NoSymbol => assert(false, "Cannot use package as value: " + sym0.fullName) ; NoSymbol
+                case NoSymbol => abort("Cannot use package as value: " + sym0.fullName)
                 case s        => devWarning("Bug: found package class where package object expected.  Converting.") ; s.moduleClass
               }
             )
@@ -4097,7 +4097,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
           if(!et.isPhantomType && et.hasObjectSort) {
             isFinal = exemplars.get(et).isFinal
           }
-        } else { assert(false, "Unexpected.") }
+        } else { abort("Unexpected.") }
       }
 
       var bits = 0

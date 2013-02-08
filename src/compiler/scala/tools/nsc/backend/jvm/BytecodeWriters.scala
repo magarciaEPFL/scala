@@ -34,7 +34,7 @@ trait BytecodeWriters {
           if     ( emitJavap &&  emitAsmp) { new ClassBytecodeWriter with JavapBytecodeWriter with AsmpBytecodeWriter }
           else if(!emitJavap &&  emitAsmp) { new ClassBytecodeWriter                          with AsmpBytecodeWriter }
           else if( emitJavap && !emitAsmp) { new ClassBytecodeWriter with JavapBytecodeWriter                         }
-          else { assert(false, "Wrong arguments: at least one of -Ygen-asmp or -Ygen-javap expected"); null }
+          else { abort("Wrong arguments: at least one of -Ygen-asmp or -Ygen-javap expected") }
         }
 
     if (emitJavap || emitAsmp) { textualOutput() }

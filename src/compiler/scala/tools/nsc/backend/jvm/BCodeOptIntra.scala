@@ -953,7 +953,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
       var i = 0
       while(i < insns.length) {
         if (frames(i) == null && insns(i) != null) {
-          // TODO assert(false, "There should be no unreachable code left by now.")
+          // TODO abort("There should be no unreachable code left by now.")
         }
         i += 1
       }
