@@ -257,7 +257,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>A 10% speedup over the latest <code>scalac</code> is delivered by <code>-neo:GenBCode -closurify:delegating</code> (ie unoptimized compilation, using the new bytecode emitter and Leaner Closure ASTs).</p>
 
-<p>Comparing optimized runs (current vs new optimizer) doesn't make a lot of sense, however level <code>-neo:o2</code> is comparable to what the current optimizer strives for. On the other hand, a derby pitting optimized code produced by current vs new optimizer would be much desirable. Our benchmarks focus only on the compiler itself, as described below.</p>
+<p>Comparing optimized runs (current vs new optimizer) doesn't make a lot of sense, however level <code>-neo:o2</code> is roughly equivalent to what the current optimizer strives for. On the other hand, a derby pitting optimized code produced by current vs new optimizer would be much desirable. Our benchmarks focus only on the compiler itself, as described below.</p>
 
 <p>Right now the new optimizer alone doesn't make scalac run faster (instead, the speedup is fully explained by Leaner Closure ASTs and the new bytecode emitter). That's normal: <code>scalac</code> is dominated by factors not optimizable (at least not in the short term). Examples abound: </p>
 
@@ -289,14 +289,14 @@ the producer has its value consumed only by the DROP in question.</li>
 <tr>
 <td><code>-neo:o1</code></td>       <td>Intra-method optimizations only, ie no inlining, no closure optimizations</td> </tr>
 <tr>
-<td><code>-neo:o2</code></td>       <td>Method inlining and closure stack-allocation, without "advanced" closure optimization (this is the default)</td> </tr>
+<td><code>-neo:o2</code></td>       <td>Method inlining and closure stack-allocation, without "advanced" closure optimization</td> </tr>
 <tr>
 <td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching</td> </tr>
 <tr>
 <td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
 <tr>
 <td><code>-neo:o5</code></td>       <td>Inlining of "small" private methods invoked from a single place</td> </tr>
-</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking the default at <a href="https://github.com/magarciaEPFL/scala/blob/GenBCodeOpt/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenLCC/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L205">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
 
