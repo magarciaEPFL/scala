@@ -4048,8 +4048,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   }
 
   def lookupRefBTypeIfExisting(iname: String): BType = {
-    try   { lookupRefBType(iname) }
-    catch { case _ : AssertionError => null }
+    import global.chrs
+    val n    = global.lookupTypeNameIfExisting(iname.toCharArray, false)
+    if(n == null) { return null }
+    val sort = if(chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+    new BType(sort, n.start, n.length)
   }
 
   /**

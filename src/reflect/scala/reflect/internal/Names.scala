@@ -128,21 +128,29 @@ trait Names extends api.Names {
    *
    *  can-multi-thread
    */
-  def lookupTypeName(cs: Array[Char]): TypeName = {
+  final def lookupTypeName(cs: Array[Char]): TypeName = { lookupTypeNameIfExisting(cs, true) }
+
+  final def lookupTypeNameIfExisting(cs: Array[Char], failOnNotFound: Boolean): TypeName = {
 
     val hterm = hashValue(cs, 0, cs.size) & HASH_MASK
     var nterm = termHashtable(hterm)
     while ((nterm ne null) && (nterm.length != cs.size || !equals(nterm.start, cs, 0, cs.size))) {
       nterm = nterm.next
     }
-    assert(nterm ne null, "TermName not yet created: " + new String(cs))
+    if (nterm eq null) {
+      if (failOnNotFound) { assert(false, "TermName not yet created: " + new String(cs)) }
+      return null
+    }
 
     val htype = hashValue(chrs, nterm.start, nterm.length) & HASH_MASK
     var ntype = typeHashtable(htype)
     while ((ntype ne null) && ntype.start != nterm.start) {
       ntype = ntype.next
     }
-    assert(ntype ne null, "TypeName not yet created: " + new String(cs))
+    if (ntype eq null) {
+      if (failOnNotFound) { assert(false, "TypeName not yet created: " + new String(cs)) }
+      return null
+    }
 
     ntype
   }
