@@ -271,10 +271,10 @@ trait ScalaSettings extends AbsScalaSettings
    *                           thus lowering the working set during compilation.
    *                           Allows closure-related optimizations (actually all optimization levels are supported).
    *
-   *    case "methodhandle" => A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
-   *                           is given as constructor-argument to a *standard* closure-class
-   *                           (thus doing away with the need for as many individual classes as closure definitions).
-   *                           Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode.
+   *    case "MH" => A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
+   *                 is given as constructor-argument to a *standard* closure-class
+   *                 (thus doing away with the need for as many individual classes as closure definitions).
+   *                 Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode.
    *
    * */
   def isClosureConvTraditional = (closureConv.value == "traditional")
