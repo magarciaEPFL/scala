@@ -202,7 +202,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
           constrStatBuf += intoConstructor(impl.symbol, stat)
       }
 
-      // ----------- avoid making fields for symbols that are not accessed --------------
+      // ----------- avoid making parameter-accessor fields for symbols accessed only within the primary constructor --------------
 
       // A sorted set of symbols that are known to be accessed outside the primary constructor.
       val accessedSyms = new TreeSet[Symbol]((x, y) => x isLess y)
@@ -349,11 +349,11 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        */
       def guardSpecializedInitializer(stats: List[Tree]): List[Tree] = if (settings.nospecialization.value) stats else {
         // split the statements in presuper and postsuper
-    //    var (prefix, postfix) = stats0.span(tree => !((tree.symbol ne null) && tree.symbol.isConstructor))
-      //  if (postfix.nonEmpty) {
-        //  prefix = prefix :+ postfix.head
-          //postfix = postfix.tail
-        //}
+        //  var (prefix, postfix) = stats0.span(tree => !((tree.symbol ne null) && tree.symbol.isConstructor))
+        //  if (postfix.nonEmpty) {
+        //    prefix = prefix :+ postfix.head
+        //    postfix = postfix.tail
+        //  }
 
         if (usesSpecializedField && shouldGuard && stats.nonEmpty) {
           // save them for duplication in the specialized subclass
@@ -383,79 +383,180 @@ abstract class Constructors extends Transform with ast.TreeDSL {
           }
         } else stats
       }
-/*
+      /*
       def isInitDef(stat: Tree) = stat match {
         case dd: DefDef => dd.symbol == delayedInitMethod
         case _ => false
       }
-*/
+      */
 
-      /** Create a getter or a setter and enter into `clazz` scope
-       */
-      def addAccessor(sym: Symbol, name: TermName, flags: Long) = {
-        val m = clazz.newMethod(name, sym.pos, flags & ~(LOCAL | PRIVATE)) setPrivateWithin clazz
-        clazz.info.decls enter m
-      }
+      /** @see overview at `delayedEndpointDef()` of the translation scheme for DelayedInit */
+      final class DelayedStatTransformer(dlydEpMethodSym: MethodSymbol) extends Transformer {
 
-      def addGetter(sym: Symbol): Symbol = {
-        val getr = addAccessor(
-          sym, nme.getterName(sym.name.toTermName), getterFlags(sym.flags))
-        getr setInfo MethodType(List(), sym.tpe)
-        defBuf += localTyper.typedPos(sym.pos)(DefDef(getr, Select(This(clazz), sym)))
-        getr
-      }
+        private val dlydEpMethodTyper = localTyper.atOwner(dlydEpMethodSym)
 
-      def addSetter(sym: Symbol): Symbol = {
-        sym setFlag MUTABLE
-        val setr = addAccessor(
-          sym, nme.getterToSetter(nme.getterName(sym.name.toTermName)), setterFlags(sym.flags))
-        setr setInfo MethodType(setr.newSyntheticValueParams(List(sym.tpe)), UnitClass.tpe)
-        defBuf += localTyper.typed {
-          //util.trace("adding setter def for "+setr) {
-          atPos(sym.pos) {
-            DefDef(setr, paramss =>
-              Assign(Select(This(clazz), sym), Ident(paramss.head.head)))
-          }//}
+        /** Create a getter or a setter and enter into `clazz` scope */
+        private def addAccessor(sym: Symbol, name: TermName, flags: Long) = {
+          val m = clazz.newMethod(name, sym.pos, flags & ~(LOCAL | PRIVATE)) setPrivateWithin clazz
+          clazz.info.decls enter m
         }
-        setr
-      }
 
-      def ensureAccessor(sym: Symbol)(acc: => Symbol) =
-        if (sym.owner == clazz && !sym.isMethod && sym.isPrivate) { // there's an access to a naked field of the enclosing class
-          val getr = acc
-          getr makeNotPrivate clazz
+        private def addGetter(sym: Symbol): Symbol = {
+          val getr = addAccessor(
+            sym, nme.getterName(sym.name.toTermName), getterFlags(sym.flags))
+          getr setInfo MethodType(List(), sym.tpe)
+          defBuf += localTyper.typedPos(sym.pos)(DefDef(getr, Select(This(clazz), sym)))
           getr
-        } else {
-          if (sym.owner == clazz) sym makeNotPrivate clazz
-          NoSymbol
         }
 
-      def ensureGetter(sym: Symbol): Symbol = ensureAccessor(sym) {
-        val getr = sym.getter(clazz)
-        if (getr != NoSymbol) getr else addGetter(sym)
+        private def addSetter(sym: Symbol): Symbol = {
+          sym setFlag MUTABLE
+          val setr = addAccessor(
+            sym, nme.getterToSetter(nme.getterName(sym.name.toTermName)), setterFlags(sym.flags))
+          setr setInfo MethodType(setr.newSyntheticValueParams(List(sym.tpe)), UnitClass.tpe)
+          defBuf += localTyper.typed {
+            //util.trace("adding setter def for "+setr) {
+            atPos(sym.pos) {
+              DefDef(setr, paramss =>
+                Assign(Select(This(clazz), sym), Ident(paramss.head.head)))
+            }//}
+          }
+          setr
+        }
+
+        private def ensureAccessor(sym: Symbol)(acc: => Symbol) =
+          if (sym.owner == clazz && !sym.isMethod && sym.isPrivate) { // there's an access to a naked field of the enclosing class
+            val getr = acc
+            getr makeNotPrivate clazz
+            getr
+          } else {
+            if (sym.owner == clazz) sym makeNotPrivate clazz
+            NoSymbol
+          }
+
+        private def ensureGetter(sym: Symbol): Symbol = ensureAccessor(sym) {
+          val getr = sym.getter(clazz)
+          if (getr != NoSymbol) getr else addGetter(sym)
+        }
+
+        private def ensureSetter(sym: Symbol): Symbol = ensureAccessor(sym) {
+          var setr = sym.setter(clazz, hasExpandedName = false)
+          if (setr == NoSymbol) setr = sym.setter(clazz, hasExpandedName = true)
+          if (setr == NoSymbol) setr = addSetter(sym)
+          setr
+        }
+
+        override def transform(tree: Tree): Tree = {
+
+              def reowned(node: Tree) = { node.changeOwner(impl.symbol -> dlydEpMethodSym) }
+
+          super.transform {
+            tree match {
+              case Select(qual, _) =>
+                val getter = ensureGetter(tree.symbol)
+                if (getter != NoSymbol)
+                  dlydEpMethodTyper.typed {
+                    atPos(tree.pos) {
+                      Apply(Select(qual, getter), Nil)
+                    }
+                  }
+                else reowned(tree)
+              case Assign(lhs @ Select(qual, _), rhs) =>
+                val setter = ensureSetter(lhs.symbol)
+                if (setter != NoSymbol)
+                  dlydEpMethodTyper.typed {
+                    atPos(tree.pos) {
+                      Apply(Select(qual, setter), List(rhs))
+                    }
+                  }
+                else reowned(tree)
+              case _ =>
+                reowned(tree)
+            }
+          }
+        }
+
+      } // end of class DelayedStatTransformer
+
+      /**
+       *  One of the last things transformClassTemplate() does is catering for DelayedInit.
+       *  The starting point are the statements of the primary constructor compiled thus far,
+       *  already partitioned into:
+       *    (a) up to and including super call (these statements should occur only in the primary constructor)
+       *    (b) remaining statements
+       *  The puspose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
+       *
+       *  The rewriting to achieve "delayed initialization" involves:
+       *    (c) an additional, synthetic, method encapsulating (b)
+       *    (d) an additional, synthetic closure class whose argless apply() just invokes (c)
+       *    (e) after executing the staments in (a),
+       *        the primary constructor instantiates (d) and passes it as argument
+       *        to a `delayedInit()` invocation on the current instance.
+       *        In turn, `delayedInit()` is a method defined as abstract in the `DelayedInit` trait
+       *        so that it can be overridden (an example can be found in `scala.App`)
+       *
+       *  The following helper methods prepare Trees as part of this rewriting:
+       *
+       *    (f) `delayedEndpointDef()` prepares (c).
+       *        A transformer, `constrStatTransformer`, is used to re-locate (b) statements from template-level
+       *        to become statements in method (c). The main task here is re-formulating accesses to params
+       *        of the primary constructors (to recap, (c) has zero-params) in terms of
+       *        getters and setters (which are added for that purpose if not already there).
+       *
+       *    (g) `delayedInitClosure()` prepares (d)
+       *
+       *    (h) `delayedInitCall()`    prepares the `delayedInit()` invocation referred to in (e)
+       *
+       *  Both (c) and (d) are added to the Template returned by `transformClassTemplate()`
+       *
+       *  A note of historic interest: Previously the rewriting for DelayedInit would include in the closure body
+       *  all of the delayed initialization sequence, which in turn required:
+       *    - reformulating "accesses-on-this" into "accesses-on-outer", and
+       *    - widening access levels.
+       *  Moreover, the previous scheme broke a useful property of "Late-Closure-Classes",
+       *  namely the property that all anon-closure-instantiations are lexically enclosed in the same class
+       *  declaring the "anon-closure-endpoint". That property allows handling a class and all of "its"
+       *  anonymous closures as a whole (for example, emit all such lambdas only at bytecode-emit time).
+       *  The new translation scheme for DelayedInit can also benefit incremental compilation
+       *  (as a consequence of the property mentioned above).
+       *  To recap, "Late-Closure-Classes" results from the interplay of
+       *    - UnCurry's `closureConversionModern()` and
+       *    - PlainClassBuilder's `genLateClosure()`
+       *
+       *  @param stats the statements in (b)
+       *
+       *  @return the DefDef for (c) above
+       *
+       * */
+      def delayedEndpointDef(stats: List[Tree]): DefDef = {
+
+        val dlydEdMethodName  = currentUnit.freshTermName("delayedEndpoint" + currentClass.fullName.hashCode.toHexString + "$")
+        val dlydEpMethodSym   = clazz.newMethod(dlydEdMethodName, impl.pos, SYNTHETIC | FINAL)
+        dlydEpMethodSym setInfoAndEnter MethodType(Nil, UnitClass.tpe)
+
+        val res0 = localTyper typed {
+          DefDef(dlydEpMethodSym, Nil, Block(stats, gen.mkZero(UnitClass.tpe)))
+        }
+        val res  = new DelayedStatTransformer(dlydEpMethodSym) transform res0
+
+        res.asInstanceOf[DefDef]
       }
 
-      def ensureSetter(sym: Symbol): Symbol = ensureAccessor(sym) {
-        var setr = sym.setter(clazz, hasExpandedName = false)
-        if (setr == NoSymbol) setr = sym.setter(clazz, hasExpandedName = true)
-        if (setr == NoSymbol) setr = addSetter(sym)
-        setr
-      }
-
-      def delayedInitClosure(stats: List[Tree]) =
-        localTyper.typed {
+      /** @see overview at `delayedEndpointDef()` of the translation scheme for DelayedInit */
+      def delayedInitClosure(delayedEndPointSym: MethodSymbol): ClassDef = {
+        val dicl = localTyper.typed {
           atPos(impl.pos) {
             val closureClass   = clazz.newClass(nme.delayedInitArg.toTypeName, impl.pos, SYNTHETIC | FINAL)
             val closureParents = List(AbstractFunctionClass(0).tpe)
 
             closureClass setInfoAndEnter new ClassInfoType(closureParents, newScope, closureClass)
 
-            val outerField = (
+            val outerField: TermSymbol = (
               closureClass
                 newValue(nme.OUTER, impl.pos, PrivateLocal | PARAMACCESSOR)
                 setInfoAndEnter clazz.tpe
             )
-            val applyMethod = (
+            val applyMethod: MethodSymbol = (
               closureClass
                 newMethod(nme.apply, impl.pos, FINAL)
                 setInfoAndEnter MethodType(Nil, ObjectClass.tpe)
@@ -464,58 +565,32 @@ abstract class Constructors extends Transform with ast.TreeDSL {
             val closureClassTyper = localTyper.atOwner(closureClass)
             val applyMethodTyper  = closureClassTyper.atOwner(applyMethod)
 
-            val constrStatTransformer = new Transformer {
-              override def transform(tree: Tree): Tree = tree match {
-                case This(_) if tree.symbol == clazz =>
-                  applyMethodTyper.typed {
-                    atPos(tree.pos) {
-                      Select(This(closureClass), outerField)
-                    }
-                  }
-                case _ =>
-                  super.transform {
-                    tree match {
-                      case Select(qual, _) =>
-                        val getter = ensureGetter(tree.symbol)
-                        if (getter != NoSymbol)
-                          applyMethodTyper.typed {
-                            atPos(tree.pos) {
-                              Apply(Select(qual, getter), List())
-                            }
-                          }
-                        else tree
-                      case Assign(lhs @ Select(qual, _), rhs) =>
-                        val setter = ensureSetter(lhs.symbol)
-                        if (setter != NoSymbol)
-                          applyMethodTyper.typed {
-                            atPos(tree.pos) {
-                              Apply(Select(qual, setter), List(rhs))
-                            }
-                          }
-                        else tree
-                      case _ =>
-                        tree.changeOwner(impl.symbol -> applyMethod)
-                    }
-                  }
+            def applyMethodStat =
+              applyMethodTyper.typed {
+                atPos(impl.pos) {
+                  val receiver = Select(This(closureClass), outerField)
+                  Apply(Select(receiver, delayedEndPointSym), Nil)
+                }
               }
-            }
-
-            def applyMethodStats = constrStatTransformer.transformTrees(stats)
 
             val applyMethodDef = DefDef(
               sym = applyMethod,
               vparamss = ListOfNil,
-              rhs = Block(applyMethodStats, gen.mkAttributedRef(BoxedUnit_UNIT)))
+              rhs = Block(applyMethodStat, gen.mkAttributedRef(BoxedUnit_UNIT)))
 
             ClassDef(
               sym = closureClass,
               constrMods = Modifiers(0),
               vparamss = List(List(outerFieldDef)),
-              body = List(applyMethodDef),
+              body = applyMethodDef :: Nil,
               superPos = impl.pos)
           }
         }
 
+        dicl.asInstanceOf[ClassDef]
+      }
+
+      /** @see overview at `delayedEndpointDef()` of the translation scheme for DelayedInit */
       def delayedInitCall(closure: Tree) = localTyper.typedPos(impl.pos) {
         gen.mkMethodCall(This(clazz), delayedInitMethod, Nil, List(New(closure.symbol.tpe, This(clazz))))
       }
@@ -535,15 +610,19 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *  but excluding it includes too much.  The constructor sequence being mimicked
        *  needs to be reproduced with total fidelity.
        *
-       *  See test case files/run/bug4680.scala, the output of which is wrong in many
-       *  particulars.
+       *  See test case files/run/bug4680.scala, the output of which is wrong in many particulars.
        */
       val needsDelayedInit =
         (clazz isSubClass DelayedInitClass) /*&& !(defBuf exists isInitDef)*/ && remainingConstrStats.nonEmpty
 
       if (needsDelayedInit) {
-        val dicl = new ConstructorTransformer(unit) transform delayedInitClosure(remainingConstrStats)
-        defBuf += dicl
+        val dlydEpDef: DefDef = delayedEndpointDef(remainingConstrStats)
+        defBuf += dlydEpDef
+        val dicl: ClassDef = delayedInitClosure(dlydEpDef.symbol.asInstanceOf[MethodSymbol])
+        defBuf += {
+          // after the transform below, the closure-class' default constructor assigns the param-accessor field with the outer instance.
+          new ConstructorTransformer(unit) transform  dicl
+        }
         remainingConstrStats = List(delayedInitCall(dicl))
       }
 

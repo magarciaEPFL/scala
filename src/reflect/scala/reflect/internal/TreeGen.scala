@@ -249,9 +249,14 @@ abstract class TreeGen extends macros.TreeBuilder {
   /** Builds a list with given head and tail. */
   def mkNil: Tree = mkAttributedRef(NilModule)
 
-  /** Builds a tree representing an undefined local, as in
+  /** Builds a tree representing the value (appropriate to the given type) of an undefined local, as in
    *    var x: T = _
-   *  which is appropriate to the given Type.
+   *
+   *  TODO please notice that all "shared literals" will also share Tree.pos (to recap, shared literals cut down on GC).
+   *       Not that the above breaks -Yrangepos, but how about a transparent position?
+   *
+   *  TODO for the same reasons, consider "singletonizing" usages in (Erasure, Constructors, CleanUp)
+   *       of `REF(BoxedUnit_UNIT)` aka `gen.mkAttributedRef(BoxedUnit_UNIT)`
    */
   def mkZero(tp: Type): Tree = tp.typeSymbol match {
     case NothingClass => mkMethodCall(Predef_???, Nil) setType NothingClass.tpe
