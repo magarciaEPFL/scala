@@ -390,94 +390,6 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       }
       */
 
-      /** @see overview at `delayedEndpointDef()` of the translation scheme for DelayedInit */
-      final class DelayedStatTransformer(dlydEpMethodSym: MethodSymbol) extends Transformer {
-
-        private val dlydEpMethodTyper = localTyper.atOwner(dlydEpMethodSym)
-
-        /** Create a getter or a setter and enter into `clazz` scope */
-        private def addAccessor(sym: Symbol, name: TermName, flags: Long) = {
-          val m = clazz.newMethod(name, sym.pos, flags & ~(LOCAL | PRIVATE)) setPrivateWithin clazz
-          clazz.info.decls enter m
-        }
-
-        private def addGetter(sym: Symbol): Symbol = {
-          val getr = addAccessor(
-            sym, nme.getterName(sym.name.toTermName), getterFlags(sym.flags))
-          getr setInfo MethodType(List(), sym.tpe)
-          defBuf += localTyper.typedPos(sym.pos)(DefDef(getr, Select(This(clazz), sym)))
-          getr
-        }
-
-        private def addSetter(sym: Symbol): Symbol = {
-          sym setFlag MUTABLE
-          val setr = addAccessor(
-            sym, nme.getterToSetter(nme.getterName(sym.name.toTermName)), setterFlags(sym.flags))
-          setr setInfo MethodType(setr.newSyntheticValueParams(List(sym.tpe)), UnitClass.tpe)
-          defBuf += localTyper.typed {
-            //util.trace("adding setter def for "+setr) {
-            atPos(sym.pos) {
-              DefDef(setr, paramss =>
-                Assign(Select(This(clazz), sym), Ident(paramss.head.head)))
-            }//}
-          }
-          setr
-        }
-
-        private def ensureAccessor(sym: Symbol)(acc: => Symbol) =
-          if (sym.owner == clazz && !sym.isMethod && sym.isPrivate) { // there's an access to a naked field of the enclosing class
-            val getr = acc
-            getr makeNotPrivate clazz
-            getr
-          } else {
-            if (sym.owner == clazz) sym makeNotPrivate clazz
-            NoSymbol
-          }
-
-        private def ensureGetter(sym: Symbol): Symbol = ensureAccessor(sym) {
-          val getr = sym.getter(clazz)
-          if (getr != NoSymbol) getr else addGetter(sym)
-        }
-
-        private def ensureSetter(sym: Symbol): Symbol = ensureAccessor(sym) {
-          var setr = sym.setter(clazz, hasExpandedName = false)
-          if (setr == NoSymbol) setr = sym.setter(clazz, hasExpandedName = true)
-          if (setr == NoSymbol) setr = addSetter(sym)
-          setr
-        }
-
-        override def transform(tree: Tree): Tree = {
-
-              def reowned(node: Tree) = { node.changeOwner(impl.symbol -> dlydEpMethodSym) }
-
-          super.transform {
-            tree match {
-              case Select(qual, _) =>
-                val getter = ensureGetter(tree.symbol)
-                if (getter != NoSymbol)
-                  dlydEpMethodTyper.typed {
-                    atPos(tree.pos) {
-                      Apply(Select(qual, getter), Nil)
-                    }
-                  }
-                else reowned(tree)
-              case Assign(lhs @ Select(qual, _), rhs) =>
-                val setter = ensureSetter(lhs.symbol)
-                if (setter != NoSymbol)
-                  dlydEpMethodTyper.typed {
-                    atPos(tree.pos) {
-                      Apply(Select(qual, setter), List(rhs))
-                    }
-                  }
-                else reowned(tree)
-              case _ =>
-                reowned(tree)
-            }
-          }
-        }
-
-      } // end of class DelayedStatTransformer
-
       /**
        *  One of the last things transformClassTemplate() does is catering for DelayedInit.
        *  The starting point are the statements of the primary constructor compiled thus far,
@@ -537,7 +449,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         val res0 = localTyper typed {
           DefDef(dlydEpMethodSym, Nil, Block(stats, gen.mkZero(UnitClass.tpe)))
         }
-        val res  = new DelayedStatTransformer(dlydEpMethodSym) transform res0
+        val res  = res0.changeOwner(impl.symbol -> dlydEpMethodSym)
 
         res.asInstanceOf[DefDef]
       }
