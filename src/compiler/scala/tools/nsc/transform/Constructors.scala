@@ -210,6 +210,8 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       // a list of outer accessor symbols and their bodies
       var outerAccessors: List[(Symbol, Tree)] = List()
 
+      val isDelayedInitSubclass = (clazz isSubClass DelayedInitClass)
+
       // Could symbol's definition be omitted, provided it is not accessed?
       // This is the case if the symbol is defined in the current class, and
       // ( the symbol is an object private parameter accessor field, or
@@ -217,12 +219,12 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       def maybeOmittable(sym: Symbol) = sym.owner == clazz && (
         sym.isParamAccessor && sym.isPrivateLocal ||
         sym.isOuterAccessor && sym.owner.isEffectivelyFinal && !sym.isOverridingSymbol &&
-        !(clazz isSubClass DelayedInitClass)
+        !isDelayedInitSubclass
       )
 
       // Is symbol known to be accessed outside of the primary constructor,
       // or is it a symbol whose definition cannot be omitted anyway?
-      def mustbeKept(sym: Symbol) = !maybeOmittable(sym) || (accessedSyms contains sym)
+      def mustbeKept(sym: Symbol) = isDelayedInitSubclass || !maybeOmittable(sym) || (accessedSyms contains sym)
 
       // A traverser to set accessedSyms and outerAccessors
       val accessTraverser = new Traverser {
@@ -525,7 +527,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *  See test case files/run/bug4680.scala, the output of which is wrong in many particulars.
        */
       val needsDelayedInit =
-        (clazz isSubClass DelayedInitClass) /*&& !(defBuf exists isInitDef)*/ && remainingConstrStats.nonEmpty
+        isDelayedInitSubclass /*&& !(defBuf exists isInitDef)*/ && remainingConstrStats.nonEmpty
 
       if (needsDelayedInit) {
         val dlydEpDef: DefDef = delayedEndpointDef(remainingConstrStats)
