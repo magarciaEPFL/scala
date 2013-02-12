@@ -347,7 +347,7 @@ abstract class GenBCode extends BCodeOptInter {
         if(settings.isIntraMethodOptimizOn) {
           cleanser.cleanseClass()   // cleanseClass() mutates those dclosures cnode is responsible for.
         } else {
-          cleanser.removeDeadCode() // no optimization, but removing dead code still desirable, see `BCodeCleanser.removeDeadCode()`
+          cleanser.removeDeadCode()  // no optimization, but removing dead code still desirable.
         }
 
         if(!settings.isInterBasicOptimizOn) {

@@ -262,11 +262,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  the artifact is described in detail in http://asm.ow2.org/doc/developer-guide.html#deadcode
      *  and results from the Java 6 split verifier requiring a stack map frame
      *  for every basic block, even unreachable ones.
+     *
+     *  However just removing dead code might leave LocalVariableTable entries
+     *  with stale references to LabelNodes.
      * */
     def removeDeadCode() {
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
         Util.computeMaxLocalsMaxStack(mnode)
-        unreachCodeRemover.transform(cnode.name, mnode) // remove unreachable code
+        cleanseMethod(cnode.name, mnode) // remove unreachable code
       }
     }
 
