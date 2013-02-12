@@ -119,9 +119,9 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
+    // number of woker threads for pipeline-2 (the one in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
-      if(settings.isIntraMethodOptimizOn) 32 else 4,
+      if(settings.isIntraMethodOptimizOn) 64 else 8,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 
@@ -546,10 +546,10 @@ abstract class GenBCode extends BCodeOptInter {
         } else {
           followers.add(incoming)
         }
-        assert(
-          if(!moreComing) { q3.isEmpty && followers.isEmpty } else true,
-          "These queues can be tricky sometimes."
-        )
+        if(!moreComing) {
+          val queuesOK = (q3.isEmpty && followers.isEmpty)
+          if(!queuesOK) { error("GenBCode found class files waiting in queues to be written but an error prevented doing so.") }
+        }
         while(!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
           if(!item.wasElided) {

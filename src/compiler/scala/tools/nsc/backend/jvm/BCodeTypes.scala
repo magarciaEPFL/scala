@@ -2934,7 +2934,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  must-single-thread
      **/
     final def asmClassType(sym: Symbol): BType = {
-      assert(hasInternalName(sym), "doesn't have internal name: " + sym.fullName)
+      assert(
+        hasInternalName(sym),
+        {
+          val msg0 = if(sym.isAbstractType) "An AbstractTypeSymbol " else "A symbol ";
+          msg0 + "has reached the bytecode emitter, for which no JVM-level internal name can be found: " + sym.fullName
+        }
+      )
       val phantOpt = phantomTypeMap.get(sym)
       if(phantOpt.isDefined) {
         return phantOpt.get
