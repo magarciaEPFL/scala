@@ -300,6 +300,10 @@ public class Util {
         return (m.name.equals("<init>") || m.name.equals("<clinit>"));
     }
 
+    public static boolean hasBytecodeInstructions(final MethodNode m) {
+        return (m.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0;
+    }
+
     public static boolean isInstanceField(final FieldNode f) {
         return (f.access & Opcodes.ACC_STATIC) == 0;
     }

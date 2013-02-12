@@ -121,7 +121,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     // number of woker threads for pipeline-2 (the one in charge of intra-method optimizations).
     val MAX_THREADS = scala.math.min(
-      if(settings.isIntraMethodOptimizOn) 32 else 2,
+      if(settings.isIntraMethodOptimizOn) 32 else 4,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 
@@ -298,7 +298,9 @@ abstract class GenBCode extends BCodeOptInter {
     /**
      *  Pipeline that takes ClassNodes from queue-2. The unit of work depends on the optimization level:
      *
-     *    (a) no optimization involves just converting the plain ClassNode to byte array and placing it on queue-3
+     *    (a) no optimization involves:
+     *          - removing dead code, and then
+     *          - converting the plain ClassNode to byte array and placing it on queue-3
      *
      *    (b) with intra-procedural optimization on,
      *          - cleanseClass() is invoked on the plain class, and then
@@ -340,8 +342,12 @@ abstract class GenBCode extends BCodeOptInter {
 
       def visit(item: Item2) {
 
+        val cleanser = new BCodeCleanser(item.plain.cnode)
+
         if(settings.isIntraMethodOptimizOn) {
-          (new BCodeCleanser(item.plain.cnode)).cleanseClass() // cleanseClass() mutates those dclosures cnode is responsible for.
+          cleanser.cleanseClass()   // cleanseClass() mutates those dclosures cnode is responsible for.
+        } else {
+          cleanser.removeDeadCode() // no optimization, but removing dead code still desirable, see `BCodeCleanser.removeDeadCode()`
         }
 
         if(!settings.isInterBasicOptimizOn) {

@@ -256,29 +256,39 @@ abstract class BCodeOptIntra extends BCodeTypes {
     } // end of method cleanseClass()
 
     /**
+     *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
+     *  the very least we want to do is remove dead code beforehand,
+     *  so as to prevent an artifact of stack-frames computation from showing up,
+     *  the artifact is described in detail in http://asm.ow2.org/doc/developer-guide.html#deadcode
+     *  and results from the Java 6 split verifier requiring a stack map frame
+     *  for every basic block, even unreachable ones.
+     * */
+    def removeDeadCode() {
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+        Util.computeMaxLocalsMaxStack(mnode)
+        unreachCodeRemover.transform(cnode.name, mnode) // remove unreachable code
+      }
+    }
+
+    /**
      *  intra-method optimizations
      * */
     def intraMethodFixpoints() {
 
-      val cName = cnode.name
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
 
-      val mnIter = cnode.methods.iterator()
-      while(mnIter.hasNext) {
-        val mnode = mnIter.next()
         Util.computeMaxLocalsMaxStack(mnode)
-        val isConcrete = ((mnode.access & (asm.Opcodes.ACC_ABSTRACT | asm.Opcodes.ACC_NATIVE)) == 0)
-        if(isConcrete) {
 
-          basicIntraMethodOpt(mnode)            // intra-method optimizations performed until a fixpoint is reached
+        basicIntraMethodOpt(mnode)            // intra-method optimizations performed until a fixpoint is reached
 
-          cacheRepeatableReads(mnode)           // caching repeatable reads of stable values
-          unboxElider.transform(cName, mnode)   // remove box/unbox pairs (this transformer is more expensive than most)
-          lvCompacter.transform(mnode)          // compact local vars, remove dangling LocalVariableNodes.
+        cacheRepeatableReads(mnode)              // caching repeatable reads of stable values
+        unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
+        lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
 
-          // if(settings.debug.value) {
-            runTypeFlowAnalysis(mnode) // TODO debug
-          // }
-        }
+        // if(settings.debug.value) {
+          runTypeFlowAnalysis(mnode) // TODO debug
+        // }
+
       }
 
     }
