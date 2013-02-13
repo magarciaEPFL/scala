@@ -393,16 +393,20 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       */
 
       /**
-       *  One of the last things transformClassTemplate() does is catering for DelayedInit.
+       *  Before returning, transformClassTemplate() rewrites DelayedInit subclasses.
        *  The starting point are the statements of the primary constructor compiled thus far,
        *  already partitioned into:
-       *    (a) up to and including super call (these statements should occur only in the primary constructor)
+       *
+       *    (a) up to and including the super-constructor call.
+       *        These statements can occur only in the (bytecode-level) primary constructor.
+       *
        *    (b) remaining statements
+       *
        *  The puspose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
        *
        *  The rewriting to achieve "delayed initialization" involves:
        *    (c) an additional, synthetic, method encapsulating (b)
-       *    (d) an additional, synthetic closure class whose argless apply() just invokes (c)
+       *    (d) an additional, synthetic closure whose argless apply() just invokes (c)
        *    (e) after executing the staments in (a),
        *        the primary constructor instantiates (d) and passes it as argument
        *        to a `delayedInit()` invocation on the current instance.
@@ -412,7 +416,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *  The following helper methods prepare Trees as part of this rewriting:
        *
        *    (f) `delayedEndpointDef()` prepares (c).
-       *        A transformer, `constrStatTransformer`, is used to re-locate (b) statements from template-level
+       *        A transformer, `constrStatTransformer`, is used to re-locate statements (b) from template-level
        *        to become statements in method (c). The main task here is re-formulating accesses to params
        *        of the primary constructors (to recap, (c) has zero-params) in terms of
        *        getters and setters (which are added for that purpose if not already there).
@@ -437,7 +441,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *    - UnCurry's `closureConversionModern()` and
        *    - PlainClassBuilder's `genLateClosure()`
        *
-       *  @param stats the statements in (b)
+       *  @param stats the statements in (b) above
        *
        *  @return the DefDef for (c) above
        *
