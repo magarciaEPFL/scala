@@ -318,6 +318,27 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo initializers ---------------------
 
     /**
+     *  After `BCodePhase.Worker1.visit()` has run
+     *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
+     *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
+     *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
+     *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
+     *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
+     *     but in a different method).
+     *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
+     *
+     *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
+     *  may break the property above (ie inlining may result in lambda usages,
+     *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
+     *  originally enclosing them). Tracking those cases is the job of
+     *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
+     *
+     *  Coming back to the property holding
+     *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
+     *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
+     *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
+     *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
+     *
      *  must-single-thread
      * */
     def populateDClosureMaps() {

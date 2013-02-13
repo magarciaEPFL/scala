@@ -2326,7 +2326,7 @@ abstract class GenBCode extends BCodeOptInter {
        *
        *  The starting point is the "fake calliste" targeting the closure entrypoint (aka "delegate").
        *
-       *    (a) The "fake calliste" callsite may target:
+       *    (a) The "fake calliste" may target:
        *          - a static method (e.g., for closures enclosed in modules, or in implementation classes);
        *        or
        *          - an instance method (the receiver being the outer instance of the closure).
@@ -2383,7 +2383,11 @@ abstract class GenBCode extends BCodeOptInter {
         val outerTK     = brefType(internalName(delegateSym.owner))
         val enclClassBT = brefType(cnode.name)
         assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
-        // doesn't hold in presence of delayedInit: assert(outerTK == enclClassBT)
+        assert(
+          outerTK == enclClassBT,
+           "Probable cause: a regression in the way DelayedInit is lowered. " +
+          s"outerTK != enclClassBT , where outerTK is $outerTK and enclClassBT is $enclClassBT"
+        )
 
         /*
          * Pieces of information for building the closure class:

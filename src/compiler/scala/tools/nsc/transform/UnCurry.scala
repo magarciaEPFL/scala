@@ -60,9 +60,9 @@ abstract class UnCurry extends InfoTransform
   /**
    *  Both UnCurry and GenBCode do part of the job for "Late-Closure-Classes".
    *  UnCurry lowers a Function node as discussed in `closureConversionModern()`
-   *  and populates the `uncurry.closureDelegates` set with MethodSymbols of delegate method.
-   *  That information is used by GenBCode to build on the spot an AbstractFunctionX subclass + instantiation
-   *  just like UnCurry used to do.
+   *  and populates the `uncurry.closureDelegates` set with the MethodSymbols of the delegates just created.
+   *  That information is used by GenBCode to build on the spot an AbstractFunctionX subclass + instantiation,
+   *  see `PlainClassBuilder.genLateClosure()`
    * */
   val closureDelegates = mutable.Set.empty[MethodSymbol]
 
