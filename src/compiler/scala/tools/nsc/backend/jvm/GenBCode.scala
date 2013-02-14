@@ -981,14 +981,14 @@ abstract class GenBCode extends BCodeOptInter {
 
         if(settings.isInterBasicOptimizOn) {
 
-              def trackInRepo(compiled: asm.tree.ClassNode) {
+              def trackInCodeRepo(compiled: asm.tree.ClassNode) {
                 val bt = lookupRefBType(compiled.name)
                 assert(!codeRepo.containsKey(bt))
                 codeRepo.classes.put(bt, compiled)
               }
 
-          trackInRepo(cnode)
-          for(lateC <- lateClosures) { trackInRepo(lateC) }
+          trackInCodeRepo(cnode)
+          for(lateC <- lateClosures) { trackInCodeRepo(lateC) }
         }
 
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
@@ -1162,6 +1162,8 @@ abstract class GenBCode extends BCodeOptInter {
           jgensig,
           mkArray(thrownExceptions)
         ).asInstanceOf[asm.tree.MethodNode]
+
+        mnode.isLiftedMethod = methSymbol.isLiftedMethod
 
         // TODO param names: (m.params map (p => javaName(p.sym)))
 
