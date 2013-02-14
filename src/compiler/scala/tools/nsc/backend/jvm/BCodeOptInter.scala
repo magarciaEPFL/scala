@@ -34,10 +34,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
 
-  // dclosure-endpoint -> BType-of-Late-Closure-Class
-  val closuresForDelegates = mutable.Map.empty[MethodSymbol, BType]
-
-
   /**
    * must-single-thread
    **/
@@ -318,73 +314,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo initializers ---------------------
 
     /**
-     *  After `BCodePhase.Worker1.visit()` has run
-     *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
-     *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
-     *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
-     *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
-     *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
-     *     but in a different method).
-     *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
-     *
-     *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
-     *  may break the property above (ie inlining may result in lambda usages,
-     *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
-     *  originally enclosing them). Tracking those cases is the job of
-     *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
-     *
-     *  Coming back to the property holding
-     *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
-     *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
-     *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
-     *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
-     *
      *  must-single-thread
      * */
-    def populateDClosureMaps() {
+    def checkDClosureMaps() {
 
-      // all dclosure-endpoints accounted for (ie a dclosure created for each) TODO this check should also run under -neo:GenBCode and -neo:o1
-      {
-            def locations(msyms: collection.Set[MethodSymbol]): String = {
-              msyms map { m => m.fullLocationString } mkString(" , ")
-            }
-
-        val endpointsLackingDClosure = (uncurry.closureDelegates filterNot (closuresForDelegates.keySet))
-        assert(
-          endpointsLackingDClosure.isEmpty,
-          s"The following dclosure-endpoints (created by UnCurry) got from genLateClosure() no dclosure-class: ${locations(endpointsLackingDClosure)}"
-        )
-        val endpointsFromNowhere = ((closuresForDelegates.keySet) filterNot uncurry.closureDelegates)
-        assert(
-          endpointsFromNowhere.isEmpty,
-          s"The following dclosure-endpoints were not created by UnCurry's closureConversionModern(): ${locations(endpointsFromNowhere)}"
-        )
-      }
-
-      assert(endpoint.isEmpty)
-      assert(dclosures.isEmpty)
       assert(nonMasterUsers.isEmpty)
-
-      for (Pair(delegateMethodSymbol, closureBT) <- closuresForDelegates) {
-        val delegateMethodRef = {
-          val delegateOwnerBT:    BType = exemplar(delegateMethodSymbol.owner).c
-          val delegateMethodType: BType = asmMethodType(delegateMethodSymbol)
-          val delegateName:      String = delegateMethodSymbol.javaSimpleName.toString
-          assert(
-            codeRepo.classes.containsKey(delegateOwnerBT),
-            "A class being compiled can't be found via codeRepo: " + delegateOwnerBT.getInternalName
-          )
-          val delegateMethodNode = codeRepo.getMethod(delegateOwnerBT, delegateName, delegateMethodType.getDescriptor).mnode
-
-              def delegateMethodNodeId: String = { methodSignature(delegateOwnerBT, delegateName, delegateMethodType) }
-
-          assert(delegateMethodNode != null, "A late-closure-endpoint can't be found via codeRepo: " + delegateMethodNodeId )
-          assert(Util.isPublicMethod(delegateMethodNode), "PlainClassBuilder.genDefDef() forgot to make public: " + delegateMethodNodeId)
-
-          MethodRef(delegateOwnerBT, delegateMethodNode)
-        }
-        endpoint.put(closureBT, delegateMethodRef)
-      }
 
       for(cep <- endpoint) {
         val endpointOwningClass: BType = cep._2.ownerClass
@@ -394,13 +328,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         )
       }
 
-      for(Pair(dclosure, endpointRef) <- endpoint) {
-        val master = endpointRef.ownerClass
-        val other  = dclosures.getOrElse(master, Nil)
-        dclosures.put(master, dclosure :: other)
-      }
-
-    } // end of method populateDClosureMaps()
+    } // end of method checkDClosureMaps()
 
     /**
      * Right after GenBCode, 99% of all "NEW dclosure" instructions are found in masterClass(dclosure).
@@ -455,7 +383,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def clear() {
       uncurry.closureDelegates.clear()
-      closuresForDelegates.clear()
       mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()
@@ -925,7 +852,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     def optimize() {
 
-      closuRepo.populateDClosureMaps()
+      closuRepo.checkDClosureMaps()
       closuRepo.populateNonMasterUsers()
 
       privatizables.clear()

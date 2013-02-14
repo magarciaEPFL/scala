@@ -281,17 +281,80 @@ abstract class GenBCode extends BCodeOptInter {
 
         q2 put Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC)
 
+        assert(pcb.lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
+
+            /**
+             *  After `BCodePhase.Worker1.visit()` has run
+             *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
+             *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
+             *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
+             *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
+             *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
+             *     but in a different method).
+             *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
+             *
+             *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
+             *  may break the property above (ie inlining may result in lambda usages,
+             *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
+             *  originally enclosing them). Tracking those cases is the job of
+             *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
+             *
+             *  Coming back to the property holding
+             *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
+             *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
+             *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
+             *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
+             *
+             * */
+            def postProcessLateClosureClasses() {
+
+              assert(pcb.lateClosures.size == pcb.closuresForDelegates.size)
+
+              val outFolder = plainC.outFolder
+              var howMany = 0
+              for(lateC <- pcb.lateClosures.reverse) {
+                lateClosuresCount += 1
+                q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outFolder), null)
+              }
+
+              val master = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
+
+              // add entry to `closuRepo.endpoint`
+              val isDelegateMethodName = (pcb.closuresForDelegates.values map (dce => dce.epName)).toSet
+              val candidateMethods = (pcb.cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
+              for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
+                val candidates: List[MethodNode] =
+                  for(
+                    mn <- candidateMethods;
+                    if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
+                  ) yield mn;
+
+                assert(candidates.nonEmpty && candidates.tail.isEmpty)
+                val delegateMethodNode = candidates.head
+
+                assert(
+                  asm.optimiz.Util.isPublicMethod(delegateMethodNode),
+                  "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(master, delegateMethodNode)
+                )
+
+                val delegateMethodRef = MethodRef(master, delegateMethodNode)
+                closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)
+              }
+
+              // add entry to `closuRepo.dclosures`
+              for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
+                val others = closuRepo.dclosures.getOrElse(master, Nil)
+                closuRepo.dclosures.put(master, dClosureEndpoint.closuBT :: others)
+              }
+
+            } // end of method postProcessLateClosureClasses()
+
         if(pcb.lateClosures.nonEmpty) {
-          val outFolder = plainC.outFolder
-          var howMany = 0
-          for(lateC <- pcb.lateClosures.reverse) {
-            lateClosuresCount += 1
-            q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outFolder), null)
-          }
-          pcb.lateClosures = Nil
+          postProcessLateClosureClasses()
         }
 
       } // end of method visit(Item1)
+
 
     } // end of class BCodePhase.Worker1
 
@@ -548,7 +611,9 @@ abstract class GenBCode extends BCodeOptInter {
         }
         if(!moreComing) {
           val queuesOK = (q3.isEmpty && followers.isEmpty)
-          if(!queuesOK) { error("GenBCode found class files waiting in queues to be written but an error prevented doing so.") }
+          if(!queuesOK) {
+            error("GenBCode found class files waiting in queues to be written but an error prevented doing so.")
+          }
         }
         while(!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
@@ -601,6 +666,26 @@ abstract class GenBCode extends BCodeOptInter {
       var cnode: asm.tree.ClassNode  = null
       var thisName: String           = null // the internal name of the class being emitted
       var lateClosures: List[asm.tree.ClassNode] = Nil
+
+          /**
+           *  Besides emitting a Late-Closure-Class, `genLateClosure()` collects information
+           *  about the endpoint targeted by that dclosure as a `DClosureEndpoint` instance.
+           *  That way, once `PlainClassBuilder.genPlainClass()` has built an ASM ClassNode,
+           *  the ASM MethodNodes for the endpoints can be added to the `BCodeOptInter.closuRepo.endpoint` map.
+           *
+           *  @param epName    name of the endpoint method
+           *  @param epMT      ASM method type of the endpoint
+           *  @param closuBT   BType of the dclosure-class targeting the endpoint
+           *  @param closuCtor the only constructor of the dclosure
+           *
+           * */
+          case class DClosureEndpoint(epName: String, epMT: BType, closuBT: BType, closuCtor: MethodNode)
+
+      /**
+       *  Allows a hand-off from UnCurry's "set of endpoints as methodsymbols" ie `uncurry.closureDelegates`
+       *  to closuRepo.endpoint which maps dclosure to endpoint.
+       * */
+      val closuresForDelegates = mutable.Map.empty[MethodSymbol, DClosureEndpoint]
 
       private var claszSymbol: Symbol        = null
       private var isCZParcelable             = false
@@ -2396,6 +2481,7 @@ abstract class GenBCode extends BCodeOptInter {
          */
 
         val delegateMT: BType = asmMethodType(delegateSym)
+        val delegateJavaName  = delegateSym.javaSimpleName.toString
 
         val delegateParamTs = delegateMT.getArgumentTypes.toList
         val closuStateBTs: List[BType] = {
@@ -2458,21 +2544,17 @@ abstract class GenBCode extends BCodeOptInter {
             }
 
         {
-          val alreadyLCC: BType = closuresForDelegates.getOrElse(delegateSym, null)
+          val alreadyLCC: DClosureEndpoint = closuresForDelegates.getOrElse(delegateSym, null)
           if(alreadyLCC != null) {
             log(
                "Visiting a second time a dclosure-endpoint E for which a Late-Closure-Class LCC has been created already. " +
-              s"Who plays each role: E is ${delegateSym.fullLocationString} , LCC is ${alreadyLCC.getInternalName} , " +
+              s"Who plays each role: E is ${delegateSym.fullLocationString} , LCC is ${alreadyLCC.closuBT.getInternalName} , " +
               s" method enclosing the closure instantation: ${methodSignature(cnode, mnode)} , position in source file: ${fakeCallsite.pos}. " +
                "This happens when duplicating an exception-handler or finally clause (which exist in two forms: " +
                "reachable-via-fall-through and reachable-via-exceptional-control-flow)."
             )
-            val closuIName = alreadyLCC.getInternalName
-            val closuCtor: MethodNode  = {
-              // TODO this will be simplified in due time.
-              lateClosures.find(c => c.name == closuIName).get.toMethodList.find(m => m.name == nme.CONSTRUCTOR.toString).get
-            }
-            emitClosureInstantiation(closuIName, closuCtor.desc)
+            val closuIName = alreadyLCC.closuBT.getInternalName
+            emitClosureInstantiation(closuIName, alreadyLCC.closuCtor.desc)
             return castToBT
           }
         }
@@ -2716,9 +2798,6 @@ abstract class GenBCode extends BCodeOptInter {
         val closuBT = brefType(closuCNode.name)
         assert(!codeRepo.containsKey(closuBT))
 
-        // hand-off from UnCurry's set-of-endpoints-as-methodsymbols to (see below) BCodeOptInter's map-endpoint-to-dclosure
-        closuresForDelegates += Pair(delegateSym, closuBT)
-
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
             /**
@@ -2805,7 +2884,7 @@ abstract class GenBCode extends BCodeOptInter {
               ultimate.visitMethodInsn(
                 callOpc,
                 outerTK.getInternalName,
-                delegateSym.javaSimpleName.toString,
+                delegateJavaName,
                 delegateMT.getDescriptor
               )
 
@@ -2873,7 +2952,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         log(
           s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
-          s"for endpoint ${delegateSym.javaSimpleName.toString}${delegateMT} " +
+          s"for endpoint ${delegateJavaName}${delegateMT} " +
           s"in class ${outerTK.getInternalName}. Enclosing method ${methodSignature(cnode, mnode)} , " +
           s"position in source file: ${fakeCallsite.pos}"
         )
@@ -2881,6 +2960,11 @@ abstract class GenBCode extends BCodeOptInter {
         emitClosureInstantiation(closuCNode.name, ctor.desc)
 
         lateClosures ::= closuCNode
+
+        closuresForDelegates.put(
+          delegateSym,
+          DClosureEndpoint(delegateJavaName, delegateMT, closuBT, ctor)
+        )
 
         ifDebug {
           asm.optimiz.Util.basicInterpret(closuCNode)
