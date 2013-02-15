@@ -135,10 +135,15 @@ abstract class BCodeOptIntra extends BCodeTypes {
     knownHasInline.clear()
   }
 
-  def isDClosure(iname: String): Boolean                  // implemented by subclass BCodeOptInter
-  def shakeAndMinimizeClosures(cnode: ClassNode): Boolean // implemented by subclass BCodeOptInter
-  def minimizeDClosureAllocations(cnode: ClassNode)       // implemented by subclass BCodeOptInter
-  def closureCachingAndEviction(cnode: ClassNode)         // implemented by subclass BCodeOptInter
+  def isDClosure(iname: String): Boolean                                  // implemented by subclass BCodeOptInter
+  def createDClosureOptimizer(masterCNode: ClassNode): DClosureOptimizer  // implemented by subclass BCodeOptInter
+
+  /** implemented by subclass BCodeOptInter */
+  trait DClosureOptimizer {
+    def shakeAndMinimizeClosures():    Boolean
+    def minimizeDClosureAllocations(): Unit
+    def closureCachingAndEviction():   Unit
+  }
 
   class EssentialCleanser(cnode: asm.tree.ClassNode) {
 
@@ -423,6 +428,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
       val bt = lookupRefBType(cnode.name)
       if(elidedClasses.contains(bt)) { return }
 
+      val dcloptim = createDClosureOptimizer(cnode)
+
       var keepGoing = false
       do {
 
@@ -434,14 +441,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
           keepGoing  = privatCompacter()
 
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
-          keepGoing |= shakeAndMinimizeClosures(cnode)
+          keepGoing |= dcloptim.shakeAndMinimizeClosures()
         }
 
       } while(keepGoing)
 
       if(isInterClosureOptimizOn) {
-        minimizeDClosureAllocations(cnode)
-        closureCachingAndEviction(cnode)
+        dcloptim.minimizeDClosureAllocations()
+        dcloptim.closureCachingAndEviction()
       }
 
       avoidBackedgesInConstructorArgs(cnode)

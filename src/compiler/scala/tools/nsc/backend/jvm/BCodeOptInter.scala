@@ -2980,778 +2980,784 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   // Optimization pack: closures (located here due to proximity with closuRepo)
   //---------------------------------------------------------------------------
 
-  /**
-   * Detects those dclosures that the `cnode` argument is exclusively responsible for
-   * (consequence: all usages of the dclosure are confined to two places: master and the dclosure itself).
-   *
-   * For each such closure:
-   *
-   *   (1) lack of usages in `cnode` (eg as a result of dead-code elimination) means the closure can be elided,
-   *       along with its endpoint. This may lead to further tree-shaking in `cnode` (via UnusedPrivateElider).
-   *
-   *   (2) minimize the dclosure fields (in particular, outer) to those actually used.
-   *       "Minimizing the outer instance" means the endpoint is made static.
-   *       The dclosure itself remains, but with smaller GC overhead.
-   *
-   * */
-  override def shakeAndMinimizeClosures(cnode: ClassNode): Boolean = {
+  override def createDClosureOptimizer(masterCNode: ClassNode) = { new DClosureOptimizerImpl(masterCNode) }
 
-    val cnodeBT = lookupRefBType(cnode.name)
-    if(!closuRepo.isMasterClass(cnodeBT)) { return false }
+  class DClosureOptimizerImpl(masterCNode: ClassNode) extends DClosureOptimizer {
 
-    // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
-
-    var changed = false
-    for(d <- closuRepo.liveDClosures(cnode)) {
-
-      val dep = closuRepo.endpoint(d).mnode
-      // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
-      val unused = { JListWrapper(cnode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
-      if(unused) {
-        changed = true
-        elidedClasses.add(d) // a concurrent set
-        cnode.methods.remove(dep)
-        /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
-         * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
-      }
-      else if (!Util.isStaticMethod(dep)) {
-        // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
-        assert(cnode.methods.contains(dep))
-        assert(Util.isPublicMethod(dep))
-        changed |= minimizeDClosureFields(cnode, dep, d)
-      }
-
-    }
-
-    changed
-  }
-
-  /**
-   * All usages of the dclosure are confined to two places: its master class and the dclosure itself.
-   * We can minimize dclosure fields (in particular, outer) because we know where to find
-   * all of the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
-   *
-   * */
-  private def minimizeDClosureFields(masterCNode: ClassNode, endpoint: MethodNode, d: BType): Boolean = {
-    import asm.optimiz.UnusedParamsElider
-    import asm.optimiz.StaticMaker
-
-    val dCNode: ClassNode = codeRepo.classes.get(d)
-
-        /**
-         *  (1) remove params that go unused at the endpoint in the master class,
-         *      also removing the arguments provided by the callsite in the dclosure class.
-         *
-         *  (2) attempt to make static the endpoint (and its invocation).
-         *
-         *  A master-class of a non-elided dclosure contains:
-         *    - a single instantiation of it, and
-         *    - no invocations to the dclosure's endpoint.
-         *  (the "non-elided" part is responsible for that property: a dclosure that was inlined
-         *   has a callsite to the endpoint in the shio method that replaces the higher-order method invocation).
-         *
-         * */
-        def adaptEndpointAndItsCallsite(): Boolean = {
-          var changed  = false
-          val oldDescr = endpoint.desc
-          // don't run UnusedPrivateElider on a ClassNode with a method temporarily made private.
-          Util.makePrivateMethod(endpoint) // temporarily
-
-          val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
-          if(!elidedParams.isEmpty) {
-            changed = true
-            global synchronized {
-              BType.getMethodType(endpoint.desc)
-            }
-            log(
-             s"In order to minimize closure-fields, one or more params were elided from endpoint ${methodSignature(masterCNode, endpoint)} " +
-             s". Before the change, its method descriptor was $oldDescr"
-            )
-            for(dmethod <- JListWrapper(dCNode.methods)) {
-              UnusedParamsElider.elideArguments(dCNode, dmethod, masterCNode, endpoint, oldDescr, elidedParams)
-            }
-            closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
-          }
-
-          if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
-            changed = true
-            log(s"In order to minimize closure-fields, made static endpoint ${methodSignature(masterCNode, endpoint)}")
-            Util.makeStaticMethod(endpoint)
-            StaticMaker.downShiftLocalVarUsages(endpoint)
-            for (dmethod <- JListWrapper(dCNode.methods)) {
-              assert(!Util.isAbstractMethod(dmethod))
-              StaticMaker.adaptCallsitesTargeting(dCNode, dmethod, masterCNode, endpoint)
-            }
-            closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
-          }
-
-          Util.makePublicMethod(endpoint)
-
-          changed
-        }
-
-    if(!adaptEndpointAndItsCallsite()) {
-      return false
-    }
-
-    // past this point one or more closure-fields are to be elided (outer instance, captured local, or any combination thereof).
-
-    // PUTFIELD instructions for dclosure-fields that are never read can be eliminated,
-    // which in turn is a pre-requisite for removal of redundant closure-state fields.
-    // The whole process involves several steps.
-
-    /*
-     * Step 1: cancel-out DROP of closure-state GETFIELD
-     * -------------------------------------------------
+    /**
+     * Detects those dclosures that the `cnode` argument is exclusively responsible for
+     * (consequence: all usages of the dclosure are confined to two places: master and the dclosure itself).
      *
-     * Even if PushPopCollapser is run on the dclosure, instruction pairs of the form:
-     *   LOAD_0
-     *   GETFIELD of a closure-field
-     *   DROP
-     * still remain (PushPopCollapser does not elide a GETFIELD of a private final field,
-     * because it doesn't check whether it's been assigned already or not).
+     * For each such closure:
      *
-     * The custom transform below gets rid of those GETFIELD instructions, rewriting the above into:
-     *   LOAD_0
-     *   DROP
+     *   (1) lack of usages in `cnode` (eg as a result of dead-code elimination) means the closure can be elided,
+     *       along with its endpoint. This may lead to further tree-shaking in `cnode` (via UnusedPrivateElider).
      *
-     * A follow-up round of PushPopCollapser finishes the code clean-up.
+     *   (2) minimize the dclosure fields (in particular, outer) to those actually used.
+     *       "Minimizing the outer instance" means the endpoint is made static.
+     *       The dclosure itself remains, but with smaller GC overhead.
+     *
      * */
-    val cp = ProdConsAnalyzer.create()
-    for (caller <- JListWrapper(dCNode.methods)) {
-      Util.computeMaxLocalsMaxStack(caller)
-      cp.analyze(dCNode.name, caller)
-      for(
-        // we'll modify caller.instructions in the for-body, that's fine because toList returns another list.
-        drop <- caller.instructions.toList;
-        if Util.isDROP(drop);
-        producers = cp.producers(drop);
-        if producers.size() == 1;
-        prod = producers.iterator().next;
-        if prod.getOpcode == Opcodes.GETFIELD;
-        if prod.asInstanceOf[FieldInsnNode].owner == dCNode.name;
-        if cp.isPointToPoint(prod, drop)
-      ) {
-        caller.instructions.set(prod, Util.getDrop(1)) // drop the receiver of GETFIELD, ie drop the result of LOAD_0
-        caller.instructions.remove(drop)               // cancel-out the DROP for the result of GETFIELD
-      }
-    }
+    override def shakeAndMinimizeClosures(): Boolean = {
 
-    val cleanser = new BCodeCleanser(dCNode)
-    cleanser.intraMethodFixpoints()
+      val cnodeBT = lookupRefBType(masterCNode.name)
+      if(!closuRepo.isMasterClass(cnodeBT)) { return false }
 
-    /*
-     * Step 2: determine (declared) `closureState` and (effectively used) `whatGetsRead`
-     * ---------------------------------------------------------------------------------
-     * */
-    val closureState: Map[String, FieldNode] = {
-      JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
-    }.toMap
-    val whatGetsRead = mutable.Set.empty[String]
-    for(
-      caller <- JListWrapper(dCNode.methods);
-      insn   <- caller.instructions.toList
-    ) {
-      if (insn.getOpcode == Opcodes.GETFIELD) {
-        val fieldRead = insn.asInstanceOf[FieldInsnNode]
-        assert(fieldRead.owner == dCNode.name)
-        if (closureState.contains(fieldRead.name)) {
-          whatGetsRead += fieldRead.name
+      // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
+
+      var changed = false
+      for(d <- closuRepo.liveDClosures(masterCNode)) {
+
+        val dep = closuRepo.endpoint(d).mnode
+        // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
+        val unused = { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
+        if(unused) {
+          changed = true
+          elidedClasses.add(d) // a concurrent set
+          masterCNode.methods.remove(dep)
+          /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
+           * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
         }
-      }
-    }
-
-    if(whatGetsRead.size == closureState.size) {
-      // elidedParams may refer to an apply-arg or a captured local, or combination thereof.
-      return true // no closure-state field to elide after all (e.g., outer was a module, see test/files/run/Course-2002-10.scala)
-    }
-
-    val fieldsToRemove = for(Pair(fname, fnode) <- closureState; if !whatGetsRead.contains(fname) ) yield fnode;
-    log(
-     s"Minimizing closure-fields in dclosure ${d.getInternalName}. The following fields will be removed " +
-     (fieldsToRemove map { fnode => fnode.name + " : " + fnode.desc }).mkString
-    )
-
-    /*
-     * Step 3: determine correspondence redundant-closure-field-name -> constructor-params-position
-     * --------------------------------------------------------------------------------------------
-     * */
-    // redundant-closure-field-name -> zero-based position the constructor param providing the value for it.
-    val posOfRedundantCtorParam = mutable.Map.empty[String, Int]
-    val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
-    val ctorBT = BType.getMethodType(ctor.desc)
-    Util.computeMaxLocalsMaxStack(ctor)
-    cp.analyze(dCNode.name, ctor)
-    for(
-      insn   <- ctor.instructions.toList
-    ) {
-      if (insn.getOpcode == Opcodes.PUTFIELD) {
-        val fieldWrite = insn.asInstanceOf[FieldInsnNode]
-        assert(fieldWrite.owner == dCNode.name)
-        if (!whatGetsRead.contains(fieldWrite.name)) {
-          val nonThisLocals = {
-            JSetWrapper(cp.producers(fieldWrite)) map { insn => insn.asInstanceOf[VarInsnNode].`var` } filterNot { _ == 0 }
-          }
-          assert(nonThisLocals.size == 1)
-          assert(!posOfRedundantCtorParam.contains(fieldWrite.name))
-          val localVarIdx = nonThisLocals.iterator.next
-          val paramPos    = ctorBT.convertLocalVarIdxToFormalParamPos(localVarIdx, true)
-          posOfRedundantCtorParam.put(fieldWrite.name, paramPos)
-        }
-      }
-    }
-    assert(posOfRedundantCtorParam.nonEmpty)
-
-    /*
-     * Step 4: In case outer-instance is being removed, get rid of the following preamble
-     * ----------------------------------------------------------------------------------
-     *     ALOAD 1
-     *     IFNONNULL L0
-     *     NEW java/lang/NullPointerException
-     *     DUP
-     *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
-     *     ATHROW
-     * */
-    val isOuterRedundant = {
-       closureState.contains(nme.OUTER.toString) &&
-      !whatGetsRead.contains(nme.OUTER.toString)
-    }
-    if(isOuterRedundant) {
-
-      assert(posOfRedundantCtorParam(nme.OUTER.toString) == 0)
-
-      val preamble = ctor.toList.filter(i => Util.isExecutable(i)).take(6).toArray
-
-          def preambleAssert(idx: Int, pf: PartialFunction[AbstractInsnNode, Boolean]) {
-            val insn = preamble(idx)
-            assert(
-              pf.isDefinedAt(insn) && pf(insn),
-              s"While eliding a preamble in constructor ${methodSignature(dCNode, ctor)}}, " +
-              s"expected another instruction at index ${ctor.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
-               "Here's the complete bytecode of that constructor:" + Util.textify(ctor)
-            )
-          }
-
-      preambleAssert(0, { case vi: VarInsnNode  => vi.getOpcode == Opcodes.ALOAD && vi.`var` == 1 } )
-      preambleAssert(1, { case ji: JumpInsnNode => ji.getOpcode == Opcodes.IFNONNULL } )
-      preambleAssert(2, { case ti: TypeInsnNode => ti.getOpcode == Opcodes.NEW  && ti.desc == "java/lang/NullPointerException" } )
-      preambleAssert(3, { case in: InsnNode     => in.getOpcode == Opcodes.DUP } )
-      preambleAssert(4,
-        { case mi: MethodInsnNode =>
-            mi.getOpcode == Opcodes.INVOKESPECIAL &&
-            mi.owner == "java/lang/NullPointerException" &&
-            mi.name  == "<init>" &&
-            mi.desc  == "()V"
-        }
-      )
-      preambleAssert(5, { case in: InsnNode => in.getOpcode == Opcodes.ATHROW } )
-      for(i <- preamble) { ctor.instructions.remove(i) }
-
-      // TODO once $outer is gone, the dclosure will invoke a static endpoint, and there's no reason to keep it InnerClass.
-    }
-
-    /*
-     * Step 5: in the dclosure (e.g. its constructor) get rid of PUTFIELDs to closure-state fields never read
-     * ------------------------------------------------------------------------------------------------------
-     * */
-    for(
-      caller <- JListWrapper(dCNode.methods);
-      insn   <- caller.instructions.toList
-    ) {
-      if (insn.getOpcode == Opcodes.PUTFIELD) {
-        val fieldWrite = insn.asInstanceOf[FieldInsnNode]
-        assert(fieldWrite.owner == dCNode.name)
-        if (!whatGetsRead.contains(fieldWrite.name)) {
-          val fnode = closureState(fieldWrite.name)
-          val size  = descrToBType(fnode.desc).getSize
-          caller.instructions.insert(fieldWrite, Util.getDrop(1)) // drops THIS
-          caller.instructions.set(fieldWrite, Util.getDrop(size)) // drops field value
-        }
-      }
-    }
-
-    /*
-     * Step 6: back-propagate DROPs inserted above, and remove redundant fields
-     * (otherwise another attempt will be made to delete them next time around)
-     * ------------------------------------------------------------------------
-     * */
-    cleanser.intraMethodFixpoints()
-    for(fnode <- closureState.values; if !whatGetsRead.contains(fnode.name)) {
-      dCNode.fields.remove(fnode)
-    }
-
-    /*
-     * Step 7: adapt the method descriptor of the dclosure constructor, as well as <init> callsite in master class
-     * -----------------------------------------------------------------------------------------------------------
-     * */
-    Util.makePrivateMethod(ctor) // temporarily
-    val oldCtorDescr = ctor.desc
-    val elideCtorParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(dCNode, ctor)
-    Util.makePublicMethod(ctor)
-    global synchronized {
-      BType.getMethodType(ctor.desc)
-    }
-    assert(!elideCtorParams.isEmpty)
-    for(callerInMaster <- JListWrapper(masterCNode.methods)) {
-      UnusedParamsElider.elideArguments(masterCNode, callerInMaster, dCNode, ctor, oldCtorDescr, elideCtorParams)
-    }
-
-    true
-  } // end of method minimizeDClosureFields()
-
-  /**
-   * Once no further `minimizeDClosureFields()` is possible, dclosures can be partitioned into the following classes:
-   *
-   *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
-   *       In this case the closure can be turned into a singleton.
-   *
-   *   (2) closure state consisting only of outer-instance: irrespective of the dclosure's arity,
-   *       besides (a subset of) the apply()'s arguments, the only additional value needed
-   *       to invoke the endpoint is the outer-instance value.
-   *       In this case the closure can be allocated once per outer-instance
-   *       (for example, in the constructor of the class of the outer instance).
-   *       "Per-outer-instance closure-singletons" are a trade-off: the assumption being their instantiation
-   *       will be amortized over the many times it's passed as argument.
-   *
-   *   (3) closure state consists of one or more values other than the outer instance, if any.
-   *
-   *       In other words the subcases are:
-   *         (3.a) the outer-instance and one or more captured values, or
-   *         (3.b) one or more captured values,
-   *       constitute the closure state.
-   *       Under (3.a) the endpoint is an instance-method, while for (3.b) it's static.
-   *
-   *       In this last case (3), an allocation is needed each time the closure is passed as argument (to convey those captured values).
-   *
-   *       In theory two closures of the same closure-class capturing the same values are inter-changeable,
-   *       thus a runtime "dictionary lookup" could provide an existing closure instance for a given tuple of captured values. Expensive.
-   *
-   * */
-  override def minimizeDClosureAllocations(masterCNode: ClassNode) {
-    val masterBT = lookupRefBType(masterCNode.name)
-    if(!closuRepo.isMasterClass(masterBT)) { return }
-
-    singletonizeDClosures(masterCNode)         // Case (1) empty closure state
-    bringBackStaticDClosureBodies(masterCNode) // Cosmetic rewriting
-    cleanseDClosures(masterCNode)
-  }
-
-  override def closureCachingAndEviction(cnode: ClassNode) {
-    closureCachingAndEvictionHelper(cnode)
-    val masterBT = lookupRefBType(cnode.name)
-    if(closuRepo.isMasterClass(masterBT)) {
-      for(d <- closuRepo.exclusiveDClosures(masterBT); if !elidedClasses.contains(d)) {
-        // those dclosures for which `bringBackStaticDClosureBodies()` run may benefit from closure caching and eviction.
-        closureCachingAndEvictionHelper(codeRepo.classes.get(d))
-      }
-    }
-  }
-
-  /**
-   *  Handle Cases (2) and (3) as described in minimizeDClosureAllocations(),
-   *  by adding code for caching and eviction of the "representative closure"
-   *  ie a closure instance that is interchangeable with any other in that closure-equivalence class.
-   *
-   *  Two instances of an anonymous closure class (delegating or not) are equivalent
-   *  iff they have same closure-state. That's easier to check for delegating closures,
-   *  where it's safe to assume that all of its instance fields make up the closure-state.
-   *
-   *  This method does not mutate closure classes, but those MethodNodes
-   *  containing allocations of delegating closures (we focus on delegating closures only).
-   *
-   *  Gist
-   *  ----
-   *
-   *  Rather than checking at allocation-site whether the arguments to the ctor match
-   *  those of a cached representative (an "Available Expressions" or "Definite Alias" problem),
-   *  we rely on each STORE to a local as above also "killing" the cached representative,
-   *  by assigning null to the local holding it.
-   *
-   *  The above works well enough: for example, in case closure-state is loop invariant,
-   *  the desired affect of allocating once during the first pass through the loop
-   *  is achieved. It's not "loop hoisting proper", but with the same effect
-   *  (we piggy-back on the JVM analyses to detect the cache won't be null after the first pass).
-   *
-   *  Rewriting
-   *  ---------
-   *
-   *  (1) for each non-abstract method find pairs (NEW, INIT) of instructions that bracket
-   *      a closure allocation, along with a Set[Int] representing the LOAD_x instructions
-   *      providing values for the INIT.
-   *
-   *      Remarks:
-   *        - instantiations not fulfulling the condition above aren't candidates for this transformation.
-   *        - 0 is removed from Set[Int] if present, thus it may be empty (for a delegating-closure
-   *          just capturing its outer instance. All delegating-closures capturing no value have been
-   *          singleton-ized by now).
-   *
-   *  (2) if no pair found, move on to next method.
-   *
-   *  (3) for each bracket:
-   *      - add a local var to cache it, initialized to null on method entry
-   *      - right before the NEW, insert: LOAD  cache, IFNONNULL L1
-   *      - right after the INIT, insert: STORE cache, LabelNode L1, LOAD cache
-   *      - iterate over all instructions in the method,
-   *        if STORE to a var in Set[Int], insert right after it a STORE NULL to cache
-   *
-   *  (4) run an intra-method fixpoint on the method, so as to:
-   *      - elide redundant null stores
-   *      - propagate nulls
-   *
-   * */
-  private def closureCachingAndEvictionHelper(cnode: ClassNode) {
-    val cnodeBT = lookupRefBType(cnode.name)
-    if(elidedClasses.contains(cnodeBT)) { return }
-
-        case class Bracket(newInsn: TypeInsnNode, initInsn: MethodInsnNode, stateLocals: collection.Set[Int])
-
-        def findBracket(newInsn: TypeInsnNode, mnode: MethodNode): Bracket = {
-          val dclosureIName = newInsn.desc
-          val dclosureBT = lookupRefBType(dclosureIName)
-          if(!closuRepo.isDelegatingClosure(dclosureBT)) {
-            return null
-          }
-
-          def logUponOffendingInsn(offendingInsn: AbstractInsnNode, reason: String) {
-            log(
-              s"Attempt at closure caching and eviction in method ${methodSignature(cnode, mnode)} " +
-              s"failed because $reason, " +
-              s"more precisely at index ${mnode.instructions.indexOf(offendingInsn)} where instruction ${Util.textify(offendingInsn)} can be found.\n" +
-               "Full bytecode of that method:" + Util.textify(mnode)
-            )
-          }
-
-          val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
-            { case mi: MethodInsnNode =>
-                mi.getOpcode == Opcodes.INVOKESPECIAL &&
-                mi.owner     == dclosureIName &&
-                mi.name      == "<init>" // TODO we assume the constructor descriptor can't be any other than the right one :)
-              case _ => false
-            }
-
-          if(newInsn.getNext.getOpcode != Opcodes.DUP) {
-            logUponOffendingInsn(newInsn.getNext, "non-DUP instruction found right before the ctor-args-loading section")
-            return null
-          }
-          var argLoader = newInsn.getNext.getNext
-          val stateLocals = mutable.Set.empty[Int]
-          while(!isLasInsnInBoilerplate(argLoader)) {
-            if(Util.isExecutable(argLoader)) {
-              if(Util.isLOAD(argLoader)) {
-                val idx = argLoader.asInstanceOf[VarInsnNode].`var`
-                if(idx != 0) {
-                  stateLocals += idx
-                }
-              } else {
-                val isOK = {
-                  (argLoader.getOpcode == Opcodes.CHECKCAST) ||
-                  (Util.isPrimitiveConstant(argLoader))      ||
-                  (Util.isStringConstant(argLoader))         ||
-                  (Util.isTypeConstant(argLoader))
-                }
-                if(!isOK) {
-                  logUponOffendingInsn(argLoader, "of non-LOAD, non-CHECKCAST instruction in the ctor-args-loading section")
-                  return null
-                }
-              }
-            }
-            argLoader = argLoader.getNext
-          }
-
-          Bracket(newInsn, argLoader.asInstanceOf[MethodInsnNode], stateLocals)
-        } // end of method findBracket
-
-        /**
-         * Step (3) Perform transformation for each bracket
-         * */
-        def addCachingAndEviction(br: Bracket, mnode: MethodNode) {
-          // add a local var to cache it, initialized to null on method entry
-          val cacheIdx = mnode.maxLocals
-          mnode.maxLocals += 1
-          val insnList = mnode.instructions
-          insnList.insert(new VarInsnNode(Opcodes.ASTORE, cacheIdx))
-          insnList.insert(new InsnNode(Opcodes.ACONST_NULL))
-          // right before the NEW, insert: LOAD  cache, IFNONNULL L1
-          insnList.insertBefore(br.newInsn, new VarInsnNode(Opcodes.ALOAD, cacheIdx))
-          val lnode = new LabelNode(new asm.Label)
-          insnList.insertBefore(br.newInsn, new JumpInsnNode(Opcodes.IFNONNULL, lnode))
-          // right after the INIT, insert: STORE cache, LabelNode L1, LOAD cache
-          insnList.insert(br.initInsn, new VarInsnNode(Opcodes.ALOAD, cacheIdx))
-          insnList.insert(br.initInsn, lnode)
-          insnList.insert(br.initInsn, new VarInsnNode(Opcodes.ASTORE, cacheIdx))
-          // iterate over all instructions in the method, if STORE to a var in Set[Int],
-          // insert right after it a STORE NULL to cache
-          val killers = mutable.Set.empty[AbstractInsnNode]
-          for(
-            i <- mnode.instructions.toList;
-            if Util.isSTORE(i) && br.stateLocals(i.asInstanceOf[VarInsnNode].`var`)
-          ) {
-            killers += i
-          }
-          for(k <- killers) {
-            insnList.insert(k, new VarInsnNode(Opcodes.ASTORE, cacheIdx))
-            insnList.insert(k, new InsnNode(Opcodes.ACONST_NULL))
-          }
-        } // end of method addCachingAndEviction()
-
-
-    for(mnode <- JListWrapper(cnode.methods); if !Util.isAbstractMethod(mnode) ) {
-      // Step (1) Find brackets fulfilling conditions
-      var brackets: List[Bracket] = Nil
-      var current = mnode.instructions.getFirst
-      while(current != null) {
-        if(current.getOpcode == Opcodes.NEW) {
-          val br = findBracket(current.asInstanceOf[TypeInsnNode], mnode)
-          if(br != null) {
-            brackets ::= br
-            current = br.initInsn
-          }
-        }
-        current = current.getNext
-      }
-      if(!brackets.isEmpty) {
-
-        // val txtBefore = Util.textify(mnode); println("Before -------------------------------- " + txtBefore)
-
-        // Step (3) Perform transformation for each bracket
-        for(br <- brackets) {
-          addCachingAndEviction(br, mnode)
+        else if (!Util.isStaticMethod(dep)) {
+          // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
+          assert(masterCNode.methods.contains(dep))
+          assert(Util.isPublicMethod(dep))
+          changed |= minimizeDClosureFields(dep, d)
         }
 
-        // val txtDuring = Util.textify(mnode); println("During -------------------------------- " + txtDuring)
-
-        // Step (4) run an intra-method fixpoint on all methods
-        val quickOptimizer = new QuickCleanser(cnode)
-        quickOptimizer.basicIntraMethodOpt(mnode)
-
-        // val txtAfter = Util.textify(mnode); println("After -------------------------------- " + txtAfter)
       }
-    } // end of method iteration
 
-  } // end of method closureCachingAndEvictionHelper()
+      changed
+    }
 
-  /**
-   *  Handle the following subcase described in minimizeDClosureAllocations():
-   *
-   *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
-   *       In this case the closure can be turned into a singleton.
-   *
-   * */
-  private def singletonizeDClosures(masterCNode: ClassNode) {
-    for(d <- closuRepo.liveDClosures(masterCNode)) {
+    /**
+     * All usages of the dclosure are confined to two places: its master class and the dclosure itself.
+     * We can minimize dclosure fields (in particular, outer) because we know where to find
+     * all of the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
+     *
+     * */
+    private def minimizeDClosureFields(endpoint: MethodNode, d: BType): Boolean = {
+      import asm.optimiz.UnusedParamsElider
+      import asm.optimiz.StaticMaker
 
-      val dep    = closuRepo.endpoint(d).mnode
-      val dCNode = codeRepo.classes.get(d)
-      val closureState: Map[String, FieldNode] = {
-        JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
-      }.toMap
-      val dClassDescriptor = "L" + dCNode.name + ";"
+      val dCNode: ClassNode = codeRepo.classes.get(d)
 
-      // ------------------------------------------------------------------
-      // Case (1): the dclosure can be turned into a program-wide singleton
-      // ------------------------------------------------------------------
-      val lacksClosureState = closureState.isEmpty
-      if(lacksClosureState) {
-
-        log("Singleton-closure: " + dCNode.name)
-
-        // -------- (1.a) modify the dclosure class (add $single static field, initialize it in <clinit>)
-        val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
-        Util.makePrivateMethod(ctor)
-        val single =
-          new FieldNode(
-            Opcodes.ASM4,
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-            "$single",
-            dClassDescriptor,
-            null, null
-          )
-        dCNode.fields.add(single)
-        val staticClassInitializer =
-          new MethodNode(
-            Opcodes.ASM4,
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
-            "<clinit>",
-            "()V",
-            null, null
-          )
-        dCNode.methods.add(staticClassInitializer)
-        val insns = new InsnList()
-        insns.add(new TypeInsnNode(Opcodes.NEW, dCNode.name))
-        insns.add(new InsnNode(Opcodes.DUP))
-        insns.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, dCNode.name, "<init>", "()V"))
-        insns.add(new FieldInsnNode(Opcodes.PUTSTATIC, dCNode.name, single.name, dClassDescriptor))
-        insns.add(new InsnNode(Opcodes.RETURN))
-        staticClassInitializer.instructions.add(insns)
-
-        // -------- (1.b) modify the master class (replace instantiation by GETSTATIC of the singleton)
-        for(
-          callerInMaster <- JListWrapper(masterCNode.methods);
-          newInsn        <- closuRepo.closureAccesses(callerInMaster, d)
-        ) {
-          assert(newInsn.getOpcode == Opcodes.NEW)
-          /*
-           * A dclosure instantiation (the code pattern to replace) usually looks like:
+          /**
+           *  (1) remove params that go unused at the endpoint in the master class,
+           *      also removing the arguments provided by the callsite in the dclosure class.
            *
-           *     NEW dclosure
-           *     DUP
-           *     INVOKESPECIAL dclosure.<init> ()V
+           *  (2) attempt to make static the endpoint (and its invocation).
            *
-           * In a few cases it may look like:
-           *
-           *     NEW dclosure
-           *     DUP
-           *     ALOAD 0
-           *     CHECKCAST X
-           *     POP
-           *     INVOKESPECIAL dclosure.<init> ()V
-           *
-           * The second case arises because PushPopCollapser doesn't back-propagate POP over CHECKCAST
-           * (that would requires a type-flow based analysis).
+           *  A master-class of a non-elided dclosure contains:
+           *    - a single instantiation of it, and
+           *    - no invocations to the dclosure's endpoint.
+           *  (the "non-elided" part is responsible for that property: a dclosure that was inlined
+           *   has a callsite to the endpoint in the shio method that replaces the higher-order method invocation).
            *
            * */
+          def adaptEndpointAndItsCallsite(): Boolean = {
+            var changed  = false
+            val oldDescr = endpoint.desc
+            // don't run UnusedPrivateElider on a ClassNode with a method temporarily made private.
+            Util.makePrivateMethod(endpoint) // temporarily
 
-              def snippetTest(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]): Boolean = {
-                val isBoilerplate = pf.isDefinedAt(insn) && pf(insn)
-                if(!isBoilerplate) {
-                  log(
-                    s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
-                    s"in method ${methodSignature(masterCNode, callerInMaster)}."  +
-                    s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
-                     "Here's the complete bytecode of that method:" + Util.textify(callerInMaster)
-                  )
-                }
-
-                isBoilerplate
+            val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
+            if(!elidedParams.isEmpty) {
+              changed = true
+              global synchronized {
+                BType.getMethodType(endpoint.desc)
               }
-
-          val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
-            { case mi: MethodInsnNode =>
-                mi.getOpcode == Opcodes.INVOKESPECIAL &&
-                mi.owner     == d.getInternalName     &&
-                mi.name      == "<init>" &&
-                mi.desc      == "()V"
-              case _ => false
+              log(
+               s"In order to minimize closure-fields, one or more params were elided from endpoint ${methodSignature(masterCNode, endpoint)} " +
+               s". Before the change, its method descriptor was $oldDescr"
+              )
+              for(dmethod <- JListWrapper(dCNode.methods)) {
+                UnusedParamsElider.elideArguments(dCNode, dmethod, masterCNode, endpoint, oldDescr, elidedParams)
+              }
+              closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
             }
 
-              // logs only the first divergence from "boilerplate"
-              def isBoilerplate = {
-                snippetTest(0, newInsn,         { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }) &&
-                snippetTest(1, newInsn.getNext, { case di: InsnNode       => di.getOpcode == Opcodes.DUP }) &&
-                snippetTest(2, newInsn.getNext.getNext, isLasInsnInBoilerplate)
+            if(Util.isInstanceMethod(endpoint) && StaticMaker.lacksUsagesOfTHIS(endpoint)) {
+              changed = true
+              log(s"In order to minimize closure-fields, made static endpoint ${methodSignature(masterCNode, endpoint)}")
+              Util.makeStaticMethod(endpoint)
+              StaticMaker.downShiftLocalVarUsages(endpoint)
+              for (dmethod <- JListWrapper(dCNode.methods)) {
+                assert(!Util.isAbstractMethod(dmethod))
+                StaticMaker.adaptCallsitesTargeting(dCNode, dmethod, masterCNode, endpoint)
               }
-
-          val lastInsn: MethodInsnNode = {
-            var current: AbstractInsnNode = newInsn
-            while(!isLasInsnInBoilerplate(current)) {
-              current = current.getNext
+              closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
             }
-            current.asInstanceOf[MethodInsnNode]
+
+            Util.makePublicMethod(endpoint)
+
+            changed
           }
 
-          if(!isBoilerplate) {
-            val dupInsn = newInsn.getNext
-            assert(dupInsn.getOpcode == Opcodes.DUP)
-            // move NEW, DUP right before INVOKESPECIAL <init> , ie right before `lastInsn` of the instruction bracket
-            callerInMaster.instructions.remove(newInsn)
-            callerInMaster.instructions.remove(dupInsn)
-            callerInMaster.instructions.insertBefore(lastInsn, newInsn)
-            callerInMaster.instructions.insertBefore(lastInsn, dupInsn)
-            assert(isBoilerplate)
-          }
-
-          // remove all instructions of the bracket except for the first one, NEW dclosure
-          var current: AbstractInsnNode = lastInsn
-          while(current ne newInsn) {
-            val prev = current.getPrevious
-            callerInMaster.instructions.remove(current)
-            current = prev
-          }
-          // replace NEW dclosure by GETSTATIC singleton
-          callerInMaster.instructions.set(
-            newInsn,
-            new FieldInsnNode(Opcodes.GETSTATIC, d.getInternalName, single.name, single.desc)
-          )
-        }
-
+      if(!adaptEndpointAndItsCallsite()) {
+        return false
       }
 
-    }
+      // past this point one or more closure-fields are to be elided (outer instance, captured local, or any combination thereof).
 
-  } // end of method singletonizeDClosures()
+      // PUTFIELD instructions for dclosure-fields that are never read can be eliminated,
+      // which in turn is a pre-requisite for removal of redundant closure-state fields.
+      // The whole process involves several steps.
 
-  /**
-   *  Cosmetic rewriting: if possible, move back the endpoint's instructions to the dclosure's apply
-   *
-   * */
-  private def bringBackStaticDClosureBodies(masterCNode: ClassNode) {
+      /*
+       * Step 1: cancel-out DROP of closure-state GETFIELD
+       * -------------------------------------------------
+       *
+       * Even if PushPopCollapser is run on the dclosure, instruction pairs of the form:
+       *   LOAD_0
+       *   GETFIELD of a closure-field
+       *   DROP
+       * still remain (PushPopCollapser does not elide a GETFIELD of a private final field,
+       * because it doesn't check whether it's been assigned already or not).
+       *
+       * The custom transform below gets rid of those GETFIELD instructions, rewriting the above into:
+       *   LOAD_0
+       *   DROP
+       *
+       * A follow-up round of PushPopCollapser finishes the code clean-up.
+       * */
+      val cp = ProdConsAnalyzer.create()
+      for (caller <- JListWrapper(dCNode.methods)) {
+        Util.computeMaxLocalsMaxStack(caller)
+        cp.analyze(dCNode.name, caller)
+        for(
+          // we'll modify caller.instructions in the for-body, that's fine because toList returns another list.
+          drop <- caller.instructions.toList;
+          if Util.isDROP(drop);
+          producers = cp.producers(drop);
+          if producers.size() == 1;
+          prod = producers.iterator().next;
+          if prod.getOpcode == Opcodes.GETFIELD;
+          if prod.asInstanceOf[FieldInsnNode].owner == dCNode.name;
+          if cp.isPointToPoint(prod, drop)
+        ) {
+          caller.instructions.set(prod, Util.getDrop(1)) // drop the receiver of GETFIELD, ie drop the result of LOAD_0
+          caller.instructions.remove(drop)               // cancel-out the DROP for the result of GETFIELD
+        }
+      }
 
-    for(d <- closuRepo.liveDClosures(masterCNode)) {
+      val cleanser = new BCodeCleanser(dCNode)
+      cleanser.intraMethodFixpoints()
 
-      val dep    = closuRepo.endpoint(d).mnode
-      val dCNode = codeRepo.classes.get(d)
+      /*
+       * Step 2: determine (declared) `closureState` and (effectively used) `whatGetsRead`
+       * ---------------------------------------------------------------------------------
+       * */
       val closureState: Map[String, FieldNode] = {
         JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
       }.toMap
-      val dClassDescriptor = "L" + dCNode.name + ";"
-
-      if(Util.isStaticMethod(dep) && masterCNode.methods.contains(dep)) {
-
-        log(
-          "Bringing back the endpoint's instructions to the dclosure's apply(), " +
-         s"from endpoint ${methodSignature(masterCNode, dep)} to dclosure ${dCNode.name}"
-        )
-
-        val wp = new WholeProgramAnalysis(isMultithread = true)
-        val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
-          for(
-            applyMethod <- JListWrapper(dCNode.methods).toList;
-            if !Util.isConstructor(applyMethod);
-            callsite    <- applyMethod.toList;
-            if closuRepo.invokedDClosure(callsite) == d
-          ) yield (applyMethod -> callsite.asInstanceOf[MethodInsnNode])
-        }
-        assert(endpointCallers.tail.isEmpty)
-        val Pair(applyMethod, callsite) = endpointCallers.head
-
-        Util.computeMaxLocalsMaxStack(applyMethod)
-        val tfa = new asm.tree.analysis.Analyzer[TFValue](new TypeFlowInterpreter)
-        tfa.analyze(dCNode.name, applyMethod)
-        val frame = tfa.frameAt(callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
-
-        val inlineOutcome =
-          wp.inlineMethod(
-            dCNode.name, applyMethod,
-            callsite, frame,
-            dep, masterCNode,
-            doTrackClosureUsage = false
-          )
-        inlineOutcome match {
-          case Some(problem) =>
-            log(s"Couldn't bring back the endpoint's instructions because $problem")
-          case None =>
-            val cleanser = new BCodeCleanser(dCNode)
-            cleanser.intraMethodFixpoints()
-            // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
-            // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
-            closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
-            masterCNode.methods.remove(dep)
+      val whatGetsRead = mutable.Set.empty[String]
+      for(
+        caller <- JListWrapper(dCNode.methods);
+        insn   <- caller.instructions.toList
+      ) {
+        if (insn.getOpcode == Opcodes.GETFIELD) {
+          val fieldRead = insn.asInstanceOf[FieldInsnNode]
+          assert(fieldRead.owner == dCNode.name)
+          if (closureState.contains(fieldRead.name)) {
+            whatGetsRead += fieldRead.name
+          }
         }
       }
 
-    }
+      if(whatGetsRead.size == closureState.size) {
+        // elidedParams may refer to an apply-arg or a captured local, or combination thereof.
+        return true // no closure-state field to elide after all (e.g., outer was a module, see test/files/run/Course-2002-10.scala)
+      }
 
-  } // end of method bringBackStaticDClosureBodies()
+      val fieldsToRemove = for(Pair(fname, fnode) <- closureState; if !whatGetsRead.contains(fname) ) yield fnode;
+      log(
+       s"Minimizing closure-fields in dclosure ${d.getInternalName}. The following fields will be removed " +
+       (fieldsToRemove map { fnode => fnode.name + " : " + fnode.desc }).mkString
+      )
 
-  private def cleanseDClosures(masterCNode: ClassNode) {
+      /*
+       * Step 3: determine correspondence redundant-closure-field-name -> constructor-params-position
+       * --------------------------------------------------------------------------------------------
+       * */
+      // redundant-closure-field-name -> zero-based position the constructor param providing the value for it.
+      val posOfRedundantCtorParam = mutable.Map.empty[String, Int]
+      val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
+      val ctorBT = BType.getMethodType(ctor.desc)
+      Util.computeMaxLocalsMaxStack(ctor)
+      cp.analyze(dCNode.name, ctor)
+      for(
+        insn   <- ctor.instructions.toList
+      ) {
+        if (insn.getOpcode == Opcodes.PUTFIELD) {
+          val fieldWrite = insn.asInstanceOf[FieldInsnNode]
+          assert(fieldWrite.owner == dCNode.name)
+          if (!whatGetsRead.contains(fieldWrite.name)) {
+            val nonThisLocals = {
+              JSetWrapper(cp.producers(fieldWrite)) map { insn => insn.asInstanceOf[VarInsnNode].`var` } filterNot { _ == 0 }
+            }
+            assert(nonThisLocals.size == 1)
+            assert(!posOfRedundantCtorParam.contains(fieldWrite.name))
+            val localVarIdx = nonThisLocals.iterator.next
+            val paramPos    = ctorBT.convertLocalVarIdxToFormalParamPos(localVarIdx, true)
+            posOfRedundantCtorParam.put(fieldWrite.name, paramPos)
+          }
+        }
+      }
+      assert(posOfRedundantCtorParam.nonEmpty)
 
-    for(d <- closuRepo.liveDClosures(masterCNode)) {
-      val dCNode: ClassNode = codeRepo.classes.get(d)
-      val cleanser = new BCodeCleanser(dCNode)
+      /*
+       * Step 4: In case outer-instance is being removed, get rid of the following preamble
+       * ----------------------------------------------------------------------------------
+       *     ALOAD 1
+       *     IFNONNULL L0
+       *     NEW java/lang/NullPointerException
+       *     DUP
+       *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
+       *     ATHROW
+       * */
+      val isOuterRedundant = {
+         closureState.contains(nme.OUTER.toString) &&
+        !whatGetsRead.contains(nme.OUTER.toString)
+      }
+      if(isOuterRedundant) {
+
+        assert(posOfRedundantCtorParam(nme.OUTER.toString) == 0)
+
+        val preamble = ctor.toList.filter(i => Util.isExecutable(i)).take(6).toArray
+
+            def preambleAssert(idx: Int, pf: PartialFunction[AbstractInsnNode, Boolean]) {
+              val insn = preamble(idx)
+              assert(
+                pf.isDefinedAt(insn) && pf(insn),
+                s"While eliding a preamble in constructor ${methodSignature(dCNode, ctor)}}, " +
+                s"expected another instruction at index ${ctor.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
+                 "Here's the complete bytecode of that constructor:" + Util.textify(ctor)
+              )
+            }
+
+        preambleAssert(0, { case vi: VarInsnNode  => vi.getOpcode == Opcodes.ALOAD && vi.`var` == 1 } )
+        preambleAssert(1, { case ji: JumpInsnNode => ji.getOpcode == Opcodes.IFNONNULL } )
+        preambleAssert(2, { case ti: TypeInsnNode => ti.getOpcode == Opcodes.NEW  && ti.desc == "java/lang/NullPointerException" } )
+        preambleAssert(3, { case in: InsnNode     => in.getOpcode == Opcodes.DUP } )
+        preambleAssert(4,
+          { case mi: MethodInsnNode =>
+              mi.getOpcode == Opcodes.INVOKESPECIAL &&
+              mi.owner == "java/lang/NullPointerException" &&
+              mi.name  == "<init>" &&
+              mi.desc  == "()V"
+          }
+        )
+        preambleAssert(5, { case in: InsnNode => in.getOpcode == Opcodes.ATHROW } )
+        for(i <- preamble) { ctor.instructions.remove(i) }
+
+        // TODO once $outer is gone, the dclosure will invoke a static endpoint, and there's no reason to keep it InnerClass.
+      }
+
+      /*
+       * Step 5: in the dclosure (e.g. its constructor) get rid of PUTFIELDs to closure-state fields never read
+       * ------------------------------------------------------------------------------------------------------
+       * */
+      for(
+        caller <- JListWrapper(dCNode.methods);
+        insn   <- caller.instructions.toList
+      ) {
+        if (insn.getOpcode == Opcodes.PUTFIELD) {
+          val fieldWrite = insn.asInstanceOf[FieldInsnNode]
+          assert(fieldWrite.owner == dCNode.name)
+          if (!whatGetsRead.contains(fieldWrite.name)) {
+            val fnode = closureState(fieldWrite.name)
+            val size  = descrToBType(fnode.desc).getSize
+            caller.instructions.insert(fieldWrite, Util.getDrop(1)) // drops THIS
+            caller.instructions.set(fieldWrite, Util.getDrop(size)) // drops field value
+          }
+        }
+      }
+
+      /*
+       * Step 6: back-propagate DROPs inserted above, and remove redundant fields
+       * (otherwise another attempt will be made to delete them next time around)
+       * ------------------------------------------------------------------------
+       * */
       cleanser.intraMethodFixpoints()
+      for(fnode <- closureState.values; if !whatGetsRead.contains(fnode.name)) {
+        dCNode.fields.remove(fnode)
+      }
+
+      /*
+       * Step 7: adapt the method descriptor of the dclosure constructor, as well as <init> callsite in master class
+       * -----------------------------------------------------------------------------------------------------------
+       * */
+      Util.makePrivateMethod(ctor) // temporarily
+      val oldCtorDescr = ctor.desc
+      val elideCtorParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(dCNode, ctor)
+      Util.makePublicMethod(ctor)
+      global synchronized {
+        BType.getMethodType(ctor.desc)
+      }
+      assert(!elideCtorParams.isEmpty)
+      for(callerInMaster <- JListWrapper(masterCNode.methods)) {
+        UnusedParamsElider.elideArguments(masterCNode, callerInMaster, dCNode, ctor, oldCtorDescr, elideCtorParams)
+      }
+
+      true
+    } // end of method minimizeDClosureFields()
+
+    /**
+     * Once no further `minimizeDClosureFields()` is possible, dclosures can be partitioned into the following classes:
+     *
+     *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
+     *       In this case the closure can be turned into a singleton.
+     *
+     *   (2) closure state consisting only of outer-instance: irrespective of the dclosure's arity,
+     *       besides (a subset of) the apply()'s arguments, the only additional value needed
+     *       to invoke the endpoint is the outer-instance value.
+     *       In this case the closure can be allocated once per outer-instance
+     *       (for example, in the constructor of the class of the outer instance).
+     *       "Per-outer-instance closure-singletons" are a trade-off: the assumption being their instantiation
+     *       will be amortized over the many times it's passed as argument.
+     *
+     *   (3) closure state consists of one or more values other than the outer instance, if any.
+     *
+     *       In other words the subcases are:
+     *         (3.a) the outer-instance and one or more captured values, or
+     *         (3.b) one or more captured values,
+     *       constitute the closure state.
+     *       Under (3.a) the endpoint is an instance-method, while for (3.b) it's static.
+     *
+     *       In this last case (3), an allocation is needed each time the closure is passed as argument (to convey those captured values).
+     *
+     *       In theory two closures of the same closure-class capturing the same values are inter-changeable,
+     *       thus a runtime "dictionary lookup" could provide an existing closure instance for a given tuple of captured values. Expensive.
+     *
+     * */
+    override def minimizeDClosureAllocations() {
+      val masterBT = lookupRefBType(masterCNode.name)
+      if(!closuRepo.isMasterClass(masterBT)) { return }
+
+      singletonizeDClosures()         // Case (1) empty closure state
+      bringBackStaticDClosureBodies() // Cosmetic rewriting
+      cleanseDClosures()
     }
 
-  } // end of method cleanseDClosures()
+    /**
+     *  Handle the following subcase described in minimizeDClosureAllocations():
+     *
+     *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
+     *       In this case the closure can be turned into a singleton.
+     *
+     * */
+    private def singletonizeDClosures() {
+      for(d <- closuRepo.liveDClosures(masterCNode)) {
+
+        val dep    = closuRepo.endpoint(d).mnode
+        val dCNode = codeRepo.classes.get(d)
+        val closureState: Map[String, FieldNode] = {
+          JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
+        }.toMap
+        val dClassDescriptor = "L" + dCNode.name + ";"
+
+        // ------------------------------------------------------------------
+        // Case (1): the dclosure can be turned into a program-wide singleton
+        // ------------------------------------------------------------------
+        val lacksClosureState = closureState.isEmpty
+        if(lacksClosureState) {
+
+          log("Singleton-closure: " + dCNode.name)
+
+          // -------- (1.a) modify the dclosure class (add $single static field, initialize it in <clinit>)
+          val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
+          Util.makePrivateMethod(ctor)
+          val single =
+            new FieldNode(
+              Opcodes.ASM4,
+              Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
+              "$single",
+              dClassDescriptor,
+              null, null
+            )
+          dCNode.fields.add(single)
+          val staticClassInitializer =
+            new MethodNode(
+              Opcodes.ASM4,
+              Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+              "<clinit>",
+              "()V",
+              null, null
+            )
+          dCNode.methods.add(staticClassInitializer)
+          val insns = new InsnList()
+          insns.add(new TypeInsnNode(Opcodes.NEW, dCNode.name))
+          insns.add(new InsnNode(Opcodes.DUP))
+          insns.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, dCNode.name, "<init>", "()V"))
+          insns.add(new FieldInsnNode(Opcodes.PUTSTATIC, dCNode.name, single.name, dClassDescriptor))
+          insns.add(new InsnNode(Opcodes.RETURN))
+          staticClassInitializer.instructions.add(insns)
+
+          // -------- (1.b) modify the master class (replace instantiation by GETSTATIC of the singleton)
+          for(
+            callerInMaster <- JListWrapper(masterCNode.methods);
+            newInsn        <- closuRepo.closureAccesses(callerInMaster, d)
+          ) {
+            assert(newInsn.getOpcode == Opcodes.NEW)
+            /*
+             * A dclosure instantiation (the code pattern to replace) usually looks like:
+             *
+             *     NEW dclosure
+             *     DUP
+             *     INVOKESPECIAL dclosure.<init> ()V
+             *
+             * In a few cases it may look like:
+             *
+             *     NEW dclosure
+             *     DUP
+             *     ALOAD 0
+             *     CHECKCAST X
+             *     POP
+             *     INVOKESPECIAL dclosure.<init> ()V
+             *
+             * The second case arises because PushPopCollapser doesn't back-propagate POP over CHECKCAST
+             * (that would requires a type-flow based analysis).
+             *
+             * */
+
+                def snippetTest(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]): Boolean = {
+                  val isBoilerplate = pf.isDefinedAt(insn) && pf(insn)
+                  if(!isBoilerplate) {
+                    log(
+                      s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
+                      s"in method ${methodSignature(masterCNode, callerInMaster)}."  +
+                      s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
+                       "Here's the complete bytecode of that method:" + Util.textify(callerInMaster)
+                    )
+                  }
+
+                  isBoilerplate
+                }
+
+            val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
+              { case mi: MethodInsnNode =>
+                  mi.getOpcode == Opcodes.INVOKESPECIAL &&
+                  mi.owner     == d.getInternalName     &&
+                  mi.name      == "<init>" &&
+                  mi.desc      == "()V"
+                case _ => false
+              }
+
+                // logs only the first divergence from "boilerplate"
+                def isBoilerplate = {
+                  snippetTest(0, newInsn,         { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }) &&
+                  snippetTest(1, newInsn.getNext, { case di: InsnNode       => di.getOpcode == Opcodes.DUP }) &&
+                  snippetTest(2, newInsn.getNext.getNext, isLasInsnInBoilerplate)
+                }
+
+            val lastInsn: MethodInsnNode = {
+              var current: AbstractInsnNode = newInsn
+              while(!isLasInsnInBoilerplate(current)) {
+                current = current.getNext
+              }
+              current.asInstanceOf[MethodInsnNode]
+            }
+
+            if(!isBoilerplate) {
+              val dupInsn = newInsn.getNext
+              assert(dupInsn.getOpcode == Opcodes.DUP)
+              // move NEW, DUP right before INVOKESPECIAL <init> , ie right before `lastInsn` of the instruction bracket
+              callerInMaster.instructions.remove(newInsn)
+              callerInMaster.instructions.remove(dupInsn)
+              callerInMaster.instructions.insertBefore(lastInsn, newInsn)
+              callerInMaster.instructions.insertBefore(lastInsn, dupInsn)
+              assert(isBoilerplate)
+            }
+
+            // remove all instructions of the bracket except for the first one, NEW dclosure
+            var current: AbstractInsnNode = lastInsn
+            while(current ne newInsn) {
+              val prev = current.getPrevious
+              callerInMaster.instructions.remove(current)
+              current = prev
+            }
+            // replace NEW dclosure by GETSTATIC singleton
+            callerInMaster.instructions.set(
+              newInsn,
+              new FieldInsnNode(Opcodes.GETSTATIC, d.getInternalName, single.name, single.desc)
+            )
+          }
+
+        }
+
+      }
+
+    } // end of method singletonizeDClosures()
+
+    /**
+     *  Cosmetic rewriting: if possible, move back the endpoint's instructions to the dclosure's apply
+     *
+     * */
+    private def bringBackStaticDClosureBodies() {
+
+      for(d <- closuRepo.liveDClosures(masterCNode)) {
+
+        val dep    = closuRepo.endpoint(d).mnode
+        val dCNode = codeRepo.classes.get(d)
+        val closureState: Map[String, FieldNode] = {
+          JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
+        }.toMap
+        val dClassDescriptor = "L" + dCNode.name + ";"
+
+        if(Util.isStaticMethod(dep) && masterCNode.methods.contains(dep)) {
+
+          log(
+            "Bringing back the endpoint's instructions to the dclosure's apply(), " +
+           s"from endpoint ${methodSignature(masterCNode, dep)} to dclosure ${dCNode.name}"
+          )
+
+          val wp = new WholeProgramAnalysis(isMultithread = true)
+          val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
+            for(
+              applyMethod <- JListWrapper(dCNode.methods).toList;
+              if !Util.isConstructor(applyMethod);
+              callsite    <- applyMethod.toList;
+              if closuRepo.invokedDClosure(callsite) == d
+            ) yield (applyMethod -> callsite.asInstanceOf[MethodInsnNode])
+          }
+          assert(endpointCallers.tail.isEmpty)
+          val Pair(applyMethod, callsite) = endpointCallers.head
+
+          Util.computeMaxLocalsMaxStack(applyMethod)
+          val tfa = new asm.tree.analysis.Analyzer[TFValue](new TypeFlowInterpreter)
+          tfa.analyze(dCNode.name, applyMethod)
+          val frame = tfa.frameAt(callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
+
+          val inlineOutcome =
+            wp.inlineMethod(
+              dCNode.name, applyMethod,
+              callsite, frame,
+              dep, masterCNode,
+              doTrackClosureUsage = false
+            )
+          inlineOutcome match {
+            case Some(problem) =>
+              log(s"Couldn't bring back the endpoint's instructions because $problem")
+            case None =>
+              val cleanser = new BCodeCleanser(dCNode)
+              cleanser.intraMethodFixpoints()
+              // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
+              // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
+              closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
+              masterCNode.methods.remove(dep)
+          }
+        }
+
+      }
+
+    } // end of method bringBackStaticDClosureBodies()
+
+    override def closureCachingAndEviction() {
+      closureCachingAndEvictionHelper(masterCNode)
+      val masterBT = lookupRefBType(masterCNode.name)
+      if(closuRepo.isMasterClass(masterBT)) {
+        for(d <- closuRepo.exclusiveDClosures(masterBT); if !elidedClasses.contains(d)) {
+          // those dclosures for which `bringBackStaticDClosureBodies()` run may benefit from closure caching and eviction.
+          closureCachingAndEvictionHelper(codeRepo.classes.get(d))
+        }
+      }
+    }
+
+    /**
+     *  Handle Cases (2) and (3) as described in minimizeDClosureAllocations(),
+     *  by adding code for caching and eviction of the "representative closure"
+     *  ie a closure instance that is interchangeable with any other in that closure-equivalence class.
+     *
+     *  Two instances of an anonymous closure class (delegating or not) are equivalent
+     *  iff they have same closure-state. That's easier to check for delegating closures,
+     *  where it's safe to assume that all of its instance fields make up the closure-state.
+     *
+     *  This method does not mutate closure classes, but those MethodNodes
+     *  containing allocations of delegating closures (we focus on delegating closures only).
+     *
+     *  Gist
+     *  ----
+     *
+     *  Rather than checking at allocation-site whether the arguments to the ctor match
+     *  those of a cached representative (an "Available Expressions" or "Definite Alias" problem),
+     *  we rely on each STORE to a local as above also "killing" the cached representative,
+     *  by assigning null to the local holding it.
+     *
+     *  The above works well enough: for example, in case closure-state is loop invariant,
+     *  the desired affect of allocating once during the first pass through the loop
+     *  is achieved. It's not "loop hoisting proper", but with the same effect
+     *  (we piggy-back on the JVM analyses to detect the cache won't be null after the first pass).
+     *
+     *  Rewriting
+     *  ---------
+     *
+     *  (1) for each non-abstract method find pairs (NEW, INIT) of instructions that bracket
+     *      a closure allocation, along with a Set[Int] representing the LOAD_x instructions
+     *      providing values for the INIT.
+     *
+     *      Remarks:
+     *        - instantiations not fulfulling the condition above aren't candidates for this transformation.
+     *        - 0 is removed from Set[Int] if present, thus it may be empty (for a delegating-closure
+     *          just capturing its outer instance. All delegating-closures capturing no value have been
+     *          singleton-ized by now).
+     *
+     *  (2) if no pair found, move on to next method.
+     *
+     *  (3) for each bracket:
+     *      - add a local var to cache it, initialized to null on method entry
+     *      - right before the NEW, insert: LOAD  cache, IFNONNULL L1
+     *      - right after the INIT, insert: STORE cache, LabelNode L1, LOAD cache
+     *      - iterate over all instructions in the method,
+     *        if STORE to a var in Set[Int], insert right after it a STORE NULL to cache
+     *
+     *  (4) run an intra-method fixpoint on the method, so as to:
+     *      - elide redundant null stores
+     *      - propagate nulls
+     *
+     * */
+    private def closureCachingAndEvictionHelper(cnode: ClassNode) {
+      val cnodeBT = lookupRefBType(cnode.name)
+      if(elidedClasses.contains(cnodeBT)) { return }
+
+          case class Bracket(newInsn: TypeInsnNode, initInsn: MethodInsnNode, stateLocals: collection.Set[Int])
+
+          def findBracket(newInsn: TypeInsnNode, mnode: MethodNode): Bracket = {
+            val dclosureIName = newInsn.desc
+            val dclosureBT = lookupRefBType(dclosureIName)
+            if(!closuRepo.isDelegatingClosure(dclosureBT)) {
+              return null
+            }
+
+            def logUponOffendingInsn(offendingInsn: AbstractInsnNode, reason: String) {
+              log(
+                s"Attempt at closure caching and eviction in method ${methodSignature(cnode, mnode)} " +
+                s"failed because $reason, " +
+                s"more precisely at index ${mnode.instructions.indexOf(offendingInsn)} where instruction ${Util.textify(offendingInsn)} can be found.\n" +
+                 "Full bytecode of that method:" + Util.textify(mnode)
+              )
+            }
+
+            val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
+              { case mi: MethodInsnNode =>
+                  mi.getOpcode == Opcodes.INVOKESPECIAL &&
+                  mi.owner     == dclosureIName &&
+                  mi.name      == "<init>" // TODO we assume the constructor descriptor can't be any other than the right one :)
+                case _ => false
+              }
+
+            if(newInsn.getNext.getOpcode != Opcodes.DUP) {
+              logUponOffendingInsn(newInsn.getNext, "non-DUP instruction found right before the ctor-args-loading section")
+              return null
+            }
+            var argLoader = newInsn.getNext.getNext
+            val stateLocals = mutable.Set.empty[Int]
+            while(!isLasInsnInBoilerplate(argLoader)) {
+              if(Util.isExecutable(argLoader)) {
+                if(Util.isLOAD(argLoader)) {
+                  val idx = argLoader.asInstanceOf[VarInsnNode].`var`
+                  if(idx != 0) {
+                    stateLocals += idx
+                  }
+                } else {
+                  val isOK = {
+                    (argLoader.getOpcode == Opcodes.CHECKCAST) ||
+                    (Util.isPrimitiveConstant(argLoader))      ||
+                    (Util.isStringConstant(argLoader))         ||
+                    (Util.isTypeConstant(argLoader))
+                  }
+                  if(!isOK) {
+                    logUponOffendingInsn(argLoader, "of non-LOAD, non-CHECKCAST instruction in the ctor-args-loading section")
+                    return null
+                  }
+                }
+              }
+              argLoader = argLoader.getNext
+            }
+
+            Bracket(newInsn, argLoader.asInstanceOf[MethodInsnNode], stateLocals)
+          } // end of method findBracket
+
+          /**
+           * Step (3) Perform transformation for each bracket
+           * */
+          def addCachingAndEviction(br: Bracket, mnode: MethodNode) {
+            // add a local var to cache it, initialized to null on method entry
+            val cacheIdx = mnode.maxLocals
+            mnode.maxLocals += 1
+            val insnList = mnode.instructions
+            insnList.insert(new VarInsnNode(Opcodes.ASTORE, cacheIdx))
+            insnList.insert(new InsnNode(Opcodes.ACONST_NULL))
+            // right before the NEW, insert: LOAD  cache, IFNONNULL L1
+            insnList.insertBefore(br.newInsn, new VarInsnNode(Opcodes.ALOAD, cacheIdx))
+            val lnode = new LabelNode(new asm.Label)
+            insnList.insertBefore(br.newInsn, new JumpInsnNode(Opcodes.IFNONNULL, lnode))
+            // right after the INIT, insert: STORE cache, LabelNode L1, LOAD cache
+            insnList.insert(br.initInsn, new VarInsnNode(Opcodes.ALOAD, cacheIdx))
+            insnList.insert(br.initInsn, lnode)
+            insnList.insert(br.initInsn, new VarInsnNode(Opcodes.ASTORE, cacheIdx))
+            // iterate over all instructions in the method, if STORE to a var in Set[Int],
+            // insert right after it a STORE NULL to cache
+            val killers = mutable.Set.empty[AbstractInsnNode]
+            for(
+              i <- mnode.instructions.toList;
+              if Util.isSTORE(i) && br.stateLocals(i.asInstanceOf[VarInsnNode].`var`)
+            ) {
+              killers += i
+            }
+            for(k <- killers) {
+              insnList.insert(k, new VarInsnNode(Opcodes.ASTORE, cacheIdx))
+              insnList.insert(k, new InsnNode(Opcodes.ACONST_NULL))
+            }
+          } // end of method addCachingAndEviction()
+
+
+      for(mnode <- JListWrapper(cnode.methods); if !Util.isAbstractMethod(mnode) ) {
+        // Step (1) Find brackets fulfilling conditions
+        var brackets: List[Bracket] = Nil
+        var current = mnode.instructions.getFirst
+        while(current != null) {
+          if(current.getOpcode == Opcodes.NEW) {
+            val br = findBracket(current.asInstanceOf[TypeInsnNode], mnode)
+            if(br != null) {
+              brackets ::= br
+              current = br.initInsn
+            }
+          }
+          current = current.getNext
+        }
+        if(!brackets.isEmpty) {
+
+          // val txtBefore = Util.textify(mnode); println("Before -------------------------------- " + txtBefore)
+
+          // Step (3) Perform transformation for each bracket
+          for(br <- brackets) {
+            addCachingAndEviction(br, mnode)
+          }
+
+          // val txtDuring = Util.textify(mnode); println("During -------------------------------- " + txtDuring)
+
+          // Step (4) run an intra-method fixpoint on all methods
+          val quickOptimizer = new QuickCleanser(cnode)
+          quickOptimizer.basicIntraMethodOpt(mnode)
+
+          // val txtAfter = Util.textify(mnode); println("After -------------------------------- " + txtAfter)
+        }
+      } // end of method iteration
+
+    } // end of method closureCachingAndEvictionHelper()
+
+    private def cleanseDClosures() {
+
+      for(d <- closuRepo.liveDClosures(masterCNode)) {
+        val dCNode: ClassNode = codeRepo.classes.get(d)
+        val cleanser = new BCodeCleanser(dCNode)
+        cleanser.intraMethodFixpoints()
+      }
+
+    } // end of method cleanseDClosures()
+
+  } // end of class DClosureOptimizerImpl
 
 } // end of class BCodeOptInter
 
