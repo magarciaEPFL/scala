@@ -27,7 +27,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
   private val guardedCtorStats: mutable.Map[Symbol, List[Tree]] = perRunCaches.newMap[Symbol, List[Tree]]
   private val ctorParams: mutable.Map[Symbol, List[Symbol]] = perRunCaches.newMap[Symbol, List[Symbol]]
 
-  class ConstructorTransformer(unit: CompilationUnit) extends Transformer {
+  class ConstructorTransformer(unit: CompilationUnit, isOuterDefinitelyNonNull: Boolean = false) extends Transformer {
 
     def transformClassTemplate(impl: Template): Template = {
       val clazz = impl.symbol.owner  // the transformed class
@@ -127,8 +127,12 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         import CODE._
         val result = mkAssign(to, Ident(from))
 
-        if (from.name != nme.OUTER ||
-            from.tpe.typeSymbol.isPrimitiveValueClass) result
+        if (isOuterDefinitelyNonNull ||
+            from.name != nme.OUTER   ||
+            from.tpe.typeSymbol.isPrimitiveValueClass
+        ) {
+          result
+        }
         else localTyper.typedPos(to.pos) {
           IF (from OBJ_EQ NULL) THEN Throw(NewFromConstructor(NPEConstructor)) ELSE result
         }
@@ -537,8 +541,9 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         val dlydEpDef: DefDef = delayedEndpointDef(remainingConstrStats)
         defBuf += dlydEpDef
         val dicl = {
-          // transform to make the closure-class' default constructor assign the param-accessor field with the outer instance.
-          new ConstructorTransformer(unit) transform delayedInitClosure(dlydEpDef.symbol.asInstanceOf[MethodSymbol])
+          // transform to make the closure-class' default constructor assign the the outer instance to its param-accessor field.
+          val diclx = new ConstructorTransformer(unit, isOuterDefinitelyNonNull = true)
+          diclx transform delayedInitClosure(dlydEpDef.symbol.asInstanceOf[MethodSymbol])
         }
         defBuf += dicl
         remainingConstrStats = delayedInitCall(dicl) :: Nil
