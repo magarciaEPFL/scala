@@ -137,8 +137,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       // The list of definitions that go into class
       val defBuf = new ListBuffer[Tree]
 
-      // The auxiliary constructors, separate from the defBuf since they should
-      // follow the primary constructor
+      // The auxiliary constructors, separate from the defBuf since they should follow the primary constructor
       val auxConstructorBuf = new ListBuffer[Tree]
 
       // The list of statements that go into constructor after and including the superclass constructor call
@@ -393,33 +392,35 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       */
 
       /**
+       *  Translation scheme for DelayedInit
+       *  ----------------------------------
+       *
        *  Before returning, transformClassTemplate() rewrites DelayedInit subclasses.
-       *  The starting point are the statements of the primary constructor compiled thus far,
-       *  already partitioned into:
+       *  The list of statements that will end up in the primary constructor can be split into:
        *
        *    (a) up to and including the super-constructor call.
        *        These statements can occur only in the (bytecode-level) primary constructor.
        *
        *    (b) remaining statements
        *
-       *  The puspose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
+       *  The purpose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
        *
        *  The rewriting to achieve "delayed initialization" involves:
-       *    (c) an additional, synthetic, method encapsulating (b)
+       *    (c) an additional, synthetic, public method encapsulating (b)
        *    (d) an additional, synthetic closure whose argless apply() just invokes (c)
        *    (e) after executing the staments in (a),
        *        the primary constructor instantiates (d) and passes it as argument
        *        to a `delayedInit()` invocation on the current instance.
        *        In turn, `delayedInit()` is a method defined as abstract in the `DelayedInit` trait
-       *        so that it can be overridden (an example can be found in `scala.App`)
+       *        so that it can be overridden (for an example see `scala.App`)
        *
        *  The following helper methods prepare Trees as part of this rewriting:
        *
        *    (f) `delayedEndpointDef()` prepares (c).
        *        A transformer, `constrStatTransformer`, is used to re-locate statements (b) from template-level
        *        to become statements in method (c). The main task here is re-formulating accesses to params
-       *        of the primary constructors (to recap, (c) has zero-params) in terms of
-       *        getters and setters (which are added for that purpose if not already there).
+       *        of the primary constructors (to recap, (c) has zero-params) in terms of param-accessor fields.
+       *        In a Delayed-Init subclass, each class-constructor gets a param-accessor field because `mustbeKept()` forces it.
        *
        *    (g) `delayedInitClosure()` prepares (d)
        *
@@ -430,13 +431,12 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *  A note of historic interest: Previously the rewriting for DelayedInit would include in the closure body
        *  all of the delayed initialization sequence, which in turn required:
        *    - reformulating "accesses-on-this" into "accesses-on-outer", and
-       *    - widening access levels.
+       *    - adding public getters and setters.
        *  Moreover, the previous scheme broke a useful property of "Late-Closure-Classes",
        *  namely the property that all anon-closure-instantiations are lexically enclosed in the same class
        *  declaring the "anon-closure-endpoint". That property allows handling a class and all of "its"
        *  anonymous closures as a whole (for example, emit all such lambdas only at bytecode-emit time).
-       *  The new translation scheme for DelayedInit can also benefit incremental compilation
-       *  (as a consequence of the property mentioned above).
+       *  Additionally, the new translation scheme for DelayedInit should make incremental compilation easier.
        *  To recap, "Late-Closure-Classes" results from the interplay of
        *    - UnCurry's `closureConversionModern()` and
        *    - PlainClassBuilder's `genLateClosure()`
