@@ -140,6 +140,212 @@ abstract class BCodeOptIntra extends BCodeTypes {
   def minimizeDClosureAllocations(cnode: ClassNode)       // implemented by subclass BCodeOptInter
   def closureCachingAndEviction(cnode: ClassNode)         // implemented by subclass BCodeOptInter
 
+  class EssentialCleanser(cnode: asm.tree.ClassNode) {
+
+    val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
+    val unreachCodeRemover  = new asm.optimiz.UnreachableCode
+    val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
+    val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
+
+    //--------------------------------------------------------------------
+    // First optimization pack
+    //--------------------------------------------------------------------
+
+    /**
+     *  This method performs a few intra-method optimizations:
+     *    - collapse a multi-jump chain to target its final destination via a single jump
+     *    - remove unreachable code
+     *    - remove those LabelNodes and LineNumbers that aren't in use
+     *
+     *  Some of the above are applied repeatedly until no further reductions occur.
+     *
+     *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
+     *
+     */
+    def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+
+      var changed = false
+      var keepGoing = false
+
+      do {
+        keepGoing = false
+
+        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
+        keepGoing |= jumpsCollapser.changed
+        repOK(mnode)
+
+        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
+        keepGoing |= unreachCodeRemover.changed
+        repOK(mnode)
+
+        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
+        keepGoing |= labelsCleanup.changed
+        repOK(mnode)
+
+        danglingExcHandlers.transform(mnode)
+        keepGoing |= danglingExcHandlers.changed
+        repOK(mnode)
+
+        changed |= keepGoing
+
+      } while (keepGoing)
+
+      changed
+
+    }
+
+    /**
+     *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
+     *  the very least we want to do is remove dead code beforehand,
+     *  so as to prevent an artifact of stack-frames computation from showing up,
+     *  the artifact is described in detail in http://asm.ow2.org/doc/developer-guide.html#deadcode
+     *  and results from the Java 6 split verifier requiring a stack map frame
+     *  for every basic block, even unreachable ones.
+     *
+     *  However just removing dead code might leave LocalVariableTable entries
+     *  with stale references to LabelNodes.
+     * */
+    def removeDeadCode() {
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+        Util.computeMaxLocalsMaxStack(mnode)
+        cleanseMethod(cnode.name, mnode) // remove unreachable code
+      }
+    }
+
+    //--------------------------------------------------------------------
+    // Utilities for reuse by different optimizers
+    //--------------------------------------------------------------------
+
+    /**
+     *  Well-formedness checks, useful after each fine-grained transformation step on a MethodNode.
+     *
+     *  Makes sure that exception-handler and local-variable entries are non-obviously wrong
+     *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
+     */
+    private def repOK(mnode: asm.tree.MethodNode): Boolean = {
+      if(!global.settings.debug.value) {
+        return true;
+      }
+
+          def isInsn(insn: asm.tree.AbstractInsnNode) {
+            assert(mnode.instructions.contains(insn))
+          }
+
+          def inSequence(fst: asm.tree.AbstractInsnNode, snd: asm.tree.AbstractInsnNode): Boolean = {
+            var current = fst
+            while(true) {
+              current = current.getNext()
+              if(current == null) { return false }
+              if(current == snd)  { return true  }
+            }
+            false
+          }
+
+      mnode foreachInsn { insn => assert(insn != null, "instruction stream shouldn't contain nulls.") }
+
+      // exception-handler entries
+      if(mnode.tryCatchBlocks != null) {
+        val tryIter = mnode.tryCatchBlocks.iterator()
+        while(tryIter.hasNext) {
+          val tcb = tryIter.next
+          assert(tcb.start   != null)
+          assert(tcb.end     != null)
+          assert(tcb.handler != null)
+          isInsn(tcb.start)
+          isInsn(tcb.end)
+          isInsn(tcb.handler)
+          inSequence(tcb.start, tcb.end)
+        }
+      }
+
+      // local-vars entries
+      if(mnode.localVariables != null) {
+        val lvIter = mnode.localVariables.iterator()
+        while(lvIter.hasNext) {
+          val lv = lvIter.next
+          isInsn(lv.start)
+          isInsn(lv.end)
+          inSequence(lv.start, lv.end)
+        }
+      }
+
+      true
+    }
+
+  } // end of class EssentialCleanser
+
+  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
+
+    val copyPropagator      = new asm.optimiz.CopyPropagator
+    val deadStoreElim       = new asm.optimiz.DeadStoreElim
+    val ppCollapser         = new asm.optimiz.PushPopCollapser
+    val jumpReducer         = new asm.optimiz.JumpReducer(null)
+    val nullnessPropagator  = new asm.optimiz.NullnessPropagator
+    val constantFolder      = new asm.optimiz.ConstantFolder
+
+    /**
+     *  Intra-method optimizations performed until a fixpoint is reached.
+     */
+    def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
+      val cName = cnode.name
+      var keepGoing = false
+      do {
+        keepGoing = false
+
+        keepGoing |= cleanseMethod(cName, mnode)
+        keepGoing |= elimRedundantCode(cName, mnode)
+
+        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+        keepGoing |= nullnessPropagator.changed
+
+        constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
+        keepGoing |= constantFolder.changed
+
+      } while(keepGoing)
+    }
+
+    //--------------------------------------------------------------------
+    // Second optimization pack
+    //--------------------------------------------------------------------
+
+    /**
+     *  This method performs a few intra-method optimizations,
+     *  aimed at reverting the extra copying introduced by inlining:
+     *    - replace the last link in a chain of data accesses by a direct access to the chain-start.
+     *    - dead-store elimination
+     *    - remove those (producer, consumer) pairs where the consumer is a DROP and
+     *      the producer has its value consumed only by the DROP in question.
+     *
+     * */
+    private def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+      var changed   = false
+      var keepGoing = false
+
+      do {
+
+        keepGoing = false
+
+        copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
+        keepGoing |= copyPropagator.changed
+
+        deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+        keepGoing |= deadStoreElim.changed
+
+        ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+        keepGoing |= ppCollapser.changed
+
+        jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
+        keepGoing |= jumpReducer.changed
+
+        changed = (changed || keepGoing)
+
+      } while (keepGoing)
+
+      changed
+    }
+
+  } // end of class QuickCleanser
+
   /**
    *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
    *  optimizations are applied iteratively until a fixpoint is reached.
@@ -152,20 +358,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
    *
    *  The entry point is `cleanseClass()`.
    */
-  class BCodeCleanser(cnode: asm.tree.ClassNode) {
+  class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
 
-    val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
-    val unreachCodeRemover  = new asm.optimiz.UnreachableCode
-    val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
-    val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
-
-    val copyPropagator      = new asm.optimiz.CopyPropagator
-    val deadStoreElim       = new asm.optimiz.DeadStoreElim
-    val ppCollapser         = new asm.optimiz.PushPopCollapser
     val unboxElider         = new asm.optimiz.UnBoxElider
-    val jumpReducer         = new asm.optimiz.JumpReducer(null)
-    val nullnessPropagator  = new asm.optimiz.NullnessPropagator
-    val constantFolder      = new asm.optimiz.ConstantFolder
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
@@ -254,24 +449,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
       refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
 
     } // end of method cleanseClass()
-
-    /**
-     *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
-     *  the very least we want to do is remove dead code beforehand,
-     *  so as to prevent an artifact of stack-frames computation from showing up,
-     *  the artifact is described in detail in http://asm.ow2.org/doc/developer-guide.html#deadcode
-     *  and results from the Java 6 split verifier requiring a stack map frame
-     *  for every basic block, even unreachable ones.
-     *
-     *  However just removing dead code might leave LocalVariableTable entries
-     *  with stale references to LabelNodes.
-     * */
-    def removeDeadCode() {
-      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
-        Util.computeMaxLocalsMaxStack(mnode)
-        cleanseMethod(cnode.name, mnode) // remove unreachable code
-      }
-    }
 
     /**
      *  intra-method optimizations
@@ -405,114 +582,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
         }
 
       }
-    }
-
-    /**
-     *  Intra-method optimizations performed until a fixpoint is reached.
-     */
-    def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
-      val cName = cnode.name
-      var keepGoing = false
-      do {
-        keepGoing = false
-
-        keepGoing |= cleanseMethod(cName, mnode)
-        keepGoing |= elimRedundantCode(cName, mnode)
-
-        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
-        keepGoing |= nullnessPropagator.changed
-
-        constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
-        keepGoing |= constantFolder.changed
-
-      } while(keepGoing)
-    }
-
-    //--------------------------------------------------------------------
-    // First optimization pack
-    //--------------------------------------------------------------------
-
-    /**
-     *  This method performs a few intra-method optimizations:
-     *    - collapse a multi-jump chain to target its final destination via a single jump
-     *    - remove unreachable code
-     *    - remove those LabelNodes and LineNumbers that aren't in use
-     *
-     *  Some of the above are applied repeatedly until no further reductions occur.
-     *
-     *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
-     *
-     */
-    def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
-
-      var changed = false
-      var keepGoing = false
-
-      do {
-        keepGoing = false
-
-        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
-        keepGoing |= jumpsCollapser.changed
-        repOK(mnode)
-
-        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
-        keepGoing |= unreachCodeRemover.changed
-        repOK(mnode)
-
-        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
-        keepGoing |= labelsCleanup.changed
-        repOK(mnode)
-
-        danglingExcHandlers.transform(mnode)
-        keepGoing |= danglingExcHandlers.changed
-        repOK(mnode)
-
-        changed |= keepGoing
-
-      } while (keepGoing)
-
-      changed
-
-    }
-
-    //--------------------------------------------------------------------
-    // Second optimization pack
-    //--------------------------------------------------------------------
-
-    /**
-     *  This method performs a few intra-method optimizations,
-     *  aimed at reverting the extra copying introduced by inlining:
-     *    - replace the last link in a chain of data accesses by a direct access to the chain-start.
-     *    - dead-store elimination
-     *    - remove those (producer, consumer) pairs where the consumer is a DROP and
-     *      the producer has its value consumed only by the DROP in question.
-     *
-     * */
-    def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
-      var changed   = false
-      var keepGoing = false
-
-      do {
-
-        keepGoing = false
-
-        copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
-        keepGoing |= copyPropagator.changed
-
-        deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
-        keepGoing |= deadStoreElim.changed
-
-        ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
-        keepGoing |= ppCollapser.changed
-
-        jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
-        keepGoing |= jumpReducer.changed
-
-        changed = (changed || keepGoing)
-
-      } while (keepGoing)
-
-      changed
     }
 
     //--------------------------------------------------------------------
@@ -970,66 +1039,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
         }
         i += 1
       }
-    }
-
-    //--------------------------------------------------------------------
-    // Utilities for reuse by different optimizers
-    //--------------------------------------------------------------------
-
-    /**
-     *  Well-formedness checks, useful after each fine-grained transformation step on a MethodNode.
-     *
-     *  Makes sure that exception-handler and local-variable entries are non-obviously wrong
-     *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
-     */
-    def repOK(mnode: asm.tree.MethodNode): Boolean = {
-      if(!global.settings.debug.value) {
-        return true;
-      }
-
-          def isInsn(insn: asm.tree.AbstractInsnNode) {
-            assert(mnode.instructions.contains(insn))
-          }
-
-          def inSequence(fst: asm.tree.AbstractInsnNode, snd: asm.tree.AbstractInsnNode): Boolean = {
-            var current = fst
-            while(true) {
-              current = current.getNext()
-              if(current == null) { return false }
-              if(current == snd)  { return true  }
-            }
-            false
-          }
-
-      mnode foreachInsn { insn => assert(insn != null, "instruction stream shouldn't contain nulls.") }
-
-      // exception-handler entries
-      if(mnode.tryCatchBlocks != null) {
-        val tryIter = mnode.tryCatchBlocks.iterator()
-        while(tryIter.hasNext) {
-          val tcb = tryIter.next
-          assert(tcb.start   != null)
-          assert(tcb.end     != null)
-          assert(tcb.handler != null)
-          isInsn(tcb.start)
-          isInsn(tcb.end)
-          isInsn(tcb.handler)
-          inSequence(tcb.start, tcb.end)
-        }
-      }
-
-      // local-vars entries
-      if(mnode.localVariables != null) {
-        val lvIter = mnode.localVariables.iterator()
-        while(lvIter.hasNext) {
-          val lv = lvIter.next
-          isInsn(lv.start)
-          isInsn(lv.end)
-          inSequence(lv.start, lv.end)
-        }
-      }
-
-      true
     }
 
   } // end of class BCodeCleanser

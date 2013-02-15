@@ -1696,7 +1696,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             return false
 
           case None =>
-            val quickOptimizer = new BCodeCleanser(hostOwner)
+            val quickOptimizer = new QuickCleanser(hostOwner)
             quickOptimizer.basicIntraMethodOpt(host)
             Util.computeMaxLocalsMaxStack(host)
             return true // not really "successful closure-inlining" (see comment above) but the closest we can get.
@@ -2227,7 +2227,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             case diagnostics => return diagnostics
           }
 
-        val quickOptimizer = new BCodeCleanser(closureClass)
+        val quickOptimizer = new QuickCleanser(closureClass)
         quickOptimizer.basicIntraMethodOpt(result)
         Util.computeMaxLocalsMaxStack(result)
 
@@ -2544,7 +2544,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         // (9) update maxStack, run TFA for debug purposes
         Util.computeMaxLocalsMaxStack(shio)
-        val quickOptimizer = new BCodeCleanser(hostOwner)
+        val quickOptimizer = new QuickCleanser(hostOwner)
         quickOptimizer.basicIntraMethodOpt(shio)
         Util.computeMaxLocalsMaxStack(shio)
 
@@ -3521,8 +3521,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         // val txtDuring = Util.textify(mnode); println("During -------------------------------- " + txtDuring)
 
         // Step (4) run an intra-method fixpoint on all methods
-        val cleanser = new BCodeCleanser(cnode)
-        cleanser.basicIntraMethodOpt(mnode)
+        val quickOptimizer = new QuickCleanser(cnode)
+        quickOptimizer.basicIntraMethodOpt(mnode)
 
         // val txtAfter = Util.textify(mnode); println("After -------------------------------- " + txtAfter)
       }
