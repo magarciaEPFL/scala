@@ -397,17 +397,17 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *  The starting point are the statements of the primary constructor compiled thus far,
        *  already partitioned into:
        *
-       *     a. up to and including the super-constructor call.
+       *    (a) up to and including the super-constructor call.
        *        These statements can occur only in the (bytecode-level) primary constructor.
        *
-       *     b. remaining statements
+       *    (b) remaining statements
        *
        *  The puspose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
        *
        *  The rewriting to achieve "delayed initialization" involves:
-       *     c. an additional, synthetic, method encapsulating (b)
-       *     d. an additional, synthetic closure whose argless apply() just invokes (c)
-       *     e. after executing the staments in (a),
+       *    (c) an additional, synthetic, method encapsulating (b)
+       *    (d) an additional, synthetic closure whose argless apply() just invokes (c)
+       *    (e) after executing the staments in (a),
        *        the primary constructor instantiates (d) and passes it as argument
        *        to a `delayedInit()` invocation on the current instance.
        *        In turn, `delayedInit()` is a method defined as abstract in the `DelayedInit` trait
@@ -415,15 +415,15 @@ abstract class Constructors extends Transform with ast.TreeDSL {
        *
        *  The following helper methods prepare Trees as part of this rewriting:
        *
-       *     f. `delayedEndpointDef()` prepares (c).
+       *    (f) `delayedEndpointDef()` prepares (c).
        *        A transformer, `constrStatTransformer`, is used to re-locate statements (b) from template-level
        *        to become statements in method (c). The main task here is re-formulating accesses to params
        *        of the primary constructors (to recap, (c) has zero-params) in terms of
        *        getters and setters (which are added for that purpose if not already there).
        *
-       *     g. `delayedInitClosure()` prepares (d)
+       *    (g) `delayedInitClosure()` prepares (d)
        *
-       *     h. `delayedInitCall()`    prepares the `delayedInit()` invocation referred to in (e)
+       *    (h) `delayedInitCall()`    prepares the `delayedInit()` invocation referred to in (e)
        *
        *  Both (c) and (d) are added to the Template returned by `transformClassTemplate()`
        *
