@@ -387,7 +387,7 @@ abstract class UnCurry extends InfoTransform
 
       val fakeCallsite = Apply(hoistedMethodDef.symbol, zeroes: _* )
 
-      assert(isFunctionType(fun.tpe), "Not all Function nodes have function type")
+      assert(isFunctionType(fun.tpe), s"Found a Function node whose tpe isn't function type but ${fun.tpe}")
       val closureType: Type = abstractFunctionForFunctionType(fun.tpe) // Serializable not yet here
 
       val callDisguisedAsClosure = gen.mkAsInstanceOf(fakeCallsite, closureType, wrapInApply = false)

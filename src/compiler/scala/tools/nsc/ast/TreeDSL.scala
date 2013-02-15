@@ -259,6 +259,15 @@ trait TreeDSL {
     def REF(sym: Symbol)              = gen.mkAttributedRef(sym)
     def REF(pre: Type, sym: Symbol)   = gen.mkAttributedRef(pre, sym)
 
+    /**
+     *  "Shared immutable Trees" cut down on GC, at the cost of sharing Tree.pos
+     *  (initially NoPosition, but a `PosAssigner` can change all that).
+     *  No problem: `NoPosition` can't break `validatePositions()` under -Yrangepos.
+     *  Additionally, all (current) usages of `CODE.sharedBoxedUnitRef` are from phases at or past UnCurry.
+     *  On the same theme of "shared immutable Trees" there's `TreeGen.mkZero()`
+     */
+    lazy val sharedBoxedUnitRef = REF(BoxedUnit_UNIT)
+
     def makeTupleTerm(trees: List[Tree], flattenUnary: Boolean): Tree = trees match {
       case Nil                        => UNIT
       case List(tree) if flattenUnary => tree

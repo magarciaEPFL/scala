@@ -359,7 +359,7 @@ abstract class CleanUp extends Transform with ast.TreeDSL {
             // could be called in one place: instead it is called separately from the
             // unconditional outcomes (genValueCall, genArrayCall, genDefaultCall.)
             def fixResult(tree: Tree, mustBeUnit: Boolean = false) =
-              if (mustBeUnit || resultSym == UnitClass) BLOCK(tree, REF(BoxedUnit_UNIT))  // boxed unit
+              if (mustBeUnit || resultSym == UnitClass) BLOCK(tree, sharedBoxedUnitRef)   // boxed unit
               else if (resultSym == ObjectClass) tree                                     // no cast necessary
               else gen.mkCast(tree, boxedResType)                                         // cast to expected type
 

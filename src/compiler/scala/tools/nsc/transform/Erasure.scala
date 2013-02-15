@@ -587,8 +587,8 @@ abstract class Erasure extends AddInterfaces
           case _ =>
             tree.tpe.typeSymbol match {
           case UnitClass  =>
-            if (treeInfo isExprSafeToInline tree) REF(BoxedUnit_UNIT)
-            else BLOCK(tree, REF(BoxedUnit_UNIT))
+            if (treeInfo isExprSafeToInline tree) sharedBoxedUnitRef
+            else BLOCK(tree, sharedBoxedUnitRef)
           case NothingClass => tree // a non-terminating expression doesn't need boxing
           case x          =>
             assert(x != ArrayClass)

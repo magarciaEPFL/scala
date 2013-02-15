@@ -252,11 +252,13 @@ abstract class TreeGen extends macros.TreeBuilder {
   /** Builds a tree representing the value (appropriate to the given type) of an undefined local, as in
    *    var x: T = _
    *
-   *  TODO please notice that all "shared literals" will also share Tree.pos (to recap, shared literals cut down on GC).
-   *       Not that the above breaks -Yrangepos, but how about a transparent position?
+   *  Shared literals cut down on GC, at the cost of sharing Tree.pos
+   *  (initially NoPosition, but a `PosAssigner` can change all that).
+   *  No problem: `NoPosition` can't break `validatePositions()` under -Yrangepos.
+   *  Additionally, all (current) usages of `mkZero()` are from phases at or past UnCurry.
    *
-   *  TODO for the same reasons, consider "singletonizing" usages in (Erasure, Constructors, CleanUp)
-   *       of `REF(BoxedUnit_UNIT)` aka `gen.mkAttributedRef(BoxedUnit_UNIT)`
+   *  On the same theme of "shared immutable Trees" there's `CODE.sharedBoxedUnitRef`
+   *
    */
   def mkZero(tp: Type): Tree = tp.typeSymbol match {
     case NothingClass => mkMethodCall(Predef_???, Nil) setType NothingClass.tpe

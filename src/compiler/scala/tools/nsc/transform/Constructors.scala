@@ -498,7 +498,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
             val applyMethodDef = DefDef(
               sym = applyMethod,
               vparamss = ListOfNil,
-              rhs = Block(applyMethodStat, gen.mkAttributedRef(BoxedUnit_UNIT)))
+              rhs = Block(applyMethodStat, CODE.sharedBoxedUnitRef))
 
             ClassDef(
               sym = closureClass,
