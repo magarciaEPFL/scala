@@ -167,7 +167,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
      *
      */
-    def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+    final def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
 
       var changed = false
       var keepGoing = false
@@ -210,7 +210,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  However just removing dead code might leave LocalVariableTable entries
      *  with stale references to LabelNodes.
      * */
-    def removeDeadCode() {
+    final def removeDeadCode() {
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
         Util.computeMaxLocalsMaxStack(mnode)
         cleanseMethod(cnode.name, mnode) // remove unreachable code
@@ -291,7 +291,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  Intra-method optimizations performed until a fixpoint is reached.
      */
-    def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
+    final def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
       val cName = cnode.name
       var keepGoing = false
       do {
@@ -363,7 +363,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
    *
    *  The entry point is `cleanseClass()`.
    */
-  class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
+  final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
 
     val unboxElider         = new asm.optimiz.UnBoxElider
 
@@ -401,7 +401,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      */
-    def cleanseClass() {
+    final def cleanseClass() {
 
       /*
        * ClassNodes can be partitioned into:
@@ -460,7 +460,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  intra-method optimizations
      * */
-    def intraMethodFixpoints() {
+    final def intraMethodFixpoints() {
 
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
 
@@ -649,7 +649,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      * TODO 3: Stable-values accessed only via getters are taken into account, unlike those via GETFIELD or GETSTATIC.
      *
      */
-    def cacheRepeatableReads(mnode: asm.tree.MethodNode) {
+    final def cacheRepeatableReads(mnode: asm.tree.MethodNode) {
 
       import asm.tree.analysis.Frame
 
@@ -728,7 +728,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  Definite Assignment analysis. See `DefinitelyInterpreter`
      */
-    class DefinitelyAnalyzer(dint: DefinitelyInterpreter)
+    final class DefinitelyAnalyzer(dint: DefinitelyInterpreter)
     extends asm.tree.analysis.Analyzer(dint) {
 
       override def newNonFormalLocal(idx: Int): SourceValue = {
@@ -743,7 +743,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  Interpreter for a Definite Assignment analysis. See `DefinitelyAnalyzer`
      */
-    class DefinitelyInterpreter(val uniqueValueInv: scala.collection.Map[Int, UniqueValueKey])
+    final class DefinitelyInterpreter(val uniqueValueInv: scala.collection.Map[Int, UniqueValueKey])
     extends asm.tree.analysis.SourceInterpreter {
 
       val unassigneds: Array[SourceValue] = Array(
@@ -791,7 +791,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     }
 
-    class StableChainAnalyzer(mnode: asm.tree.MethodNode, interpreter: StableChainInterpreter)
+    final class StableChainAnalyzer(mnode: asm.tree.MethodNode, interpreter: StableChainInterpreter)
     extends asm.tree.analysis.Analyzer(interpreter) {
 
       // Those params never assigned qualify as "stable-roots" for "stable-access-paths"
@@ -841,7 +841,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     case class UniqueValueKey(prefixIndex: Int, link: StableMember)
 
-    class StableChainInterpreter(mnode: asm.tree.MethodNode) extends asm.tree.analysis.Interpreter[StableValue](asm.Opcodes.ASM4) {
+    final class StableChainInterpreter(mnode: asm.tree.MethodNode)
+    extends asm.tree.analysis.Interpreter[StableValue](asm.Opcodes.ASM4) {
 
       private val UNKNOWN_1 = StableValue(-1, 1)
       private val UNKNOWN_2 = StableValue(-1, 2)
@@ -1030,7 +1031,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     // Type-flow analysis
     //--------------------------------------------------------------------
 
-    def runTypeFlowAnalysis(mnode: MethodNode) {
+    final def runTypeFlowAnalysis(mnode: MethodNode) {
 
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode

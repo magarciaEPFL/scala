@@ -2982,7 +2982,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   override def createDClosureOptimizer(masterCNode: ClassNode) = { new DClosureOptimizerImpl(masterCNode) }
 
-  class DClosureOptimizerImpl(masterCNode: ClassNode) extends DClosureOptimizer {
+  final class DClosureOptimizerImpl(masterCNode: ClassNode) extends DClosureOptimizer {
 
     /**
      * Detects those dclosures that the `cnode` argument is exclusively responsible for
