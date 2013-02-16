@@ -420,7 +420,7 @@ abstract class GenBCode extends BCodeOptInter {
         val cleanser = new BCodeCleanser(item.plain.cnode)
 
         if(settings.isIntraMethodOptimizOn) {
-          cleanser.cleanseClass()   // cleanseClass() may mutate dclosures cnode is responsible for
+          cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
         } else {
           cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
           // TODO cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
@@ -484,6 +484,18 @@ abstract class GenBCode extends BCodeOptInter {
 
     var arrivalPos = 0
 
+    /**
+     *  A run of the BCodePhase phase comprises:
+     *
+     *    (a) set-up steps (most notably supporting maps in `BCodeTypes`,
+     *        but also "the" writer where class files in byte-array form go)
+     *
+     *    (b) building of ASM ClassNodes, their optimization and serialization.
+     *        The internal workflow for this step depends on whether inter-procedural optimizations are enabled
+     *
+     *    (c) tear down (closing the classfile-writer and clearing maps)
+     *
+     * */
     override def run() {
 
       log(s"Number of early vs late anon-closures, Traditional: ${uncurry.convertedTraditional} , Modern: ${uncurry.convertedModern}")
@@ -491,7 +503,6 @@ abstract class GenBCode extends BCodeOptInter {
       arrivalPos = 0 // just in case
       scalaPrimitives.init
       initBCodeTypes()
-      clearBCodePhase()
 
       // initBytecodeWriter invokes fullName, thus we have to run it before the typer-dependent thread is activated.
       bytecodeWriter  = initBytecodeWriter(cleanup.getEntryPoints)
@@ -523,11 +534,6 @@ abstract class GenBCode extends BCodeOptInter {
 
       // clearing maps
       clearBCodeTypes()
-      clearBCodePhase()
-    }
-
-    private def clearBCodePhase() {
-      // no maps to clear, so far
     }
 
     /**
