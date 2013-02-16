@@ -284,6 +284,8 @@ abstract class GenBCode extends BCodeOptInter {
         assert(pcb.lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
 
             /**
+             *  Adds entries to `closuRepo.dclosures` and `closuRepo.endpoint` for the Late-Closure-Classes just built.
+             *
              *  After `BCodePhase.Worker1.visit()` has run
              *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
              *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
@@ -317,7 +319,7 @@ abstract class GenBCode extends BCodeOptInter {
                 q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outFolder), null)
               }
 
-              val master = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
+              val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
 
               // add entry to `closuRepo.endpoint`
               val isDelegateMethodName = (pcb.closuresForDelegates.values map (dce => dce.epName)).toSet
@@ -334,17 +336,17 @@ abstract class GenBCode extends BCodeOptInter {
 
                 assert(
                   asm.optimiz.Util.isPublicMethod(delegateMethodNode),
-                  "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(master, delegateMethodNode)
+                  "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(masterBT, delegateMethodNode)
                 )
 
-                val delegateMethodRef = MethodRef(master, delegateMethodNode)
+                val delegateMethodRef = MethodRef(masterBT, delegateMethodNode)
                 closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)
               }
 
               // add entry to `closuRepo.dclosures`
               for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
-                val others = closuRepo.dclosures.getOrElse(master, Nil)
-                closuRepo.dclosures.put(master, dClosureEndpoint.closuBT :: others)
+                val others = closuRepo.dclosures.getOrElse(masterBT, Nil)
+                closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
               }
 
             } // end of method postProcessLateClosureClasses()
