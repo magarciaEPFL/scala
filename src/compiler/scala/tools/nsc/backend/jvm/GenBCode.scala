@@ -142,7 +142,11 @@ abstract class GenBCode extends BCodeOptInter {
 
     /* ---------------- q2 ---------------- */
 
-    case class Item2(arrivalPos: Int, mirror: SubItem2NonPlain, plain: SubItem2Plain, bean: SubItem2NonPlain) {
+    case class Item2(arrivalPos:   Int,
+                     mirror:       SubItem2NonPlain,
+                     plain:        SubItem2Plain,
+                     bean:         SubItem2NonPlain,
+                     lateClosures: List[asm.tree.ClassNode]) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
@@ -171,14 +175,12 @@ abstract class GenBCode extends BCodeOptInter {
         else 1
       }
     }
-    private val poison2 = Item2(Int.MaxValue, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null)
     private val q2 =
       new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](
         1000,
         if(settings.isInterBasicOptimizOn) i2LargeClassesFirst else i2ArrivalOrder
       )
-
-    private val limboForDClosures = mutable.Map.empty[BType, Item2] // a single Worker1 adds, many Worker2 read.
 
     /* ---------------- q3 ---------------- */
 
@@ -279,83 +281,79 @@ abstract class GenBCode extends BCodeOptInter {
             )
         }
 
-        q2 put Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC)
+        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, pcb.lateClosures)
+        lateClosuresCount += pcb.lateClosures.size
+
+        q2 put item2
 
         assert(pcb.lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
 
-            /**
-             *  Adds entries to `closuRepo.dclosures` and `closuRepo.endpoint` for the Late-Closure-Classes just built.
-             *
-             *  After `BCodePhase.Worker1.visit()` has run
-             *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
-             *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
-             *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
-             *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
-             *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
-             *     but in a different method).
-             *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
-             *
-             *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
-             *  may break the property above (ie inlining may result in lambda usages,
-             *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
-             *  originally enclosing them). Tracking those cases is the job of
-             *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
-             *
-             *  Coming back to the property holding
-             *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
-             *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
-             *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
-             *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
-             *
-             * */
-            def postProcessLateClosureClasses() {
-
-              assert(pcb.lateClosures.size == pcb.closuresForDelegates.size)
-
-              val outFolder = plainC.outFolder
-              var howMany = 0
-              for(lateC <- pcb.lateClosures.reverse) {
-                lateClosuresCount += 1
-                q2 put Item2(arrivalPos + lateClosuresCount, null, SubItem2Plain(lateC.name, lateC, outFolder), null)
-              }
-
-              val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
-
-              // add entry to `closuRepo.endpoint`
-              val isDelegateMethodName = (pcb.closuresForDelegates.values map (dce => dce.epName)).toSet
-              val candidateMethods = (pcb.cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
-              for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
-                val candidates: List[MethodNode] =
-                  for(
-                    mn <- candidateMethods;
-                    if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
-                  ) yield mn;
-
-                assert(candidates.nonEmpty && candidates.tail.isEmpty)
-                val delegateMethodNode = candidates.head
-
-                assert(
-                  asm.optimiz.Util.isPublicMethod(delegateMethodNode),
-                  "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(masterBT, delegateMethodNode)
-                )
-
-                val delegateMethodRef = MethodRef(masterBT, delegateMethodNode)
-                closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)
-              }
-
-              // add entry to `closuRepo.dclosures`
-              for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
-                val others = closuRepo.dclosures.getOrElse(masterBT, Nil)
-                closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
-              }
-
-            } // end of method postProcessLateClosureClasses()
-
         if(pcb.lateClosures.nonEmpty) {
-          postProcessLateClosureClasses()
+          populateDClosureMaps(pcb)
         }
 
       } // end of method visit(Item1)
+
+      /**
+       *  Adds entries to `closuRepo.dclosures` and `closuRepo.endpoint` for the Late-Closure-Classes just built.
+       *
+       *  After `BCodePhase.Worker1.visit()` has run
+       *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
+       *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
+       *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
+       *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
+       *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
+       *     but in a different method).
+       *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
+       *
+       *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
+       *  may break the property above (ie inlining may result in lambda usages,
+       *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
+       *  originally enclosing them). Tracking those cases is the job of
+       *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
+       *
+       *  Coming back to the property holding
+       *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
+       *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
+       *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
+       *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
+       *
+       * */
+      private def populateDClosureMaps(pcb: PlainClassBuilder) {
+
+        assert(pcb.lateClosures.size == pcb.closuresForDelegates.size)
+
+        val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
+
+        // add entry to `closuRepo.endpoint`
+        val isDelegateMethodName = (pcb.closuresForDelegates.values map (dce => dce.epName)).toSet
+        val candidateMethods = (pcb.cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
+        for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
+          val candidates: List[MethodNode] =
+            for(
+              mn <- candidateMethods;
+              if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
+            ) yield mn;
+
+          assert(candidates.nonEmpty && candidates.tail.isEmpty)
+          val delegateMethodNode = candidates.head
+
+          assert(
+            asm.optimiz.Util.isPublicMethod(delegateMethodNode),
+            "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(masterBT, delegateMethodNode)
+          )
+
+          val delegateMethodRef = MethodRef(masterBT, delegateMethodNode)
+          closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)
+        }
+
+        // add entry to `closuRepo.dclosures`
+        for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
+          val others = closuRepo.dclosures.getOrElse(masterBT, Nil)
+          closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
+        }
+
+      } // end of method populateDClosureMaps()
 
 
     } // end of class BCodePhase.Worker1
@@ -410,39 +408,37 @@ abstract class GenBCode extends BCodeOptInter {
         val cleanser = new BCodeCleanser(item.plain.cnode)
 
         if(settings.isIntraMethodOptimizOn) {
-          cleanser.cleanseClass()   // cleanseClass() mutates those dclosures cnode is responsible for
+          cleanser.cleanseClass()   // cleanseClass() may mutate dclosures cnode is responsible for
         } else {
           cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
-          // TODO cleanser.squashOuter()    // squashOuter() mutates those dclosures cnode is responsible for
+          // TODO cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
           // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
 
-        if(!settings.isInterBasicOptimizOn) {
-          addToQ3(item)
-        } else {
-          /* A master classes and the dclosures it's responsible for are transformed together by BCodeCleanser.cleanseClass().
-           * Once the master class has been transformed, its dclosures won't change either,
-           * and they all can go through ClassWriter.toByteArray() (but not before).
-           * */
-          val bt = lookupRefBType(item.plain.cnode.name)
-          if(!closuRepo.isMasterClass(bt)) {
-            if(!closuRepo.isDelegatingClosure(bt)) {
-              addToQ3(item)
-            }
-          } else {
-            addToQ3(item) // the master class
-            for(d <- closuRepo.dclosures(bt)) {
-              // both live and elided dclosures go to q3: the arrivalPos of elided ones is required for progress in drainQ3()
-              addToQ3(limboForDClosures(d))
-            }
-          }
-        }
+        addToQ3(item)
 
       } // end of method visit(Item2)
 
+      /**
+       *  Item2 has a field for Late-Closure-Classes so as to delay adding those LCCs to queue-3
+       *  until after all optimizations triggered by the master class have been completed
+       *  (optimizations that may well change those LCCs).
+       *  Otherwise the ClassNode for a delegating-closure could be written to disk too early.
+       *
+       *  Both live and elided dclosures go to q3: the arrivalPos of elided ones is required for progress in drainQ3()
+       *
+       * */
       private def addToQ3(item: Item2) {
 
-        val Item2(arrivalPos, mirror, plain, bean) = item
+            def getByteArray(cn: asm.tree.ClassNode): Array[Byte] = {
+              val cw = new CClassWriter(extraProc)
+              cn.accept(cw)
+              cw.toByteArray
+            }
+
+        val Item2(arrivalPos, mirror, plain, bean, lateClosures) = item
+
+        // TODO aren't mirror.outFolder , plain.outFolder , and bean.outFolder one and the same? Remove duplicity.
 
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
@@ -451,10 +447,8 @@ abstract class GenBCode extends BCodeOptInter {
           } else null
 
         // -------------- "plain" class --------------
-        val cw = new CClassWriter(extraProc)
-        plain.cnode.accept(cw)
         val plainC =
-          SubItem3(plain.label, plain.cnode.name, cw.toByteArray, plain.outFolder)
+          SubItem3(plain.label, plain.cnode.name, getByteArray(plain.cnode), plain.outFolder)
 
         // -------------- bean info class, if needed --------------
         val beanC: SubItem3 =
@@ -463,6 +457,14 @@ abstract class GenBCode extends BCodeOptInter {
           } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
+
+        // -------------- Late-Closure-Classes, if any --------------
+        val outFolder = plain.outFolder
+        var lateClosuresCount = 0
+        for(lateC <- lateClosures.reverse) {
+          lateClosuresCount += 1
+          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, lateC.name, getByteArray(lateC), outFolder), null)
+        }
 
       }
 
@@ -513,7 +515,7 @@ abstract class GenBCode extends BCodeOptInter {
     }
 
     private def clearBCodePhase() {
-      limboForDClosures.clear()
+      // no maps to clear, so far
     }
 
     /**
@@ -545,19 +547,6 @@ abstract class GenBCode extends BCodeOptInter {
       feedPipeline1()
       (new Worker1(needsOutfileForSymbol)).run()
       (new WholeProgramAnalysis(isMultithread = false)).optimize()
-      if(settings.isInterBasicOptimizOn) {
-        limboForDClosures.clear()
-        val iter = q2.iterator()
-        while(iter.hasNext) {
-          val i2 = iter.next()
-          if(i2.plain != null) {
-            val cnode = i2.plain.cnode
-            if(closuRepo.isDelegatingClosure(cnode)) {
-              limboForDClosures(lookupRefBType(cnode.name)) = i2
-            }
-          }
-        }
-      }
 
       // optimize different groups of ClassNodes in parallel, once done with each group queue its ClassNodes for disk serialization.
       spawnPipeline2()
