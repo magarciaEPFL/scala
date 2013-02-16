@@ -376,6 +376,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val isInterClosureOptimizOn = settings.isInterClosureOptimizOn
 
     /**
+     *  Laundry-list of all optimizations that might possibly be applied
+     *  ----------------------------------------------------------------
+     *
      *  The intra-method optimizations below are performed until a fixpoint is reached.
      *  They are grouped somewhat arbitrarily into:
      *    - those performed by `cleanseMethod()`
@@ -398,33 +401,44 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *    - add caching for closure recycling
      *    - refresh the InnerClasses JVM attribute
      *
+     *
+     *  Which optimizations are actually applied when
+     *  ---------------------------------------------
+     *
+     *  The above describes the common case, glossing over dclosure-specific optimizations.
+     *  In fact, not all optimizations are applicable to any given ASM ClassNode, as described below.
+     *
+     *  The ClassNodes that reach `cleanseClass()` can be partitioned into:
+     *    (1) master classes;
+     *    (2) dclosures;
+     *    (3) elided classes; and
+     *    (4) none of the previous ones. Examples of (4) are:
+     *        (4.a) a traditional closure lacking any dclosures, or
+     *        (4.b) a plain class without dclosures.
+     *
+     *  The exceptions to the common case are:
+     *    (a) an elided class need not be optimized (nobody will notice the difference)
+     *        that's why `cleanseClass()` just returns on seeing one.
+     *    (b) only master classes (and their dclosures) go through the following optimizations:
+     *          - shakeAndMinimizeClosures()
+     *          - minimizeDClosureAllocations()
+     *          - closureCachingAndEviction()
+     *        To recap, `cleanseClass()` executes in a Worker2 thread. The dclosure-specific optimizations are organized
+     *        such that exclusive write access to a dclosure is granted to its master class (there's always one).
+     *
+     *  In summary, (1) and (4) should have the (chosen level of) optimizations applied,
+     *  with (1) also amenable to dclosure-specific optimizations.
+     *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
+     *
+     *  TODO refreshInnerClasses() should also be run on dclosures
      */
     def cleanseClass() {
 
-      /*
-       * ClassNodes can be partitioned into:
-       *   (1) master classes;
-       *   (2) dclosures;
-       *   (3) elided classes; and
-       *   (4) none of the previous ones. Examples of (4) are:
-       *       (4.a) a traditional closure lacking any dclosures, or
-       *       (4.b) a plain class without dclosures.
-       *
-       * We want to grant exclusive write access to a dclosure to its master class (there's always one),
-       * thus we return immediately for dclosures.
-       *
-       * We also skip elided classes, because they aren't written to disk anyway.
-       *
-       * For the remaining cases, the usual intra-method and intra-class optimizations are performed,
-       * except two groups of optimizations:
-       *   - shakeAndMinimizeClosures()
-       *   - minimizeDClosureAllocations()
-       * which are performed only for master classes (and their dclosures).
-       *
-       * */
-      if(isDClosure(cnode.name)) { return } // a dclosure is optimized together with its master class by shakeAndMinimizeClosures().
+      // a dclosure is optimized together with its master class by shakeAndMinimizeClosures() only
+      assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
+
       val bt = lookupRefBType(cnode.name)
       if(elidedClasses.contains(bt)) { return }
 
@@ -460,7 +474,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  intra-method optimizations
      * */
-    final def intraMethodFixpoints() {
+    def intraMethodFixpoints() {
 
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
 
@@ -649,7 +663,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      * TODO 3: Stable-values accessed only via getters are taken into account, unlike those via GETFIELD or GETSTATIC.
      *
      */
-    final def cacheRepeatableReads(mnode: asm.tree.MethodNode) {
+    def cacheRepeatableReads(mnode: asm.tree.MethodNode) {
 
       import asm.tree.analysis.Frame
 
@@ -1031,7 +1045,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     // Type-flow analysis
     //--------------------------------------------------------------------
 
-    final def runTypeFlowAnalysis(mnode: MethodNode) {
+    def runTypeFlowAnalysis(mnode: MethodNode) {
 
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
