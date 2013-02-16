@@ -518,18 +518,25 @@ abstract class GenBCode extends BCodeOptInter {
 
     /**
      *  The workflow with inter-procedural optimizations is:
-     *    - sequentially build all ClassNodes (Worker1 takes care of this)
-     *    - sequentially perform whole-program analysis on them
-     *    - run in parallel intra-class (including intra-method) optimizations
-     *    - sequentially write non-elided classes to disk.
+     *    (a) sequentially build all ClassNodes (Worker1 takes care of this)
+     *    (b) sequentially perform whole-program analysis on them
+     *    (c) run in parallel:
+     *          - intra-class (including intra-method) optimizations
+     *          - a limited form of inter-class optimizations
+     *            (those affecting a master-class and the delegating-closures it's responsible for, details below)
+     *    (d) overlapping with (c), write non-elided classes to disk.
      *
-     *  It's necessary to wait for intra-class optimizations to complete before starting writing to disk because:
+     *  A useful distinction of inter-class optimizations involves:
+     *    (e) method-inlining and closure-inlining, ie what `BCodeOptInter.WholeProgramAnalysis`  does
+     *    (f) the "limited form" referred to above, ie what `BCodeOptInter.DClosureOptimizerImpl` does
+     *        Unlike (e), different groups of ClassNodes in (f) can be optimized in parallel,
+     *        where a "group" comprises a master-class and the dclosures the master-class is responsible for.
      *
-     *    (a) some delegating-closures may be elided in the process,
-     *        and we don't want to have them written to disk too early.
+     *  The distinction is useful because it explains why Item2 has a fields for Late-Closure-Classes:
+     *  that way, LCCs are added to queue-3 only after all optimizations
+     *  triggered by the master class have been completed, including (f).
+     *  Otherwise the ClassNode for a delegating-closure could be written to disk too early.
      *
-     *    (b) some dclosures are rewritten along with its master class,
-     *        and we don't want to write to disk an old version. For details see comments in method body.
      */
     private def wholeProgramThenWriteToDisk(needsOutfileForSymbol: Boolean) {
       assert(settings.isInterBasicOptimizOn)

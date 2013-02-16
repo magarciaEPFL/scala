@@ -401,7 +401,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      */
-    final def cleanseClass() {
+    def cleanseClass() {
 
       /*
        * ClassNodes can be partitioned into:
