@@ -138,7 +138,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
   def isDClosure(iname: String): Boolean                                  // implemented by subclass BCodeOptInter
   def createDClosureOptimizer(masterCNode: ClassNode): DClosureOptimizer  // implemented by subclass BCodeOptInter
 
-  /** implemented by subclass BCodeOptInter */
+  /** implemented by BCodeOptInter.DClosureOptimizerImpl */
   trait DClosureOptimizer {
     def shakeAndMinimizeClosures():    Boolean
     def minimizeDClosureAllocations(): Unit

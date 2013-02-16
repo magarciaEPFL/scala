@@ -2937,7 +2937,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       assert(
         hasInternalName(sym),
         {
-          val msg0 = if(sym.isAbstractType) "An AbstractTypeSymbol " else "A symbol ";
+          val msg0 = if(sym.isAbstractType) "An AbstractTypeSymbol (SI-7122) " else "A symbol ";
           msg0 + "has reached the bytecode emitter, for which no JVM-level internal name can be found: " + sym.fullName
         }
       )

@@ -191,10 +191,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * and moreover not elided (as a consequence, endpoint is public).
      * */
     final def liveDClosures(masterCNode: ClassNode): List[BType] = {
-      val master = lookupRefBType(masterCNode.name)
-      assert(isMasterClass(master), "Not a master class for any dclosure: " + master.getInternalName)
+      val masterBT = lookupRefBType(masterCNode.name)
+      assert(isMasterClass(masterBT), "Not a master class for any dclosure: " + masterBT.getInternalName)
       for(
-        d <- exclusiveDClosures(master);
+        d <- exclusiveDClosures(masterBT);
         if !elidedClasses.contains(d);
         dep = endpoint(d).mnode;
         // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
@@ -2984,6 +2984,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   final class DClosureOptimizerImpl(masterCNode: ClassNode) extends DClosureOptimizer {
 
+    val masterBT = lookupRefBType(masterCNode.name)
+
     /**
      * Detects those dclosures that the `cnode` argument is exclusively responsible for
      * (consequence: all usages of the dclosure are confined to two places: master and the dclosure itself).
@@ -3000,8 +3002,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     override def shakeAndMinimizeClosures(): Boolean = {
 
-      val cnodeBT = lookupRefBType(masterCNode.name)
-      if(!closuRepo.isMasterClass(cnodeBT)) { return false }
+      if(!closuRepo.isMasterClass(masterBT)) { return false }
 
       // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
 
@@ -3332,7 +3333,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * */
     override def minimizeDClosureAllocations() {
-      val masterBT = lookupRefBType(masterCNode.name)
+
       if(!closuRepo.isMasterClass(masterBT)) { return }
 
       singletonizeDClosures()         // Case (1) empty closure state
@@ -3555,7 +3556,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     override def closureCachingAndEviction() {
       closureCachingAndEvictionHelper(masterCNode)
-      val masterBT = lookupRefBType(masterCNode.name)
       if(closuRepo.isMasterClass(masterBT)) {
         for(d <- closuRepo.exclusiveDClosures(masterBT); if !elidedClasses.contains(d)) {
           // those dclosures for which `bringBackStaticDClosureBodies()` run may benefit from closure caching and eviction.
