@@ -410,9 +410,11 @@ abstract class GenBCode extends BCodeOptInter {
         val cleanser = new BCodeCleanser(item.plain.cnode)
 
         if(settings.isIntraMethodOptimizOn) {
-          cleanser.cleanseClass()   // cleanseClass() mutates those dclosures cnode is responsible for.
+          cleanser.cleanseClass()   // cleanseClass() mutates those dclosures cnode is responsible for
         } else {
-          cleanser.removeDeadCode()  // no optimization, but removing dead code still desirable.
+          cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
+          // TODO cleanser.squashOuter()    // squashOuter() mutates those dclosures cnode is responsible for
+          // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
 
         if(!settings.isInterBasicOptimizOn) {
