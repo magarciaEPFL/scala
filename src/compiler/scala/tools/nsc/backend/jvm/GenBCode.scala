@@ -233,6 +233,13 @@ abstract class GenBCode extends BCodeOptInter {
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
 
+      /**
+       *  Checks for duplicate internal names case-insensitively,
+       *  builds ASM ClassNodes for mirror, plain, bean, and late-closure classes;
+       *  enqueues them in queue-2, and
+       *  incrementally populates dclosure-maps for the Late-Closure-Classes just built.
+       *
+       * */
       def visit(item: Item1) {
         val Item1(arrivalPos, cd, cunit) = item
         val claszSymbol = cd.symbol
@@ -403,6 +410,11 @@ abstract class GenBCode extends BCodeOptInter {
         }
       }
 
+      /**
+       *  Performs optimizations using task parallelism (a task has exclusive acceess to ASM ClassNodes
+       *  that need to be mutated in-tandem, for example a master class and the dclosures it's responsible for).
+       *  After mutation is over, addds the ClassNode(s) to queue-3.
+       * */
       def visit(item: Item2) {
 
         val cleanser = new BCodeCleanser(item.plain.cnode)
@@ -422,7 +434,7 @@ abstract class GenBCode extends BCodeOptInter {
       /**
        *  Item2 has a field for Late-Closure-Classes so as to delay adding those LCCs to queue-3
        *  until after all optimizations triggered by the master class have been completed
-       *  (optimizations that may well change those LCCs).
+       *  (optimizations that in general mutate those LCCs).
        *  Otherwise the ClassNode for a delegating-closure could be written to disk too early.
        *
        *  Both live and elided dclosures go to q3: the arrivalPos of elided ones is required for progress in drainQ3()
@@ -519,7 +531,7 @@ abstract class GenBCode extends BCodeOptInter {
     }
 
     /**
-     *  The workflow with inter-procedural optimizations is:
+     *  The workflow where inter-procedural optimizations is ENABLED comprises:
      *    (a) sequentially build all ClassNodes (Worker1 takes care of this)
      *    (b) sequentially perform whole-program analysis on them
      *    (c) run in parallel:
@@ -550,14 +562,22 @@ abstract class GenBCode extends BCodeOptInter {
 
       // optimize different groups of ClassNodes in parallel, once done with each group queue its ClassNodes for disk serialization.
       spawnPipeline2()
+      // overlapping with pipeline-2, serialize to disk.
       drainQ3()
 
     }
 
+    /**
+     *  The workflow where inter-procedural optimizations is DISABLED boils down to:
+     *  As soon as each individual ClassNode is ready
+     *     (if needed intra-class optimized, ok, ok,
+     *     optimized along with the Late-Closure-Classes it's responsible for)
+     *  it's also ready for disk serialization, ie it's ready to be added to queue-3.
+     *
+     * */
     private def buildAndSendToDiskInParallel(needsOutfileForSymbol: Boolean) {
       assert(!settings.isInterBasicOptimizOn)
 
-      // as soon as each individual ClassNode is ready (if needed intra-class optimized) it's also ready for disk serialization.
       new _root_.java.lang.Thread(new Worker1(needsOutfileForSymbol), "bcode-typer").start()
       spawnPipeline2()
       feedPipeline1()
