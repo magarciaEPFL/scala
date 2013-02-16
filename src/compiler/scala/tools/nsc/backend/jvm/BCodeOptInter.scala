@@ -49,7 +49,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   // Tracking of delegating-closures
   //--------------------------------------------------------
 
-  override def isDClosure(iname: String): Boolean = { closuRepo.isDelegatingClosure(iname)  }
+  override def isDClosure(iname: String) = closuRepo.isDelegatingClosure(iname)
+
+  override def isMasterClass(bt: BType)  = closuRepo.isMasterClass(bt)
 
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
 

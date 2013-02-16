@@ -136,6 +136,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
   }
 
   def isDClosure(iname: String): Boolean                                  // implemented by subclass BCodeOptInter
+  def isMasterClass(bt: BType):  Boolean                                  // implemented by subclass BCodeOptInter
   def createDClosureOptimizer(masterCNode: ClassNode): DClosureOptimizer  // implemented by subclass BCodeOptInter
 
   /** implemented by BCodeOptInter.DClosureOptimizerImpl */
@@ -432,7 +433,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      *
-     *  TODO refreshInnerClasses() should also be run on dclosures
      */
     def cleanseClass() {
 
@@ -442,7 +442,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
       val bt = lookupRefBType(cnode.name)
       if(elidedClasses.contains(bt)) { return }
 
-      val dcloptim = createDClosureOptimizer(cnode)
+      val dcloptim =
+        if(isInterClosureOptimizOn && isMasterClass(bt)) createDClosureOptimizer(cnode)
+        else null
 
       var keepGoing = false
       do {
@@ -450,7 +452,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
         // (1) intra-method
         intraMethodFixpoints()
 
-        if(isInterClosureOptimizOn) {
+        if(dcloptim != null) {
           // (2) intra-class
           keepGoing  = privatCompacter()
 
@@ -460,7 +462,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       } while(keepGoing)
 
-      if(isInterClosureOptimizOn) {
+      if(dcloptim != null) {
         dcloptim.minimizeDClosureAllocations()
         dcloptim.closureCachingAndEviction()
       }
