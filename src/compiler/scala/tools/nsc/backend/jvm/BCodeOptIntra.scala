@@ -403,8 +403,8 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *    - refresh the InnerClasses JVM attribute
      *
      *
-     *  Which optimizations are actually applied when
-     *  ---------------------------------------------
+     *  Fine print: Which optimizations are actually applied to which classes
+     *  ---------------------------------------------------------------------
      *
      *  The above describes the common case, glossing over dclosure-specific optimizations.
      *  In fact, not all optimizations are applicable to any given ASM ClassNode, as described below.
@@ -417,7 +417,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *        (4.a) a traditional closure lacking any dclosures, or
      *        (4.b) a plain class without dclosures.
      *
-     *  The exceptions to the common case are:
+     *  The categories above make clear why:
      *    (a) an elided class need not be optimized (nobody will notice the difference)
      *        that's why `cleanseClass()` just returns on seeing one.
      *    (b) only master classes (and their dclosures) go through the following optimizations:
@@ -433,6 +433,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      *
+     *  TODO refreshInnerClasses() should also be run on dclosures
      */
     def cleanseClass() {
 
