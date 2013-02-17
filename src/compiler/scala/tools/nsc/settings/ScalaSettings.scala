@@ -252,13 +252,15 @@ trait ScalaSettings extends AbsScalaSettings
    *
    *    case 4 => Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface.
    *
+   *    case 5 => Inlining and eliding of "small" private methods that are invoked from a single place.
+   *
    * */
   def neoLevel: Int           = { if(neo.value.startsWith("o")) neo.value.substring(1).toInt else 0 }
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
   def isInterBasicOptimizOn   = (neoLevel >= 2)
-  def isInterClosureOptimizOn = (neoLevel >= 3)
+  def isInterClosureOptimizOn = false && (neoLevel >= 3) // TODO re-enable
   def isInterTraitOptimizOn   = (neoLevel >= 4)
-  def isSmallPrivateInlineOn  = (neoLevel >= 5)
+  def isSmallPrivateInlineOn  = false && (neoLevel >= 5) // TODO re-enable
 
   /**
    *  Appraches to lower anonymous closures:

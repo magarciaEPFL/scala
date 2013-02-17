@@ -2429,7 +2429,7 @@ abstract class GenBCode extends BCodeOptInter {
        *  This method works in tandem with UnCurry's closureConversionModern()
        *
        *  Rather than emitting a fakeCallsite, the initialization of a closure instance is emitted, along with
-       *  a closure class that is synthesized on the spot.
+       *  a closure class that is synthesized on the spot (a so called "delegating closure" or dclosure for short).
        *  The result is undistinguishable from what UnCurry, Specialization, Erasure, would have produced.
        *
        *  Terminology: arity is used throughout `genLateClosure()` as shorthand for closure-arity
@@ -2439,13 +2439,13 @@ abstract class GenBCode extends BCodeOptInter {
        *    (a) The "fake calliste" may target:
        *          - a static method (e.g., for closures enclosed in modules, or in implementation classes);
        *        or
-       *          - an instance method (the receiver being the outer instance of the closure).
+       *          - an instance method (the receiver being the outer instance of the dclosure).
        *
        *    (b) Whenever the delegate is an instance method,
        *        the leading `arity` arguments to the fakeCallsite are Trees denoting zeroes.
        *        The above also applies in case of a static delegate unless declared in an implementation class.
        *        In that case:
-       *          - the first argument stands for the self-instance, which should be captured by the closure.
+       *          - the first argument stands for the self-instance, which should be captured by the dclosure.
        *          - the following `arity` arguments are zeroes.
        *
        *    (c) remaining arguments denote non-outer captured values.
@@ -2453,7 +2453,7 @@ abstract class GenBCode extends BCodeOptInter {
        *        invokevirtual or invokestatic, in turn determined by `delegateSym.isStaticMember`.
        *
        *  The resulting Late-Closure-Class is registered in `codeRepo.classes` and `exemplars`
-       *  by `PlainClassBuilder.plainClass()` , see `PlainClassBuilder.lateClosures`
+       *  by `PlainClassBuilder.genPlainClass()` , see `PlainClassBuilder.lateClosures`
        *
        *  The resulting Late-Closure-Class consists of:
        *
