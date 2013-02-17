@@ -2747,6 +2747,35 @@ abstract class GenBCode extends BCodeOptInter {
                 c.fields.add(fn)
               }
 
+                /**
+                 * In case the dclosure captures its outer instance the following constructor-preamble used to be emitted.
+                 * BUT NOT ANYMORE, because all instantiations of such dclosures occur in runtime contexts
+                 * where THIS is definitely not null.
+                 *
+                 * Justification for "outer-value is definitely non-null at the point of NEW dclosure":
+                 *   (a) when (hasOuter == true)  the enclosing method for "NEW dclosure"
+                 *       is an instance method (or constructor) thus THIS (ie the outer-value to dclosure)
+                 *       is definitely non-null.
+                 *   (b) when (hasOuter == false) the enclosing method for "NEW dclosure"
+                 *       is an implementation-class method (an impl-class derived from a non-interface trait).
+                 *       The outer-instance in this case is the self-value,
+                 *       whose type is the interface-facet of the original trait.
+                 *       The implementation-class method in question was invoked via forwarding from
+                 *       a method invoked on the self-value, ie the self-value is definitely non-null.
+                 *
+                 * TODO Scala v2.11 should encapsulate that boilerplate in a scala.runtime static method, for "traditional" closure conversion.
+                 *
+                 * The preamble consisted of six instructions plus a LabelNode and was emittted
+                 * at the very beginning of the dclosure constructor:
+                 *     ALOAD 1
+                 *     IFNONNULL L0
+                 *     NEW java/lang/NullPointerException
+                 *     DUP
+                 *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
+                 *     ATHROW
+                 *  L1:
+                 *
+                 * */
                 def createClosuCtor(): asm.tree.MethodNode = {
 
                   // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
@@ -2761,31 +2790,6 @@ abstract class GenBCode extends BCodeOptInter {
                      def loadTHIS() { ctor.visitVarInsn(asm.Opcodes.ALOAD, 0) }
 
                      def loadLocal(idx: Int, tk: BType) { ctor.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx) }
-
-                  /*
-                   * In case of outer instance, emit the following preamble,
-                   * consisting of six instructions and a LabelNode, at the beginning of the ctor.
-                   * TODO Scala v2.11 should let a scala.runtime static method encapsulate that boilerplate.
-                   *
-                   *     ALOAD 1
-                   *     IFNONNULL L0
-                   *     NEW java/lang/NullPointerException
-                   *     DUP
-                   *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
-                   *     ATHROW
-                   *  L1:
-                   *
-                   * */
-                  if(hasOuter) {
-                    ctor.visitVarInsn(asm.Opcodes.ALOAD, 1)
-                    val lnode = new asm.tree.LabelNode(new asm.Label)
-                    ctor.instructions.add(new asm.tree.JumpInsnNode(asm.Opcodes.IFNONNULL, lnode))
-                    ctor.visitTypeInsn(asm.Opcodes.NEW, jlNPEReference.getInternalName)
-                    ctor.visitInsn(asm.Opcodes.DUP)
-                    ctor.visitMethodInsn(asm.Opcodes.INVOKESPECIAL, jlNPEReference.getInternalName, nme.CONSTRUCTOR.toString, "()V")
-                    ctor.visitInsn(asm.Opcodes.ATHROW)
-                    ctor.instructions.add(lnode)
-                  }
 
                   /*
                    *  ... init fields from params
