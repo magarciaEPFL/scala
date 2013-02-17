@@ -134,6 +134,11 @@ abstract class Constructors extends Transform with ast.TreeDSL {
           result
         }
         else localTyper.typedPos(to.pos) {
+          /*
+           * TODO Rather than emitting the boilerplate below, Scala v2.11 could either:
+           *   - use JDK7's java.util.Objects.requireNonNull(outer-value) which returns the argument if non-null, NPE otherwise
+           *   - encapsulate that boilerplate in a scala.runtime static method.
+           * */
           IF (from OBJ_EQ NULL) THEN Throw(NewFromConstructor(NPEConstructor)) ELSE result
         }
       }

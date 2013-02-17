@@ -2763,7 +2763,9 @@ abstract class GenBCode extends BCodeOptInter {
                  *       The implementation-class method in question was invoked via forwarding from
                  *       a method invoked on the self-value, ie the self-value is definitely non-null.
                  *
-                 * TODO Scala v2.11 should encapsulate that boilerplate in a scala.runtime static method, for "traditional" closure conversion.
+                 * TODO For "traditional" closures, rather than emitting the boilerplate above, Scala v2.11 could either:
+                 *        - use JDK7's java.util.Objects.requireNonNull(outer-value) which returns the argument if non-null, NPE otherwise
+                 *        - encapsulate that boilerplate in a scala.runtime static method.
                  *
                  * The preamble consisted of six instructions plus a LabelNode and was emittted
                  * at the very beginning of the dclosure constructor:
