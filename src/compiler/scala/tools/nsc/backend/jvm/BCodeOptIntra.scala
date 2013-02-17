@@ -470,8 +470,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       avoidBackedgesInConstructorArgs(cnode)
 
-      refreshInnerClasses(cnode)                // refresh the InnerClasses JVM attribute
-
     } // end of method cleanseClass()
 
     /**
@@ -1084,6 +1082,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
    * According to the above, the mere fact an inner class is mentioned in, for example, an annotation
    * wouldn't be reason enough for adding it to the InnerClasses JVM attribute.
    * However that's what GenASM does. Instead, this method scans only those internal names that will make it to a CONSTANT_Class_info.
+   *
+   * `refreshInnerClasses()` requires that `exemplars` already tracks
+   * each BType of hasObjectSort variety that is mentioned in the ClassNode.
    *
    * can-multi-thread
    */

@@ -1852,10 +1852,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     final def genStartConcat {
       jmethod.visitTypeInsn(Opcodes.NEW, StringBuilderClassName)
       jmethod.visitInsn(Opcodes.DUP)
+      val bt = BType.getMethodType(BType.VOID_TYPE, EMPTY_BTYPE_ARRAY)
       invokespecial(
         StringBuilderClassName,
         INSTANCE_CONSTRUCTOR_NAME,
-        "()V"
+        bt.getDescriptor
       )
     }
 
@@ -2913,11 +2914,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     /**
      *  Contains class-symbols that:
      *    (a) are known to denote inner classes
-     *        (this implies keys must exist for them in `cachedInnerClasses`)
      *    (b) are mentioned somewhere in the class being generated.
      *
      *  In other words, the lifetime of `innerClassBufferASM` is associated to "the class being generated".
-     *  In contrast, `isNoInnerClass` and `cachedInnerClasses` contain information valid for the current compiler run.
      */
     val innerClassBufferASM = mutable.Set.empty[BType]
 

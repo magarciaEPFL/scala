@@ -429,6 +429,11 @@ abstract class GenBCode extends BCodeOptInter {
           // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
 
+        // populate InnerClass JVM attribute, including Late-Closure-Classes
+        // each BType mentioned in the plain class or in Late-Closure-Classes, should by now be tracked in `exemplars`
+        refreshInnerClasses(item.plain.cnode)
+        item.lateClosures foreach refreshInnerClasses
+
         addToQ3(item)
 
       } // end of method visit(Item2)
@@ -1039,15 +1044,6 @@ abstract class GenBCode extends BCodeOptInter {
           }
           val trackedClosu = buildExemplarForClassNode(lateC, innersChain)
           exemplars.put(trackedClosu.c, trackedClosu)
-        }
-
-        // ----------- populate InnerClass JVM attribute, including Late-Closure-Classes
-
-        // this requires exemplars to already track each BType in `innerClassBufferASM`, including those for Late-Closure-Classes
-        addInnerClassesASM(cnode, innerClassBufferASM.toList)
-
-        for(lateC <- lateClosures) {
-          refreshInnerClasses(lateC)
         }
 
       } // end of method genPlainClass()
