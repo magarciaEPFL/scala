@@ -356,7 +356,8 @@ abstract class GenBCode extends BCodeOptInter {
 
         // add entry to `closuRepo.dclosures`
         for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
-          val others = closuRepo.dclosures.getOrElse(masterBT, Nil)
+          val others0 = closuRepo.dclosures.get(masterBT)
+          val others  = if(others0 == null) Nil else others0
           closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
         }
 
@@ -422,6 +423,7 @@ abstract class GenBCode extends BCodeOptInter {
         if(settings.isIntraMethodOptimizOn) {
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
         } else {
+          closuRepo.checkDClosureUsages(item.plain.cnode)
           cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
           // TODO cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
           // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.

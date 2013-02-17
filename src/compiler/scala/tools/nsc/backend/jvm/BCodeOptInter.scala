@@ -138,14 +138,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      *  @see populateDClosureMaps() Before that method runs, this map is empty.
      */
-    final val endpoint = mutable.Map.empty[BType, MethodRef]
+    final val endpoint = new java.util.concurrent.ConcurrentHashMap[BType, MethodRef]
 
     /**
      *  master-class -> dclosure-classes-it's-responsible-for
      *
      *  @see populateDClosureMaps() Before that method runs, this map is empty.
      */
-    final val dclosures = mutable.Map.empty[BType, List[BType]]
+    final val dclosures = new java.util.concurrent.ConcurrentHashMap[BType, List[BType]]
 
     /**
      *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
@@ -156,15 +156,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     // --------------------- query methods ---------------------
 
-    final def isDelegatingClosure( c:    BType):     Boolean = { endpoint.contains(c) }
+    final def isDelegatingClosure( c:    BType):     Boolean = { endpoint.containsKey(c) }
     final def isDelegatingClosure(iname: String):    Boolean = { isDelegatingClosure(lookupRefBType(iname)) }
     final def isDelegatingClosure(cnode: ClassNode): Boolean = { isDelegatingClosure(cnode.name) }
 
     final def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
 
-    final def masterClass(dclosure: BType): BType = { endpoint(dclosure).ownerClass }
+    final def masterClass(dclosure: BType): BType = { endpoint.get(dclosure).ownerClass }
 
-    final def isMasterClass(c:     BType ):    Boolean = { dclosures.contains(c) }
+    final def isMasterClass(c:     BType ):    Boolean = { dclosures.containsKey(c) }
     final def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
     final def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
 
@@ -172,15 +172,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * The set of delegating-closures created during UnCurry, represented as BTypes.
      * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
      * */
-    final def allDClosures:     collection.Set[BType] = { endpoint.keySet  }
-    final def allMasterClasses: collection.Set[BType] = { dclosures.keySet }
+    final def allDClosures:     collection.Set[BType] = { JSetWrapper(endpoint.keySet)  }
+    final def allMasterClasses: collection.Set[BType] = { JSetWrapper(dclosures.keySet) }
 
     /**
      * The set of delegating-closures used by no other class than the argument
      * (besides the trivial usage of each dclosure by itself).
      * */
     final def exclusiveDClosures(master: BType): List[BType] = {
-      dclosures(master) filter { dc => nonMasterUsers(dc).isEmpty }
+      dclosures.get(master) filter { dc => nonMasterUsers(dc).isEmpty }
     }
 
     final def isDClosureExclusiveTo(d: BType, master: BType): Boolean = {
@@ -198,7 +198,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       for(
         d <- exclusiveDClosures(masterBT);
         if !elidedClasses.contains(d);
-        dep = endpoint(d).mnode;
+        dep = endpoint.get(d).mnode;
         // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
         if masterCNode.methods.contains(dep)
       ) yield d
@@ -267,8 +267,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val master = lookupRefBType(mi.owner)
         if(isMasterClass(master)) {
           for(
-            dclosure <- dclosures(master);
-            mnode: MethodNode = endpoint(dclosure).mnode;
+            dclosure <- dclosures.get(master);
+            mnode: MethodNode = endpoint.get(dclosure).mnode;
             if (mnode.name == mi.name) && (mnode.desc == mi.desc)
           ) {
             return dclosure
@@ -332,10 +332,65 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo initializers ---------------------
 
     /**
-     *  Checks right before `WholeProgramAnalysis.optimize()`
+     *  Checks that make sense before `WholeProgramAnalysis.optimize()`
+     *
+     *  Before `inlining()` each dclosure:
+     *
+     *    (a) may be instantiated only in its master class (if at all).
+     *        In case dead-code elimination has run, a dclosure might not be instantiated at all,
+     *        not even in its master class.
+     *
+     *    (b) may have its endpoint invoked only in the dclosure class itself.
+     *
      * */
-    def checkDClosureMaps() {
+    def checkDClosureUsages(enclClassCN: ClassNode) {
+
+      if(!settings.debug.value) { return }
+
+      val enclClassBT = lookupRefBType(enclClassCN.name)
+      for(
+        mnode <- JListWrapper(enclClassCN.methods);
+        if !Util.isAbstractMethod(mnode)
+      ) {
+        mnode foreachInsn { insn =>
+
+          // property (a) above
+          var dc: BType = instantiatedDClosure(insn)
+          assert(
+            dc == null || enclClassBT == masterClass(dc),
+             "A dclosure D is instantiated by a class C other than its master class, although inlining() hasn't run yet. " +
+            s"Who plays each role: D by ${dc.getInternalName} , its master class is ${masterClass(dc).getInternalName} , " +
+            s"and the enclosing class is ${enclClassBT.getInternalName} "
+          )
+
+          // property (b) above
+          dc = invokedDClosure(insn)
+          assert(
+            dc == null || enclClassBT == dc,
+            "A dclosure D is has its endpoint invoked by a class C other than D itself, although inlining() hasn't run yet. " +
+           s"Who plays each role: D by ${dc.getInternalName} , and the enclosing class is ${enclClassBT.getInternalName} "
+          )
+
+        }
+      }
+    }
+
+    /**
+     *  @see checkDClosureUsages(enclClassCN: ClassNode)
+     * */
+    def checkDClosureUsages() {
+
+      if(!settings.debug.value) { return }
+
       assert(nonMasterUsers.isEmpty)
+
+      val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
+      while(iterCompiledEntries.hasNext) {
+        val e = iterCompiledEntries.next()
+        val enclClassCN: ClassNode = e.getValue
+        checkDClosureUsages(enclClassCN)
+      }
+
     }
 
     // --------------------- closuRepo post-initialization utilities ---------------------
@@ -351,8 +406,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       )
       val exMaster = masterClass(dc)
       endpoint.remove(dc)
-      if(dclosures.contains(exMaster)) {
-        val other = dclosures(exMaster) filterNot { _ == dc }
+      if(dclosures.containsKey(exMaster)) {
+        val other = dclosures.get(exMaster) filterNot { _ == dc }
         if(other.isEmpty) { dclosures.remove(exMaster)     }
         else              { dclosures.put(exMaster, other) }
       }
@@ -827,7 +882,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     def optimize() {
 
-      closuRepo.checkDClosureMaps()
+      closuRepo.checkDClosureUsages()
 
       privatizables.clear()
       inlining()
@@ -1895,7 +1950,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           // once inlined, a dclosure used only by its master class loses its "dclosure" status
           if(closuRepo.nonMasterUsers(dclosure).isEmpty) {
-            Util.makePrivateMethod(closuRepo.endpoint(dclosure).mnode)
+            Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
             closuRepo.retractAsDClosure(dclosure)
           }
 
@@ -2983,7 +3038,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       var changed = false
       for(d <- closuRepo.liveDClosures(masterCNode)) {
 
-        val dep = closuRepo.endpoint(d).mnode
+        val dep = closuRepo.endpoint.get(d).mnode
         // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
         val unused = { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
         if(unused) {
@@ -3325,7 +3380,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def singletonizeDClosures() {
       for(d <- closuRepo.liveDClosures(masterCNode)) {
 
-        val dep    = closuRepo.endpoint(d).mnode
+        val dep    = closuRepo.endpoint.get(d).mnode
         val dCNode = codeRepo.classes.get(d)
         val closureState: Map[String, FieldNode] = {
           JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
@@ -3473,7 +3528,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       for(d <- closuRepo.liveDClosures(masterCNode)) {
 
-        val dep    = closuRepo.endpoint(d).mnode
+        val dep    = closuRepo.endpoint.get(d).mnode
         val dCNode = codeRepo.classes.get(d)
         val closureState: Map[String, FieldNode] = {
           JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
