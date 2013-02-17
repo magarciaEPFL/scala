@@ -341,7 +341,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo post-initialization utilities ---------------------
 
     /**
-     *  TODO documentation
+     *  TODO Confirm no unwanted interaction when multiple usages are present in master class (due to duplication of catch and finally clauses)
+     *       Eliding only possible when no instantiation-usages present.
      * */
     def retractAsDClosure(dc: BType) {
       assert(
