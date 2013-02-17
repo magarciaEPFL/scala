@@ -332,21 +332,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo initializers ---------------------
 
     /**
-     *  must-single-thread
+     *  Checks right before `WholeProgramAnalysis.optimize()`
      * */
     def checkDClosureMaps() {
-
       assert(nonMasterUsers.isEmpty)
-
-      for(cep <- endpoint) {
-        val endpointOwningClass: BType = cep._2.ownerClass
-        assert(
-          !isDelegatingClosure(endpointOwningClass),
-          "A class owning a closure-endpoint method cannot be a delegating-closure itself: " + endpointOwningClass.getInternalName
-        )
-      }
-
-    } // end of method checkDClosureMaps()
+    }
 
     // --------------------- closuRepo post-initialization utilities ---------------------
 
@@ -831,9 +821,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  TODO documentation
      *
-     *  must-single-thread due to
-     *    - `populateDClosureMaps()`
-     *    - `inlining()`
+     *  must-single-thread due to `inlining()`
      *
      **/
     def optimize() {
@@ -842,13 +830,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       privatizables.clear()
       inlining()
-      // println(s"About to privatize: ${privatizables.size} shio methods.") // debug
+      // debuglog(s"About to privatize: ${privatizables.size} shio methods.")
       for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
       privatizables.clear()
 
       // val howManyDClosures: Float = closuRepo.endpoint.keySet.size
       // val howManyShared   : Float = closuRepo.nonMasterUsers.keySet.size
-      // println("Proportion of dclosures in use by non-master to those used only from master:" howManyShared / howManyDClosures)
+      // debuglog("Proportion of dclosures in use by non-master to those used only from master: " howManyShared / howManyDClosures)
 
       if(settings.isSmallPrivateInlineOn) {
         val compiledClassesIter = codeRepo.classes.values().iterator()
