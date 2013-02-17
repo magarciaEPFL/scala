@@ -290,15 +290,31 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     *  In case dc is a dclosure being "used" in `enclClass` (for enclClass not the master class of dc),
-     *  make note of this fact in `nonMasterUsers`.
+     *  In case `insn` denotes a dclosure instantiation or endpoint invocation lexically enclosed in `enclClass`
+     *  and `enclClass` isn't the master class of that closure, note this fact `nonMasterUsers`.
      *
-     *  For the purposes of forthcoming optimizations,
-     *  a dclosure is "used" whenever an instantiation of it or an endpoint-invocation to it
-     *  are lexically enclosed in the "user" class (ie `enclClass`).
+     *  Motivation
+     *  ----------
+     *
+     *  Right after GenBCode, each "NEW dclosure" instruction is enclosed by masterClass(dclosure).
+     *
+     *      Sidenote of historic interest: in the past, the rewriting for DelayedInit
+     *      resulted in exceptions to the above, but currently
+     *      (see `delayedEndpointDef()` in `ConstructorTransformer`)
+     *      that's not the case anymore.
+     *
+     *  However, non-master-class usages of dclosures may result from inlining.
+     *  Given that this method takes note of those usages, after `WholeProgramAnalysis.optimize()` has run
+     *  we know where to look for usages of a given dclosure.
+     *
+     *  Knowing "all classes enclosing usages of a dclosure" is needed to partition the set of dclosures
+     *  so that different Worker2 threads have exclusive access to different partitions.
+     *  Why? Because when performing dclosure optimizations, a limited form of inter-class mutations are done
+     *  (for example, to minimize closure state).
      *
      *  @param insn      bytecode instruction that may access a dclosure
      *  @param enclClass enclosing class where the usage of the dclosure appears
+     *
      * */
     def trackClosureUsageIfAny(insn: AbstractInsnNode, enclClass: BType) {
       val dc = accessedDClosure(insn)
@@ -331,38 +347,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
     } // end of method checkDClosureMaps()
-
-    /**
-     * Right after GenBCode, 99% of all "NEW dclosure" instructions are found in masterClass(dclosure).
-     * The exceptions (due to delayedInit) are found here.
-     *
-     * Additionally, non-master-class users of dclosures are also spotted during inlining
-     * (those uses are tracked from then on, see `trackClosureUsageIfAny()`).
-     *
-     * As a result, after `WholeProgramAnalysis.optimize()` has run
-     * we know where to look for usages of a given dclosure.
-     * "All users of a dclosure" is needed to partition the set of dclosures
-     * so that different Worker2 threads have exclusive access to different partitions.
-     *
-     * For example, as part of intra-class optimizations exclusive access is required to
-     * the gropus of (master class, its dclosures) to decide whether a dclosure endpoint
-     * can be made private or static. In the affirmative case, we'll need to adapt (all) its usages.
-     *
-     * */
-    def populateNonMasterUsers() {
-      val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
-      while(iterCompiledEntries.hasNext) {
-        val e = iterCompiledEntries.next()
-        val compiledClassBT: BType     = e.getKey
-        val compiledClassCN: ClassNode = e.getValue
-        for(
-          mnode <- JListWrapper(compiledClassCN.methods);
-          if !Util.isAbstractMethod(mnode)
-        ) {
-          mnode foreachInsn { insn => closuRepo.trackClosureUsageIfAny(insn, compiledClassBT) }
-        }
-      }
-    }
 
     // --------------------- closuRepo post-initialization utilities ---------------------
 
@@ -855,7 +839,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     def optimize() {
 
       closuRepo.checkDClosureMaps()
-      closuRepo.populateNonMasterUsers()
 
       privatizables.clear()
       inlining()
@@ -1956,7 +1939,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       /*
        * In case `insn` denotes a dclosure instantiation or endpoint invocation
-       * and `enclClass` isn't the master class of that closure, note this fact `nonMasterUsers`.
+       * and `enclClass` isn't the master class of that dclosure, note this fact `nonMasterUsers`.
        * */
       body foreachInsn { insn => closuRepo.trackClosureUsageIfAny(insn, enclClass) }
 
