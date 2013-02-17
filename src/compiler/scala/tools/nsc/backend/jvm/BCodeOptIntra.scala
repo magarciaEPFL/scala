@@ -1084,12 +1084,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
    * According to the above, the mere fact an inner class is mentioned in, for example, an annotation
    * wouldn't be reason enough for adding it to the InnerClasses JVM attribute.
    * However that's what GenASM does. Instead, this method scans only those internal names that will make it to a CONSTANT_Class_info.
+   *
+   * can-multi-thread
    */
   def refreshInnerClasses(cnode: ClassNode) {
 
     import scala.collection.convert.Wrappers.JListWrapper
 
-    var refedInnerClasses = mutable.Set.empty[BType]
+    val refedInnerClasses = mutable.Set.empty[BType]
     cnode.innerClasses.clear()
 
         def visitInternalName(value: String) {
