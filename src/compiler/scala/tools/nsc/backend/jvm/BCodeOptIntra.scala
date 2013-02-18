@@ -498,7 +498,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  How do such methods become "unused"? For example, dead-code-elimination may have removed all invocations to them.
      *
      *  Other unused private members could also be elided, but that might come as unexpected,
-     *  ie a situation where (non-lifted) private methods vanish in the way from source code to bytecode.
+     *  ie a situation where (non-lifted) private methods vanish on the way from source code to bytecode.
      *
      *  Those bytecode-level private methods that originally were local (in the Scala sense)
      *  are recognized because isLiftedMethod == true.
