@@ -358,8 +358,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def checkDClosureUsages(enclClassCN: ClassNode) {
 
-      if(!settings.debug.value) { return }
-
       val enclClassBT = lookupRefBType(enclClassCN.name)
       for(
         mnode <- JListWrapper(enclClassCN.methods);
@@ -398,8 +396,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  @see checkDClosureUsages(enclClassCN: ClassNode)
      * */
     def checkDClosureUsages() {
-
-      if(!settings.debug.value) { return }
 
       assert(if(!hasInliningRun) nonMasterUsers.isEmpty else true)
 
@@ -901,7 +897,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     def optimize() {
 
-      closuRepo.checkDClosureUsages()
+      ifDebug { closuRepo.checkDClosureUsages() }
 
       privatizables.clear()
       inlining()
@@ -3042,6 +3038,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     val masterBT = lookupRefBType(masterCNode.name)
 
+    val staticMaker = new asm.optimiz.StaticMaker
+
     /**
      * Detects those dclosures that the `cnode` argument is exclusively responsible for
      * (consequence: all usages of the dclosure are confined to two places: master and the dclosure itself).
@@ -3055,12 +3053,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *       "Minimizing the outer instance" means the endpoint is made static.
      *       The dclosure itself remains, but with smaller GC overhead.
      *
+     * This method can be run on the ClassNode of a Serializable class:
+     * only isLiftedMethods or dclosure-endpoints will be mutated.
+     *
      * */
     override def shakeAndMinimizeClosures(): Boolean = {
 
       if(!closuRepo.isMasterClass(masterBT)) { return false }
 
-      // Serializable or not, it's fine: only dclosure-endpoints in cnode (a master class) will be mutated.
+      do { } while (!staticMaker.transform(masterCNode).isEmpty)
 
       var changed = false
       for(d <- closuRepo.liveDClosures(masterCNode)) {

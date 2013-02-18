@@ -15,7 +15,7 @@ import scala.tools.asm.tree.analysis.AnalyzerException;
 
 /**
  *  (1) Find all methods fulfilling all of:
- *      private, non-constructor, non-abstract, instance, lacking usages of THIS.
+ *      private, non-constructor, non-abstract, instance, isLiftedMethod, lacking usages of THIS.
  *
  *     (Therefore, those methods that would qualify except that LOAD_0 is used for self-recursion aren't made static.
  *      This is a known limitation to keep the analysis simple).
@@ -52,6 +52,7 @@ public class StaticMaker {
 
         for (MethodNode m : cnode.methods) {
             if (
+                 m.isLiftedMethod         &&
                  Util.isPrivateMethod(m)  &&
                 !Util.isConstructor(m)    &&
                 !Util.isAbstractMethod(m) &&

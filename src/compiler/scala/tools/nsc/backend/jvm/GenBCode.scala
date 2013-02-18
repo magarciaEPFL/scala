@@ -373,6 +373,8 @@ abstract class GenBCode extends BCodeOptInter {
      */
     class Worker2 extends _root_.java.lang.Runnable {
 
+      val isUnoptRun = !settings.isIntraMethodOptimizOn
+
       def run() {
         val id = java.lang.Thread.currentThread.getId
         woStarted.put(id, id)
@@ -404,16 +406,16 @@ abstract class GenBCode extends BCodeOptInter {
        * */
       def visit(item: Item2) {
 
-        val cleanser = new BCodeCleanser(item.plain.cnode)
-
         assert(hasInliningRun == settings.isInterBasicOptimizOn)
 
-        closuRepo.checkDClosureUsages(item.plain.cnode)
-        cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
-        // TODO cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
-        // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
-
-        if(settings.isIntraMethodOptimizOn) {
+        val cleanser = new BCodeCleanser(item.plain.cnode)
+        if(isUnoptRun) {
+          ifDebug { closuRepo.checkDClosureUsages(item.plain.cnode) }
+          cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
+          // cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
+          // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+        }
+        else {
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
         }
 
