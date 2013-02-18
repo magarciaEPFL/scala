@@ -975,6 +975,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       hasInliningRun = true
 
+      // not that anyone is running yet dead-code elimination before inlining, just future-proofing for that case.
+      for(cgn <- cgns) {
+        cgn.hiOs  = cgn.hiOs  filter { it: InlineTarget => cgn.host.instructions.contains(it.callsite) }
+        cgn.procs = cgn.procs filter { it: InlineTarget => cgn.host.instructions.contains(it.callsite) }
+      }
+
       /*
        * The MethodNode for each callsite to an @inline method is found via `CallGraphNode.populate()`,
        * if necessary by parsing bytecode (ie the classfile given by a callsite's `owner` field is parsed).
