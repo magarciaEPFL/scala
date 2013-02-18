@@ -971,8 +971,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  but directly emit callsites on StringBuilder using literal constant for method descriptors.
      *  In order to make sure those method descriptors are available as BTypes, they are initialized here.
      * */
-    BType.getMethodType("()V")                   // necessary for JcodeMethodN.genStartConcat
-    BType.getMethodType("()Ljava/lang/String;")  // necessary for JcodeMethodN.genEndConcat
+    BType.getMethodType("()V")                   // necessary for JCodeMethodN.genStartConcat
+    BType.getMethodType("()Ljava/lang/String;")  // necessary for JCodeMethodN.genEndConcat
 
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 to definitions.MaxFunctionArity) {
