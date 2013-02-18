@@ -2756,8 +2756,8 @@ abstract class GenBCode extends BCodeOptInter {
                  *        - use JDK7's java.util.Objects.requireNonNull(outer-value) which returns the argument if non-null, NPE otherwise
                  *        - encapsulate that boilerplate in a scala.runtime static method.
                  *
-                 * The preamble consisted of six instructions plus a LabelNode and was emittted
-                 * at the very beginning of the dclosure constructor:
+                 * The preamble consisted of six instructions plus a LabelNode and used to be emitted
+                 * at the very beginning of the dclosure constructor built by `createClosuCtor()` :
                  *     ALOAD 1
                  *     IFNONNULL L0
                  *     NEW java/lang/NullPointerException
