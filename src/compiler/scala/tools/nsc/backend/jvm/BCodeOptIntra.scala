@@ -435,7 +435,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      */
     def cleanseClass() {
 
-      // a dclosure is optimized together with its master class by shakeAndMinimizeClosures() only
+      // a dclosure is optimized together with its master class by `DClosureOptimizer` only
       assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
 
       val bt = lookupRefBType(cnode.name)
@@ -453,7 +453,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         if(dcloptim != null) {
           // (2) intra-class
-          keepGoing  = removeUnusedLiftedMethods()
+          keepGoing  = removeUnusedLiftedMethods() // useful for master classes, but can by applied to any class.
 
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= dcloptim.shakeAndMinimizeClosures()
@@ -494,7 +494,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     }
 
     /**
-     *  Elides unused private lifted methods (but not fields or constructors) be they static or instance.
+     *  Elides unused private lifted methods (ie neither fields nor constructors) be they static or instance.
      *  How do such methods become "unused"? For example, dead-code-elimination may have removed all invocations to them.
      *
      *  Other unused private members could also be elided, but that might come as unexpected,
