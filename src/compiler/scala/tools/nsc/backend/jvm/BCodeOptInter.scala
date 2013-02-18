@@ -3545,16 +3545,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     } // end of method singletonizeDClosures()
 
-    override def closureCachingAndEviction() {
-      closureCachingAndEvictionHelper(masterCNode)
-      if(closuRepo.isMasterClass(masterBT)) {
-        for(d <- closuRepo.exclusiveDClosures(masterBT); if !elidedClasses.contains(d)) {
-          // those dclosures for which `bringBackStaticDClosureBodies()` run may benefit from closure caching and eviction.
-          closureCachingAndEvictionHelper(codeRepo.classes.get(d))
-        }
-      }
-    }
-
     /**
      *  Handle Cases (2) and (3) as described in minimizeDClosureAllocations(),
      *  by adding code for caching and eviction of the "representative closure"
@@ -3607,9 +3597,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *      - propagate nulls
      *
      * */
-    private def closureCachingAndEvictionHelper(cnode: ClassNode) {
-      val cnodeBT = lookupRefBType(cnode.name)
-      if(elidedClasses.contains(cnodeBT)) { return }
+    override def closureCachingAndEviction() {
 
           case class Bracket(newInsn: TypeInsnNode, initInsn: MethodInsnNode, stateLocals: collection.Set[Int])
 
@@ -3622,7 +3610,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
             def logUponOffendingInsn(offendingInsn: AbstractInsnNode, reason: String) {
               log(
-                s"Attempt at closure caching and eviction in method ${methodSignature(cnode, mnode)} " +
+                s"Attempt at closure caching and eviction in method ${methodSignature(masterCNode, mnode)} " +
                 s"failed because $reason, " +
                 s"more precisely at index ${mnode.instructions.indexOf(offendingInsn)} where instruction ${Util.textify(offendingInsn)} can be found.\n" +
                  "Full bytecode of that method:" + Util.textify(mnode)
@@ -3703,7 +3691,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           } // end of method addCachingAndEviction()
 
 
-      for(mnode <- JListWrapper(cnode.methods); if !Util.isAbstractMethod(mnode) ) {
+      for(mnode <- JListWrapper(masterCNode.methods); if !Util.isAbstractMethod(mnode) ) {
         // Step (1) Find brackets fulfilling conditions
         var brackets: List[Bracket] = Nil
         var current = mnode.instructions.getFirst
@@ -3729,14 +3717,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           // val txtDuring = Util.textify(mnode); println("During -------------------------------- " + txtDuring)
 
           // Step (4) run an intra-method fixpoint on all methods
-          val quickOptimizer = new QuickCleanser(cnode)
+          val quickOptimizer = new QuickCleanser(masterCNode)
           quickOptimizer.basicIntraMethodOpt(mnode)
 
           // val txtAfter = Util.textify(mnode); println("After -------------------------------- " + txtAfter)
         }
       } // end of method iteration
 
-    } // end of method closureCachingAndEvictionHelper()
+    } // end of method closureCachingAndEviction()
 
   } // end of class DClosureOptimizerImpl
 
