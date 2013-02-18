@@ -397,13 +397,16 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       /**
-       *  Performs optimizations using task parallelism (a task has exclusive acceess to ASM ClassNodes
-       *  that need to be mutated in-tandem, for example a master class and the dclosures it's responsible for).
-       *  After mutation is over, addds the ClassNode(s) to queue-3.
+       *  Performs optimizations using task parallelism.
+       *  A task has exclusive access to ASM ClassNodes that need to be mutated in-tandem,
+       *  for example a master class and the dclosures it's responsible for.
+       *  Afterwards, adds the ClassNode(s) to queue-3.
        * */
       def visit(item: Item2) {
 
         val cleanser = new BCodeCleanser(item.plain.cnode)
+
+        assert(hasInliningRun == settings.isInterBasicOptimizOn)
 
         closuRepo.checkDClosureUsages(item.plain.cnode)
         cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
@@ -568,8 +571,8 @@ abstract class GenBCode extends BCodeOptInter {
     /**
      *  The workflow where inter-procedural optimizations is DISABLED boils down to:
      *  As soon as each individual ClassNode is ready
-     *     (if needed intra-class optimized, ok, ok,
-     *     optimized along with the Late-Closure-Classes it's responsible for)
+     *     (if needed intra-class optimized,
+     *     moreover optimized with the Late-Closure-Classes it's responsible for)
      *  it's also ready for disk serialization, ie it's ready to be added to queue-3.
      *
      * */
