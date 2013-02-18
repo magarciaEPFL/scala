@@ -494,18 +494,17 @@ abstract class BCodeOptIntra extends BCodeTypes {
     }
 
     /**
-     *  Elides unused private isLifted methods (but not fields or constructors; be they static or instance).
+     *  Elides unused private lifted methods (but not fields or constructors) be they static or instance.
+     *  How do such methods become "unused"? For example, dead-code-elimination may have removed all invocations.
+     *
      *  Other unused private members could also be elided, but that might result in (non-lifted) private methods
      *  that are visible in source code disappearing from the bytecode.
      *
-     *  A subset of private methods originally were local (in the Scala sense)
-     *  and they can be recognized because isLiftedMethod.
+     *  Those bytecode-level private methods that originally were local (in the Scala sense)
+     *  are recognized because isLiftedMethod == true.
 
      *  In particular, all methods originally local to a delegating-closure's apply() are private isLiftedMethod.
-     *  (Sidenote: the endpoint of a dclosure is public, and isLiftedMethod too).
-     *
-     *  Private lifted methods, provided nobody invokes them, can be removed.
-     *  For example, dead-code-elimination may have removed the last use of one such method.
+     *  (Sidenote: the endpoint of a dclosure is public, yet has isLiftedMethod == true).
      *
      * */
     private def removeUnusedLiftedMethods(): Boolean = {
