@@ -1403,7 +1403,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
       }
 
-      // ------------ allowed combinations of closure-conversion approach, bytecode emitter, and target platform.
+      // ------------ allowed combinations of closure-conversion approach, bytecode emitter, and target JDK.
 
       if(settings.isClosureConvTraditional && (settings.neoLevel >= 2)) {
         complain(
