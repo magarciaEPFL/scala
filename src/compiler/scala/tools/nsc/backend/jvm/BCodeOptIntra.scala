@@ -453,7 +453,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         if(dcloptim != null) {
           // (2) intra-class
-          keepGoing  = removeUnusedLiftedMethods()
+          removeUnusedLiftedMethods()
 
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= dcloptim.shakeAndMinimizeClosures()
@@ -495,43 +495,24 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     /**
      *  Elides unused private lifted methods (but not fields or constructors) be they static or instance.
-     *  How do such methods become "unused"? For example, dead-code-elimination may have removed all invocations.
+     *  How do such methods become "unused"? For example, dead-code-elimination may have removed all invocations to them.
      *
-     *  Other unused private members could also be elided, but that might result in (non-lifted) private methods
-     *  that are visible in source code disappearing from the bytecode.
+     *  Other unused private members could also be elided, but that might come as unexpected,
+     *  ie a situation where (non-lifted) private methods vanish in the way from source code to bytecode.
      *
      *  Those bytecode-level private methods that originally were local (in the Scala sense)
      *  are recognized because isLiftedMethod == true.
-
      *  In particular, all methods originally local to a delegating-closure's apply() are private isLiftedMethod.
      *  (Sidenote: the endpoint of a dclosure is public, yet has isLiftedMethod == true).
      *
      * */
-    private def removeUnusedLiftedMethods(): Boolean = {
-
-      val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
-      if(cnodeEx.isSerializable) { return false }
-
-      var changed   = false
-      var keepGoing = false
-      do {
-        unusedPrivateDetector.transform(cnode)
-        val imIter = unusedPrivateDetector.elidableInstanceMethods.iterator()
-        while(imIter.hasNext) {
-          val im = imIter.next()
-          if(!Util.isConstructor(im) && im.isLiftedMethod) {
-            keepGoing = true
-            cnode.methods.remove(im)
-          }
+    private def removeUnusedLiftedMethods() {
+      unusedPrivateDetector.transform(cnode)
+      for(im <- JSetWrapper(unusedPrivateDetector.elidableInstanceMethods)) {
+        if(im.isLiftedMethod && !Util.isConstructor(im)) {
+          cnode.methods.remove(im)
         }
-
-        // staticMaker.transform(cnode) TODO make static in a better, outer-elimination-specific, way. Remove StaticMaker
-        // keepGoing |= staticMaker.changed
-
-        changed |= keepGoing
-      } while (keepGoing)
-
-      changed
+      }
     }
 
     /**
