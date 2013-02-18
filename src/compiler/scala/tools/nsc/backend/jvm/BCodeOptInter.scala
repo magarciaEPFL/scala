@@ -3049,7 +3049,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * For each such closure:
      *
      *   (1) lack of usages in `cnode` (eg as a result of dead-code elimination) means the closure can be elided,
-     *       along with its endpoint. This may lead to further tree-shaking in `cnode` (via UnusedPrivateElider).
+     *       along with its endpoint. This may lead to further tree-shaking in `cnode` (via UnusedPrivateDetector).
      *
      *   (2) minimize the dclosure fields (in particular, outer) to those actually used.
      *       "Minimizing the outer instance" means the endpoint is made static.
@@ -3115,7 +3115,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           def adaptEndpointAndItsCallsite(): Boolean = {
             var changed  = false
             val oldDescr = endpoint.desc
-            // don't run UnusedPrivateElider on a ClassNode with a method temporarily made private.
+            // don't run UnusedPrivateDetector on a ClassNode with a method temporarily made private.
             Util.makePrivateMethod(endpoint) // temporarily
 
             val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)

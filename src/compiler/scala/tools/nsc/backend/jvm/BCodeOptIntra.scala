@@ -370,9 +370,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
-    val unusedPrivateElider = new asm.optimiz.UnusedPrivateElider()
-    val unusedParamsElider  = new asm.optimiz.UnusedParamsElider()
-    val staticMaker         = new asm.optimiz.StaticMaker()
+    val unusedPrivateDetector = new asm.optimiz.UnusedPrivateDetector()
 
     val isInterClosureOptimizOn = settings.isInterClosureOptimizOn
 
@@ -455,7 +453,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         if(dcloptim != null) {
           // (2) intra-class
-          keepGoing  = privatCompacter()
+          keepGoing  = removeUnusedLiftedMethods()
 
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= dcloptim.shakeAndMinimizeClosures()
@@ -496,17 +494,21 @@ abstract class BCodeOptIntra extends BCodeTypes {
     }
 
     /**
-     * Dead-code-elimination may have removed the last use of a private member.
+     *  Elides unused private isLifted methods (but not fields or constructors; be they static or instance).
+     *  Other unused private members could also be elided, but that might result in (non-lifted) private methods
+     *  that are visible in source code disappearing from the bytecode.
      *
-     * Additionally, all methods originally local to a delegating-closure's apply() are private,
-     * and some of them need not be instance methods but can be made static, which may contribute
-     * to doing away with that closure's outer-instance.
+     *  A subset of private methods originally were local (in the Scala sense)
+     *  and they can be recognized because isLiftedMethod.
+
+     *  In particular, all methods originally local to a delegating-closure's apply() are private isLiftedMethod.
+     *  (Sidenote: the endpoint of a dclosure is public, and isLiftedMethod too).
      *
-     *  (1) elide unused private members (ie fields, methods, or constructors; be they static or instance)
-     *  (2) make static those private methods that don't rely on THIS
+     *  Private lifted methods, provided nobody invokes them, can be removed.
+     *  For example, dead-code-elimination may have removed the last use of one such method.
      *
      * */
-    private def privatCompacter(): Boolean = {
+    private def removeUnusedLiftedMethods(): Boolean = {
 
       val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
       if(cnodeEx.isSerializable) { return false }
@@ -514,19 +516,18 @@ abstract class BCodeOptIntra extends BCodeTypes {
       var changed   = false
       var keepGoing = false
       do {
-        keepGoing = unusedPrivateElider.transform(cnode)
-
-        val updatedMethodSignatures = unusedParamsElider.transform(cnode)
-        if(!updatedMethodSignatures.isEmpty) {
-          // println(s"entering ${updatedMethodSignatures.size()} (possible new) method descriptors")
-          keepGoing = true
-          global synchronized {
-            JSetWrapper(updatedMethodSignatures) foreach { mn => BType.getMethodType(mn.desc) }
+        unusedPrivateDetector.transform(cnode)
+        val imIter = unusedPrivateDetector.elidableInstanceMethods.iterator()
+        while(imIter.hasNext) {
+          val im = imIter.next()
+          if(!Util.isConstructor(im) && im.isLiftedMethod) {
+            keepGoing = true
+            cnode.methods.remove(im)
           }
         }
 
-        staticMaker.transform(cnode)
-        keepGoing |= staticMaker.changed
+        // staticMaker.transform(cnode) TODO make static in a better, outer-elimination-specific, way. Remove StaticMaker
+        // keepGoing |= staticMaker.changed
 
         changed |= keepGoing
       } while (keepGoing)

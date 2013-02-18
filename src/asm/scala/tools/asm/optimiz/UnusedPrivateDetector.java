@@ -25,9 +25,11 @@ import scala.tools.asm.tree.FieldInsnNode;
  *  (private members includes fields, methods, or constructors; be they static or instance).
  *  Those usages are detected by visiting the class' public and protected methods and constructors
  *  as well as any private methods or constructors transitively reachable.
- *  Those private members for which no usages are found are elided.
  *
- *  This means that any code using, say, reflection or invokedynamic or a methodhandle constant
+ *  Those private members for which no usages are found are elided,
+ *  but that decision is left to the invoker.
+ *
+ *  If elided, any code using, say, reflection or invokedynamic or a methodhandle constant
  *  referring to an (otherwise unused) private member, will fail after this transformer is run.
  *
  *  Private methods and fields, as e.g. needed by java.io.Serializable or java.io.Externalizable,
@@ -40,12 +42,12 @@ import scala.tools.asm.tree.FieldInsnNode;
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
  */
-public class UnusedPrivateElider implements Opcodes {
+public class UnusedPrivateDetector implements Opcodes {
 
-    public Set<FieldNode>  elidedStaticFields    = new HashSet<FieldNode>();
-    public Set<FieldNode>  elidedInstanceFields  = new HashSet<FieldNode>();
-    public Set<MethodNode> elidedStaticMethods   = new HashSet<MethodNode>();
-    public Set<MethodNode> elidedInstanceMethods = new HashSet<MethodNode>();
+    public Set<FieldNode>  elidableStaticFields    = new HashSet<FieldNode>();
+    public Set<FieldNode>  elidableInstanceFields  = new HashSet<FieldNode>();
+    public Set<MethodNode> elidableStaticMethods   = new HashSet<MethodNode>();
+    public Set<MethodNode> elidableInstanceMethods = new HashSet<MethodNode>();
 
     /**
      * @return whether any private field, methods, or constructors was elided.
@@ -53,22 +55,22 @@ public class UnusedPrivateElider implements Opcodes {
      */
     public boolean transform(ClassNode cnode) {
 
-        elidedStaticFields.clear();
-        elidedInstanceFields.clear();
-        elidedStaticMethods.clear();
-        elidedInstanceMethods.clear();
+        elidableStaticFields.clear();
+        elidableInstanceFields.clear();
+        elidableStaticMethods.clear();
+        elidableInstanceMethods.clear();
 
         Queue<MethodNode> toVisit = new LinkedList<MethodNode>();
         for (MethodNode m : cnode.methods) {
             if (isPrivate(m.access)) {
-              (isStatic(m.access) ? elidedStaticMethods : elidedInstanceMethods).add(m);
+              (isStatic(m.access) ? elidableStaticMethods : elidableInstanceMethods).add(m);
             } else {
                 toVisit.add(m);
             }
         }
         for (FieldNode f : cnode.fields) {
             if (isPrivate(f.access)) {
-              (isStatic(f.access) ? elidedStaticFields : elidedInstanceFields).add(f);
+              (isStatic(f.access) ? elidableStaticFields : elidableInstanceFields).add(f);
             }
         }
 
@@ -89,9 +91,9 @@ public class UnusedPrivateElider implements Opcodes {
                         FieldNode inUsePrivateField = lookupPrivate((FieldInsnNode)insn, cname);
                         if(inUsePrivateField != null) {
                             if(isStatic(inUsePrivateField.access)) {
-                                elidedStaticFields.remove(inUsePrivateField);
+                                elidableStaticFields.remove(inUsePrivateField);
                             } else {
-                                elidedInstanceFields.remove(inUsePrivateField);
+                                elidableInstanceFields.remove(inUsePrivateField);
                             }
                         }
                         break;
@@ -100,15 +102,15 @@ public class UnusedPrivateElider implements Opcodes {
                         MethodNode inUsePrivateMethod = lookupPrivate((MethodInsnNode)insn, cname);
                         if(inUsePrivateMethod != null) {
                             if(isStatic(inUsePrivateMethod.access)) {
-                                if(elidedStaticMethods.contains(inUsePrivateMethod)) {
+                                if(elidableStaticMethods.contains(inUsePrivateMethod)) {
                                     toVisit.add(inUsePrivateMethod);
                                 }
-                                elidedStaticMethods.remove(inUsePrivateMethod);
+                                elidableStaticMethods.remove(inUsePrivateMethod);
                             } else {
-                                if(elidedInstanceMethods.contains(inUsePrivateMethod)) {
+                                if(elidableInstanceMethods.contains(inUsePrivateMethod)) {
                                     toVisit.add(inUsePrivateMethod);
                                 }
-                                elidedInstanceMethods.remove(inUsePrivateMethod);
+                                elidableInstanceMethods.remove(inUsePrivateMethod);
                             }
                         }
                         break;
@@ -120,21 +122,16 @@ public class UnusedPrivateElider implements Opcodes {
             }
         }
 
-        cnode.methods.removeAll(elidedInstanceMethods);
-        cnode.methods.removeAll(elidedStaticMethods);
-        cnode.fields.removeAll(elidedInstanceFields);
-        cnode.fields.removeAll(elidedStaticFields);
-
         return !nothingElided();
     }
 
     private boolean nothingElided() {
 
         return (
-            elidedStaticFields.isEmpty()   &&
-            elidedInstanceFields.isEmpty() &&
-            elidedStaticMethods.isEmpty()  &&
-            elidedInstanceMethods.isEmpty()
+            elidableStaticFields.isEmpty()   &&
+            elidableInstanceFields.isEmpty() &&
+            elidableStaticMethods.isEmpty()  &&
+            elidableInstanceMethods.isEmpty()
         );
 
     }
@@ -150,7 +147,7 @@ public class UnusedPrivateElider implements Opcodes {
     private FieldNode lookupPrivate(FieldInsnNode fi, String cname) {
         if(fi.owner.equals(cname)) {
             boolean isStatic = fi.getOpcode() == GETSTATIC || fi.getOpcode() == PUTSTATIC;
-            Set<FieldNode> candidates = (isStatic ? elidedStaticFields : elidedInstanceFields);
+            Set<FieldNode> candidates = (isStatic ? elidableStaticFields : elidableInstanceFields);
             for(FieldNode fn : candidates) {
                 if(fn.name.equals(fi.name)) {
                     return fn;
@@ -163,7 +160,7 @@ public class UnusedPrivateElider implements Opcodes {
     private MethodNode lookupPrivate(MethodInsnNode mi, String cname) {
         if(mi.owner.equals(cname)) {
             boolean isStatic = mi.getOpcode() == INVOKESTATIC;
-            Set<MethodNode> candidates = (isStatic ? elidedStaticMethods : elidedInstanceMethods);
+            Set<MethodNode> candidates = (isStatic ? elidableStaticMethods : elidableInstanceMethods);
             for(MethodNode mn : candidates) {
                 if(mn.name.equals(mi.name) && mn.desc.equals(mi.desc)) {
                     return mn;
