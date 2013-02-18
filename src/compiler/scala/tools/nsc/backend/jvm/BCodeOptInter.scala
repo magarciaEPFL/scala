@@ -3266,56 +3266,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
       assert(posOfRedundantCtorParam.nonEmpty)
 
-      /*
-       * Step 4: In case outer-instance is being removed, get rid of the following preamble
-       * ----------------------------------------------------------------------------------
-       *     ALOAD 1
-       *     IFNONNULL L0
-       *     NEW java/lang/NullPointerException
-       *     DUP
-       *     INVOKESPECIAL java/lang/NullPointerException.<init> ()V
-       *     ATHROW
-       * */
       val isOuterRedundant = {
          closureState.contains(nme.OUTER.toString) &&
         !whatGetsRead.contains(nme.OUTER.toString)
       }
-      if(isOuterRedundant) {
-
-        assert(posOfRedundantCtorParam(nme.OUTER.toString) == 0)
-
-        val preamble = ctor.toList.filter(i => Util.isExecutable(i)).take(6).toArray
-
-            def preambleAssert(idx: Int, pf: PartialFunction[AbstractInsnNode, Boolean]) {
-              val insn = preamble(idx)
-              assert(
-                pf.isDefinedAt(insn) && pf(insn),
-                s"While eliding a preamble in constructor ${methodSignature(dCNode, ctor)}}, " +
-                s"expected another instruction at index ${ctor.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
-                 "Here's the complete bytecode of that constructor:" + Util.textify(ctor)
-              )
-            }
-
-        preambleAssert(0, { case vi: VarInsnNode  => vi.getOpcode == Opcodes.ALOAD && vi.`var` == 1 } )
-        preambleAssert(1, { case ji: JumpInsnNode => ji.getOpcode == Opcodes.IFNONNULL } )
-        preambleAssert(2, { case ti: TypeInsnNode => ti.getOpcode == Opcodes.NEW  && ti.desc == "java/lang/NullPointerException" } )
-        preambleAssert(3, { case in: InsnNode     => in.getOpcode == Opcodes.DUP } )
-        preambleAssert(4,
-          { case mi: MethodInsnNode =>
-              mi.getOpcode == Opcodes.INVOKESPECIAL &&
-              mi.owner == "java/lang/NullPointerException" &&
-              mi.name  == "<init>" &&
-              mi.desc  == "()V"
-          }
-        )
-        preambleAssert(5, { case in: InsnNode => in.getOpcode == Opcodes.ATHROW } )
-        for(i <- preamble) { ctor.instructions.remove(i) }
-
-        // TODO once $outer is gone, the dclosure will invoke a static endpoint, and there's no reason to keep it InnerClass.
-      }
 
       /*
-       * Step 5: in the dclosure (e.g. its constructor) get rid of PUTFIELDs to closure-state fields never read
+       * Step 4: in the dclosure (e.g. its constructor) get rid of PUTFIELDs to closure-state fields never read
        * ------------------------------------------------------------------------------------------------------
        * */
       for(
@@ -3335,7 +3292,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /*
-       * Step 6: back-propagate DROPs inserted above, and remove redundant fields
+       * Step 5: back-propagate DROPs inserted above, and remove redundant fields
        * (otherwise another attempt will be made to delete them next time around)
        * ------------------------------------------------------------------------
        * */
@@ -3345,7 +3302,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /*
-       * Step 7: adapt the method descriptor of the dclosure constructor, as well as <init> callsite in master class
+       * Step 6: adapt the method descriptor of the dclosure constructor, as well as <init> callsite in master class
        * -----------------------------------------------------------------------------------------------------------
        * */
       Util.makePrivateMethod(ctor) // temporarily
