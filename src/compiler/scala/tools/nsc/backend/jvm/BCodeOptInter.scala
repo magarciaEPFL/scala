@@ -3037,6 +3037,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   final class DClosureOptimizerImpl(masterCNode: ClassNode) extends DClosureOptimizer {
 
     val masterBT = lookupRefBType(masterCNode.name)
+    assert(
+      closuRepo.isMasterClass(masterBT),
+      "A dclosure optimmizer was instantiated for a class lacking dclosures: " + masterBT.getInternalName
+    )
 
     val staticMaker = new asm.optimiz.StaticMaker
 
@@ -3058,8 +3062,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * */
     override def shakeAndMinimizeClosures(): Boolean = {
-
-      if(!closuRepo.isMasterClass(masterBT)) { return false }
 
       do { } while (!staticMaker.transform(masterCNode).isEmpty)
 
@@ -3390,11 +3392,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * */
     override def minimizeDClosureAllocations() {
-
-      if(!closuRepo.isMasterClass(masterBT)) { return }
-
       singletonizeDClosures()         // Case (1) empty closure state
-      cleanseDClosures()
     }
 
     /**
@@ -3739,16 +3737,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       } // end of method iteration
 
     } // end of method closureCachingAndEvictionHelper()
-
-    private def cleanseDClosures() {
-
-      for(d <- closuRepo.liveDClosures(masterCNode)) {
-        val dCNode: ClassNode = codeRepo.classes.get(d)
-        val cleanser = new BCodeCleanser(dCNode)
-        cleanser.intraMethodFixpoints()
-      }
-
-    } // end of method cleanseDClosures()
 
   } // end of class DClosureOptimizerImpl
 
