@@ -453,7 +453,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         if(dcloptim != null) {
           // (2) intra-class
-          removeUnusedLiftedMethods()
+          keepGoing  = removeUnusedLiftedMethods()
 
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= dcloptim.shakeAndMinimizeClosures()
@@ -506,13 +506,17 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  (Sidenote: the endpoint of a dclosure is public, yet has isLiftedMethod == true).
      *
      * */
-    private def removeUnusedLiftedMethods() {
+    private def removeUnusedLiftedMethods(): Boolean = {
+      var changed = false
       unusedPrivateDetector.transform(cnode)
       for(im <- JSetWrapper(unusedPrivateDetector.elidableInstanceMethods)) {
         if(im.isLiftedMethod && !Util.isConstructor(im)) {
+          changed = true
           cnode.methods.remove(im)
         }
       }
+
+      changed
     }
 
     /**
