@@ -141,8 +141,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns the Java method type corresponding to the given argument and
-     * return types.
+     * Returns the Java method type corresponding to the given argument and return types.
      *
      * @param returnType the return type of the method.
      * @param argumentTypes the argument types of the method.
@@ -240,8 +239,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     /**
-     * Returns the descriptor corresponding to the given argument and return
-     * types.
+     * Returns the descriptor corresponding to the given argument and return types.
+     * Note: no BType is created here for the resulting method descriptor,
+     *       if that's desired the invoker is responsible for that.
      *
      * @param returnType the return type of the method.
      * @param argumentTypes the argument types of the method.

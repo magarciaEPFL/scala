@@ -2509,7 +2509,9 @@ abstract class GenBCode extends BCodeOptInter {
           val delegateParamNames: List[String] = uniquify(
             for(paramSym <- delegateSym.paramss.head) yield paramSym.name.toString
           )
-          assert(allDifferent(delegateParamNames), "Duplicate param names found among " + delegateParamNames.mkString(" , "))
+          ifDebug {
+            assert(allDifferent(delegateParamNames), "Duplicate param names found among " + delegateParamNames.mkString(" , "))
+          }
           if(!isStaticImplMethod) {
             val tmp = delegateParamNames.drop(arity)
             if(hasOuter) nme.OUTER.toString :: tmp else tmp
@@ -2621,8 +2623,9 @@ abstract class GenBCode extends BCodeOptInter {
             def takingIntoAccountSpecialization(): Pair[String, List[MethodNode]] = {
 
                   def getUltimateAndPlumbing(key: String, mdescr: String): List[asm.tree.MethodNode] = {
-                    val closuIName = castToBT.getInternalName
-                    val fullyErasedDescr = BType.getMethodDescriptor(ObjectReference, Array.fill(arity){ ObjectReference })
+                    val closuIName       = castToBT.getInternalName
+                    val fullyErasedBT    = BType.getMethodType(ObjectReference, Array.fill(arity){ ObjectReference })
+                    val fullyErasedDescr = fullyErasedBT.getDescriptor
                     val fullyErasedMNode = new asm.tree.MethodNode(
                       asm.Opcodes.ASM4,
                       (asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL),
