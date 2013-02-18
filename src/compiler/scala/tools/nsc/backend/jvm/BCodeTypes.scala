@@ -964,6 +964,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
 
+    /*
+     *  The bytecode emitter special-cases String concatenation, in that three methods of `JCodeMethodN`
+     *  ( `genStartConcat()` , `genStringConcat()` , and `genEndConcat()` )
+     *  don't obtain the method descriptor of the callee via `asmMethodType()` (as normally done)
+     *  but directly emit callsites on StringBuilder using literal constant for method descriptors.
+     *  In order to make sure those method descriptors are available as BTypes, they are initialized here.
+     * */
+    BType.getMethodType("()V")                   // necessary for JcodeMethodN.genStartConcat
+    BType.getMethodType("()Ljava/lang/String;")  // necessary for JcodeMethodN.genEndConcat
+
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 to definitions.MaxFunctionArity) {
       FunctionReference(idx)           = exemplar(FunctionClass(idx))
@@ -1852,11 +1862,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     final def genStartConcat {
       jmethod.visitTypeInsn(Opcodes.NEW, StringBuilderClassName)
       jmethod.visitInsn(Opcodes.DUP)
-      val bt = BType.getMethodType(BType.VOID_TYPE, EMPTY_BTYPE_ARRAY)
       invokespecial(
         StringBuilderClassName,
         INSTANCE_CONSTRUCTOR_NAME,
-        bt.getDescriptor
+        "()V"
       )
     }
 
@@ -1878,8 +1887,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * can-multi-thread
      **/
     final def genEndConcat {
-      val bt = BType.getMethodType("()Ljava/lang/String;")
-      invokevirtual(StringBuilderClassName, "toString", bt.getDescriptor)
+      invokevirtual(StringBuilderClassName, "toString", "()Ljava/lang/String;")
     }
 
     /**
