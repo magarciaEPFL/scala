@@ -150,7 +150,7 @@ abstract class GenBCode extends BCodeOptInter {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
-    // for inter-procedural optimization, we'd like to start working first on "large" classes for better load balanching of Worker2 threads
+    // we'd like to start working first on "large" classes for better load balanching of Worker2 threads
     private val i2LargeClassesFirst = new _root_.java.util.Comparator[Item2] {
       override def compare(a: Item2, b: Item2): Int = {
         if(a.isPoison) { return  1 }
@@ -164,23 +164,8 @@ abstract class GenBCode extends BCodeOptInter {
       }
     }
 
-    // for intra-procedural or no optimization, we'd like to process classes according to arrival order, so as to serialize them faster.
-    private val i2ArrivalOrder = new _root_.java.util.Comparator[Item2] {
-      override def compare(a: Item2, b: Item2): Int = {
-        val aSize = a.arrivalPos
-        val bSize = b.arrivalPos
-
-        if     (aSize <  bSize) -1
-        else if(aSize == bSize)  0
-        else 1
-      }
-    }
     private val poison2 = Item2(Int.MaxValue, null, null, null, null)
-    private val q2 =
-      new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](
-        1000,
-        if(settings.isInterBasicOptimizOn) i2LargeClassesFirst else i2ArrivalOrder
-      )
+    private val q2 = new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](1000, i2LargeClassesFirst)
 
     /* ---------------- q3 ---------------- */
 
