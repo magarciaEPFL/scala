@@ -34,6 +34,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
 
+  // volatile so that Worker2 threads see it. Affects only which checks (regarding dclosure usages) are applicable.
+  @volatile var hasInliningRun = false
+
   /**
    * must-single-thread
    **/
@@ -83,6 +86,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    * Invariants for delegating closures
    * ----------------------------------
    *
+   * These invariants are checked in `checkDClosureUsages()`
+   *
    * The items above exhibit invariants that a "traditional closure" doesn't necessarily guarantee,
    * invariants that can be exploited for optimization:
    *
@@ -94,7 +99,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *       This may change due to:
    *
    *         (b.1) dead-code elimination, which may remove the instantiation of the dclosure
-   *               (just like any anonymous closure, a dclosure is instantiated at a single program-wide point).
    *
    *         (b.2) as part of `WholeProgramAnalysis.inlining()`, closure-inlining elides a dclosure-class.
    *               As a result, one or more callsites to the endpoint may occur now in the
@@ -122,13 +126,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *   (1) Not really an invariant but almost:
    *       "all instantiations of dclosure D are enclosed in a method of the master class of D"
    *       With inlining, "transplanting" a method's instructions to another class may break the property above.
-   *       Apparently few program points contradict the above right after GenBCode.
    *
    *
    *   (2) Care is needed to preserve Invariant (b.2) in the presence of closure-inlining and delayedInit,
    *       ie we want to preserve:
    *             static-HiO's declaring class == master class of the inlined dclosure
-   *       See log entry starting with "Surprise surprise" in `inlineClosures()` along with workaround.
+   *
+   *   (3) Just like with "traditional" anonymous closures, a dclosure may be instantiated
+   *       at several program-points. This contradics what source-code suggests, and results
+   *       from the way catch-clauses and finally-clauses are represented in bytecode
+   *       (they are duplicated, one each for normal and exceptional control-flow,
+   *       details in `GenBCode` in particular `genSynchronized()` , `genLoadTry()` , `emitFinalizer()`).
    *
    **/
   object closuRepo extends BCInnerClassGen {
@@ -332,15 +340,20 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     // --------------------- closuRepo initializers ---------------------
 
     /**
-     *  Checks that make sense before `WholeProgramAnalysis.optimize()`
+     *  Checks about usages of dclosures.
      *
-     *  Before `inlining()` each dclosure:
+     *  Before `inlining()` a dclosure:
      *
      *    (a) may be instantiated only in its master class (if at all).
      *        In case dead-code elimination has run, a dclosure might not be instantiated at all,
      *        not even in its master class.
      *
      *    (b) may have its endpoint invoked only in the dclosure class itself.
+     *
+     *  In addition to the above, after `inlining()` a dclosure may also
+     *
+     *    (c) be instantiated in a nonMasterUser,
+     *    (d) have its endpoint invoked by its masterClass or a nonMasterUser.
      *
      * */
     def checkDClosureUsages(enclClassCN: ClassNode) {
@@ -354,20 +367,26 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       ) {
         mnode foreachInsn { insn =>
 
-          // property (a) above
+          // properties (a) , (c)
           var dc: BType = instantiatedDClosure(insn)
           assert(
-            dc == null || enclClassBT == masterClass(dc),
-             "A dclosure D is instantiated by a class C other than its master class, although inlining() hasn't run yet. " +
+            dc == null ||
+            enclClassBT == masterClass(dc) ||
+            (hasInliningRun && nonMasterUsers(dc).contains(enclClassBT)),
+             "A dclosure D is instantiated by a class C other than its master class, and " +
+             "inlining + nonMasterUsers doesn't explain it either. " +
             s"Who plays each role: D by ${dc.getInternalName} , its master class is ${masterClass(dc).getInternalName} , " +
             s"and the enclosing class is ${enclClassBT.getInternalName} "
           )
 
-          // property (b) above
+          // properties (b) , (d)
           dc = invokedDClosure(insn)
           assert(
-            dc == null || enclClassBT == dc,
-            "A dclosure D is has its endpoint invoked by a class C other than D itself, although inlining() hasn't run yet. " +
+            dc == null ||
+            enclClassBT == dc ||
+            (hasInliningRun && (enclClassBT == masterClass(dc) || nonMasterUsers(dc).contains(enclClassBT))),
+            "A dclosure D is has its endpoint invoked by a class C other than D itself, and " +
+            "inlining + nonMasterUsers doesn't explain it either. " +
            s"Who plays each role: D by ${dc.getInternalName} , and the enclosing class is ${enclClassBT.getInternalName} "
           )
 
@@ -382,7 +401,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       if(!settings.debug.value) { return }
 
-      assert(nonMasterUsers.isEmpty)
+      assert(if(!hasInliningRun) nonMasterUsers.isEmpty else true)
 
       val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
       while(iterCompiledEntries.hasNext) {
@@ -953,6 +972,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      **/
     private def inlining() {
+
+      hasInliningRun = true
 
       /*
        * The MethodNode for each callsite to an @inline method is found via `CallGraphNode.populate()`,

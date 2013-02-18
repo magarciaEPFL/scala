@@ -420,13 +420,13 @@ abstract class GenBCode extends BCodeOptInter {
 
         val cleanser = new BCodeCleanser(item.plain.cnode)
 
+        closuRepo.checkDClosureUsages(item.plain.cnode)
+        cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
+        // TODO cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
+        // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+
         if(settings.isIntraMethodOptimizOn) {
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
-        } else {
-          closuRepo.checkDClosureUsages(item.plain.cnode)
-          cleanser.removeDeadCode() // no optimization, but removing dead code still desirable
-          // TODO cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
-          // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
 
         // populate InnerClass JVM attribute, including Late-Closure-Classes
