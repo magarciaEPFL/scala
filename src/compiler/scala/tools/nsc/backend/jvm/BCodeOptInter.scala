@@ -3394,7 +3394,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       if(!closuRepo.isMasterClass(masterBT)) { return }
 
       singletonizeDClosures()         // Case (1) empty closure state
-      bringBackStaticDClosureBodies() // Cosmetic rewriting
       cleanseDClosures()
     }
 
@@ -3547,69 +3546,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
     } // end of method singletonizeDClosures()
-
-    /**
-     *  Cosmetic rewriting: if possible, move back the endpoint's instructions to the dclosure's apply
-     *
-     * */
-    private def bringBackStaticDClosureBodies() {
-
-      for(d <- closuRepo.liveDClosures(masterCNode)) {
-
-        val dep    = closuRepo.endpoint.get(d).mnode
-        val dCNode = codeRepo.classes.get(d)
-        val closureState: Map[String, FieldNode] = {
-          JListWrapper(dCNode.fields).toList filter { fnode => Util.isInstanceField(fnode) } map { fnode => (fnode.name -> fnode) }
-        }.toMap
-        val dClassDescriptor = "L" + dCNode.name + ";"
-
-        if(Util.isStaticMethod(dep) && masterCNode.methods.contains(dep)) {
-
-          log(
-            "Bringing back the endpoint's instructions to the dclosure's apply(), " +
-           s"from endpoint ${methodSignature(masterCNode, dep)} to dclosure ${dCNode.name}"
-          )
-
-          val wp = new WholeProgramAnalysis(isMultithread = true)
-          val endpointCallers: List[Pair[MethodNode, MethodInsnNode]] = {
-            for(
-              applyMethod <- JListWrapper(dCNode.methods).toList;
-              if !Util.isConstructor(applyMethod);
-              callsite    <- applyMethod.toList;
-              if closuRepo.invokedDClosure(callsite) == d
-            ) yield (applyMethod -> callsite.asInstanceOf[MethodInsnNode])
-          }
-          assert(endpointCallers.tail.isEmpty)
-          val Pair(applyMethod, callsite) = endpointCallers.head
-
-          Util.computeMaxLocalsMaxStack(applyMethod)
-          val tfa = new asm.tree.analysis.Analyzer[TFValue](new TypeFlowInterpreter)
-          tfa.analyze(dCNode.name, applyMethod)
-          val frame = tfa.frameAt(callsite).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
-
-          val inlineOutcome =
-            wp.inlineMethod(
-              dCNode.name, applyMethod,
-              callsite, frame,
-              dep, masterCNode,
-              doTrackClosureUsage = false
-            )
-          inlineOutcome match {
-            case Some(problem) =>
-              log(s"Couldn't bring back the endpoint's instructions because $problem")
-            case None =>
-              val cleanser = new BCodeCleanser(dCNode)
-              cleanser.intraMethodFixpoints()
-              // if the closure hasn't been elided, that implies its endpoint isn't invoked from any shio-method,
-              // in fact it must be invoked only from the dclosure's apply(). Thus we can remove the endpoint from the master class.
-              closuRepo.assertEndpointInvocationsIsEmpty(masterCNode, d) /*debug*/
-              masterCNode.methods.remove(dep)
-          }
-        }
-
-      }
-
-    } // end of method bringBackStaticDClosureBodies()
 
     override def closureCachingAndEviction() {
       closureCachingAndEvictionHelper(masterCNode)
