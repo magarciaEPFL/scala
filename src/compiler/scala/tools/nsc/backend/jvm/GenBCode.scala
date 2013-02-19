@@ -201,6 +201,7 @@ abstract class GenBCode extends BCodeOptInter {
         while (true) {
           val item = q1.take
           if(item.isPoison) {
+            isClassNodeBuildingDone = true
             for(i <- 1 to MAX_THREADS) { q2 put poison2 } // explanation in Worker2.run() as to why MAX_THREADS poison pills are needed on queue-2.
             return
           }

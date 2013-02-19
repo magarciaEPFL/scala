@@ -34,8 +34,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
   val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
 
-  // volatile so that Worker2 threads see it. Affects only which checks (regarding dclosure usages) are applicable.
-  @volatile var hasInliningRun = false
+  // volatile so that Worker2 threads see it
+  @volatile var hasInliningRun          = false // affects only which checks (regarding dclosure usages) are applicable.
+  @volatile var isClassNodeBuildingDone = false // allows checking whether Worker1 thread is done, e.g. to register a new method descriptor as BType.
+
+  final def assertPipeline1Done() {
+    assert(
+      isClassNodeBuildingDone,
+      "This optimization might register a yet unseen method descriptor. " +
+      "Locking on global is good, better yet if pipeline-1 were done (because it register itselfs new BTypes, without locking)."
+    )
+  }
 
   /**
    * must-single-thread
@@ -1023,7 +1032,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  TODO documentation
      *
-     *  TODO leaves are independent from each other, could be done in parallel.
+     *  TODO leaves are independent from each other, use task-parallelism thus making not just -o2 faster but also
+     *       -o3 and -o4 (inlining is the bottleneck, -o3 and -o4 are relatively fast).
      *
      *  @param leaves        TODO
      *
@@ -2825,8 +2835,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     val staticMaker = new asm.optimiz.StaticMaker
 
     /**
-     * Detects those dclosures that the `cnode` argument is exclusively responsible for
-     * (consequence: all usages of the dclosure are confined to two places: master and the dclosure itself).
+     * Focuses on those dclosures that the `cnode` argument is exclusively responsible for
+     * (consequence: all usages of the dclosure are confined to two places: cnode and the dclosure itself).
      *
      * For each such closure:
      *
@@ -2879,6 +2889,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def minimizeDClosureFields(endpoint: MethodNode, d: BType): Boolean = {
       import asm.optimiz.UnusedParamsElider
       import asm.optimiz.StaticMaker
+
+      assertPipeline1Done()
 
       val dCNode: ClassNode = codeRepo.classes.get(d)
 
