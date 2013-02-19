@@ -463,7 +463,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       if(dcloptim != null) {
         dcloptim.minimizeDClosureAllocations()
-        dcloptim.closureCachingAndEviction()
+        // dcloptim.closureCachingAndEviction() TODO disabled because there's a bug in closureCachingAndEviction()
       }
 
       avoidBackedgesInConstructorArgs(cnode)
