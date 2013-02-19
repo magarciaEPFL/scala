@@ -748,7 +748,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val bt = brefType(iname)
             var exempl = exemplars.get(bt)
             if(exempl == null) {
-              parseClassAndEnterExemplar(bt)
+              parseClassAndEnterExemplar(bt) // recursive call
               exempl = exemplars.get(bt)
             }
             exempl
