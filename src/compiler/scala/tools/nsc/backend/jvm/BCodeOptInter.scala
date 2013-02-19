@@ -2883,7 +2883,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      * All usages of the dclosure are confined to two places: its master class and the dclosure itself.
      * We can minimize dclosure fields (in particular, outer) because we know where to find
-     * all of the (endpoint invocations, dclosure instantiations) that will require adapting to remain well-formed.
+     * all of the (dclosure instantiations, endpoint invocations) that will require adapting to remain well-formed.
      *
      * */
     private def minimizeDClosureFields(endpoint: MethodNode, d: BType): Boolean = {
