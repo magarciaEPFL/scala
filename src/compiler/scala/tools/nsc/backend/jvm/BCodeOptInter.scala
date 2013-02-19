@@ -1153,10 +1153,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
       leaf.hiOs = Nil
 
-      // debug
-      val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
-      da.analyze(leaf.hostOwner.name, leaf.host)
-    }
+      ifDebug {
+        val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
+        da.analyze(leaf.hostOwner.name, leaf.host)
+      }
+
+    } // end of method inlineCallees()
 
     /**
      * SI-5850: Inlined code shouldn't forget null-check on the original receiver
