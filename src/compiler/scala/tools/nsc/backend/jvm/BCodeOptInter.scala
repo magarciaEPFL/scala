@@ -38,12 +38,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   @volatile var hasInliningRun          = false // affects only which checks (regarding dclosure usages) are applicable.
   @volatile var isClassNodeBuildingDone = false // allows checking whether Worker1 thread is done, e.g. to register a new method descriptor as BType.
 
-  final def assertPipeline1Done() {
-    assert(
-      isClassNodeBuildingDone,
-      "This optimization might register a yet unseen method descriptor. " +
-      "Locking on global is good, better yet if pipeline-1 were done (because it register itselfs new BTypes, without locking)."
-    )
+  final def assertPipeline1Done(msg: String) {
+    assert(isClassNodeBuildingDone, msg)
   }
 
   /**
@@ -905,6 +901,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      **/
     def optimize() {
+      assertPipeline1Done(
+        "Before Inlining starts, all ClassNodes being compiled should be available to detect and break inlining cycles, " +
+        "ie pipeline-1 should be finished."
+      )
       ifDebug { closuRepo.checkDClosureUsages() }
       privatizables.clear()
       inlining()
@@ -2890,7 +2890,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       import asm.optimiz.UnusedParamsElider
       import asm.optimiz.StaticMaker
 
-      assertPipeline1Done()
+      assertPipeline1Done(
+        "This optimization might register a yet unseen method descriptor. Before doing so, global is locked." +
+        "For that to work, pipeline-1 must have completed (because Worker1 registers itselfs new BTypes, without locking)."
+      )
 
       val dCNode: ClassNode = codeRepo.classes.get(d)
 
