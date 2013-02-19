@@ -703,9 +703,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     *  A few analyses (e.g., Type-Flow Analysis) require `exemplars` to contain entries for all classes the analysis encounters.
+     *  Some analyses (e.g., Type-Flow Analysis) and some backend utilities (e,g, `refreshInnerClasses()`)
+     *  require `exemplars` to contain entries for all classes the analysis encounters.
      *  A class that is being compiled is already associated to a Tracked instance (GenBCode took care of that).
-     *  For a class `bt` mentioned in external bytecode, this method takes care of creating the necessary entry in `exemplars`.
+     *  For a class `bt` mentioned in external bytecode, `parseClassAndEnterExemplar()` adds an entry to `exemplars`.
      *
      *  After this method has run the following two post-conditions hold:
      *    - `exemplars.containsKey(bt)`
@@ -829,7 +830,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             bt = bt.getElementType
           }
           if(bt.isNonSpecial && enterExemplars && !exemplars.containsKey(bt)) {
-            // exemplars can be added only after all classes being compiled have been added to codeRepo.classes
+            // exemplars can be added *via parsing bytecode* only after all classes being compiled have landed in codeRepo.classes
             codeRepo.parseClassAndEnterExemplar(bt)
           }
         }
