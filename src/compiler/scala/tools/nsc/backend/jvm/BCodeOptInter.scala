@@ -2901,10 +2901,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            *  (2) attempt to make static the endpoint (and its invocation).
            *
            *  A master-class of a non-elided dclosure contains:
-           *    - a single instantiation of it, and
-           *    - no invocations to the dclosure's endpoint.
-           *  (the "non-elided" part is responsible for that property: a dclosure that was inlined
-           *   has a callsite to the endpoint in the shio method that replaces the higher-order method invocation).
+           *    - one or more instantiations of it ("or more" because of duplication of catch and try clauses), and
+           *    - no invocations to the dclosure's endpoint
+           *     (the "non-elided" part is responsible for "no invocations to the dclosure's endpoint":
+           *      a dclosure that was inlined has a callsite to the endpoint in the shio method
+           *      that replaces the higher-order method invocation).
            *
            * */
           def adaptEndpointAndItsCallsite(): Boolean = {
