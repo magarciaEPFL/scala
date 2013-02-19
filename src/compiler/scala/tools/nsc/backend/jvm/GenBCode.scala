@@ -1016,23 +1016,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         val trackedCNode = exemplars.get(lookupRefBType(cnode.name))
         for(lateC <- lateClosures) {
-          val innersChain: Array[InnerClassEntry] = {
-            /*
-             * the list of classes containing a closure amounts to innersChain of its containing class
-             * with the closure appended last.
-             */
-            val closuBT  = lookupRefBType(lateC.name)
-            val closuICE = InnerClassEntry(lateC.name, cnode.name, closuBT.getSimpleName, lateC.access)
-            if(trackedCNode.innersChain == null) {
-              val outer = InnerClassEntry(cnode.name, null, null, cnode.access)
-              Array(outer, closuICE)
-            } else {
-              val arr = new Array[InnerClassEntry](trackedCNode.innersChain.size + 1)
-              trackedCNode.innersChain.copyToArray(arr)
-              arr(arr.size - 1) = closuICE
-              arr
-            }
-          }
+          val innersChain = EMPTY_InnerClassEntry_ARRAY
           val trackedClosu = buildExemplarForClassNode(lateC, innersChain)
           exemplars.put(trackedClosu.c, trackedClosu)
         }
@@ -1041,6 +1025,14 @@ abstract class GenBCode extends BCodeOptInter {
 
       /**
        *  precondition: the argument's internal name already registered as BType
+       *
+       *  Discussion on whether a Late-Closure-Class (LCC) needs to be an inner class. No it doesn't. Reasoning:
+       *    (a) an LCC mentions only:
+       *        (a.1) the types listed in its endpoint.
+       *              The LCC's endpoint is a public method in a class C (the "master class" of the LCC).
+       *        (a.2) type C, because the LCC's outer pointer points to C
+       *    (b) Both C and LCC are in the same bytecode-level package.
+       *
        * */
       private def buildExemplarForClassNode(lateC: asm.tree.ClassNode, innersChain: Array[InnerClassEntry]): Tracked = {
         val key = lookupRefBType(lateC.name)
@@ -2705,6 +2697,10 @@ abstract class GenBCode extends BCodeOptInter {
             /**
              *  A Late-Closure-Class is created as a ClassNode.
              *  Except for the apply methods everything else is added: parents, fields, and constructor.
+             *
+             *  The Late-Closure-Class must be public to promote inlining:
+             *  that way, a method M containing an LCC instantiation can be inlined in a class of another package.
+             *  A more restrictive access for LCC would limit the potential for those inlinings.
              *
              *  @return the initialized closure-class, and its only constructor.
              * */

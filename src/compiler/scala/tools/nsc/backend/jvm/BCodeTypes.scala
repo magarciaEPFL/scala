@@ -1314,6 +1314,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val EMPTY_INT_ARRAY      = Array.empty[Int]
   val EMPTY_LABEL_ARRAY    = Array.empty[asm.Label]
   val EMPTY_BTYPE_ARRAY    = Array.empty[BType]
+  val EMPTY_InnerClassEntry_ARRAY = Array.empty[InnerClassEntry]
 
   /**
    * must-single-thread
