@@ -216,7 +216,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         d <- exclusiveDClosures(masterBT);
         if !elidedClasses.contains(d);
         dep = endpoint.get(d).mnode;
-        // looking ahead, it's possible for an arg-less static endpoint to be pasted into the dclosure's apply().
+        // looking ahead, it's possible for the static endpoint of a dclosure to be inlined into the dclosure's apply().
         if masterCNode.methods.contains(dep)
       ) yield d
     }
