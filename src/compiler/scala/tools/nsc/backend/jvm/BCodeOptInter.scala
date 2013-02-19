@@ -3442,7 +3442,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           }
           current = current.getNext
         }
-        if(!brackets.isEmpty) {
+        if(brackets.nonEmpty) {
 
           // val txtBefore = Util.textify(mnode); println("Before -------------------------------- " + txtBefore)
 
