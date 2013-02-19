@@ -2968,11 +2968,6 @@ abstract class GenBCode extends BCodeOptInter {
 
         closuCNode.methods.add(ctor)
 
-        for(closuMethod <- closuCNode.toMethodList) {
-          // exemplars can be added only after all classes being compiled have been added to codeRepo.classes
-          codeRepo.registerUnseenTypeNames(closuMethod.instructions, enterExemplars = false) // must-single-thread
-        }
-
         log(
           s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
           s"for endpoint ${delegateJavaName}${delegateMT} " +
@@ -2989,9 +2984,13 @@ abstract class GenBCode extends BCodeOptInter {
           DClosureEndpoint(delegateJavaName, delegateMT, closuBT, ctor)
         )
 
-        ifDebug {
-          asm.optimiz.Util.basicInterpret(closuCNode)
-        }
+        /*
+         * There's a problem with running a Type-Flow Analysis at this point to confirm the well-formedness of `closuCNode`:
+         * it's too early, because there's no guarantee the closure's endpoint has been already visited by PlainClassBuilder.
+         * Until that method is visited, it's possible for its corresponding `closuCNode` to mention
+         * internal names not yet registered as BTypes, and thus also not yet registered in `exemplars`.
+         * Once the master class of this Late-Closure-Class has been built, that information will be available.
+         * */
 
         castToBT
       } // end of PlainClassBuilder's genLateClosure()
