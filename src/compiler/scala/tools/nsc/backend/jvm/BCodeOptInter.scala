@@ -806,14 +806,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     }
 
     /**
-     *  An invariant we want to maintain:
-     *    "each internal name mentioned in an instruction that's part of this program
-     *     should have a Tracked instance (which implies, a BType instance)"
-     *  That invariant guarantees a Type-Flow Analysis can be run anytime, which might be useful.
-     *
      *  This method goes over its argument looking for not-yet-seen TypeNames,
      *  fabricating a Tracked instance for them (if needed by parsing bytecode,
      *  thus the location of this method as utility in codeRepo).
+     *
+     *  An invariant we want to maintain:
+     *    "each internal name mentioned in an instruction that's part of this program
+     *     should be associated to a Tracked instance (which implies, associated to a BType instance)"
+     *  That invariant guarantees a Type-Flow Analysis can be run anytime,
+     *  additionally `refreshInnerClasses()` also relies on `exemplars`.
      *
      *  Without a TypeName for an internal name or method descriptor, the following conversions can't be performed:
      *    from type-descriptor to BType, via `BCodeTypes.descrToBType()`
@@ -822,14 +823,14 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      *  must-single-thread
      */
-    def registerUnseenTypeNames(insns: InsnList, enterExemplars: Boolean = true) {
+    def registerUnseenTypeNames(insns: InsnList) {
 
         def enterInternalName(iname: String) {
           var bt = brefType(iname)
           if(bt.isArray) {
             bt = bt.getElementType
           }
-          if(bt.isNonSpecial && enterExemplars && !exemplars.containsKey(bt)) {
+          if(bt.isNonSpecial && !exemplars.containsKey(bt)) {
             // exemplars can be added *via parsing bytecode* only after all classes being compiled have landed in codeRepo.classes
             codeRepo.parseClassAndEnterExemplar(bt)
           }
@@ -1279,7 +1280,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
       if(!isMultithread) {
-        codeRepo.registerUnseenTypeNames(body, enterExemplars = true) // must-single-thread
+        codeRepo.registerUnseenTypeNames(body) // must-single-thread
       }
 
       val hostOwnerBT = lookupRefBType(hostOwner)
@@ -1678,7 +1679,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val callerId = hostOwner.name + "::" + host.name + host.desc
 
       assert(!isMultithread)
-      codeRepo.registerUnseenTypeNames(hiO.instructions, enterExemplars = true) // must-single-thread
+      codeRepo.registerUnseenTypeNames(hiO.instructions) // must-single-thread
 
       if(Util.isSynchronizedMethod(hiO)) {
         inlineTarget.warn(s"Closure-inlining failed because ${inlineTarget.calleeId} is synchronized.")
