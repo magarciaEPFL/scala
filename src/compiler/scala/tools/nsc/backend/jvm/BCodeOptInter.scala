@@ -3158,6 +3158,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *   (1) empty closure state: the endpoint (necessarily a static method) is invoked with (a subset of) the apply()'s arguments.
      *       In this case the closure can be turned into a singleton.
      *
+     *  The `singletonize()` optimization involves adding a class-initializer
+     *  (aka <clinit> , static constructor) to the Late-Closure-Class.
+     *  In the Java language, "Inner classes may not declare static initializers or member interfaces." (JLS, Java 7 Edition, Sec. 8.1.3)
+     *  However that's not a JVM restriction.
+     *
      * */
     private def singletonizeDClosures() {
       for(d <- closuRepo.liveDClosures(masterCNode)) {
