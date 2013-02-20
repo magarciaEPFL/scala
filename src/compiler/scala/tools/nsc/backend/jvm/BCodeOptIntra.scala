@@ -526,7 +526,30 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *     at the target of a backwards branch unless the special type of the uninitialized class instance
      *     at the branch instruction is merged with itself at the target of the branch (Sec. 4.10.2.4).
      *
-     *  TODO Describe rewriting.
+     *  The Oracle JVM as of JDK 7 has started rejecting bytecode of the form:
+     *
+     *      NEW x
+     *      DUP
+     *      ... instructions loading ctor-args, involving a backedge
+     *      INVOKESPECIAL <init>
+     *
+     *  `avoidBackedgesInConstructorArgs()` overcomes the above by reformulating into:
+     *
+     *      ... instructions loading ctor-args, involving a backedge
+     *      STORE nth-arg
+     *      ...
+     *      STORE 1st-arg
+     *      NEW x
+     *      DUP
+     *      LOAD 1st-arg
+     *      ...
+     *      LOAD nth-arg
+     *      INVOKESPECIAL <init>
+     *
+     *  An ASM-based visitor is used to computes usage-definition and definition-usage webs.
+     *
+     *  In the rewritten version, `NEW x` comes after the code to compute arguments, but it's that behavioral change or VerifyError.
+     *  That is, "beahavioral change" in case the class being instantiated has a side-effecting static initializer.
      *
      * */
     private def avoidBackedgesInConstructorArgs(cnode: ClassNode) {
