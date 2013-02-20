@@ -35,7 +35,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
   val cgns = new mutable.PriorityQueue[CallGraphNode]()(cgnOrdering)
 
   // volatile so that Worker2 threads see it
-  @volatile var hasInliningRun          = false // affects only which checks (regarding dclosure usages) are applicable.
+  @volatile var isInliningDone          = false // affects only which checks (regarding dclosure usages) are applicable.
   @volatile var isClassNodeBuildingDone = false // allows checking whether Worker1 thread is done, e.g. to register a new method descriptor as BType.
 
   final def assertPipeline1Done(msg: String) {
@@ -375,7 +375,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           assert(
             dc == null ||
             enclClassBT == masterClass(dc) ||
-            (hasInliningRun && nonMasterUsers(dc).contains(enclClassBT)),
+            (isInliningDone && nonMasterUsers(dc).contains(enclClassBT)),
              "A dclosure D is instantiated by a class C other than its master class, and " +
              "inlining + nonMasterUsers doesn't explain it either. " +
             s"Who plays each role: D by ${dc.getInternalName} , its master class is ${masterClass(dc).getInternalName} , " +
@@ -387,7 +387,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           assert(
             dc == null ||
             enclClassBT == dc ||
-            (hasInliningRun && (enclClassBT == masterClass(dc) || nonMasterUsers(dc).contains(enclClassBT))),
+            (isInliningDone && (enclClassBT == masterClass(dc) || nonMasterUsers(dc).contains(enclClassBT))),
             "A dclosure D is has its endpoint invoked by a class C other than D itself, and " +
             "inlining + nonMasterUsers doesn't explain it either. " +
            s"Who plays each role: D by ${dc.getInternalName} , and the enclosing class is ${enclClassBT.getInternalName} "
@@ -402,7 +402,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def checkDClosureUsages() {
 
-      assert(if(!hasInliningRun) nonMasterUsers.isEmpty else true)
+      assert(if(!isInliningDone) nonMasterUsers.isEmpty else true)
 
       val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
       while(iterCompiledEntries.hasNext) {
@@ -965,7 +965,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      **/
     private def inlining() {
 
-      hasInliningRun = true
+      isInliningDone = true
 
       // not that anyone is running yet dead-code elimination before inlining, just future-proofing for that case.
       for(cgn <- cgns) {

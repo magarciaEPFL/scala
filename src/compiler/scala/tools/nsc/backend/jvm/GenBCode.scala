@@ -407,7 +407,7 @@ abstract class GenBCode extends BCodeOptInter {
        * */
       def visit(item: Item2) {
 
-        assert(hasInliningRun == settings.isInterBasicOptimizOn)
+        assert(isInliningDone == settings.isInterBasicOptimizOn)
 
         val cleanser = new BCodeCleanser(item.plain.cnode)
         if(isUnoptRun) {
@@ -420,7 +420,7 @@ abstract class GenBCode extends BCodeOptInter {
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
         }
 
-        cleanser.avoidBackedgesInConstructorArgs(item.plain.cnode)
+        cleanser.avoidBackedgesInConstructorArgs()
 
         // populate InnerClass JVM attribute, including Late-Closure-Classes
         // each BType mentioned in the plain class or in Late-Closure-Classes, should by now be tracked in `exemplars`
@@ -601,7 +601,7 @@ abstract class GenBCode extends BCodeOptInter {
     private def spawnPipeline2(): IndexedSeq[Thread] = {
       for(i <- 1 to MAX_THREADS) yield {
         val w = new Worker2
-        val t = new _root_.java.lang.Thread(w, "bcode-worker-" + i)
+        val t = new _root_.java.lang.Thread(w, "optimizer-" + i)
         t.start()
         t
       }

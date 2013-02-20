@@ -254,7 +254,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
      *
      * */
-    def avoidBackedgesInConstructorArgs(cnode: ClassNode) {
+    def avoidBackedgesInConstructorArgs() {
       for(
         m <- JListWrapper(cnode.methods);
         if !Util.isAbstractMethod(m);
