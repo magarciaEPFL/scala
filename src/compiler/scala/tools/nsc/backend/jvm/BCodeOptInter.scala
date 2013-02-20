@@ -1138,12 +1138,13 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            "no frame is computed by type-flow analysis. Here's the complete bytecode of that method " + Util.textify(leaf.host)
         )
 
-        val success = inlineClosures(
+        val outecome = inlineClosures(
           leaf.hostOwner,
           leaf.host,
           callsiteTypeFlow,
           hiO
         )
+        val success = outecome.nonEmpty
 
         val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
         logInlining(
@@ -1151,6 +1152,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           hasNonNullReceiver,
           hiO.callee, hiO.owner
         )
+        if(success) {
+          log(outecome.get)
+        }
 
       }
       leaf.hiOs = Nil
@@ -1659,7 +1663,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * @param callsiteTypeFlow the type-stack reaching the callsite. Useful for knowing which args are closure-typed.
      * @param inlineTarget     inlining request (includes: callsite, callee, callee's owner, and error reporting)
      *
-     * @return true iff inlining was actually performed.
+     * @return Some(detailedMessage) iff inlining was actually performed, None otherwise.
      *
      * must-single-thread
      *
@@ -1667,7 +1671,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def inlineClosures(hostOwner:        ClassNode,
                                host:             MethodNode,
                                callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
-                               inlineTarget:     InlineTarget): Boolean = {
+                               inlineTarget:     InlineTarget): Option[String] = {
 
       // invocation of a higher-order method (taking one or more closures) whose inlining is requested.
       val callsite: MethodInsnNode = inlineTarget.callsite
@@ -1683,7 +1687,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       if(Util.isSynchronizedMethod(hiO)) {
         inlineTarget.warn(s"Closure-inlining failed because ${inlineTarget.calleeId} is synchronized.")
-        return false
+        return None
       }
 
       val illegalAccessInsn = allAccessesLegal(hiO.instructions, lookupRefBType(hostOwner.name))
@@ -1692,7 +1696,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           s"Closure-inlining failed because ${inlineTarget.calleeId} contains instruction \n${Util.textify(illegalAccessInsn)} " +
           s"that would cause IllegalAccessError from class ${hostOwner.name}"
         )
-        return false
+        return None
       }
 
             /**
@@ -1744,13 +1748,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           case Some(diagnostics) =>
             inlineTarget.warn(diagnostics)
-            return false
+            return None
 
           case None =>
             val quickOptimizer = new QuickCleanser(hostOwner)
             quickOptimizer.basicIntraMethodOpt(host)
             Util.computeMaxLocalsMaxStack(host)
-            return true // not really "successful closure-inlining" (see comment above) but the closest we can get.
+            return Some(
+              "Not really ''successful closure-inlining'' but inlining anyway: the callsite receives a scala.FunctionX, not a closure-class. " +
+              "Performed method-inlining (not closure-inlining) at that callsite, hoping to unblock closure-inlining of the anon-closure(s) passed to " +
+              methodSignature(hostOwner, host) +
+              " (itself a higher-order method)"
+            )
 
         }
 
@@ -1800,7 +1809,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         inlineTarget.warn(
           s"Can't perform closure-inlining because in $callerId different closures may arrive at the same argument position."
         )
-        return false
+        return None
       }
 
           /**
@@ -1941,15 +1950,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       for(fa <- failedAttempts) { inlineTarget.warn(fa.diagnostics) }
 
       if(closureClassUtils.isEmpty) {
-        return false
+        return None
       }
 
       val shioUtil = StaticHiOUtil(hiO, closureClassUtils)
       val staticHiO: MethodNode = shioUtil.buildStaticHiO(hostOwner, callsite, inlineTarget)
-      if(staticHiO == null) { return false }
+      if(staticHiO == null) { return None }
       assert(Util.isPublicMethod(staticHiO), "Not a public method: " + methodSignature(hostOwner, staticHiO))
       if(!shioUtil.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
-        return false
+        return None
       }
 
       val enclClass = lookupRefBType(hostOwner.name)
@@ -1979,7 +1988,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
-      true
+      val detailedMsg =
+        s"\tFor the closure inlining just mentioned, added static-HiO method: ${methodSignature(hostOwner, staticHiO)}\n" +
+        ( closureClassUtils map { ccu => s"Inlined anon-closure: ${ccu.closureClass.name}" } ).mkString("\t", "\n", "")
+
+      Some(detailedMsg)
     } // end of method inlineClosures
 
     /**
