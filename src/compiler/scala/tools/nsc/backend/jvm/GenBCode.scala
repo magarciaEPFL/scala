@@ -409,22 +409,25 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(isInliningDone == settings.isInterBasicOptimizOn)
 
-        val cleanser = new BCodeCleanser(item.plain.cnode)
+        val cnode = item.plain.cnode
+
+        val essential = new EssentialCleanser(cnode)
         if(isUnoptRun) {
-          ifDebug { closuRepo.checkDClosureUsages(item.plain.cnode) }
-          cleanser.removeDeadCode()    // no optimization, but removing dead code still desirable
+          ifDebug { closuRepo.checkDClosureUsages(cnode) }
+          essential.removeDeadCode()    // no optimization, but removing dead code still desirable
           // cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
           // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
         else {
+          val cleanser = new BCodeCleanser(cnode)
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
         }
 
-        cleanser.avoidBackedgesInConstructorArgs()
+        essential.avoidBackedgesInConstructorArgs()
 
         // populate InnerClass JVM attribute, including Late-Closure-Classes
         // each BType mentioned in the plain class or in Late-Closure-Classes, should by now be tracked in `exemplars`
-        refreshInnerClasses(item.plain.cnode)
+        refreshInnerClasses(cnode)
         item.lateClosures foreach refreshInnerClasses
 
         addToQ3(item)
