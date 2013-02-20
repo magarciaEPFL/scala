@@ -216,6 +216,104 @@ abstract class BCodeOptIntra extends BCodeTypes {
       }
     }
 
+    /**
+     *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
+     *
+     *  Quoting from the JVM Spec, 4.9.2 Structural Constraints , http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
+     *
+     *     There must never be an uninitialized class instance on the operand stack or in a local variable
+     *     at the target of a backwards branch unless the special type of the uninitialized class instance
+     *     at the branch instruction is merged with itself at the target of the branch (Sec. 4.10.2.4).
+     *
+     *  The Oracle JVM as of JDK 7 has started rejecting bytecode of the form:
+     *
+     *      NEW x
+     *      DUP
+     *      ... instructions loading ctor-args, involving a backedge
+     *      INVOKESPECIAL <init>
+     *
+     *  `avoidBackedgesInConstructorArgs()` overcomes the above by reformulating into:
+     *
+     *      ... instructions loading ctor-arg N
+     *      STORE nth-arg
+     *      ... instructions loading ctor-arg (N-1)
+     *      STORE (n-1)th-arg
+     *      ... and so on
+     *      STORE 1st-arg
+     *      NEW x
+     *      DUP
+     *      LOAD 1st-arg
+     *      ...
+     *      LOAD nth-arg
+     *      INVOKESPECIAL <init>
+     *
+     *  An ASM-based visitor is used to computes usage-definition and definition-usage webs.
+     *
+     *  In the rewritten version, `NEW x` comes after the code to compute arguments.
+     *  It's either that behavioral change or VerifyError.
+     *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
+     *
+     * */
+    def avoidBackedgesInConstructorArgs(cnode: ClassNode) {
+      for(
+        m <- JListWrapper(cnode.methods);
+        if !Util.isAbstractMethod(m);
+        inits =
+          for(
+            i <- m.instructions.toList;
+            if i.getType == AbstractInsnNode.METHOD_INSN;
+            mi = i.asInstanceOf[MethodInsnNode];
+            if (mi.name == "<init>") && (mi.desc != "()V")
+          ) yield mi;
+        if !(inits.isEmpty)
+      ) {
+
+        val cp = ProdConsAnalyzer.create()
+        cp.analyze(cnode.name , m)
+
+        for(init <- inits) {
+          val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
+          assert(
+            receiverSV.insns.size == 1,
+            s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, m, cnode)}"
+          )
+          val dupInsn = receiverSV.insns.iterator().next()
+          val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
+          if(!bes.isEmpty) {
+            for(
+              entry <- JSetWrapper(bes.entrySet());
+              jump  = entry.getKey;
+              label = entry.getValue
+            ) {
+              log(
+                s"Backedge found in contructor-args section, in method ${methodSignature(cnode, m)} " +
+                s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
+                 "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
+              )
+            }
+            assert(dupInsn.getOpcode == Opcodes.DUP)
+            val newInsn = dupInsn.getPrevious
+            assert(newInsn.getOpcode == Opcodes.NEW)
+            m.instructions.remove(newInsn)
+            m.instructions.remove(dupInsn)
+            m.instructions.insertBefore(init, newInsn)
+            m.instructions.insertBefore(init, dupInsn)
+            val paramTypes = BType.getMethodType(init.desc).getArgumentTypes
+            for(i <- (paramTypes.length - 1) to 0 by -1) {
+              val pt = paramTypes(i)
+              val idxVar   = m.maxLocals
+              m.maxLocals += pt.getSize
+              val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
+              val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
+              m.instructions.insertBefore(newInsn, store)
+              m.instructions.insert(dupInsn,load )
+            }
+          }
+        }
+
+      }
+    }
+
     //--------------------------------------------------------------------
     // Utilities for reuse by different optimizers
     //--------------------------------------------------------------------
@@ -464,8 +562,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
         // dcloptim.closureCachingAndEviction() TODO disabled because there's a bug in closureCachingAndEviction()
       }
 
-      avoidBackedgesInConstructorArgs(cnode)
-
     } // end of method cleanseClass()
 
     /**
@@ -515,104 +611,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
       }
 
       changed
-    }
-
-    /**
-     *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
-     *
-     *  Quoting from the JVM Spec, 4.9.2 Structural Constraints , http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
-     *
-     *     There must never be an uninitialized class instance on the operand stack or in a local variable
-     *     at the target of a backwards branch unless the special type of the uninitialized class instance
-     *     at the branch instruction is merged with itself at the target of the branch (Sec. 4.10.2.4).
-     *
-     *  The Oracle JVM as of JDK 7 has started rejecting bytecode of the form:
-     *
-     *      NEW x
-     *      DUP
-     *      ... instructions loading ctor-args, involving a backedge
-     *      INVOKESPECIAL <init>
-     *
-     *  `avoidBackedgesInConstructorArgs()` overcomes the above by reformulating into:
-     *
-     *      ... instructions loading ctor-arg N
-     *      STORE nth-arg
-     *      ... instructions loading ctor-arg (N-1)
-     *      STORE (n-1)th-arg
-     *      ... and so on
-     *      STORE 1st-arg
-     *      NEW x
-     *      DUP
-     *      LOAD 1st-arg
-     *      ...
-     *      LOAD nth-arg
-     *      INVOKESPECIAL <init>
-     *
-     *  An ASM-based visitor is used to computes usage-definition and definition-usage webs.
-     *
-     *  In the rewritten version, `NEW x` comes after the code to compute arguments.
-     *  It's either that behavioral change or VerifyError.
-     *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
-     *
-     * */
-    private def avoidBackedgesInConstructorArgs(cnode: ClassNode) {
-      for(
-        m <- JListWrapper(cnode.methods);
-        if !Util.isAbstractMethod(m);
-        inits =
-          for(
-            i <- m.instructions.toList;
-            if i.getType == AbstractInsnNode.METHOD_INSN;
-            mi = i.asInstanceOf[MethodInsnNode];
-            if (mi.name == "<init>") && (mi.desc != "()V")
-          ) yield mi;
-        if !(inits.isEmpty)
-      ) {
-
-        val cp = ProdConsAnalyzer.create()
-        cp.analyze(cnode.name , m)
-
-        for(init <- inits) {
-          val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
-          assert(
-            receiverSV.insns.size == 1,
-            s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, m, cnode)}"
-          )
-          val dupInsn = receiverSV.insns.iterator().next()
-          val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
-          if(!bes.isEmpty) {
-            for(
-              entry <- JSetWrapper(bes.entrySet());
-              jump  = entry.getKey;
-              label = entry.getValue
-            ) {
-              log(
-                s"Backedge found in contructor-args section, in method ${methodSignature(cnode, m)} " +
-                s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
-                 "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
-              )
-            }
-            assert(dupInsn.getOpcode == Opcodes.DUP)
-            val newInsn = dupInsn.getPrevious
-            assert(newInsn.getOpcode == Opcodes.NEW)
-            m.instructions.remove(newInsn)
-            m.instructions.remove(dupInsn)
-            m.instructions.insertBefore(init, newInsn)
-            m.instructions.insertBefore(init, dupInsn)
-            val paramTypes = BType.getMethodType(init.desc).getArgumentTypes
-            for(i <- (paramTypes.length - 1) to 0 by -1) {
-              val pt = paramTypes(i)
-              val idxVar   = m.maxLocals
-              m.maxLocals += pt.getSize
-              val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
-              val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
-              m.instructions.insertBefore(newInsn, store)
-              m.instructions.insert(dupInsn,load )
-            }
-          }
-        }
-
-      }
     }
 
     //--------------------------------------------------------------------
