@@ -178,23 +178,21 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
         keepGoing |= jumpsCollapser.changed
-        repOK(mnode)
 
         unreachCodeRemover.transform(cName, mnode) // remove unreachable code
         keepGoing |= unreachCodeRemover.changed
-        repOK(mnode)
 
         labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
         keepGoing |= labelsCleanup.changed
-        repOK(mnode)
 
         danglingExcHandlers.transform(mnode)
         keepGoing |= danglingExcHandlers.changed
-        repOK(mnode)
 
         changed |= keepGoing
 
       } while (keepGoing)
+
+      ifDebug { repOK(mnode) }
 
       changed
 
