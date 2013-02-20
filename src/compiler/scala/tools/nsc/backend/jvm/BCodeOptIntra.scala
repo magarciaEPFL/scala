@@ -548,8 +548,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *
      *  An ASM-based visitor is used to computes usage-definition and definition-usage webs.
      *
-     *  In the rewritten version, `NEW x` comes after the code to compute arguments, but it's that behavioral change or VerifyError.
-     *  That is, "beahavioral change" in case the class being instantiated has a side-effecting static initializer.
+     *  In the rewritten version, `NEW x` comes after the code to compute arguments.
+     *  It's either that behavioral change or VerifyError.
+     *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
      *
      * */
     private def avoidBackedgesInConstructorArgs(cnode: ClassNode) {
