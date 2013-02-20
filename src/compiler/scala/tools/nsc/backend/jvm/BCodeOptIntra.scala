@@ -535,9 +535,11 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *
      *  `avoidBackedgesInConstructorArgs()` overcomes the above by reformulating into:
      *
-     *      ... instructions loading ctor-args, involving a backedge
+     *      ... instructions loading ctor-arg N
      *      STORE nth-arg
-     *      ...
+     *      ... instructions loading ctor-arg (N-1)
+     *      STORE (n-1)th-arg
+     *      ... and so on
      *      STORE 1st-arg
      *      NEW x
      *      DUP
