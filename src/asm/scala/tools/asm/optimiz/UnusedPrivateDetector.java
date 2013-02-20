@@ -62,7 +62,7 @@ public class UnusedPrivateDetector implements Opcodes {
 
         Queue<MethodNode> toVisit = new LinkedList<MethodNode>();
         for (MethodNode m : cnode.methods) {
-            if (isPrivate(m.access)) {
+            if (isPrivate(m.access) && m.isLiftedMethod) {
               (isStatic(m.access) ? elidableStaticMethods : elidableInstanceMethods).add(m);
             } else {
                 toVisit.add(m);
