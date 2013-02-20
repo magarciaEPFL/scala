@@ -1988,11 +1988,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
-      val detailedMsg =
-        s"\tFor the closure inlining just mentioned, added static-HiO method: ${methodSignature(hostOwner, staticHiO)}\n" +
-        ( closureClassUtils map { ccu => s"Inlined anon-closure: ${ccu.closureClass.name}" } ).mkString("\t", "\n", "")
+      {
+        val elidedSize     = closureClassUtils.size
+        val elidedListing  =
+          for(idx <- 1 to elidedSize)
+          yield { s"($idx of $elidedSize): ${closureClassUtils(idx).closureClass.name}" }
+        val detailedMessage =
+          s"\tFor the closure inlining just mentioned, added static-HiO method: ${methodSignature(hostOwner, staticHiO)}. " +
+           "Elided anon-closures: " + elidedListing.mkString(" , ")
 
-      Some(detailedMsg)
+        Some(detailedMessage)
+      }
     } // end of method inlineClosures
 
     /**
