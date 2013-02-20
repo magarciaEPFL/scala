@@ -3021,7 +3021,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       val cleanser = new BCodeCleanser(dCNode)
-      cleanser.intraMethodFixpoints()
+      cleanser.intraMethodFixpoints(full = false)
 
       /*
        * Step 2: determine (declared) `closureState` and (effectively used) `whatGetsRead`
@@ -3115,7 +3115,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * (otherwise another attempt will be made to delete them next time around)
        * ------------------------------------------------------------------------
        * */
-      cleanser.intraMethodFixpoints()
+      cleanser.intraMethodFixpoints(full = false)
       for(fnode <- closureState.values; if !whatGetsRead.contains(fnode.name)) {
         dCNode.fields.remove(fnode)
       }

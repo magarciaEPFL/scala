@@ -531,33 +531,34 @@ abstract class BCodeOptIntra extends BCodeTypes {
      */
     def cleanseClass() {
 
-      // a dclosure is optimized together with its master class by `DClosureOptimizer` only
+      // a dclosure is optimized together with its master class by `DClosureOptimizer`
       assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
 
       val bt = lookupRefBType(cnode.name)
       if(elidedClasses.contains(bt)) { return }
 
+      // (1) intra-method
+      intraMethodFixpoints(full = true)
+
       val dcloptim =
         if(isInterClosureOptimizOn && isMasterClass(bt)) createDClosureOptimizer(cnode)
         else null
 
-      var keepGoing = false
-      do {
-
-        // (1) intra-method
-        intraMethodFixpoints()
-
-        if(dcloptim != null) {
-          // (2) intra-class
-          keepGoing  = removeUnusedLiftedMethods() // useful for master classes, but can by applied to any class.
-
-          // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
-          keepGoing |= dcloptim.shakeAndMinimizeClosures()
-        }
-
-      } while(keepGoing)
-
       if(dcloptim != null) {
+
+        var keepGoing = false
+        do {
+
+            // (2) intra-class, useful for master classes, but can by applied to any class.
+            keepGoing  = removeUnusedLiftedMethods()
+
+            // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
+            keepGoing |= dcloptim.shakeAndMinimizeClosures()
+
+            if(keepGoing) { intraMethodFixpoints(full = false) }
+
+        } while(keepGoing)
+
         dcloptim.minimizeDClosureAllocations()
         // dcloptim.closureCachingAndEviction() TODO disabled because there's a bug in closureCachingAndEviction()
       }
@@ -567,7 +568,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  intra-method optimizations
      * */
-    def intraMethodFixpoints() {
+    def intraMethodFixpoints(full: Boolean) {
 
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
 
@@ -575,13 +576,13 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         basicIntraMethodOpt(mnode)               // intra-method optimizations performed until a fixpoint is reached
 
-        cacheRepeatableReads(mnode)              // caching repeatable reads of stable values
-        unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
-        lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
+        if(full) {
+          cacheRepeatableReads(mnode)              // caching repeatable reads of stable values
+          unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
+          lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
+        }
 
-        // if(settings.debug.value) {
-          runTypeFlowAnalysis(mnode) // TODO debug
-        // }
+        ifDebug { runTypeFlowAnalysis(mnode) }
 
       }
 
