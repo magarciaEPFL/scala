@@ -412,21 +412,18 @@ abstract class GenBCode extends BCodeOptInter {
         val cnode = item.plain.cnode
 
         val essential = new EssentialCleanser(cnode)
-        if(isUnoptRun) {
-          ifDebug { closuRepo.checkDClosureUsages(cnode) }
-          essential.removeDeadCode()    // no optimization, but removing dead code still desirable
-          // cleanser.squashOuter()    // squashOuter() may mutate dclosures cnode is responsible for
-          // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
-        }
-        else {
+        ifDebug { closuRepo.checkDClosureUsages(cnode) }
+        essential.removeDeadCode()    // no optimization, but removing dead code still desirable
+        // essential.squashOuter()    // squashOuter() may mutate dclosures that cnode is responsible for
+        // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+
+        if(!isUnoptRun) {
           val cleanser = new BCodeCleanser(cnode)
-          cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that item.plain.cnode is responsible for
+          cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
         }
 
         essential.avoidBackedgesInConstructorArgs()
 
-        // populate InnerClass JVM attribute, including Late-Closure-Classes
-        // each BType mentioned in the plain class or in Late-Closure-Classes, should by now be tracked in `exemplars`
         refreshInnerClasses(cnode)
         item.lateClosures foreach refreshInnerClasses
 
