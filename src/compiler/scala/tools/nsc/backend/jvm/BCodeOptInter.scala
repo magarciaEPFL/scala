@@ -1991,7 +1991,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       {
         val elidedSize     = closureClassUtils.size
         val elidedListing  =
-          for(idx <- 1 to elidedSize)
+          for(idx <- 0 to (elidedSize - 1))
           yield { s"($idx of $elidedSize): ${closureClassUtils(idx).closureClass.name}" }
         val detailedMessage =
           s"\tFor the closure inlining just mentioned, added static-HiO method: ${methodSignature(hostOwner, staticHiO)}. " +
