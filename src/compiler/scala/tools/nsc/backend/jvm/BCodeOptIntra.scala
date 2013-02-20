@@ -225,7 +225,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     /**
      *  Well-formedness checks, useful after each fine-grained transformation step on a MethodNode.
      *
-     *  Makes sure that exception-handler and local-variable entries are non-obviously wrong
+     *  Makes sure that exception-handler and local-variable entries aren't obviously wrong
      *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
      */
     private def repOK(mnode: asm.tree.MethodNode): Boolean = {
