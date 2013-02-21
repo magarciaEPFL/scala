@@ -407,6 +407,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(isInliningDone == settings.isInterBasicOptimizOn)
 
+        // add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
+        for(lateC <- item.lateClosures) {
+          val trackedClosu = buildExemplarForLCC(lateC)
+          exemplars.put(trackedClosu.c, trackedClosu)
+        }
+
         val cnode = item.plain
 
         val essential = new EssentialCleanser(cnode)
@@ -427,6 +433,27 @@ abstract class GenBCode extends BCodeOptInter {
         addToQ3(item)
 
       } // end of method visit(Item2)
+
+      /**
+       *  precondition: the argument's internal name already registered as BType
+       *
+       *  Discussion on whether a Late-Closure-Class (LCC) needs to be an inner class. No it doesn't. Reasoning:
+       *    (a) an LCC mentions only:
+       *        (a.1) the types listed in its endpoint.
+       *              The LCC's endpoint is a public method in a class C (the "master class" of the LCC).
+       *        (a.2) type C, because the LCC's outer pointer points to C
+       *    (b) Both C and LCC are in the same bytecode-level package.
+       *
+       *  Under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
+       * */
+      private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
+        val key = lookupRefBType(lateC.name)
+        val tsc: Tracked = exemplars.get(ObjectReference)
+        val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
+        tr.directMemberClasses = Nil
+
+        tr
+      } // end of method buildExemplarForLCC
 
       /**
        *  Item2 has a field for Late-Closure-Classes so as to delay adding those LCCs to queue-3
@@ -1010,35 +1037,7 @@ abstract class GenBCode extends BCodeOptInter {
         trackInCodeRepo(cnode)
         for(lateC <- lateClosures) { trackInCodeRepo(lateC) }
 
-        // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
-
-        for(lateC <- lateClosures) {
-          val trackedClosu = buildExemplarForLCC(lateC)
-          exemplars.put(trackedClosu.c, trackedClosu)
-        }
-
       } // end of method genPlainClass()
-
-      /**
-       *  precondition: the argument's internal name already registered as BType
-       *
-       *  Discussion on whether a Late-Closure-Class (LCC) needs to be an inner class. No it doesn't. Reasoning:
-       *    (a) an LCC mentions only:
-       *        (a.1) the types listed in its endpoint.
-       *              The LCC's endpoint is a public method in a class C (the "master class" of the LCC).
-       *        (a.2) type C, because the LCC's outer pointer points to C
-       *    (b) Both C and LCC are in the same bytecode-level package.
-       *
-       *  Under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
-       * */
-      private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
-        val key = lookupRefBType(lateC.name)
-        val tsc: Tracked = exemplars.get(ObjectReference)
-        val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
-        tr.directMemberClasses = Nil
-
-        tr
-      } // end of method buildExemplarForLCC
 
       /**
        * must-single-thread
