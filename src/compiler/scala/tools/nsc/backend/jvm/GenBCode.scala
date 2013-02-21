@@ -143,9 +143,9 @@ abstract class GenBCode extends BCodeOptInter {
     /* ---------------- q2 ---------------- */
 
     case class Item2(arrivalPos:   Int,
-                     mirror:       SubItem2Plain,
-                     plain:        SubItem2Plain,
-                     bean:         SubItem2Plain,
+                     mirror:       asm.tree.ClassNode,
+                     plain:        asm.tree.ClassNode,
+                     bean:         asm.tree.ClassNode,
                      lateClosures: List[asm.tree.ClassNode],
                      outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
@@ -156,8 +156,8 @@ abstract class GenBCode extends BCodeOptInter {
       override def compare(a: Item2, b: Item2): Int = {
         if(a.isPoison) { return  1 }
         if(b.isPoison) { return -1 }
-        val aSize = a.plain.cnode.methods.size()
-        val bSize = b.plain.cnode.methods.size()
+        val aSize = a.plain.methods.size()
+        val bSize = b.plain.methods.size()
 
         if     (aSize  > bSize) -1
         else if(aSize == bSize)  0
@@ -245,35 +245,32 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         // -------------- mirror class, if needed --------------
-        var mirrorC: SubItem2Plain = null
-        if (isStaticModule(claszSymbol) && isTopLevelModule(claszSymbol)) {
-          if (claszSymbol.companionClass == NoSymbol) {
-            mirrorC = mirrorCodeGen.genMirrorClass(claszSymbol, cunit)
-          } else {
-            log("No mirror class for module with linked class: " + claszSymbol.fullName)
-          }
-        }
+        val mirrorC =
+          if (isStaticModule(claszSymbol) && isTopLevelModule(claszSymbol)) {
+            if (claszSymbol.companionClass == NoSymbol) {
+              mirrorCodeGen.genMirrorClass(claszSymbol, cunit)
+            } else {
+              log("No mirror class for module with linked class: " + claszSymbol.fullName);
+              null
+            }
+          } else null
 
         // -------------- "plain" class --------------
         val pcb = new PlainClassBuilder(cunit)
         pcb.genPlainClass(cd)
         val label = "" + cd.symbol.name
         val outF = getOutFolder(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
-        val plainC: SubItem2Plain = {
-          assert(pcb.thisName == pcb.cnode.name)
-          SubItem2Plain(label, pcb.cnode)
-        }
+        val plainC = pcb.cnode
 
         // -------------- bean info class, if needed --------------
-        var beanC: SubItem2Plain = null
-        if (claszSymbol hasAnnotation BeanInfoAttr) {
-          beanC =
+        val beanC =
+          if (claszSymbol hasAnnotation BeanInfoAttr) {
             beanInfoCodeGen.genBeanInfoClass(
               claszSymbol, cunit,
               fieldSymbols(claszSymbol),
               methodSymbols(cd)
             )
-        }
+          } else null
 
         val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, pcb.lateClosures, outF)
         lateClosuresCount += pcb.lateClosures.size
@@ -394,7 +391,7 @@ abstract class GenBCode extends BCodeOptInter {
             catch {
               case ex: Throwable =>
                 ex.printStackTrace()
-                error("Error while emitting " + item.plain.cnode.name +  "\n"  + ex.getMessage)
+                error("Error while emitting " + item.plain.name +  "\n"  + ex.getMessage)
             }
           }
         }
@@ -410,7 +407,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(isInliningDone == settings.isInterBasicOptimizOn)
 
-        val cnode = item.plain.cnode
+        val cnode = item.plain
 
         val essential = new EssentialCleanser(cnode)
         ifDebug { closuRepo.checkDClosureUsages(cnode) }
@@ -455,17 +452,17 @@ abstract class GenBCode extends BCodeOptInter {
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
           if (mirror != null) {
-            SubItem3(mirror.label, mirror.cnode.name, getByteArray(mirror.cnode), outFolder)
+            SubItem3(mirror.name, getByteArray(mirror), outFolder)
           } else null
 
         // -------------- "plain" class --------------
         val plainC =
-          SubItem3(plain.label, plain.cnode.name, getByteArray(plain.cnode), outFolder)
+          SubItem3(plain.name, getByteArray(plain), outFolder)
 
         // -------------- bean info class, if needed --------------
         val beanC: SubItem3 =
           if (bean != null) {
-            SubItem3(bean.label, bean.cnode.name, getByteArray(bean.cnode), outFolder)
+            SubItem3(bean.name, getByteArray(bean), outFolder)
           } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
@@ -474,7 +471,7 @@ abstract class GenBCode extends BCodeOptInter {
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
-          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, lateC.name, getByteArray(lateC), outFolder), null)
+          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC), outFolder), null)
         }
 
       }
@@ -611,11 +608,11 @@ abstract class GenBCode extends BCodeOptInter {
 
           def sendToDisk(cfr: SubItem3) {
             if(cfr != null){
-              val SubItem3(label, jclassName, jclassBytes, outFolder) = cfr
+              val SubItem3(jclassName, jclassBytes, outFolder) = cfr
               val outFile =
                 if(outFolder == null) null
                 else getFileForClassfile(outFolder, jclassName, ".class")
-              bytecodeWriter.writeClass(label, jclassName, jclassBytes, outFile)
+              bytecodeWriter.writeClass(jclassName, jclassName, jclassBytes, outFile)
             }
           }
 

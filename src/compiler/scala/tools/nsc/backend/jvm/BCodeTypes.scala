@@ -271,26 +271,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val isCompilingStdLib = !(settings.sourcepath.isDefault)
 
   /**
-   *  @param label     used in log messages
-   *  @param cnode     bytecode emitted for the plain-class SubItem2Plain represents
-   *  @param outFolder folder on disk where a file will be created to serialize cnode
-   * */
-  case class SubItem2Plain(
-    label:     String,
-    cnode:     asm.tree.ClassNode
-  )
-
-  /**
    *  An item of queue-3 (the last queue before serializing to disk) contains three of these
    *  (one for each of mirror, plain, and bean classes).
    *
-   *  @param label       used in log messages
    *  @param jclassName  internal name of the class
    *  @param jclassBytes bytecode emitted for the class SubItem3 represents
    *  @param outFolder   folder on disk where a file will be created to serialize jclassBytes
    * */
   case class SubItem3(
-    label:       String,
     jclassName:  String,
     jclassBytes: Array[Byte],
     outFolder:   _root_.scala.tools.nsc.io.AbstractFile
@@ -3622,7 +3610,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      *  must-single-thread
      */
-    def genMirrorClass(modsym: Symbol, cunit: CompilationUnit): SubItem2Plain = {
+    def genMirrorClass(modsym: Symbol, cunit: CompilationUnit): asm.tree.ClassNode = {
       assert(modsym.companionClass == NoSymbol, modsym)
       innerClassBufferASM.clear()
       this.cunit = cunit
@@ -3656,7 +3644,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       mirrorClass.visitEnd()
 
-      SubItem2Plain("" + modsym.name, mirrorClass)
+      ("" + modsym.name) // this side-effect is necessary, really.
+
+      mirrorClass
     }
 
   } // end of class JMirrorBuilder
@@ -3671,7 +3661,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * must-single-thread
      */
-    def genBeanInfoClass(cls: Symbol, cunit: CompilationUnit, fieldSymbols: List[Symbol], methodSymbols: List[Symbol]): SubItem2Plain = {
+    def genBeanInfoClass(cls: Symbol, cunit: CompilationUnit, fieldSymbols: List[Symbol], methodSymbols: List[Symbol]): asm.tree.ClassNode = {
 
           def javaSimpleName(s: Symbol): String = { s.javaSimpleName.toString }
 
@@ -3774,7 +3764,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       beanInfoClass.visitEnd()
 
-      SubItem2Plain(beanInfoName, beanInfoClass)
+      beanInfoClass
     }
 
   } // end of class JBeanInfoBuilder
