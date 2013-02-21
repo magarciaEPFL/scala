@@ -819,6 +819,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   var classCastExceptionReference : BType = null // java/lang/ClassCastException
   val StringBuilderClassName   = "scala/collection/mutable/StringBuilder"
 
+  var lateClosureInterfaces: Array[Tracked] = null // the only interface a Late-Closure-Class implements is scala.Serializable
+
   /** A map from scala primitive type-symbols to BTypes */
   var primitiveTypeMap: Map[Symbol, BType] = null
   /** A map from scala type-symbols for Nothing and Null to (runtime version) BTypes */
@@ -930,6 +932,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     jioSerializableReference    = exemplar(JavaSerializableClass).c
     scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
+
+    lateClosureInterfaces = Array(exemplar(SerializableClass))
 
     /*
      *  The bytecode emitter special-cases String concatenation, in that three methods of `JCodeMethodN`

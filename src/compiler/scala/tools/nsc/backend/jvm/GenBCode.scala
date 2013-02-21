@@ -1013,8 +1013,7 @@ abstract class GenBCode extends BCodeOptInter {
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
 
         for(lateC <- lateClosures) {
-          val innersChain = EMPTY_InnerClassEntry_ARRAY
-          val trackedClosu = buildExemplarForClassNode(lateC, innersChain)
+          val trackedClosu = buildExemplarForLCC(lateC)
           exemplars.put(trackedClosu.c, trackedClosu)
         }
 
@@ -1030,27 +1029,16 @@ abstract class GenBCode extends BCodeOptInter {
        *        (a.2) type C, because the LCC's outer pointer points to C
        *    (b) Both C and LCC are in the same bytecode-level package.
        *
+       *  Under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
        * */
-      private def buildExemplarForClassNode(lateC: asm.tree.ClassNode, innersChain: Array[InnerClassEntry]): Tracked = {
+      private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
         val key = lookupRefBType(lateC.name)
-        assert(!exemplars.containsKey(key))
-
-        // the only interface an anonymous closure class implements is scala.Serializable,
-        val ifacesArr: Array[Tracked] =
-          if(lateC.interfaces.isEmpty) EMPTY_TRACKED_ARRAY
-          else {
-            (JListWrapper(lateC.interfaces) map lookupExemplar).toArray
-           }
-
-        val tsc: Tracked = if(lateC.superName == null) null else lookupExemplar(lateC.superName)
-
-        val tr = Tracked(key, lateC.access, tsc, ifacesArr, innersChain)
-
-        // under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
+        val tsc: Tracked = exemplars.get(ObjectReference)
+        val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
         tr.directMemberClasses = Nil
 
         tr
-      } // end of method buildExemplarForLateClosure()
+      } // end of method buildExemplarForLCC
 
       /**
        * must-single-thread
