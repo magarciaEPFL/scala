@@ -271,26 +271,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val isCompilingStdLib = !(settings.sourcepath.isDefault)
 
   /**
-   *  An item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains two of these
-   *  (one for mirror class and another for bean class).
-   *  The third value an item of queue-2 contains is for the plain class, see `SubItem2Plain`.
-   *
-   *  @param label      used in log messages
-   *  @param jclassName internal name of the class
-   *  @param jclass     bytecode emitted for the (mirror or bean) class SubItem2NonPlain represents
-   *  @param outFolder  folder on disk where a file will be created to serialize jclass
-   * */
-  case class SubItem2NonPlain(
-    label:      String,
-    jclassName: String,
-    jclass:     asm.ClassWriter,
-    outFolder:  _root_.scala.tools.nsc.io.AbstractFile
-  )
-
-  /**
-   *  An item of queue-2 (the queue where the typer-dependent pass dumps its intermediate output) contains
-   *  a value of this class for the plain-class denoted by that item.
-   *
    *  @param label     used in log messages
    *  @param cnode     bytecode emitted for the plain-class SubItem2Plain represents
    *  @param outFolder folder on disk where a file will be created to serialize cnode
@@ -3123,36 +3103,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      */
     final def descriptor(sym: Symbol): String = { asmClassType(sym).getDescriptor }
 
-    /**
-     * Returns a new ClassWriter for the class given by arguments.
-     *
-     * @param access the class's access flags. This parameter also indicates if the class is deprecated.
-     *
-     * @param name the internal name of the class.
-     *
-     * @param signature the signature of this class. May be <tt>null</tt> if
-     *        the class is not a generic one, and does not extend or implement
-     *        generic classes or interfaces.
-     *
-     * @param superName the internal of name of the super class. For interfaces,
-     *        the super class is {@link Object}. May be <tt>null</tt>, but
-     *        only for the {@link Object} class.
-     *
-     * @param interfaces the internal names of the class's interfaces (see
-     *        {@link Type#getInternalName() getInternalName}). May be
-     *        <tt>null</tt>.
-     *
-     *  can-multi-thread
-     */
-    def createJClass(access: Int, name: String, signature: String, superName: String, interfaces: Array[String]): asm.ClassWriter = {
-      val cw = new CClassWriter(extraProc)
-      cw.visit(classfileVersion,
-               access, name, signature,
-               superName, interfaces)
-
-      cw
-    }
-
   } // end of trait BCInnerClassGen
 
   trait BCAnnotGen extends BCInnerClassGen {
@@ -3673,7 +3623,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      *  must-single-thread
      */
-    def genMirrorClass(modsym: Symbol, cunit: CompilationUnit): SubItem2NonPlain = {
+    def genMirrorClass(modsym: Symbol, cunit: CompilationUnit): SubItem2Plain = {
       assert(modsym.companionClass == NoSymbol, modsym)
       innerClassBufferASM.clear()
       this.cunit = cunit
@@ -3681,11 +3631,15 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       val mirrorName = moduleName.substring(0, moduleName.length() - 1)
 
       val flags = (asm.Opcodes.ACC_SUPER | asm.Opcodes.ACC_PUBLIC | asm.Opcodes.ACC_FINAL)
-      val mirrorClass = createJClass(flags,
-                                     mirrorName,
-                                     null /* no java-generic-signature */,
-                                     JAVA_LANG_OBJECT.getInternalName,
-                                     EMPTY_STRING_ARRAY)
+      val mirrorClass = new asm.tree.ClassNode
+      mirrorClass.visit(
+        classfileVersion,
+        flags,
+        mirrorName,
+        null /* no java-generic-signature */,
+        JAVA_LANG_OBJECT.getInternalName,
+        EMPTY_STRING_ARRAY
+      )
 
       if(emitSource) {
         mirrorClass.visitSource("" + cunit.source,
@@ -3704,7 +3658,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       mirrorClass.visitEnd()
       // leaving for later on purpose invoking `toByteArray()` on mirrorClass (pipeline-2 will do that).
       val outF = getOutFolder(needsOutfileForSymbol, modsym, mirrorName, cunit)
-      SubItem2NonPlain("" + modsym.name, mirrorName, mirrorClass, outF)
+      SubItem2Plain(mirrorName, mirrorClass, outF)
     }
 
   } // end of class JMirrorBuilder
@@ -3719,7 +3673,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * must-single-thread
      */
-    def genBeanInfoClass(cls: Symbol, cunit: CompilationUnit, fieldSymbols: List[Symbol], methodSymbols: List[Symbol]): SubItem2NonPlain = {
+    def genBeanInfoClass(cls: Symbol, cunit: CompilationUnit, fieldSymbols: List[Symbol], methodSymbols: List[Symbol]): SubItem2Plain = {
 
           def javaSimpleName(s: Symbol): String = { s.javaSimpleName.toString }
 
@@ -3730,13 +3684,15 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         if(isDeprecated(cls)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
       )
 
-      val beanInfoName = (internalName(cls) + "BeanInfo")
-      val beanInfoClass = createJClass(
-            flags,
-            beanInfoName,
-            null, // no java-generic-signature
-            "scala/beans/ScalaBeanInfo",
-            EMPTY_STRING_ARRAY
+      val beanInfoName  = (internalName(cls) + "BeanInfo")
+      val beanInfoClass = new asm.tree.ClassNode
+      beanInfoClass.visit(
+        classfileVersion,
+        flags,
+        beanInfoName,
+        null, // no java-generic-signature
+        "scala/beans/ScalaBeanInfo",
+        EMPTY_STRING_ARRAY
       )
 
       beanInfoClass.visitSource(
@@ -3822,7 +3778,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       // leaving for later on purpose (to be done by pipeline-2): invoking `visitEnd()` and `toByteArray()` on beanInfoClass.
 
       val outF = getOutFolder(needsOutfileForSymbol, cls, beanInfoName, cunit)
-      SubItem2NonPlain("BeanInfo ", beanInfoName, beanInfoClass, outF)
+      SubItem2Plain(beanInfoName, beanInfoClass, outF)
     }
 
   } // end of class JBeanInfoBuilder

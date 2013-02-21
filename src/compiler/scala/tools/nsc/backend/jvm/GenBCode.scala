@@ -143,9 +143,9 @@ abstract class GenBCode extends BCodeOptInter {
     /* ---------------- q2 ---------------- */
 
     case class Item2(arrivalPos:   Int,
-                     mirror:       SubItem2NonPlain,
+                     mirror:       SubItem2Plain,
                      plain:        SubItem2Plain,
-                     bean:         SubItem2NonPlain,
+                     bean:         SubItem2Plain,
                      lateClosures: List[asm.tree.ClassNode]) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
@@ -244,7 +244,7 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         // -------------- mirror class, if needed --------------
-        var mirrorC: SubItem2NonPlain = null
+        var mirrorC: SubItem2Plain = null
         if (isStaticModule(claszSymbol) && isTopLevelModule(claszSymbol)) {
           if (claszSymbol.companionClass == NoSymbol) {
             mirrorC = mirrorCodeGen.genMirrorClass(claszSymbol, cunit)
@@ -264,7 +264,7 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         // -------------- bean info class, if needed --------------
-        var beanC: SubItem2NonPlain = null
+        var beanC: SubItem2Plain = null
         if (claszSymbol hasAnnotation BeanInfoAttr) {
           beanC =
             beanInfoCodeGen.genBeanInfoClass(
@@ -455,7 +455,7 @@ abstract class GenBCode extends BCodeOptInter {
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
           if (mirror != null) {
-            SubItem3(mirror.label, mirror.jclassName, mirror.jclass.toByteArray(), mirror.outFolder)
+            SubItem3(mirror.label, mirror.cnode.name, getByteArray(mirror.cnode), mirror.outFolder)
           } else null
 
         // -------------- "plain" class --------------
@@ -465,7 +465,7 @@ abstract class GenBCode extends BCodeOptInter {
         // -------------- bean info class, if needed --------------
         val beanC: SubItem3 =
           if (bean != null) {
-            SubItem3(bean.label, bean.jclassName, bean.jclass.toByteArray(), bean.outFolder)
+            SubItem3(bean.label, bean.cnode.name, getByteArray(bean.cnode), bean.outFolder)
           } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
