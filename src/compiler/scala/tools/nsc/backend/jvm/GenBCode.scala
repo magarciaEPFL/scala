@@ -421,9 +421,8 @@ abstract class GenBCode extends BCodeOptInter {
         if(!isUnoptRun) {
           val cleanser = new BCodeCleanser(cnode)
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
+          essential.avoidBackedgesInConstructorArgs()
         }
-
-        essential.avoidBackedgesInConstructorArgs()
 
         refreshInnerClasses(cnode)
         item.lateClosures foreach refreshInnerClasses
