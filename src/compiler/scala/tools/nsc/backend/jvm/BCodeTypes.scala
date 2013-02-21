@@ -3658,7 +3658,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       mirrorClass.visitEnd()
       // leaving for later on purpose invoking `toByteArray()` on mirrorClass (pipeline-2 will do that).
       val outF = getOutFolder(needsOutfileForSymbol, modsym, mirrorName, cunit)
-      SubItem2Plain(mirrorName, mirrorClass, outF)
+      SubItem2Plain("" + modsym.name, mirrorClass, outF)
     }
 
   } // end of class JMirrorBuilder
