@@ -1012,7 +1012,6 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
 
-        val trackedCNode = exemplars.get(lookupRefBType(cnode.name))
         for(lateC <- lateClosures) {
           val innersChain = EMPTY_InnerClassEntry_ARRAY
           val trackedClosu = buildExemplarForClassNode(lateC, innersChain)
@@ -1040,10 +1039,10 @@ abstract class GenBCode extends BCodeOptInter {
         val ifacesArr: Array[Tracked] =
           if(lateC.interfaces.isEmpty) EMPTY_TRACKED_ARRAY
           else {
-            (JListWrapper(lateC.interfaces) map lookupRefBType).map(bt => exemplars.get(bt)).toArray
+            (JListWrapper(lateC.interfaces) map lookupExemplar).toArray
            }
 
-        val tsc: Tracked = if(lateC.superName == null) null else exemplars.get(lookupRefBType(lateC.superName))
+        val tsc: Tracked = if(lateC.superName == null) null else lookupExemplar(lateC.superName)
 
         val tr = Tracked(key, lateC.access, tsc, ifacesArr, innersChain)
 

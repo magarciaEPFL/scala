@@ -1236,6 +1236,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     else null
   }
 
+  final def lookupExemplar(iname: String) = {
+    exemplars.get(lookupRefBType(iname))
+  }
+
   /**
    * Records the superClass and supportedInterfaces relations,
    * so that afterwards queries can be answered without resorting to typer.
