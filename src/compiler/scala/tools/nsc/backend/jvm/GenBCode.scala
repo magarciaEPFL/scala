@@ -119,6 +119,9 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
+    val isUnoptRun = !settings.isIntraMethodOptimizOn
+    val mustPopulateCodeRepo = !isUnoptRun || !settings.debug.value
+
     // number of woker threads for pipeline-2 (the one in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
       if(settings.isIntraMethodOptimizOn) 64 else 8,
@@ -374,8 +377,6 @@ abstract class GenBCode extends BCodeOptInter {
      *  can-multi-thread
      */
     class Worker2 extends _root_.java.lang.Runnable {
-
-      val isUnoptRun = !settings.isIntraMethodOptimizOn
 
       def run() {
         val id = java.lang.Thread.currentThread.getId
@@ -999,11 +1000,12 @@ abstract class GenBCode extends BCodeOptInter {
               codeRepo.classes.put(bt, compiled)
             }
 
-        trackInCodeRepo(cnode)
-        for(lateC <- lateClosures) { trackInCodeRepo(lateC) }
+        if(mustPopulateCodeRepo) {
+          trackInCodeRepo(cnode)
+          lateClosures foreach trackInCodeRepo
+        }
 
-        // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
-
+        // add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
         for(lateC <- lateClosures) {
           val trackedClosu = buildExemplarForLCC(lateC)
           exemplars.put(trackedClosu.c, trackedClosu)
