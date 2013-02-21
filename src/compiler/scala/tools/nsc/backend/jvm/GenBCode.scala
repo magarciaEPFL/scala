@@ -170,7 +170,10 @@ abstract class GenBCode extends BCodeOptInter {
 
     /* ---------------- q3 ---------------- */
 
-    case class Item3(arrivalPos: Int, mirror: SubItem3, plain: SubItem3, bean: SubItem3) {
+    case class Item3(arrivalPos: Int,
+                     mirror:     SubItem3, plain: SubItem3, bean: SubItem3,
+                     outFolder:  _root_.scala.tools.nsc.io.AbstractFile) {
+
       def isPoison  = { arrivalPos == Int.MaxValue }
       /*
        * The first condition below (plain == null) implies WholeProgramAnalysis did the eliding,
@@ -188,7 +191,7 @@ abstract class GenBCode extends BCodeOptInter {
         else 1
       }
     }
-    private val poison3 = Item3(Int.MaxValue, null, null, null)
+    private val poison3 = Item3(Int.MaxValue, null, null, null, null)
     private val q3 = new _root_.java.util.concurrent.PriorityBlockingQueue[Item3](1000, i3comparator)
 
     /**
@@ -476,29 +479,17 @@ abstract class GenBCode extends BCodeOptInter {
 
         // TODO aren't mirror.outFolder , plain.outFolder , and bean.outFolder one and the same? Remove duplicity.
 
-        // -------------- mirror class, if needed --------------
-        val mirrorC: SubItem3 =
-          if (mirror != null) {
-            SubItem3(mirror.name, getByteArray(mirror), outFolder)
-          } else null
+        val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
+        val plainC  = SubItem3(plain.name, getByteArray(plain))
+        val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
 
-        // -------------- "plain" class --------------
-        val plainC =
-          SubItem3(plain.name, getByteArray(plain), outFolder)
-
-        // -------------- bean info class, if needed --------------
-        val beanC: SubItem3 =
-          if (bean != null) {
-            SubItem3(bean.name, getByteArray(bean), outFolder)
-          } else null
-
-        q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
+        q3 put Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
 
         // -------------- Late-Closure-Classes, if any --------------
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
-          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC), outFolder), null)
+          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
         }
 
       }
@@ -633,9 +624,9 @@ abstract class GenBCode extends BCodeOptInter {
     /** Pipeline that writes classfile representations to disk. */
     private def drainQ3() {
 
-          def sendToDisk(cfr: SubItem3) {
+          def sendToDisk(cfr: SubItem3, outFolder: _root_.scala.tools.nsc.io.AbstractFile) {
             if(cfr != null){
-              val SubItem3(jclassName, jclassBytes, outFolder) = cfr
+              val SubItem3(jclassName, jclassBytes) = cfr
               val outFile =
                 if(outFolder == null) null
                 else getFileForClassfile(outFolder, jclassName, ".class")
@@ -667,9 +658,10 @@ abstract class GenBCode extends BCodeOptInter {
         while(!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
           if(!item.wasElided) {
-            sendToDisk(item.mirror)
-            sendToDisk(item.plain)
-            sendToDisk(item.bean)
+            val outFolder = item.outFolder
+            sendToDisk(item.mirror, outFolder)
+            sendToDisk(item.plain,  outFolder)
+            sendToDisk(item.bean,   outFolder)
           }
           expected += 1
         }

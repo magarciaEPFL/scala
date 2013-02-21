@@ -276,12 +276,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    *  @param jclassName  internal name of the class
    *  @param jclassBytes bytecode emitted for the class SubItem3 represents
-   *  @param outFolder   folder on disk where a file will be created to serialize jclassBytes
    * */
   case class SubItem3(
     jclassName:  String,
-    jclassBytes: Array[Byte],
-    outFolder:   _root_.scala.tools.nsc.io.AbstractFile
+    jclassBytes: Array[Byte]
   )
 
   /**
