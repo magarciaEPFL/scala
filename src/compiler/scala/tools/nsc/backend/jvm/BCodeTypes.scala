@@ -277,8 +277,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    * */
   case class SubItem2Plain(
     label:     String,
-    cnode:     asm.tree.ClassNode,
-    outFolder: _root_.scala.tools.nsc.io.AbstractFile
+    cnode:     asm.tree.ClassNode
   )
 
   /**
@@ -3656,9 +3655,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       addInnerClassesASM(mirrorClass, innerClassBufferASM.toList)
 
       mirrorClass.visitEnd()
-      // leaving for later on purpose invoking `toByteArray()` on mirrorClass (pipeline-2 will do that).
-      val outF = getOutFolder(needsOutfileForSymbol, modsym, mirrorName, cunit)
-      SubItem2Plain("" + modsym.name, mirrorClass, outF)
+
+      SubItem2Plain("" + modsym.name, mirrorClass)
     }
 
   } // end of class JMirrorBuilder
@@ -3775,10 +3773,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       addInnerClassesASM(beanInfoClass, innerClassBufferASM.toList)
 
       beanInfoClass.visitEnd()
-      // leaving for later on purpose (to be done by pipeline-2): invoking `visitEnd()` and `toByteArray()` on beanInfoClass.
 
-      val outF = getOutFolder(needsOutfileForSymbol, cls, beanInfoName, cunit)
-      SubItem2Plain(beanInfoName, beanInfoClass, outF)
+      SubItem2Plain(beanInfoName, beanInfoClass)
     }
 
   } // end of class JBeanInfoBuilder

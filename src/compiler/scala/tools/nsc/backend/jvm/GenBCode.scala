@@ -146,7 +146,8 @@ abstract class GenBCode extends BCodeOptInter {
                      mirror:       SubItem2Plain,
                      plain:        SubItem2Plain,
                      bean:         SubItem2Plain,
-                     lateClosures: List[asm.tree.ClassNode]) {
+                     lateClosures: List[asm.tree.ClassNode],
+                     outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
@@ -164,7 +165,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
     private val q2 = new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](1000, i2LargeClassesFirst)
 
     /* ---------------- q3 ---------------- */
@@ -256,11 +257,11 @@ abstract class GenBCode extends BCodeOptInter {
         // -------------- "plain" class --------------
         val pcb = new PlainClassBuilder(cunit)
         pcb.genPlainClass(cd)
+        val label = "" + cd.symbol.name
+        val outF = getOutFolder(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
         val plainC: SubItem2Plain = {
-          val label = "" + cd.symbol.name
-          val outF = getOutFolder(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
           assert(pcb.thisName == pcb.cnode.name)
-          SubItem2Plain(label, pcb.cnode, outF)
+          SubItem2Plain(label, pcb.cnode)
         }
 
         // -------------- bean info class, if needed --------------
@@ -274,7 +275,7 @@ abstract class GenBCode extends BCodeOptInter {
             )
         }
 
-        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, pcb.lateClosures)
+        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, pcb.lateClosures, outF)
         lateClosuresCount += pcb.lateClosures.size
 
         q2 put item2
@@ -448,30 +449,29 @@ abstract class GenBCode extends BCodeOptInter {
               cw.toByteArray
             }
 
-        val Item2(arrivalPos, mirror, plain, bean, lateClosures) = item
+        val Item2(arrivalPos, mirror, plain, bean, lateClosures, outFolder) = item
 
         // TODO aren't mirror.outFolder , plain.outFolder , and bean.outFolder one and the same? Remove duplicity.
 
         // -------------- mirror class, if needed --------------
         val mirrorC: SubItem3 =
           if (mirror != null) {
-            SubItem3(mirror.label, mirror.cnode.name, getByteArray(mirror.cnode), mirror.outFolder)
+            SubItem3(mirror.label, mirror.cnode.name, getByteArray(mirror.cnode), outFolder)
           } else null
 
         // -------------- "plain" class --------------
         val plainC =
-          SubItem3(plain.label, plain.cnode.name, getByteArray(plain.cnode), plain.outFolder)
+          SubItem3(plain.label, plain.cnode.name, getByteArray(plain.cnode), outFolder)
 
         // -------------- bean info class, if needed --------------
         val beanC: SubItem3 =
           if (bean != null) {
-            SubItem3(bean.label, bean.cnode.name, getByteArray(bean.cnode), bean.outFolder)
+            SubItem3(bean.label, bean.cnode.name, getByteArray(bean.cnode), outFolder)
           } else null
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC)
 
         // -------------- Late-Closure-Classes, if any --------------
-        val outFolder = plain.outFolder
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
