@@ -205,6 +205,10 @@ abstract class GenBCode extends BCodeOptInter {
      */
     class Worker1(needsOutfileForSymbol: Boolean) extends _root_.java.lang.Runnable {
 
+      val isInliningRun     = settings.isIntraMethodOptimizOn
+      val caseInsensitively = mutable.Map.empty[String, Symbol]
+      var lateClosuresCount = 0
+
       def run() {
         while (true) {
           val item = q1.take
@@ -223,9 +227,6 @@ abstract class GenBCode extends BCodeOptInter {
           }
         }
       }
-
-      val caseInsensitively = mutable.Map.empty[String, Symbol]
-      var lateClosuresCount = 0
 
       /**
        *  Checks for duplicate internal names case-insensitively,
@@ -300,15 +301,16 @@ abstract class GenBCode extends BCodeOptInter {
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
 
         for(lateC <- lateClosures) {
-          // this could be done by Worker2, UNLESS inlining runs. To keep things simple, erring on the side of too-early.
+          // blanket invariant: after Worker1 each class (compiled or imported) has its `exemplars` counterpart. Ditto after Inlining.
           val trackedClosu = buildExemplarForLCC(lateC)
           exemplars.put(trackedClosu.c, trackedClosu)
         }
 
-        // ----------- maps for dclosures (needed only when optimizing)
+        // ----------- maps for dclosures (needed for optimizations, even inlining, and also for `squashOuter()`)
 
-        if(lateClosures.nonEmpty && settings.isIntraMethodOptimizOn) {
-          populateDClosureMaps(pcb)
+        if(lateClosures.nonEmpty && isInliningRun) {
+          val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
+          populateDClosureMaps(pcb, masterBT, pcb.closuresForDelegates.values)
         }
 
         // ----------- hand over to pipeline-2
@@ -316,7 +318,7 @@ abstract class GenBCode extends BCodeOptInter {
         val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, lateClosures, outF)
         lateClosuresCount += lateClosures.size
 
-        q2 put item2
+        q2 put item2 // at the very end of this method so that no Worker2 thread starts mutating it before we're done with it.
 
       } // end of method visit(Item1)
 
@@ -365,17 +367,17 @@ abstract class GenBCode extends BCodeOptInter {
        *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
        *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
        *
+       *  @param masterBT the "master class" responsible for "its" dclosures
+       *
        * */
-      private def populateDClosureMaps(pcb: PlainClassBuilder) {
+      private def populateDClosureMaps(pcb: PlainClassBuilder, masterBT: BType, dClosureEndpoints: Iterable[DClosureEndpoint]) {
 
-        assert(pcb.lateClosures.size == pcb.closuresForDelegates.size)
-
-        val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
+        assert(pcb.lateClosures.size == dClosureEndpoints.size)
 
         // add entry to `closuRepo.endpoint`
-        val isDelegateMethodName = (pcb.closuresForDelegates.values map (dce => dce.epName)).toSet
+        val isDelegateMethodName = (dClosureEndpoints map (dce => dce.epName)).toSet
         val candidateMethods = (pcb.cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
-        for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
+        for(dClosureEndpoint <- dClosureEndpoints) {
           val candidates: List[MethodNode] =
             for(
               mn <- candidateMethods;
@@ -395,7 +397,7 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         // add entry to `closuRepo.dclosures`
-        for(dClosureEndpoint <- pcb.closuresForDelegates.values) {
+        for(dClosureEndpoint <- dClosureEndpoints) {
           val others0 = closuRepo.dclosures.get(masterBT)
           val others  = if(others0 == null) Nil else others0
           closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
@@ -718,6 +720,20 @@ abstract class GenBCode extends BCodeOptInter {
       gen(cunit.body)
     }
 
+    /**
+     *  Besides emitting a Late-Closure-Class, `genLateClosure()` collects information
+     *  about the endpoint targeted by that dclosure as a `DClosureEndpoint` instance.
+     *  That way, once `PlainClassBuilder.genPlainClass()` has built an ASM ClassNode,
+     *  the ASM MethodNodes for the endpoints can be added to the `BCodeOptInter.closuRepo.endpoint` map.
+     *
+     *  @param epName    name of the endpoint method
+     *  @param epMT      ASM method type of the endpoint
+     *  @param closuBT   BType of the dclosure-class targeting the endpoint
+     *  @param closuCtor the only constructor of the dclosure
+     *
+     * */
+    case class DClosureEndpoint(epName: String, epMT: BType, closuBT: BType, closuCtor: MethodNode)
+
     final class PlainClassBuilder(cunit: CompilationUnit)
       extends BCClassGen
       with    BCAnnotGen
@@ -731,20 +747,6 @@ abstract class GenBCode extends BCodeOptInter {
       var cnode: asm.tree.ClassNode  = null
       var thisName: String           = null // the internal name of the class being emitted
       var lateClosures: List[asm.tree.ClassNode] = Nil
-
-          /**
-           *  Besides emitting a Late-Closure-Class, `genLateClosure()` collects information
-           *  about the endpoint targeted by that dclosure as a `DClosureEndpoint` instance.
-           *  That way, once `PlainClassBuilder.genPlainClass()` has built an ASM ClassNode,
-           *  the ASM MethodNodes for the endpoints can be added to the `BCodeOptInter.closuRepo.endpoint` map.
-           *
-           *  @param epName    name of the endpoint method
-           *  @param epMT      ASM method type of the endpoint
-           *  @param closuBT   BType of the dclosure-class targeting the endpoint
-           *  @param closuCtor the only constructor of the dclosure
-           *
-           * */
-          case class DClosureEndpoint(epName: String, epMT: BType, closuBT: BType, closuCtor: MethodNode)
 
       /**
        *  Allows a hand-off from UnCurry's "set of endpoints as methodsymbols" ie `uncurry.closureDelegates`
