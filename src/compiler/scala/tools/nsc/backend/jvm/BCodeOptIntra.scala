@@ -70,12 +70,20 @@ abstract class BCodeOptIntra extends BCodeTypes {
     !cnodeEx.isSerializable
   }
 
+  final def methodSignature(ownerIName: String, methodName: String, methodDescriptor: String): String = {
+    ownerIName + "::" + methodName + methodDescriptor
+  }
+
   final def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
-    ownerBT.getInternalName + "::" + methodName + methodDescriptor
+    methodSignature(ownerBT.getInternalName, methodName, methodDescriptor)
   }
 
   final def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
     methodSignature(ownerBT, methodName, methodType.getDescriptor)
+  }
+
+  final def methodSignature(ownerIName: String, mnode: MethodNode): String = {
+    methodSignature(ownerIName, mnode.name, mnode.desc)
   }
 
   final def methodSignature(ownerBT: BType, mnode: MethodNode): String = {
@@ -92,6 +100,10 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
   final def insnPosInMethodSignature(insn: AbstractInsnNode, mnode: MethodNode, cnode: ClassNode): String = {
     insnPos(insn, mnode) + s" in method ${methodSignature(cnode, mnode)}"
+  }
+
+  final def insnPosInMethodSignature(insn: AbstractInsnNode, mnode: MethodNode, ownerIName: String): String = {
+    insnPos(insn, mnode) + s" in method ${methodSignature(ownerIName, mnode)}"
   }
 
   /**

@@ -1223,14 +1223,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                      calleeOwner:   ClassNode,
                      doTrackClosureUsage: Boolean): Option[String] = {
 
-      assert(host.instructions.contains(callsite))
       assert(callee != null)
       assert(callsite.name == callee.name)
       assert(callsite.desc == callee.desc)
       assert(!Util.isConstructor(callee))
 
-      val hostId   = hostOwner        + "::" + host.name   + host.desc
-      val calleeId = calleeOwner.name + "::" + callee.name + callee.desc
+          def callsiteId: String = s"${callsite.owner}.${callsite.name}${callsite.desc}"
+
+      if(!host.instructions.contains(callsite)) {
+        val diagnostics =
+           "That's strange. A callsite that was going to be inlined has been marked as dead-code. " +
+          s"Callsite: ${insnPos(callsite, host)} , in method ${methodSignature(hostOwner, host)}"
+        return Some(diagnostics)
+      }
 
       /*
        * Situation (a.0) under which method-inlining is unfeasible: synchronized callee.
@@ -1252,8 +1257,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val expectedArgs: Int = Util.expectedArgs(callsite)
         if(stackHeight > expectedArgs) {
           return Some(
-            s"The operand stack may be cleared on entering an exception-handler in $calleeId , and " +
-            s"the stack at the callsite in $hostId contains more values than args expected by the callee."
+            s"The operand stack may be cleared on entering an exception-handler in ${methodSignature(calleeOwner, callee)} , and " +
+            s"the stack at the callsite in ${methodSignature(hostOwner, host)} contains more values than args expected by the callee."
           )
         }
         assert(stackHeight == expectedArgs)
@@ -1292,7 +1297,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val illegalAccessInsn = allAccessesLegal(body, hostOwnerBT)
       if(illegalAccessInsn != null) {
         return Some(
-          s"Callee $calleeId contains instruction \n${Util.textify(illegalAccessInsn)} that would cause IllegalAccessError from class $hostOwner"
+          s"Callee ${methodSignature(calleeOwner, callee)} contains instruction \n${Util.textify(illegalAccessInsn)} " +
+          s"that would cause IllegalAccessError from class $hostOwner"
         )
       }
 
