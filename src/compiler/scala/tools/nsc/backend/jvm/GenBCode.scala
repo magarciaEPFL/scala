@@ -423,7 +423,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         val essential = new EssentialCleanser(cnode)
         ifDebug { closuRepo.checkDClosureUsages(cnode) }
-        essential.removeDeadCode()    // no optimization, but removing dead code still desirable
+        essential.codeFixups()    // no optimization, but removing dead code still desirable
         // essential.squashOuter()    // squashOuter() may mutate dclosures that cnode is responsible for
         // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
 

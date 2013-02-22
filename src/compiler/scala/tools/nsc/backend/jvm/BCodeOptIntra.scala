@@ -165,66 +165,63 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
 
-    //--------------------------------------------------------------------
-    // First optimization pack
-    //--------------------------------------------------------------------
-
     /**
-     *  This method performs a few intra-method optimizations:
-     *    - collapse a multi-jump chain to target its final destination via a single jump
-     *    - remove unreachable code
-     *    - remove those LabelNodes and LineNumbers that aren't in use
+     *  Removes dead code and handles backedges in argument-position to a constructor.
      *
-     *  Some of the above are applied repeatedly until no further reductions occur.
+     *  (1) Dead code
      *
-     *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
+     *        When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
+     *        the very least we want to do is remove dead code beforehand,
+     *        so as to prevent an artifact of stack-frames computation from showing up,
+     *        the artifact described at http://asm.ow2.org/doc/developer-guide.html#deadcode
+     *        That artifact results from the requirement by the Java 6 split verifier
+     *        that a stack map frame be available for each basic block, even unreachable ones.
      *
-     */
-    final def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+     *        Just removing dead code might leave stale LocalVariableTable entries
+     *        thus `cleanseMethod()` also gets rid of those.
+     *
+     *  (2) Backedges in argument-position to a constructor
+     *
+     *       TODO see
+     *
+     *  (3) TODO: assure empty stack on entry to try in expression position, restore stack afterwards.
+     *
+     * */
+    private final def fixupMethod(cName: String, mnode: asm.tree.MethodNode) {
 
-      var changed = false
-      var keepGoing = false
+      import asm.tree.analysis.{Frame, Analyzer, BasicValue, BasicInterpreter}
 
-      do {
-        keepGoing = false
+      jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
 
-        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
-        keepGoing |= jumpsCollapser.changed
+      // remove unreachable code, keep the dataflow-analysis results for later use
+      val a = new Analyzer[BasicValue](new BasicInterpreter())
+      a.analyze(cName, mnode)
 
-        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
-        keepGoing |= unreachCodeRemover.changed
+      val frames: Array[Frame[BasicValue]] = a.getFrames()
+      val insns : Array[AbstractInsnNode]  = mnode.instructions.toArray
 
-        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
-        keepGoing |= labelsCleanup.changed
+      var i = 0
+      while(i < insns.length) {
+        if (frames(i) == null &&
+            insns(i)  != null &&
+            (insns(i).getType != AbstractInsnNode.LABEL)) {
+          mnode.instructions.remove(insns(i))
+        }
+        i += 1
+      }
 
-        danglingExcHandlers.transform(mnode)
-        keepGoing |= danglingExcHandlers.changed
+      labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
 
-        changed |= keepGoing
-
-      } while (keepGoing)
+      danglingExcHandlers.transform(mnode)
 
       ifDebug { repOK(mnode) }
 
-      changed
-
     }
 
-    /**
-     *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
-     *  the very least we want to do is remove dead code beforehand,
-     *  so as to prevent an artifact of stack-frames computation from showing up,
-     *  the artifact described at http://asm.ow2.org/doc/developer-guide.html#deadcode
-     *  That artifact results from the requirement by the Java 6 split verifier
-     *  that a stack map frame be available for each basic block, even unreachable ones.
-     *
-     *  Just removing dead code might leave stale LocalVariableTable entries
-     *  thus `cleanseMethod()` also gets rid of those.
-     * */
-    final def removeDeadCode() {
+    final def codeFixups() {
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
         Util.computeMaxLocalsMaxStack(mnode)
-        cleanseMethod(cnode.name, mnode) // remove unreachable code
+        fixupMethod(cnode.name, mnode)
       }
     }
 
@@ -336,7 +333,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  Makes sure that exception-handler and local-variable entries aren't obviously wrong
      *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
      */
-    private def repOK(mnode: asm.tree.MethodNode): Boolean = {
+    def repOK(mnode: asm.tree.MethodNode): Boolean = {
       if(!global.settings.debug.value) {
         return true;
       }
@@ -396,6 +393,51 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val jumpReducer         = new asm.optimiz.JumpReducer(null)
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
+
+    //--------------------------------------------------------------------
+    // First optimization pack
+    //--------------------------------------------------------------------
+
+    /**
+     *  This method performs a few intra-method optimizations:
+     *    - collapse a multi-jump chain to target its final destination via a single jump
+     *    - remove unreachable code
+     *    - remove those LabelNodes and LineNumbers that aren't in use
+     *
+     *  Some of the above are applied repeatedly until no further reductions occur.
+     *
+     *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
+     *
+     */
+    final def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+
+      var changed = false
+      var keepGoing = false
+
+      do {
+        keepGoing = false
+
+        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
+        keepGoing |= jumpsCollapser.changed
+
+        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
+        keepGoing |= unreachCodeRemover.changed
+
+        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
+        keepGoing |= labelsCleanup.changed
+
+        danglingExcHandlers.transform(mnode)
+        keepGoing |= danglingExcHandlers.changed
+
+        changed |= keepGoing
+
+      } while (keepGoing)
+
+      ifDebug { repOK(mnode) }
+
+      changed
+
+    }
 
     /**
      *  Intra-method optimizations performed until a fixpoint is reached.
