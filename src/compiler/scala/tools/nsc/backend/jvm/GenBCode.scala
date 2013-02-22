@@ -119,8 +119,9 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isUnoptRun = !settings.isIntraMethodOptimizOn
-    val mustPopulateCodeRepo = !isUnoptRun || !settings.debug.value
+    val isUnoptRun   = !settings.isIntraMethodOptimizOn
+    val isOptimizRun = !isUnoptRun
+    val mustPopulateCodeRepo = isOptimizRun || settings.debug.value
 
     // number of woker threads for pipeline-2 (the one in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -278,18 +279,64 @@ abstract class GenBCode extends BCodeOptInter {
             )
           } else null
 
-        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, pcb.lateClosures, outF)
-        lateClosuresCount += pcb.lateClosures.size
+        val lateClosures = pcb.lateClosures
+
+        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, lateClosures, outF)
+        lateClosuresCount += lateClosures.size
 
         q2 put item2
 
-        assert(pcb.lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
+        assert(lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
 
-        if(pcb.lateClosures.nonEmpty) {
+        // ----------- all classes compiled in this run land in codeRepo.classes
+
+            def trackInCodeRepo(compiled: asm.tree.ClassNode) {
+              val bt = lookupRefBType(compiled.name)
+              assert(!codeRepo.containsKey(bt))
+              codeRepo.classes.put(bt, compiled)
+            }
+
+        if(mustPopulateCodeRepo) {
+          trackInCodeRepo(pcb.cnode)
+          lateClosures foreach trackInCodeRepo
+          // mirror and bean classes, if any, need not be tracked in codeRepo.
+        }
+
+        // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
+
+        for(lateC <- lateClosures) {
+          val trackedClosu = buildExemplarForLCC(lateC)
+          exemplars.put(trackedClosu.c, trackedClosu)
+        }
+
+        // ----------- maps for dclosures (needed only when optimizing)
+
+        if(lateClosures.nonEmpty) {
           populateDClosureMaps(pcb)
         }
 
       } // end of method visit(Item1)
+
+      /**
+       *  precondition: the argument's internal name already registered as BType
+       *
+       *  Discussion on whether a Late-Closure-Class (LCC) needs to be an inner class. No it doesn't. Reasoning:
+       *    (a) an LCC mentions only:
+       *        (a.1) the types listed in its endpoint.
+       *              The LCC's endpoint is a public method in a class C (the "master class" of the LCC).
+       *        (a.2) type C, because the LCC's outer pointer points to C
+       *    (b) Both C and LCC are in the same bytecode-level package.
+       *
+       *  Under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
+       * */
+      private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
+        val key = lookupRefBType(lateC.name)
+        val tsc: Tracked = exemplars.get(ObjectReference)
+        val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
+        tr.directMemberClasses = Nil
+
+        tr
+      } // end of method buildExemplarForLCC
 
       /**
        *  Adds entries to `closuRepo.dclosures` and `closuRepo.endpoint` for the Late-Closure-Classes just built.
@@ -419,7 +466,7 @@ abstract class GenBCode extends BCodeOptInter {
         // essential.squashOuter()    // squashOuter() may mutate dclosures that cnode is responsible for
         // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
 
-        if(!isUnoptRun) {
+        if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode)
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
           essential.avoidBackedgesInConstructorArgs()
@@ -992,47 +1039,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(cd.symbol == claszSymbol, "Someone messed up BCodePhase.claszSymbol during genPlainClass().")
 
-        // ----------- all classes compiled in this run land in codeRepo.classes
-
-            def trackInCodeRepo(compiled: asm.tree.ClassNode) {
-              val bt = lookupRefBType(compiled.name)
-              assert(!codeRepo.containsKey(bt))
-              codeRepo.classes.put(bt, compiled)
-            }
-
-        if(mustPopulateCodeRepo) {
-          trackInCodeRepo(cnode)
-          lateClosures foreach trackInCodeRepo
-        }
-
-        // add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
-        for(lateC <- lateClosures) {
-          val trackedClosu = buildExemplarForLCC(lateC)
-          exemplars.put(trackedClosu.c, trackedClosu)
-        }
-
       } // end of method genPlainClass()
-
-      /**
-       *  precondition: the argument's internal name already registered as BType
-       *
-       *  Discussion on whether a Late-Closure-Class (LCC) needs to be an inner class. No it doesn't. Reasoning:
-       *    (a) an LCC mentions only:
-       *        (a.1) the types listed in its endpoint.
-       *              The LCC's endpoint is a public method in a class C (the "master class" of the LCC).
-       *        (a.2) type C, because the LCC's outer pointer points to C
-       *    (b) Both C and LCC are in the same bytecode-level package.
-       *
-       *  Under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
-       * */
-      private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
-        val key = lookupRefBType(lateC.name)
-        val tsc: Tracked = exemplars.get(ObjectReference)
-        val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
-        tr.directMemberClasses = Nil
-
-        tr
-      } // end of method buildExemplarForLCC
 
       /**
        * must-single-thread
