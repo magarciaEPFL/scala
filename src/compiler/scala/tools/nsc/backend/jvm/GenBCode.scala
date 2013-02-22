@@ -265,8 +265,8 @@ abstract class GenBCode extends BCodeOptInter {
         // -------------- "plain" class --------------
         val pcb = new PlainClassBuilder(cunit)
         pcb.genPlainClass(cd)
-        val label = "" + cd.symbol.name
-        val outF = getOutFolder(needsOutfileForSymbol, cd.symbol, pcb.thisName, cunit)
+        val label = "" + claszSymbol.name
+        val outF = getOutFolder(needsOutfileForSymbol, claszSymbol, pcb.thisName, cunit)
         val plainC = pcb.cnode
 
         // -------------- bean info class, if needed --------------
@@ -307,7 +307,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- maps for dclosures (needed only when optimizing)
 
-        if(lateClosures.nonEmpty) {
+        if(lateClosures.nonEmpty && settings.isIntraMethodOptimizOn) {
           populateDClosureMaps(pcb)
         }
 
