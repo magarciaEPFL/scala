@@ -150,8 +150,9 @@ abstract class GenBCode extends BCodeOptInter {
                      mirror:       asm.tree.ClassNode,
                      plain:        asm.tree.ClassNode,
                      bean:         asm.tree.ClassNode,
-                     lateClosures: List[asm.tree.ClassNode],
-                     outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
+                     lateClosures:      List[asm.tree.ClassNode],
+                     dClosureEndpoints: Iterable[DClosureEndpoint],
+                     outFolder:         _root_.scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
@@ -169,7 +170,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
     private val q2 = new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](1000, i2LargeClassesFirst)
 
     /* ---------------- q3 ---------------- */
@@ -308,14 +309,25 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- maps for dclosures (needed for optimizations, even inlining, and also for `squashOuter()`)
 
-        if(lateClosures.nonEmpty && isInliningRun) {
+        var dClosureEndpoints: Iterable[DClosureEndpoint] = null
+        if(lateClosures.nonEmpty) {
           val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
-          populateDClosureMaps(pcb, masterBT, pcb.closuresForDelegates.values)
+          dClosureEndpoints = pcb.closuresForDelegates.values
+          assert(lateClosures.size == dClosureEndpoints.size)
+          if(isInliningRun) {
+            populateDClosureMaps(pcb.cnode, masterBT, dClosureEndpoints)
+          } else {
+            // let Worker2 `populateDClosureMaps()`, thus out of the critical path. Rest assured it's not needed before then.
+          }
         }
 
         // ----------- hand over to pipeline-2
 
-        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, lateClosures, outF)
+        val item2 =
+          Item2(arrivalPos + lateClosuresCount,
+                mirrorC, plainC, beanC,
+                lateClosures, dClosureEndpoints,
+                outF)
         lateClosuresCount += lateClosures.size
 
         q2 put item2 // at the very end of this method so that no Worker2 thread starts mutating it before we're done with it.
@@ -342,69 +354,6 @@ abstract class GenBCode extends BCodeOptInter {
 
         tr
       } // end of method buildExemplarForLCC
-
-      /**
-       *  Adds entries to `closuRepo.dclosures` and `closuRepo.endpoint` for the Late-Closure-Classes just built.
-       *
-       *  After `BCodePhase.Worker1.visit()` has run
-       *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
-       *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
-       *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
-       *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
-       *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
-       *     but in a different method).
-       *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
-       *
-       *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
-       *  may break the property above (ie inlining may result in lambda usages,
-       *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
-       *  originally enclosing them). Tracking those cases is the job of
-       *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
-       *
-       *  Coming back to the property holding
-       *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
-       *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
-       *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
-       *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
-       *
-       *  @param masterBT the "master class" responsible for "its" dclosures
-       *
-       * */
-      private def populateDClosureMaps(pcb: PlainClassBuilder, masterBT: BType, dClosureEndpoints: Iterable[DClosureEndpoint]) {
-
-        assert(pcb.lateClosures.size == dClosureEndpoints.size)
-
-        // add entry to `closuRepo.endpoint`
-        val isDelegateMethodName = (dClosureEndpoints map (dce => dce.epName)).toSet
-        val candidateMethods = (pcb.cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
-        for(dClosureEndpoint <- dClosureEndpoints) {
-          val candidates: List[MethodNode] =
-            for(
-              mn <- candidateMethods;
-              if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
-            ) yield mn;
-
-          assert(candidates.nonEmpty && candidates.tail.isEmpty)
-          val delegateMethodNode = candidates.head
-
-          assert(
-            asm.optimiz.Util.isPublicMethod(delegateMethodNode),
-            "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(masterBT, delegateMethodNode)
-          )
-
-          val delegateMethodRef = MethodRef(masterBT, delegateMethodNode)
-          closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)
-        }
-
-        // add entry to `closuRepo.dclosures`
-        for(dClosureEndpoint <- dClosureEndpoints) {
-          val others0 = closuRepo.dclosures.get(masterBT)
-          val others  = if(others0 == null) Nil else others0
-          closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
-        }
-
-      } // end of method populateDClosureMaps()
-
 
     } // end of class BCodePhase.Worker1
 
@@ -463,7 +412,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(isInliningDone == settings.isInterBasicOptimizOn)
 
-        val cnode = item.plain
+        val cnode   = item.plain
+        val cnodeBT = lookupRefBType(cnode.name)
+
+        if(item.dClosureEndpoints != null) {
+          populateDClosureMaps(cnode, cnodeBT, item.dClosureEndpoints)
+        }
 
         val essential = new EssentialCleanser(cnode)
         ifDebug { closuRepo.checkDClosureUsages(cnode) }
@@ -501,7 +455,7 @@ abstract class GenBCode extends BCodeOptInter {
               cw.toByteArray
             }
 
-        val Item2(arrivalPos, mirror, plain, bean, lateClosures, outFolder) = item
+        val Item2(arrivalPos, mirror, plain, bean, lateClosures, _, outFolder) = item
 
         // TODO aren't mirror.outFolder , plain.outFolder , and bean.outFolder one and the same? Remove duplicity.
 
@@ -3613,6 +3567,68 @@ abstract class GenBCode extends BCodeOptInter {
       case class BoundEH    (patSymbol: Symbol, caseBody: Tree) extends EHClause
 
     } // end of class PlainClassBuilder
+
+    /**
+     *  Adds entries to `closuRepo.dclosures` and `closuRepo.endpoint` for the Late-Closure-Classes just built.
+     *
+     *  After `BCodePhase.Worker1.visit()` has run
+     *    (to recap, Worker1 takes ClassDefs as input and lowers them to ASM ClassNodes)
+     *  for a plain class C, we know that all instantiations of C's Late-Closure-Classes are enclosed in C.
+     *    (the only exceptions to this resulted in the past from a rewriting not performed that way anymore,
+     *     by which DelayedInit delayed-initialization-statements would be transplanted to a separate closure-class;
+     *     nowadays the rewriting is such that those statements remain in the class originally enclosing them,
+     *     but in a different method).
+     *     @see [[scala.tools.nsc.transform.Constructors]]'s `delayedEndpointDef()`
+     *
+     *  Looking ahead, `BCodeOptInter.WholeProgramAnalysis.inlining()`
+     *  may break the property above (ie inlining may result in lambda usages,
+     *  be they instantiations or endpoint-invocations, being transplanted to a class different from that
+     *  originally enclosing them). Tracking those cases is the job of
+     *  `BCodeOptInter.closuRepo.trackClosureUsageIfAny()`
+     *
+     *  Coming back to the property holding
+     *  right after `BCodePhase.Worker1.visit()` has run for a plain class C
+     *    (the property that all instantiations of C's Late-Closure-Classes are enclosed in C)
+     *  details about that property are provided by map `dclosures` (populated by `genLateClosure()`).
+     *  That map lets us know, given a plain class C, the Late-Closure-Classes it's responsible for.
+     *
+     *  @param cnode    the "master class" responsible for "its" dclosures
+     *  @param masterBT BType of cnode
+     *  @param dClosureEndpoints see `PlainClassBuilder.closuresForDelegates`
+     *
+     * */
+    def populateDClosureMaps(cnode: asm.tree.ClassNode, masterBT: BType, dClosureEndpoints: Iterable[DClosureEndpoint]) {
+
+      // add entry to `closuRepo.endpoint`
+      val isDelegateMethodName = (dClosureEndpoints map (dce => dce.epName)).toSet
+      val candidateMethods = (cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
+      for(dClosureEndpoint <- dClosureEndpoints) {
+        val candidates: List[MethodNode] =
+          for(
+            mn <- candidateMethods;
+            if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
+          ) yield mn;
+
+        assert(candidates.nonEmpty && candidates.tail.isEmpty)
+        val delegateMethodNode = candidates.head
+
+        assert(
+          asm.optimiz.Util.isPublicMethod(delegateMethodNode),
+          "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(masterBT, delegateMethodNode)
+        )
+
+        val delegateMethodRef = MethodRef(masterBT, delegateMethodNode)
+        closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)
+      }
+
+      // add entry to `closuRepo.dclosures`
+      for(dClosureEndpoint <- dClosureEndpoints) {
+        val others0 = closuRepo.dclosures.get(masterBT)
+        val others  = if(others0 == null) Nil else others0
+        closuRepo.dclosures.put(masterBT, dClosureEndpoint.closuBT :: others)
+      }
+
+    } // end of method populateDClosureMaps()
 
   } // end of class BCodePhase
 
