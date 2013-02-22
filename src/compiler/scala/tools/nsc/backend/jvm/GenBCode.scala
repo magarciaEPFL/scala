@@ -120,6 +120,7 @@ abstract class GenBCode extends BCodeOptInter {
     override def erasedTypes = true
 
     val isOptimizRun  = settings.isIntraMethodOptimizOn
+    val isInliningRun = settings.isInterBasicOptimizOn
 
     // number of woker threads for pipeline-2 (the one in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -204,7 +205,6 @@ abstract class GenBCode extends BCodeOptInter {
      */
     class Worker1(needsOutfileForSymbol: Boolean) extends _root_.java.lang.Runnable {
 
-      val isInliningRun = settings.isInterBasicOptimizOn
       val isDebugRun    = settings.debug.value
       val mustPopulateCodeRepo = isOptimizRun || isDebugRun
 
@@ -412,7 +412,7 @@ abstract class GenBCode extends BCodeOptInter {
        * */
       def visit(item: Item2) {
 
-        assert(isInliningDone == settings.isInterBasicOptimizOn)
+        assert(isInliningDone == isInliningRun)
 
         val cnode   = item.plain
         val cnodeBT = lookupRefBType(cnode.name)
@@ -502,10 +502,10 @@ abstract class GenBCode extends BCodeOptInter {
 
       // initBytecodeWriter invokes fullName, thus we have to run it before the typer-dependent thread is activated.
       bytecodeWriter  = initBytecodeWriter(cleanup.getEntryPoints)
-      val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
-      mirrorCodeGen   = new JMirrorBuilder(  needsOutfileForSymbol)
-      beanInfoCodeGen = new JBeanInfoBuilder(needsOutfileForSymbol)
+      mirrorCodeGen   = new JMirrorBuilder
+      beanInfoCodeGen = new JBeanInfoBuilder
 
+      val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
       if(settings.isInterBasicOptimizOn) {
         wholeProgramThenWriteToDisk(needsOutfileForSymbol)
       } else {

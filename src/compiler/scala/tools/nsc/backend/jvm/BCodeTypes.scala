@@ -3597,14 +3597,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   } // end of class JBuilder
 
   /** functionality for building plain and mirror classes */
-  abstract class JCommonBuilder(needsOutfileForSymbol: Boolean)
+  abstract class JCommonBuilder
     extends JBuilder
     with    BCAnnotGen
     with    BCForwardersGen
     with    BCPickles { }
 
   /** builder of mirror classes */
-  class JMirrorBuilder(needsOutfileForSymbol: Boolean) extends JCommonBuilder(needsOutfileForSymbol) {
+  class JMirrorBuilder extends JCommonBuilder {
 
     private var cunit: CompilationUnit = _
     def getCurrentCUnit(): CompilationUnit = cunit;
@@ -3659,7 +3659,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   } // end of class JMirrorBuilder
 
   /** builder of bean info classes */
-  class JBeanInfoBuilder(needsOutfileForSymbol: Boolean) extends JBuilder {
+  class JBeanInfoBuilder extends JBuilder {
 
     /**
      * Generate a bean info class that describes the given class.
