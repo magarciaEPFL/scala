@@ -182,37 +182,46 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *
      *  (2) Backedges in argument-position to a constructor
      *
-     *       TODO see
+     *      Avoids SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
+     *      @see `avoidBackedgesInConstructorArgs()`
      *
      *  (3) TODO: assure empty stack on entry to try in expression position, restore stack afterwards.
      *
      * */
     private final def fixupMethod(cName: String, mnode: asm.tree.MethodNode) {
 
-      import asm.tree.analysis.{Frame, Analyzer, BasicValue, BasicInterpreter}
+          /**
+           *   Compute once a dataflow, reuse it to remove dead code and to guarantee empty-stack-on-try-entry
+           * */
+          def fixupBasedOnStackInformation() {
+
+            import asm.tree.analysis.{Frame, Analyzer, BasicValue, BasicInterpreter}
+
+            // remove unreachable code, keep the dataflow-analysis results for later use
+            val a = new Analyzer[BasicValue](new BasicInterpreter())
+            a.analyze(cName, mnode)
+
+            val frames: Array[Frame[BasicValue]] = a.getFrames()
+            val insns : Array[AbstractInsnNode]  = mnode.instructions.toArray
+
+            var i = 0
+            while(i < insns.length) {
+              if (frames(i) == null &&
+                  insns(i)  != null &&
+                  (insns(i).getType != AbstractInsnNode.LABEL)) {
+                mnode.instructions.remove(insns(i))
+              }
+              i += 1
+            }
+
+          }
 
       jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
-
-      // remove unreachable code, keep the dataflow-analysis results for later use
-      val a = new Analyzer[BasicValue](new BasicInterpreter())
-      a.analyze(cName, mnode)
-
-      val frames: Array[Frame[BasicValue]] = a.getFrames()
-      val insns : Array[AbstractInsnNode]  = mnode.instructions.toArray
-
-      var i = 0
-      while(i < insns.length) {
-        if (frames(i) == null &&
-            insns(i)  != null &&
-            (insns(i).getType != AbstractInsnNode.LABEL)) {
-          mnode.instructions.remove(insns(i))
-        }
-        i += 1
-      }
-
+      fixupBasedOnStackInformation()
       labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
-
       danglingExcHandlers.transform(mnode)
+
+      avoidBackedgesInConstructorArgs(mnode)
 
       ifDebug { repOK(mnode) }
 
@@ -263,65 +272,63 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
      *
      * */
-    final def avoidBackedgesInConstructorArgs() {
-      for(
-        m <- JListWrapper(cnode.methods);
-        if !Util.isAbstractMethod(m);
-        inits =
+    final def avoidBackedgesInConstructorArgs(m: MethodNode) {
+      if (!Util.hasBytecodeInstructions(m)) { return }
+
+      val inits =
+        for(
+          i <- m.instructions.toList;
+          if i.getType == AbstractInsnNode.METHOD_INSN;
+          mi = i.asInstanceOf[MethodInsnNode];
+          if (mi.name == "<init>") && (mi.desc != "()V")
+        ) yield mi;
+
+      if (inits.isEmpty) { return }
+
+      val cp = ProdConsAnalyzer.create()
+      cp.analyze(cnode.name , m)
+
+      for(init <- inits) {
+        val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
+        assert(
+          receiverSV.insns.size == 1,
+          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, m, cnode)}"
+        )
+        val dupInsn = receiverSV.insns.iterator().next()
+        val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
+        if(!bes.isEmpty) {
           for(
-            i <- m.instructions.toList;
-            if i.getType == AbstractInsnNode.METHOD_INSN;
-            mi = i.asInstanceOf[MethodInsnNode];
-            if (mi.name == "<init>") && (mi.desc != "()V")
-          ) yield mi;
-        if !(inits.isEmpty)
-      ) {
-
-        val cp = ProdConsAnalyzer.create()
-        cp.analyze(cnode.name , m)
-
-        for(init <- inits) {
-          val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
-          assert(
-            receiverSV.insns.size == 1,
-            s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, m, cnode)}"
-          )
-          val dupInsn = receiverSV.insns.iterator().next()
-          val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
-          if(!bes.isEmpty) {
-            for(
-              entry <- JSetWrapper(bes.entrySet());
-              jump  = entry.getKey;
-              label = entry.getValue
-            ) {
-              log(
-                s"Backedge found in contructor-args section, in method ${methodSignature(cnode, m)} " +
-                s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
-                 "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
-              )
-            }
-            assert(dupInsn.getOpcode == Opcodes.DUP)
-            val newInsn = dupInsn.getPrevious
-            assert(newInsn.getOpcode == Opcodes.NEW)
-            m.instructions.remove(newInsn)
-            m.instructions.remove(dupInsn)
-            m.instructions.insertBefore(init, newInsn)
-            m.instructions.insertBefore(init, dupInsn)
-            val paramTypes = BType.getMethodType(init.desc).getArgumentTypes
-            for(i <- (paramTypes.length - 1) to 0 by -1) {
-              val pt = paramTypes(i)
-              val idxVar   = m.maxLocals
-              m.maxLocals += pt.getSize
-              val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
-              val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
-              m.instructions.insertBefore(newInsn, store)
-              m.instructions.insert(dupInsn,load )
-            }
+            entry <- JSetWrapper(bes.entrySet());
+            jump  = entry.getKey;
+            label = entry.getValue
+          ) {
+            log(
+              s"Backedge found in contructor-args section, in method ${methodSignature(cnode, m)} " +
+              s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
+               "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
+            )
+          }
+          assert(dupInsn.getOpcode == Opcodes.DUP)
+          val newInsn = dupInsn.getPrevious
+          assert(newInsn.getOpcode == Opcodes.NEW)
+          m.instructions.remove(newInsn)
+          m.instructions.remove(dupInsn)
+          m.instructions.insertBefore(init, newInsn)
+          m.instructions.insertBefore(init, dupInsn)
+          val paramTypes = BType.getMethodType(init.desc).getArgumentTypes
+          for(i <- (paramTypes.length - 1) to 0 by -1) {
+            val pt = paramTypes(i)
+            val idxVar   = m.maxLocals
+            m.maxLocals += pt.getSize
+            val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
+            val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
+            m.instructions.insertBefore(newInsn, store)
+            m.instructions.insert(dupInsn,load )
           }
         }
-
       }
-    }
+
+    } // end of method avoidBackedgesInConstructorArgs()
 
     //--------------------------------------------------------------------
     // Utilities for reuse by different optimizers
