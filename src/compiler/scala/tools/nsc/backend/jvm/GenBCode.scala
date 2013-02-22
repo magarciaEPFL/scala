@@ -281,11 +281,6 @@ abstract class GenBCode extends BCodeOptInter {
 
         val lateClosures = pcb.lateClosures
 
-        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, lateClosures, outF)
-        lateClosuresCount += lateClosures.size
-
-        q2 put item2
-
         assert(lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
 
         // ----------- all classes compiled in this run land in codeRepo.classes
@@ -305,6 +300,7 @@ abstract class GenBCode extends BCodeOptInter {
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
 
         for(lateC <- lateClosures) {
+          // this could be done by Worker2, UNLESS inlining runs. To keep things simple, erring on the side of too-early.
           val trackedClosu = buildExemplarForLCC(lateC)
           exemplars.put(trackedClosu.c, trackedClosu)
         }
@@ -314,6 +310,13 @@ abstract class GenBCode extends BCodeOptInter {
         if(lateClosures.nonEmpty) {
           populateDClosureMaps(pcb)
         }
+
+        // ----------- hand over to pipeline-2
+
+        val item2 = Item2(arrivalPos + lateClosuresCount, mirrorC, plainC, beanC, lateClosures, outF)
+        lateClosuresCount += lateClosures.size
+
+        q2 put item2
 
       } // end of method visit(Item1)
 
