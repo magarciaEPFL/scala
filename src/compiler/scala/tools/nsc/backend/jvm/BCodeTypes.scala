@@ -16,6 +16,7 @@ import collection.convert.Wrappers.JListWrapper
  *  Utilities to mediate between types as represented in Scala ASTs and ASM trees.
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded
+ *  @version 1.0
  *
  */
 abstract class BCodeTypes extends SubComponent with BytecodeWriters {

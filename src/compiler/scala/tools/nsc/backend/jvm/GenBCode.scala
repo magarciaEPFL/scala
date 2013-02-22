@@ -119,9 +119,7 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isUnoptRun   = !settings.isIntraMethodOptimizOn
-    val isOptimizRun = !isUnoptRun
-    val mustPopulateCodeRepo = isOptimizRun || settings.debug.value
+    val isOptimizRun  = settings.isIntraMethodOptimizOn
 
     // number of woker threads for pipeline-2 (the one in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -206,7 +204,10 @@ abstract class GenBCode extends BCodeOptInter {
      */
     class Worker1(needsOutfileForSymbol: Boolean) extends _root_.java.lang.Runnable {
 
-      val isInliningRun     = settings.isIntraMethodOptimizOn
+      val isInliningRun = settings.isInterBasicOptimizOn
+      val isDebugRun    = settings.debug.value
+      val mustPopulateCodeRepo = isOptimizRun || isDebugRun
+
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
 
