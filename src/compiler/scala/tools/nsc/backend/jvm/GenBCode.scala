@@ -294,7 +294,7 @@ abstract class GenBCode extends BCodeOptInter {
         if(mustPopulateCodeRepo) {
           trackInCodeRepo(pcb.cnode)
           lateClosures foreach trackInCodeRepo
-          // mirror and bean classes, if any, need not be tracked in codeRepo.
+          // mirror and bean classes need not be tracked in codeRepo.
         }
 
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
