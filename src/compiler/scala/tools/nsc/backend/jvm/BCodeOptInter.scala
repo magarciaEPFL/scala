@@ -1228,8 +1228,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       assert(callsite.desc == callee.desc)
       assert(!Util.isConstructor(callee))
 
-          def callsiteId: String = s"${callsite.owner}.${callsite.name}${callsite.desc}"
-
       if(!host.instructions.contains(callsite)) {
         val diagnostics =
            "That's strange. A callsite that was going to be inlined has been marked as dead-code. " +
@@ -1427,10 +1425,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val kind    = if(isHiO)   "closure-inlining" else "method-inlining"
       val leading = if(success) "Successful " + kind + remark else "Failed " + kind
 
-      log(
-        leading +
-        s". Callsite: ${callsite.owner}.${callsite.name}${callsite.desc} , occurring in method $hostOwner::${host.name}${host.desc}"
-      )
+      log(leading + s"Callsite: ${insnPos(callsite, host)} , in method ${methodSignature(hostOwner, host)}")
 
       if(!success) {
         debuglog(s"Bytecode of callee, declared by ${hiOOwner.name} \n" + Util.textify(hiO))
