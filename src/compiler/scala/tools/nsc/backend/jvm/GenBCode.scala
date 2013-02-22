@@ -294,7 +294,7 @@ abstract class GenBCode extends BCodeOptInter {
             }
 
         if(mustPopulateCodeRepo) {
-          trackInCodeRepo(pcb.cnode)
+          trackInCodeRepo(plainC)
           lateClosures foreach trackInCodeRepo
           // mirror and bean classes need not be tracked in codeRepo.
         }
@@ -311,11 +311,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         var dClosureEndpoints: Iterable[DClosureEndpoint] = null
         if(lateClosures.nonEmpty) {
-          val masterBT = lookupRefBType(pcb.cnode.name) // this is the "master class" responsible for "its" dclosures
+          val masterBT = lookupRefBType(plainC.name) // this is the "master class" responsible for "its" dclosures
           dClosureEndpoints = pcb.closuresForDelegates.values
           assert(lateClosures.size == dClosureEndpoints.size)
           if(isInliningRun) {
-            populateDClosureMaps(pcb.cnode, masterBT, dClosureEndpoints)
+            populateDClosureMaps(plainC, masterBT, dClosureEndpoints)
+            dClosureEndpoints = null // otherwise Worker2 populateDClosureMaps() again
           } else {
             // let Worker2 `populateDClosureMaps()`, thus out of the critical path. Rest assured it's not needed before then.
           }
@@ -330,7 +331,7 @@ abstract class GenBCode extends BCodeOptInter {
                 outF)
         lateClosuresCount += lateClosures.size
 
-        q2 put item2 // at the very end of this method so that no Worker2 thread starts mutating it before we're done with it.
+        q2 put item2 // at the very end of this method so that no Worker2 thread starts mutating before we're done.
 
       } // end of method visit(Item1)
 
