@@ -560,7 +560,7 @@ abstract class GenBCode extends BCodeOptInter {
       // sequentially
       feedPipeline1()
       (new Worker1(needsOutfileForSymbol)).run()
-      (new WholeProgramAnalysis(isMultithread = false)).optimize()
+      (new WholeProgramAnalysis).optimize()
 
       // optimize different groups of ClassNodes in parallel, once done with each group queue its ClassNodes for disk serialization.
       spawnPipeline2()

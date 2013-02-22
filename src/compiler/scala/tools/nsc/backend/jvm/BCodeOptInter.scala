@@ -589,10 +589,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *  must-single-thread
      *
      * */
-    def getMethodAccess(bt: BType, name: String, desc: String, isMultithread: Boolean): Option[Int] = {
-      val cn =
-        if(isMultithread) { getClassNodeOrNull(bt) }
-        else              {       getClassNode(bt) }
+    def getMethodAccess(bt: BType, name: String, desc: String): Option[Int] = {
+      val cn = getClassNode(bt) // must-single-thread
       if(cn == null) { return None }
       val iter = cn.methods.iterator()
       while(iter.hasNext) {
@@ -602,11 +600,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
       for(ifaceIName <- JListWrapper(cn.interfaces)) {
-        val outcome = getMethodAccess(lookupRefBType(ifaceIName), name, desc, isMultithread)
+        val outcome = getMethodAccess(lookupRefBType(ifaceIName), name, desc)
         if(outcome.nonEmpty) { return outcome }
       }
       if(cn.superName != null) {
-        val outcome = getMethodAccess(lookupRefBType(cn.superName), name, desc, isMultithread)
+        val outcome = getMethodAccess(lookupRefBType(cn.superName), name, desc)
         if(outcome.nonEmpty) { return outcome }
       }
       None
@@ -890,7 +888,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
    *
    * TODO break up into two or more classes
    */
-  final class WholeProgramAnalysis(val isMultithread: Boolean) {
+  final class WholeProgramAnalysis {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
@@ -1286,9 +1284,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * TODO why weren't those TypeNames entered as part of parsing callee from bytecode?
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
-      if(!isMultithread) {
-        codeRepo.registerUnseenTypeNames(body) // must-single-thread
-      }
+      codeRepo.registerUnseenTypeNames(body) // must-single-thread
 
       val hostOwnerBT = lookupRefBType(hostOwner)
 
@@ -1532,7 +1528,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
           case mi: MethodInsnNode =>
             val thereSymRef: BType  = lookupRefBType(mi.owner)
-            val mAccess: Option[Int] = codeRepo.getMethodAccess(thereSymRef, mi.name, mi.desc, isMultithread)
+            val mAccess: Option[Int] = codeRepo.getMethodAccess(thereSymRef, mi.name, mi.desc)
             mAccess.nonEmpty && memberAccess(mAccess.get, thereSymRef)
 
           case ivd: InvokeDynamicInsnNode => false // TODO
@@ -1683,7 +1679,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       val callerId = hostOwner.name + "::" + host.name + host.desc
 
-      assert(!isMultithread)
       codeRepo.registerUnseenTypeNames(hiO.instructions) // must-single-thread
 
       if(Util.isSynchronizedMethod(hiO)) {
