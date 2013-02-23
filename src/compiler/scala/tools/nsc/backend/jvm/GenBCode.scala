@@ -155,22 +155,8 @@ abstract class GenBCode extends BCodeOptInter {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
-    // we'd like to start working first on "large" classes for better load balanching of Worker2 threads
-    private val i2LargeClassesFirst = new _root_.java.util.Comparator[Item2] {
-      override def compare(a: Item2, b: Item2): Int = {
-        if(a.isPoison) { return  1 }
-        if(b.isPoison) { return -1 }
-        val aSize = a.plain.methods.size()
-        val bSize = b.plain.methods.size()
-
-        if     (aSize  > bSize) -1
-        else if(aSize == bSize)  0
-        else 1
-      }
-    }
-
     private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
-    private val q2 = new _root_.java.util.concurrent.PriorityBlockingQueue[Item2](1000, i2LargeClassesFirst)
+    private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
 
     /* ---------------- q3 ---------------- */
 
