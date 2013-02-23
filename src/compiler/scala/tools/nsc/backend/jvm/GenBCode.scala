@@ -294,7 +294,7 @@ abstract class GenBCode extends BCodeOptInter {
           exemplars.put(trackedClosu.c, trackedClosu)
         }
 
-        // ----------- maps for dclosures (needed for optimizations, even inlining, and also for `squashOuter()`)
+        // ----------- maps for dclosures (needed for optimizations, even inlining, and also for `squashOuterForLCC()`)
 
         var dClosureEndpoints: Iterable[DClosureEndpoint] = null
         if(lateClosures.nonEmpty) {
@@ -419,8 +419,8 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         if(!isInterClosureOptimizOn) {
-          // squashOuter for unoptimized, -o1 and -o2, otherwise minimizeDClosureFields() does it (for -o3 and -o4)
-          // TODO squashOuter()    // squashOuter() may mutate dclosures that cnode is responsible for
+          // squashOuterForLCC for unoptimized, -o1 and -o2, otherwise minimizeDClosureFields() does it (for -o3 and -o4)
+          // TODO squashOuterForLCC()    // squashOuterForLCC() may mutate dclosures that cnode is responsible for
           // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
 
