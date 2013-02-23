@@ -183,7 +183,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  (2) Backedges in argument-position to a constructor
      *
      *      Avoids SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
-     *      @see `avoidBackedgesInConstructorArgs()`
+     *      @see `rephraseBackedgesInConstructorArgs()`
      *
      *  (3) TODO: assure empty stack on entry to try in expression position, restore stack afterwards.
      *
@@ -214,14 +214,19 @@ abstract class BCodeOptIntra extends BCodeTypes {
               i += 1
             }
 
+            labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
+            danglingExcHandlers.transform(mnode) // TODO also remove stale tryExpr entries added by genLoadTry
+
+            // TODO here goes empty-stack-on-try-entry
+
           }
+
+      // if this runs after dead-code elim, any ATHROW will cut off the matching <init> of a NEW.
+      // Backedge elimination is faster when that bracketing still available.
+      rephraseBackedgesInConstructorArgs(mnode)
 
       jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
       fixupBasedOnStackInformation()
-      labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
-      danglingExcHandlers.transform(mnode)
-
-      avoidBackedgesInConstructorArgs(mnode)
 
       ifDebug { repOK(mnode) }
 
@@ -250,7 +255,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *      ... instructions loading ctor-args, involving a backedge
      *      INVOKESPECIAL <init>
      *
-     *  `avoidBackedgesInConstructorArgs()` overcomes the above by reformulating into:
+     *  `rephraseBackedgesInConstructorArgs()` overcomes the above by reformulating into:
      *
      *      ... instructions loading ctor-arg N
      *      STORE nth-arg
@@ -265,34 +270,167 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *      LOAD nth-arg
      *      INVOKESPECIAL <init>
      *
-     *  An ASM-based visitor is used to computes usage-definition and definition-usage webs.
-     *
-     *  In the rewritten version, `NEW x` comes after the code to compute arguments.
-     *  It's either that behavioral change or VerifyError.
+     *  A warning informs that, in the rewritten version, `NEW x` comes after the code to compute arguments.
+     *  It's either that (potential) behavioral change or VerifyError.
      *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
      *
      * */
-    final def avoidBackedgesInConstructorArgs(m: MethodNode) {
-      if (!Util.hasBytecodeInstructions(m)) { return }
+    private def rephraseBackedgesInConstructorArgs(mnode: MethodNode) {
+
+      if (!Util.hasBytecodeInstructions(mnode)) { return }
+
+      val originally = mnode.maxLocals
+
+      val changed =
+        if(mnode.name == "<init>") {
+          unreachCodeRemover.transform(cnode.name, mnode) // remove unreachable code
+          rephraseBackedgesSlow(mnode)
+        }
+        else { rephraseBackedgesFast(mnode) }
+
+      if(!changed) { return }
+
+      // val quickOptimizer = new QuickCleanser(cnode)
+      // quickOptimizer.elimRedundantCode(cnode.name, mnode)
+      // val lvCompacter = new asm.optimiz.LocalVarCompact(null)
+      // lvCompacter.transform(mnode)
+
+      val extraTempVars = (mnode.maxLocals - originally)
+      if(extraTempVars > 0) {
+        warning(
+          s"Added $extraTempVars extra temporary local variables while rephrasing backedges in ctor args , " +
+          s"at ${methodSignature(cnode, mnode)}")
+      }
+
+    }
+
+    /**
+     *  This version is fast at the cost of not coping with <init> super-calls (which are valid only in ctors).
+     *  Thus it should be used only for non-ctor methods.
+     *
+     *  @return true iff the method body was mutated
+     * */
+    private def rephraseBackedgesFast(mnode: MethodNode): Boolean = {
+      assert(mnode.name != "<init>")
+
+          case class Bracket(newInsn: TypeInsnNode, initInsn: MethodInsnNode)
+
+      val newsWithBackedges = mutable.Set.empty[TypeInsnNode]
+      val seen = mutable.Set.empty[LabelNode]
+      val stack = new mutable.Stack[TypeInsnNode]
+      var rewrites: List[Bracket] = Nil
+
+          def location() = { "while fixing backedges in ctor args, for method " + methodSignature(cnode, mnode) }
+
+          def complain(msg: String) { error(msg + ", " + location) }
+
+          def bracketMismatch() {
+            complain("Mismatch in NEW-INIT bracket (Hint: does a DROP instruction consume what INIT should?)")
+          }
+
+      val iter = mnode.instructions.iterator()
+      while(iter.hasNext) {
+
+        iter.next() match {
+          case ti: TypeInsnNode if ti.getOpcode == Opcodes.NEW =>
+            stack push ti
+          case ln: LabelNode =>
+            seen += ln
+          case ji: JumpInsnNode =>
+            if(ji.getOpcode == Opcodes.JSR) {
+              complain("Found JSR opcode while fixing backedges in ctor args")
+              return false
+            }
+            if(seen(ji.label)) {
+              newsWithBackedges ++= stack
+            }
+          case mi: MethodInsnNode if mi.getOpcode == Opcodes.INVOKESPECIAL && mi.name == "<init>" =>
+            val poppedNEW = stack.pop()
+            if(newsWithBackedges contains poppedNEW) {
+              newsWithBackedges -= poppedNEW
+              if(mi.owner != poppedNEW.desc) {
+                bracketMismatch()
+                return false
+              }
+              rewrites ::= Bracket(poppedNEW, mi)
+            }
+          case _ => ()
+        }
+
+      }
+
+      if(stack.nonEmpty || newsWithBackedges.nonEmpty) {
+        bracketMismatch()
+        return false
+      }
+
+      if(rewrites.isEmpty) { return false }
+
+      while (rewrites.nonEmpty) {
+        val Bracket(newInsn, initInsn) = rewrites.head
+        rewrites = rewrites.tail
+        if(newInsn.getNext.getOpcode != Opcodes.DUP) {
+          complain("Found NEW not followed by DUP")
+          return true
+        }
+        rephraseBackedgeRewrite(mnode, newInsn, initInsn)
+      }
+
+      true
+    } // end of method rephraseBackedgesFast()
+
+    private def rephraseBackedgeRewrite(mnode:    MethodNode,
+                                        newInsn:  AbstractInsnNode,
+                                        initInsn: MethodInsnNode) {
+
+      assert(newInsn.getOpcode == Opcodes.NEW)
+      assert(newInsn.getNext.getOpcode == Opcodes.DUP)
+      val dupInsn = newInsn.getNext
+      val paramTypes = BType.getMethodType(initInsn.desc).getArgumentTypes
+
+      val stream = mnode.instructions
+      stream.remove(newInsn)
+      stream.remove(dupInsn)
+      stream.insertBefore(initInsn, newInsn)
+      stream.insertBefore(initInsn, dupInsn)
+
+      for(i <- (paramTypes.length - 1) to 0 by -1) {
+        val pt = paramTypes(i)
+        val idxVar = mnode.maxLocals
+        mnode.maxLocals += pt.getSize
+        val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
+        val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
+        stream.insertBefore(newInsn, store)
+        stream.insert(dupInsn,load)
+      }
+
+    } // end of method rephraseBackedgeRewrite()
+
+    /**
+     *  This version is can cope with <init> super-calls (which are valid only in ctors) at the cost of being slow.
+     *  Thus it should be used only for constructors.
+     *
+     *  @return true iff the method body was mutated
+     * */
+    def rephraseBackedgesSlow(mnode: MethodNode): Boolean = {
 
       val inits =
         for(
-          i <- m.instructions.toList;
+          i <- mnode.instructions.toList;
           if i.getType == AbstractInsnNode.METHOD_INSN;
           mi = i.asInstanceOf[MethodInsnNode];
           if (mi.name == "<init>") && (mi.desc != "()V")
         ) yield mi;
-
-      if (inits.isEmpty) { return }
+      if (inits.isEmpty) { return false }
 
       val cp = ProdConsAnalyzer.create()
-      cp.analyze(cnode.name , m)
+      cp.analyze(cnode.name , mnode)
 
       for(init <- inits) {
         val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
         assert(
           receiverSV.insns.size == 1,
-          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, m, cnode)}"
+          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, mnode, cnode)}"
         )
         val dupInsn = receiverSV.insns.iterator().next()
         val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
@@ -303,32 +441,18 @@ abstract class BCodeOptIntra extends BCodeTypes {
             label = entry.getValue
           ) {
             log(
-              s"Backedge found in contructor-args section, in method ${methodSignature(cnode, m)} " +
-              s"(jump ${insnPos(jump, m)} , target ${insnPos(label, m)} ). " +
+              s"Backedge found in contructor-args section, in method ${methodSignature(cnode, mnode)} " +
+              s"(jump ${insnPos(jump, mnode)} , target ${insnPos(label, mnode)} ). " +
                "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
             )
           }
-          assert(dupInsn.getOpcode == Opcodes.DUP)
           val newInsn = dupInsn.getPrevious
-          assert(newInsn.getOpcode == Opcodes.NEW)
-          m.instructions.remove(newInsn)
-          m.instructions.remove(dupInsn)
-          m.instructions.insertBefore(init, newInsn)
-          m.instructions.insertBefore(init, dupInsn)
-          val paramTypes = BType.getMethodType(init.desc).getArgumentTypes
-          for(i <- (paramTypes.length - 1) to 0 by -1) {
-            val pt = paramTypes(i)
-            val idxVar   = m.maxLocals
-            m.maxLocals += pt.getSize
-            val load  = new VarInsnNode(pt.getOpcode(Opcodes.ILOAD),  idxVar)
-            val store = new VarInsnNode(pt.getOpcode(Opcodes.ISTORE), idxVar)
-            m.instructions.insertBefore(newInsn, store)
-            m.instructions.insert(dupInsn,load )
-          }
+          rephraseBackedgeRewrite(mnode, newInsn, init)
         }
       }
 
-    } // end of method avoidBackedgesInConstructorArgs()
+      true
+    } // end of method rephraseBackedgesSlow()
 
     //--------------------------------------------------------------------
     // Utilities for reuse by different optimizers
@@ -480,7 +604,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *      the producer has its value consumed only by the DROP in question.
      *
      * */
-    private def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+    def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
       var changed   = false
       var keepGoing = false
 
@@ -521,15 +645,13 @@ abstract class BCodeOptIntra extends BCodeTypes {
    *
    *  The entry point is `cleanseClass()`.
    */
-  final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
+  final class BCodeCleanser(cnode: asm.tree.ClassNode, isInterClosureOptimizOn: Boolean) extends QuickCleanser(cnode) {
 
     val unboxElider         = new asm.optimiz.UnBoxElider
 
     val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
 
     val unusedPrivateDetector = new asm.optimiz.UnusedPrivateDetector()
-
-    val isInterClosureOptimizOn = settings.isInterClosureOptimizOn
 
     /**
      *  Laundry-list of all optimizations that might possibly be applied
@@ -641,6 +763,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
           cacheRepeatableReads(mnode)              // caching repeatable reads of stable values
           unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
+          rephraseBackedgesSlow(mnode)
         }
 
         ifDebug { runTypeFlowAnalysis(mnode) }

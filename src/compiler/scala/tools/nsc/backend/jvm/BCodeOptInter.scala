@@ -347,7 +347,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     /**
      *  Checks about usages of dclosures.
      *
-     *  Before `inlining()` a dclosure:
+     *  Before the Inliner has run, a dclosure:
      *
      *    (a) may be instantiated only in its master class (if at all).
      *        In case dead-code elimination has run, a dclosure might not be instantiated at all,
@@ -355,7 +355,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      *    (b) may have its endpoint invoked only in the dclosure class itself.
      *
-     *  In addition to the above, after `inlining()` a dclosure may also
+     *  In addition to the above, after the Inliner has run, a dclosure may also
      *
      *    (c) be instantiated in a nonMasterUser,
      *    (d) have its endpoint invoked by its masterClass or a nonMasterUser.
@@ -3016,7 +3016,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
-      val cleanser = new BCodeCleanser(dCNode)
+      val cleanser = new BCodeCleanser(dCNode, false)
       cleanser.intraMethodFixpoints(full = false)
 
       /*
