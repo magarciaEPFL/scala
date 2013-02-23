@@ -66,9 +66,6 @@ abstract class UnCurry extends InfoTransform
    * */
   val closureDelegates = mutable.Set.empty[MethodSymbol]
 
-  var convertedTraditional = 0
-  var convertedModern = 0
-
 // ------ Type transformation --------------------------------------------------------
 
 // uncurry and uncurryType expand type aliases
@@ -81,6 +78,8 @@ abstract class UnCurry extends InfoTransform
     private val noApply           = mutable.HashSet[Tree]()
     private val newMembers        = mutable.Map[Symbol, mutable.Buffer[Tree]]()
     private val repeatedParams    = mutable.Map[Symbol, List[ValDef]]()
+
+    private val doConvertTraditional = settings.isClosureConvTraditional || settings.etaExpandKeepsStar.value
 
     /** Add a new synthetic member for `currentOwner` */
     private def addNewMember(t: Tree): Unit =
@@ -244,19 +243,13 @@ abstract class UnCurry extends InfoTransform
 
               // checking inConstructorFlag prevents hitting SI-6666
               def isAmenableToModernConversion = {
-                val isAmenableToEarlyDelegatingClosures = {
-                  (inConstructorFlag == 0) && !settings.etaExpandKeepsStar.value
-                }
-
-                isAmenableToEarlyDelegatingClosures && isAmenableToLateDelegatingClosures(fun)
+                (inConstructorFlag == 0) && isAmenableToLateDelegatingClosures(fun)
               }
 
-          if(settings.isClosureConvTraditional || !isAmenableToModernConversion) {
-            convertedTraditional += 1
+          if(doConvertTraditional || !isAmenableToModernConversion) {
             closureConversionTraditional(fun)
           }
           else {
-            convertedModern += 1
             closureConversionModern(fun)
           }
       }
@@ -437,7 +430,7 @@ abstract class UnCurry extends InfoTransform
         isNonUnitPrimitiveValueType ||
         (isFineType(frml) && !isByNameParamType(frml))
       }
-    } // end of method isAmenableToModernClosureConversion()
+    } // end of method isAmenableToLateDelegatingClosures()
 
     def transformArgs(pos: Position, fun: Symbol, args: List[Tree], formals: List[Type]) = {
       val isJava = fun.isJavaDefined

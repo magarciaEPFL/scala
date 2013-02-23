@@ -573,7 +573,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isWideType = (getSize == 2)
 
     def isClosureClass: Boolean = {
-      val tr = exemplars.get(this); (tr != null && tr.isClosureClass)
+      val tr = exemplars.get(this); (tr != null && tr.isLambda)
     }
 
     def isCapturedCellRef: Boolean = {
@@ -1118,8 +1118,15 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isSuper      = hasFlags(ACC_SUPER)
     def isDeprecated = hasFlags(ACC_DEPRECATED)
     def isInnerClass = { innersChain != null }
-    def isClosureClass = {
+    def isTraditionalClosureClass = {
       isInnerClass && isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
+    }
+    def isLCC = {
+      isFinal && (c.getSimpleName.contains(tpnme.LCC_FUN_NAME.toString)) && isFunctionType(c)
+    }
+    def isLambda = {
+      // ie isLCC || isTraditionalClosureClass
+      isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
     }
     def isSerializable = { isSubtypeOf(jioSerializableReference) }
 

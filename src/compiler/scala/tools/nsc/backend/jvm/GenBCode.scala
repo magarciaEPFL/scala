@@ -336,7 +336,7 @@ abstract class GenBCode extends BCodeOptInter {
        * */
       private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
         val key = lookupRefBType(lateC.name)
-        val tsc: Tracked = exemplars.get(ObjectReference)
+        val tsc: Tracked = exemplars.get(lookupRefBType(lateC.superName))
         val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
         tr.directMemberClasses = Nil
 
@@ -484,8 +484,6 @@ abstract class GenBCode extends BCodeOptInter {
      *
      * */
     override def run() {
-
-      log(s"Number of early vs late anon-closures, Traditional: ${uncurry.convertedTraditional} , Modern: ${uncurry.convertedModern}")
 
       arrivalPos = 0 // just in case
       scalaPrimitives.init
@@ -2653,7 +2651,7 @@ abstract class GenBCode extends BCodeOptInter {
               val c = new asm.tree.ClassNode() // interfaces, innerClasses, fields, methods
 
               val simpleName = cunit.freshTypeName(
-                enclClassBT.getSimpleName + "$LCC$" + nme.ANON_FUN_NAME.toString + "$" + mnode.name + "$"
+                enclClassBT.getSimpleName + nme.LCC_FUN_NAME.toString + "$" + mnode.name + "$"
               ).toString
               c.name = {
                 val pak = enclClassBT.getRuntimePackage
