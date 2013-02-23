@@ -2232,9 +2232,16 @@ abstract class GenBCode extends BCodeOptInter {
               case rt if generatedType.hasObjectSort =>
                 assert(exemplar(ctor.owner).c == rt, "Symbol " + ctor.owner.fullName + " is different from " + rt)
                 mnode.visitTypeInsn(asm.Opcodes.NEW, rt.getInternalName)
+                val newInsn = mnode.instructions.getLast.asInstanceOf[asm.tree.TypeInsnNode]
                 bc dup generatedType
                 genLoadArguments(args, paramTKs(app))
                 genCallMethod(ctor, Static(true))
+                val initInsn = mnode.instructions.getLast.asInstanceOf[asm.tree.MethodInsnNode]
+                val bes = asm.optimiz.Util.backedges(newInsn, initInsn)
+                if(!bes.isEmpty) {
+                  // SI-6720 Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
+                  rephraseBackedgeInCtorArg(bes, newInsn, initInsn)
+                }
 
               case _ =>
                 abort("Cannot instantiate " + tpt + " of kind: " + generatedType)
@@ -2343,6 +2350,84 @@ abstract class GenBCode extends BCodeOptInter {
 
         generatedType
       } // end of PlainClassBuilder's genApply()
+
+
+      /**
+       *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
+       *
+       *  Quoting from the JVM Spec, 4.9.2 Structural Constraints , http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
+       *
+       *     There must never be an uninitialized class instance on the operand stack or in a local variable
+       *     at the target of a backwards branch unless the special type of the uninitialized class instance
+       *     at the branch instruction is merged with itself at the target of the branch (Sec. 4.10.2.4).
+       *
+       *  The Oracle JVM as of JDK 7 has started rejecting bytecode of the form:
+       *
+       *      NEW x
+       *      DUP
+       *      ... instructions loading ctor-args, involving a backedge
+       *      INVOKESPECIAL <init>
+       *
+       *  `rephraseBackedgesInConstructorArgs()` overcomes the above by reformulating into:
+       *
+       *      ... instructions loading ctor-arg N
+       *      STORE nth-arg
+       *      ... instructions loading ctor-arg (N-1)
+       *      STORE (n-1)th-arg
+       *      ... and so on
+       *      STORE 1st-arg
+       *      NEW x
+       *      DUP
+       *      LOAD 1st-arg
+       *      ...
+       *      LOAD nth-arg
+       *      INVOKESPECIAL <init>
+       *
+       *  A warning informs that, in the rewritten version, `NEW x` comes after the code to compute arguments.
+       *  It's either that (potential) behavioral change or VerifyError.
+       *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
+       *
+       * */
+      private def rephraseBackedgeInCtorArg(bes:      _root_.java.util.Map[asm.tree.JumpInsnNode, asm.tree.LabelNode],
+                                            newInsn:  asm.tree.TypeInsnNode,
+                                            initInsn: MethodInsnNode) {
+
+        import collection.convert.Wrappers.JSetWrapper
+        for(
+          entry <- JSetWrapper(bes.entrySet());
+          jump  = entry.getKey;
+          label = entry.getValue
+        ) {
+          warning(
+            s"Backedge found in contructor-args section, in method ${methodSignature(cnode, mnode)} " +
+            s"(jump ${insnPos(jump, mnode)} , target ${insnPos(label, mnode)} ). " +
+            s"In order to avoid SI-6720, adding LOADs and STOREs for arguments. "  +
+            s"As a result, ${newInsn.desc} is now instantiated after evaluating all ctor-arguments, " +
+            s"on the assumption such class has not static-ctor performing visible side-effects that could make a difference."
+          )
+        }
+
+        assert(newInsn.getOpcode == asm.Opcodes.NEW)
+        val dupInsn = newInsn.getNext
+        val paramTypes = BType.getMethodType(initInsn.desc).getArgumentTypes
+
+        val stream = mnode.instructions
+        stream.remove(newInsn)
+        stream.remove(dupInsn)
+        stream.insertBefore(initInsn, newInsn)
+        stream.insertBefore(initInsn, dupInsn)
+
+        for(i <- (paramTypes.length - 1) to 0 by -1) {
+          val pt = paramTypes(i)
+          val idxVar = nxtIdx
+          nxtIdx += pt.getSize
+          val load  = new asm.tree.VarInsnNode(pt.getOpcode(asm.Opcodes.ILOAD),  idxVar)
+          val store = new asm.tree.VarInsnNode(pt.getOpcode(asm.Opcodes.ISTORE), idxVar)
+          stream.insertBefore(newInsn, store)
+          stream.insert(dupInsn,load)
+        }
+
+      } // end of method rephraseBackedgeInCtorArg()
 
       /**
        *  This method works in tandem with UnCurry's closureConversionModern()

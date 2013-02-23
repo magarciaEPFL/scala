@@ -375,6 +375,9 @@ public class Util {
     // jumps, backedges
     // ------------------------------------------------------------------------
 
+    /**
+     *  @return all the backedges bracketed between instructions `start` and `end`
+     * */
     public static Map<JumpInsnNode, LabelNode> backedges(final AbstractInsnNode start, final AbstractInsnNode end) {
         Map<JumpInsnNode, LabelNode> result = new HashMap<JumpInsnNode, LabelNode>();
         Set<LabelNode> seen = new HashSet<LabelNode>();

@@ -166,218 +166,123 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
 
     /**
-     *  Removes dead code and handles backedges in argument-position to a constructor.
+     *  This method performs a few intra-method optimizations:
+     *    - collapse a multi-jump chain to target its final destination via a single jump
+     *    - remove unreachable code
+     *    - remove those LabelNodes and LineNumbers that aren't in use
      *
-     *  (1) Dead code
+     *  Some of the above are applied repeatedly until no further reductions occur.
      *
-     *        When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
-     *        the very least we want to do is remove dead code beforehand,
-     *        so as to prevent an artifact of stack-frames computation from showing up,
-     *        the artifact described at http://asm.ow2.org/doc/developer-guide.html#deadcode
-     *        That artifact results from the requirement by the Java 6 split verifier
-     *        that a stack map frame be available for each basic block, even unreachable ones.
+     *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
      *
-     *        Just removing dead code might leave stale LocalVariableTable entries
-     *        thus `cleanseMethod()` also gets rid of those.
-     *
-     *  (2) Backedges in argument-position to a constructor
-     *
-     *      Avoids SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
-     *      @see `rephraseBackedgesInConstructorArgs()`
-     *
-     *  (3) TODO: assure empty stack on entry to try in expression position, restore stack afterwards.
-     *
-     * */
-    private final def fixupMethod(cName: String, mnode: asm.tree.MethodNode) {
+     */
+    final def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
 
-          /**
-           *   Compute once a dataflow, reuse it to remove dead code and to guarantee empty-stack-on-try-entry
-           * */
-          def fixupBasedOnStackInformation() {
+      var changed = false
+      var keepGoing = false
 
-            import asm.tree.analysis.{Frame, Analyzer, BasicValue, BasicInterpreter}
+      do {
+        keepGoing = false
 
-            // remove unreachable code, keep the dataflow-analysis results for later use
-            val a = new Analyzer[BasicValue](new BasicInterpreter())
-            a.analyze(cName, mnode)
+        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
+        keepGoing |= jumpsCollapser.changed
 
-            val frames: Array[Frame[BasicValue]] = a.getFrames()
-            val insns : Array[AbstractInsnNode]  = mnode.instructions.toArray
+        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
+        keepGoing |= unreachCodeRemover.changed
 
-            var i = 0
-            while(i < insns.length) {
-              if (frames(i) == null &&
-                  insns(i)  != null &&
-                  (insns(i).getType != AbstractInsnNode.LABEL)) {
-                mnode.instructions.remove(insns(i))
-              }
-              i += 1
-            }
+        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
+        keepGoing |= labelsCleanup.changed
 
-            labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
-            danglingExcHandlers.transform(mnode) // TODO also remove stale tryExpr entries added by genLoadTry
+        danglingExcHandlers.transform(mnode)
+        keepGoing |= danglingExcHandlers.changed
 
-            // TODO here goes empty-stack-on-try-entry
+        changed |= keepGoing
 
-          }
-
-      // if this runs after dead-code elim, any ATHROW will cut off the matching <init> of a NEW.
-      // Backedge elimination is faster when that bracketing still available.
-      rephraseBackedgesInConstructorArgs(mnode)
-
-      jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
-      fixupBasedOnStackInformation()
+      } while (keepGoing)
 
       ifDebug { repOK(mnode) }
 
-    }
+      changed
 
-    final def codeFixups() {
-      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
-        Util.computeMaxLocalsMaxStack(mnode)
-        fixupMethod(cnode.name, mnode)
-      }
     }
 
     /**
-     *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
+     *  Removes dead code.
      *
-     *  Quoting from the JVM Spec, 4.9.2 Structural Constraints , http://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html
+     *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
+     *  the very least we want to do is remove dead code beforehand,
+     *  so as to prevent an artifact of stack-frames computation from showing up,
+     *  the artifact described at http://asm.ow2.org/doc/developer-guide.html#deadcode
+     *  That artifact results from the requirement by the Java 6 split verifier
+     *  that a stack map frame be available for each basic block, even unreachable ones.
      *
-     *     There must never be an uninitialized class instance on the operand stack or in a local variable
-     *     at the target of a backwards branch unless the special type of the uninitialized class instance
-     *     at the branch instruction is merged with itself at the target of the branch (Sec. 4.10.2.4).
-     *
-     *  The Oracle JVM as of JDK 7 has started rejecting bytecode of the form:
-     *
-     *      NEW x
-     *      DUP
-     *      ... instructions loading ctor-args, involving a backedge
-     *      INVOKESPECIAL <init>
-     *
-     *  `rephraseBackedgesInConstructorArgs()` overcomes the above by reformulating into:
-     *
-     *      ... instructions loading ctor-arg N
-     *      STORE nth-arg
-     *      ... instructions loading ctor-arg (N-1)
-     *      STORE (n-1)th-arg
-     *      ... and so on
-     *      STORE 1st-arg
-     *      NEW x
-     *      DUP
-     *      LOAD 1st-arg
-     *      ...
-     *      LOAD nth-arg
-     *      INVOKESPECIAL <init>
-     *
-     *  A warning informs that, in the rewritten version, `NEW x` comes after the code to compute arguments.
-     *  It's either that (potential) behavioral change or VerifyError.
-     *  "Behavioral change" that is, in case the class being instantiated has a side-effecting static initializer.
+     *  Just removing dead code might leave stale LocalVariableTable entries
+     *  thus `cleanseMethod()` also gets rid of those.
      *
      * */
-    private def rephraseBackedgesInConstructorArgs(mnode: MethodNode) {
+    final def codeFixups() {
+      val iter = cnode.methods.iterator()
+      while(iter.hasNext) {
+        val mnode = iter.next()
 
-      if (!Util.hasBytecodeInstructions(mnode)) { return }
-
-      val originally = mnode.maxLocals
-
-      val changed =
-        if(mnode.name == "<init>") {
-          unreachCodeRemover.transform(cnode.name, mnode) // remove unreachable code
-          rephraseBackedgesSlow(mnode)
+        if(Util.hasBytecodeInstructions(mnode)) {
+          Util.computeMaxLocalsMaxStack(mnode)
+          cleanseMethod(cnode.name, mnode) // remove unreachable code
         }
-        else { rephraseBackedgesFast(mnode) }
 
-      if(!changed) { return }
-
-      // val quickOptimizer = new QuickCleanser(cnode)
-      // quickOptimizer.elimRedundantCode(cnode.name, mnode)
-      // val lvCompacter = new asm.optimiz.LocalVarCompact(null)
-      // lvCompacter.transform(mnode)
-
-      val extraTempVars = (mnode.maxLocals - originally)
-      if(extraTempVars > 0) {
-        warning(
-          s"Added $extraTempVars extra temporary local variables while rephrasing backedges in ctor args , " +
-          s"at ${methodSignature(cnode, mnode)}")
       }
-
     }
 
     /**
-     *  This version is fast at the cost of not coping with <init> super-calls (which are valid only in ctors).
-     *  Thus it should be used only for non-ctor methods.
+     *  This version can cope with <init> super-calls (which are valid only in ctors) as well as
+     *  with all code reductions the optimizer performs. This flexibility requires a producers-consumers analysis,
+     *  which makes the rewriting slower than its counterpart in GenBCode.
+     *
+     *  @see long description at GenBCode's `rephraseBackedgeInCtorArg()`
      *
      *  @return true iff the method body was mutated
      * */
-    private def rephraseBackedgesFast(mnode: MethodNode): Boolean = {
-      assert(mnode.name != "<init>")
+    final def rephraseBackedgesSlow(mnode: MethodNode): Boolean = {
 
-          case class Bracket(newInsn: TypeInsnNode, initInsn: MethodInsnNode)
+      val inits =
+        for(
+          i <- mnode.instructions.toList;
+          if i.getType == AbstractInsnNode.METHOD_INSN;
+          mi = i.asInstanceOf[MethodInsnNode];
+          if (mi.name == "<init>") && (mi.desc != "()V")
+        ) yield mi;
+      if (inits.isEmpty) { return false }
 
-      val newsWithBackedges = mutable.Set.empty[TypeInsnNode]
-      val seen = mutable.Set.empty[LabelNode]
-      val stack = new mutable.Stack[TypeInsnNode]
-      var rewrites: List[Bracket] = Nil
+      val cp = ProdConsAnalyzer.create()
+      cp.analyze(cnode.name , mnode)
 
-          def location() = { "while fixing backedges in ctor args, for method " + methodSignature(cnode, mnode) }
-
-          def complain(msg: String) { error(msg + ", " + location) }
-
-          def bracketMismatch() {
-            complain("Mismatch in NEW-INIT bracket (Hint: does a DROP instruction consume what INIT should?)")
+      for(init <- inits) {
+        val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
+        assert(
+          receiverSV.insns.size == 1,
+          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, mnode, cnode)}"
+        )
+        val dupInsn = receiverSV.insns.iterator().next()
+        val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
+        if(!bes.isEmpty) {
+          for(
+            entry <- JSetWrapper(bes.entrySet());
+            jump  = entry.getKey;
+            label = entry.getValue
+          ) {
+            warning(
+              s"Backedge found in contructor-args section, in method ${methodSignature(cnode, mnode)} " +
+              s"(jump ${insnPos(jump, mnode)} , target ${insnPos(label, mnode)} ). " +
+               "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
+            )
           }
-
-      val iter = mnode.instructions.iterator()
-      while(iter.hasNext) {
-
-        iter.next() match {
-          case ti: TypeInsnNode if ti.getOpcode == Opcodes.NEW =>
-            stack push ti
-          case ln: LabelNode =>
-            seen += ln
-          case ji: JumpInsnNode =>
-            if(ji.getOpcode == Opcodes.JSR) {
-              complain("Found JSR opcode while fixing backedges in ctor args")
-              return false
-            }
-            if(seen(ji.label)) {
-              newsWithBackedges ++= stack
-            }
-          case mi: MethodInsnNode if mi.getOpcode == Opcodes.INVOKESPECIAL && mi.name == "<init>" =>
-            val poppedNEW = stack.pop()
-            if(newsWithBackedges contains poppedNEW) {
-              newsWithBackedges -= poppedNEW
-              if(mi.owner != poppedNEW.desc) {
-                bracketMismatch()
-                return false
-              }
-              rewrites ::= Bracket(poppedNEW, mi)
-            }
-          case _ => ()
+          val newInsn = dupInsn.getPrevious
+          rephraseBackedgeRewrite(mnode, newInsn, init)
         }
-
-      }
-
-      if(stack.nonEmpty || newsWithBackedges.nonEmpty) {
-        bracketMismatch()
-        return false
-      }
-
-      if(rewrites.isEmpty) { return false }
-
-      while (rewrites.nonEmpty) {
-        val Bracket(newInsn, initInsn) = rewrites.head
-        rewrites = rewrites.tail
-        if(newInsn.getNext.getOpcode != Opcodes.DUP) {
-          complain("Found NEW not followed by DUP")
-          return true
-        }
-        rephraseBackedgeRewrite(mnode, newInsn, initInsn)
       }
 
       true
-    } // end of method rephraseBackedgesFast()
+    } // end of method rephraseBackedgesSlow()
 
     private def rephraseBackedgeRewrite(mnode:    MethodNode,
                                         newInsn:  AbstractInsnNode,
@@ -406,54 +311,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     } // end of method rephraseBackedgeRewrite()
 
-    /**
-     *  This version is can cope with <init> super-calls (which are valid only in ctors) at the cost of being slow.
-     *  Thus it should be used only for constructors.
-     *
-     *  @return true iff the method body was mutated
-     * */
-    def rephraseBackedgesSlow(mnode: MethodNode): Boolean = {
-
-      val inits =
-        for(
-          i <- mnode.instructions.toList;
-          if i.getType == AbstractInsnNode.METHOD_INSN;
-          mi = i.asInstanceOf[MethodInsnNode];
-          if (mi.name == "<init>") && (mi.desc != "()V")
-        ) yield mi;
-      if (inits.isEmpty) { return false }
-
-      val cp = ProdConsAnalyzer.create()
-      cp.analyze(cnode.name , mnode)
-
-      for(init <- inits) {
-        val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
-        assert(
-          receiverSV.insns.size == 1,
-          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, mnode, cnode)}"
-        )
-        val dupInsn = receiverSV.insns.iterator().next()
-        val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
-        if(!bes.isEmpty) {
-          for(
-            entry <- JSetWrapper(bes.entrySet());
-            jump  = entry.getKey;
-            label = entry.getValue
-          ) {
-            log(
-              s"Backedge found in contructor-args section, in method ${methodSignature(cnode, mnode)} " +
-              s"(jump ${insnPos(jump, mnode)} , target ${insnPos(label, mnode)} ). " +
-               "In order to avoid SI-6720, adding LOADs and STOREs for arguments"
-            )
-          }
-          val newInsn = dupInsn.getPrevious
-          rephraseBackedgeRewrite(mnode, newInsn, init)
-        }
-      }
-
-      true
-    } // end of method rephraseBackedgesSlow()
-
     //--------------------------------------------------------------------
     // Utilities for reuse by different optimizers
     //--------------------------------------------------------------------
@@ -464,7 +321,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *  Makes sure that exception-handler and local-variable entries aren't obviously wrong
      *  (e.g., the left and right brackets of instruction ranges are checked, right bracket should follow left bracket).
      */
-    def repOK(mnode: asm.tree.MethodNode): Boolean = {
+    final def repOK(mnode: asm.tree.MethodNode): Boolean = {
       if(!global.settings.debug.value) {
         return true;
       }
@@ -528,47 +385,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
     //--------------------------------------------------------------------
     // First optimization pack
     //--------------------------------------------------------------------
-
-    /**
-     *  This method performs a few intra-method optimizations:
-     *    - collapse a multi-jump chain to target its final destination via a single jump
-     *    - remove unreachable code
-     *    - remove those LabelNodes and LineNumbers that aren't in use
-     *
-     *  Some of the above are applied repeatedly until no further reductions occur.
-     *
-     *  Node: what ICode calls reaching-defs is available as asm.tree.analysis.SourceInterpreter, but isn't used here.
-     *
-     */
-    final def cleanseMethod(cName: String, mnode: asm.tree.MethodNode): Boolean = {
-
-      var changed = false
-      var keepGoing = false
-
-      do {
-        keepGoing = false
-
-        jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
-        keepGoing |= jumpsCollapser.changed
-
-        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
-        keepGoing |= unreachCodeRemover.changed
-
-        labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
-        keepGoing |= labelsCleanup.changed
-
-        danglingExcHandlers.transform(mnode)
-        keepGoing |= danglingExcHandlers.changed
-
-        changed |= keepGoing
-
-      } while (keepGoing)
-
-      ifDebug { repOK(mnode) }
-
-      changed
-
-    }
 
     /**
      *  Intra-method optimizations performed until a fixpoint is reached.
@@ -746,6 +562,10 @@ abstract class BCodeOptIntra extends BCodeTypes {
         // dcloptim.closureCachingAndEviction() TODO disabled because there's a bug in closureCachingAndEviction()
       }
 
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+        rephraseBackedgesSlow(mnode)
+      }
+
     } // end of method cleanseClass()
 
     /**
@@ -763,7 +583,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
           cacheRepeatableReads(mnode)              // caching repeatable reads of stable values
           unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
           lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
-          rephraseBackedgesSlow(mnode)
         }
 
         ifDebug { runTypeFlowAnalysis(mnode) }
