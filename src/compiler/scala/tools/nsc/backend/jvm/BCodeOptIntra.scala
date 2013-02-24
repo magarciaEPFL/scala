@@ -295,13 +295,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     final def removeUnreachableCode(mnode: MethodNode): Boolean = {
 
-      val cloned = Util.clonedMethodNode(mnode).mnode
-      unreachCodeRemover.transform(cnode.name, cloned)
-
-      val txtBefore = Util.textify(mnode)
-
-      // start of the algorithm proper
-
       val landing  = mutable.Set.empty[AbstractInsnNode]
       val suspect  = mutable.Set.empty[AbstractInsnNode]
       val worklist = new mutable.Stack[AbstractInsnNode]
@@ -393,24 +386,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
           }
           current = nxt
         }
-      }
-
-      // end of the algorithm proper
-
-      // labelsCleanup.transform(cloned)
-      // labelsCleanup.transform(mnode)
-
-      var txtResultSlow: String = null
-      var txtResultFast: String = null
-
-      if(changed) {
-
-        txtResultSlow = Util.textify(cloned)
-        txtResultFast = Util.textify(mnode)
-        val notTheSame = (txtResultSlow != txtResultFast)
-
-        runTypeFlowAnalysis(mnode) // TODO debug
-
       }
 
       changed
