@@ -141,8 +141,6 @@ public class Util {
             case Opcodes.IF_ICMPGE:
             case Opcodes.IF_ICMPGT:
             case Opcodes.IF_ICMPLE:
-            case Opcodes.IF_ACMPEQ:
-            case Opcodes.IF_ACMPNE:
             case Opcodes.IFNULL:
             case Opcodes.IFNONNULL:
                 return true;
