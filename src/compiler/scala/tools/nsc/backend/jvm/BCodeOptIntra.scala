@@ -347,7 +347,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
             case AbstractInsnNode.JUMP_INSN =>
               val ji = reach.asInstanceOf[JumpInsnNode]
               if(ji.getOpcode == Opcodes.JSR) {
-                return false // don't touch methods containing JSR (they must have been inlined, scalac doesn't emit JSR)
+                return false // don't touch methods containing subroutines (perhaps was inlined, scalac doesn't emit JSR/RET)
               }
               if(Util.isCondJump(reach)) {
                 transfer(ji.label)
@@ -375,6 +375,9 @@ abstract class BCodeOptIntra extends BCodeTypes {
                 reach = null
               }
             case _ =>
+              if(reach.getOpcode == Opcodes.RET) {
+                return false // don't touch methods containing subroutines (perhaps was inlined, scalac doesn't emit JSR/RET)
+              }
               ()
           }
 
