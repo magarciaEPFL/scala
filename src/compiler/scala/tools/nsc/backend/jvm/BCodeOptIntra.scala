@@ -249,7 +249,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
   class EssentialCleanser(cnode: asm.tree.ClassNode) {
 
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
-    val unreachCodeRemover  = new asm.optimiz.UnreachableCode
     val labelsCleanup       = new asm.optimiz.LabelsCleanup(null)
     val danglingExcHandlers = new asm.optimiz.DanglingExcHandlers(null)
 
@@ -293,6 +292,18 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
     }
 
+    /**
+     * Detects and removes unreachable code.
+     *
+     * Should be used last in a transformation chain, before stack map frames are computed.
+     * The Java 6 verifier demands frames be available even for dead code.
+     * Those frames are tricky to compute, http://asm.ow2.org/doc/developer-guide.html#deadcode
+     * The problem is avoided altogether by not emitting unreachable code in the first place.
+     *
+     * This method has a lower memory footprint than `asm.optimiz.UnreachableCode`
+     * Otherwise both versions accomplish the same.
+     *
+     */
     final def removeUnreachableCode(mnode: MethodNode): Boolean = {
 
       val landing  = mutable.Set.empty[AbstractInsnNode]
