@@ -141,6 +141,8 @@ public class Util {
             case Opcodes.IF_ICMPGE:
             case Opcodes.IF_ICMPGT:
             case Opcodes.IF_ICMPLE:
+            case Opcodes.IF_ACMPEQ:
+            case Opcodes.IF_ACMPNE:
             case Opcodes.IFNULL:
             case Opcodes.IFNONNULL:
                 return true;
@@ -640,6 +642,24 @@ public class Util {
     public static String textify(final AbstractInsnNode insn) {
         scala.tools.asm.util.TraceMethodVisitor trace = new scala.tools.asm.util.TraceMethodVisitor(new Textifier());
         insn.accept(trace);
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
+        trace.p.print(pw);
+        return sw.toString().trim();
+    }
+
+    /**
+     * Returns a human-readable representation of the given instruction sequence.
+     */
+    public static String textify(final InsnList insns) {
+        scala.tools.asm.util.TraceMethodVisitor trace = new scala.tools.asm.util.TraceMethodVisitor(new Textifier());
+
+        ListIterator<AbstractInsnNode> iter = insns.iterator();
+        while(iter.hasNext()) {
+            AbstractInsnNode insn = iter.next();
+            insn.accept(trace);
+        }
+
         java.io.StringWriter sw = new java.io.StringWriter();
         java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
         trace.p.print(pw);

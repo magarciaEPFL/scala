@@ -275,8 +275,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
         jumpsCollapser.transform(mnode)            // collapse a multi-jump chain to target its final destination via a single jump
         keepGoing |= jumpsCollapser.changed
 
-        unreachCodeRemover.transform(cName, mnode) // remove unreachable code
-        keepGoing |= unreachCodeRemover.changed
+        keepGoing |= removeUnreachableCode(mnode)
 
         labelsCleanup.transform(mnode)             // remove those LabelNodes and LineNumbers that aren't in use
         keepGoing |= labelsCleanup.changed
@@ -292,6 +291,129 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
       changed
 
+    }
+
+    final def removeUnreachableCode(mnode: MethodNode): Boolean = {
+
+      val cloned = Util.clonedMethodNode(mnode).mnode
+      unreachCodeRemover.transform(cnode.name, cloned)
+
+      val txtBefore = Util.textify(mnode)
+
+      // start of the algorithm proper
+
+      val landing  = mutable.Set.empty[AbstractInsnNode]
+      val suspect  = mutable.Set.empty[AbstractInsnNode]
+      val worklist = new mutable.Stack[AbstractInsnNode]
+
+          def transfer(to: AbstractInsnNode) {
+            if(to == null)  { return }
+            suspect -= to
+            if(landing(to)) { return }
+            landing += to
+            if(to.getType == AbstractInsnNode.LABEL) { transfer(to.getNext) }
+            else {
+              worklist push to
+            }
+          }
+
+          def transfers(labels: _root_.java.util.List[LabelNode]) {
+            for(lbl <- JListWrapper(labels)) { transfer(lbl) }
+          }
+
+          def makeSuspect(s: AbstractInsnNode) {
+            if(s == null) { return }
+            if(!landing(s)) {
+              suspect += s
+             }
+          }
+
+      val stream = mnode.instructions
+      transfer(stream.getFirst)
+      for(tcb <- JListWrapper(mnode.tryCatchBlocks)) { transfer(tcb.handler) }
+
+      while(worklist.nonEmpty) {
+        var reach = worklist.pop()
+        while(reach != null) {
+
+          reach.getType match {
+            case AbstractInsnNode.LABEL =>
+              transfer(reach)
+              reach = null
+            case AbstractInsnNode.JUMP_INSN =>
+              val ji = reach.asInstanceOf[JumpInsnNode]
+              if(ji.getOpcode == Opcodes.JSR) {
+                return false // don't touch methods containing JSR (they must have been inlined, scalac doesn't emit JSR)
+              }
+              if(Util.isCondJump(reach)) {
+                transfer(ji.label)
+                transfer(reach.getNext)
+              } else {
+                assert(reach.getOpcode == Opcodes.GOTO)
+                transfer(ji.label)
+                makeSuspect(reach.getNext)
+              }
+              reach = null
+            case AbstractInsnNode.LOOKUPSWITCH_INSN =>
+              val lsi = reach.asInstanceOf[LookupSwitchInsnNode]
+              transfer(lsi.dflt)
+              transfers(lsi.labels)
+              reach = null
+            case AbstractInsnNode.TABLESWITCH_INSN =>
+              val tsi = reach.asInstanceOf[TableSwitchInsnNode]
+              transfer(tsi.dflt)
+              transfers(tsi.labels)
+              reach = null
+            case AbstractInsnNode.INSN =>
+              val isATHROW = (reach.getOpcode == Opcodes.ATHROW)
+              if(isATHROW || Util.isRETURN(reach)) {
+                makeSuspect(reach.getNext)
+                reach = null
+              }
+            case _ =>
+              ()
+          }
+
+          if(reach != null) {
+            reach = reach.getNext
+          }
+
+        }
+      }
+
+      // pruning
+      var changed = false
+      for(s <- suspect) {
+        var current = s
+        while(current != null && !landing(current) && stream.contains(current)) {
+          val nxt = current.getNext
+          if(current.getType != AbstractInsnNode.LABEL) { // let asm.optimiz.LabelsCleanup take care of LabelNodes
+            changed = true
+            stream remove current
+          }
+          current = nxt
+        }
+      }
+
+      // end of the algorithm proper
+
+      // labelsCleanup.transform(cloned)
+      // labelsCleanup.transform(mnode)
+
+      var txtResultSlow: String = null
+      var txtResultFast: String = null
+
+      if(changed) {
+
+        txtResultSlow = Util.textify(cloned)
+        txtResultFast = Util.textify(mnode)
+        val notTheSame = (txtResultSlow != txtResultFast)
+
+        runTypeFlowAnalysis(mnode) // TODO debug
+
+      }
+
+      changed
     }
 
     /**
@@ -419,6 +541,28 @@ abstract class BCodeOptIntra extends BCodeTypes {
       }
 
       true
+    }
+
+    //--------------------------------------------------------------------
+    // Type-flow analysis
+    //--------------------------------------------------------------------
+
+    final def runTypeFlowAnalysis(mnode: MethodNode) {
+
+      import asm.tree.analysis.{ Analyzer, Frame }
+      import asm.tree.AbstractInsnNode
+
+      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+      tfa.analyze(cnode.name, mnode)
+      val frames: Array[Frame[TFValue]]   = tfa.getFrames()
+      val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
+      var i = 0
+      while(i < insns.length) {
+        if (frames(i) == null && insns(i) != null) {
+          // TODO abort("There should be no unreachable code left by now.")
+        }
+        i += 1
+      }
     }
 
   } // end of class EssentialCleanser
@@ -1102,28 +1246,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
       }
 
     } // end of class StableChainInterpreter
-
-    //--------------------------------------------------------------------
-    // Type-flow analysis
-    //--------------------------------------------------------------------
-
-    def runTypeFlowAnalysis(mnode: MethodNode) {
-
-      import asm.tree.analysis.{ Analyzer, Frame }
-      import asm.tree.AbstractInsnNode
-
-      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
-      tfa.analyze(cnode.name, mnode)
-      val frames: Array[Frame[TFValue]]   = tfa.getFrames()
-      val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
-      var i = 0
-      while(i < insns.length) {
-        if (frames(i) == null && insns(i) != null) {
-          // TODO abort("There should be no unreachable code left by now.")
-        }
-        i += 1
-      }
-    }
 
   } // end of class BCodeCleanser
 
