@@ -165,7 +165,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      *  @see populateNonMasterUsers() Before that method runs, this map is empty.
      */
-    final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]].withDefaultValue(mutable.Set.empty)
+    final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]]
+
+    def hasMultipleUsers(closuBT: BType): Boolean = {
+      val others = nonMasterUsers.getOrElse(closuBT, null)
+
+      (others != null) && others.nonEmpty
+    }
+
+    def isNonMasterUser(closuBT: BType, enclClass: BType): Boolean = {
+      val others = nonMasterUsers.getOrElse(closuBT, null)
+
+      (others != null) && others.contains(enclClass)
+    }
 
     // --------------------- query methods ---------------------
 
@@ -193,7 +205,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * (besides the trivial usage of each dclosure by itself).
      * */
     final def exclusiveDClosures(master: BType): List[BType] = {
-      dclosures.get(master) filter { dc => nonMasterUsers(dc).isEmpty }
+      dclosures.get(master) filter { dc => !hasMultipleUsers(dc) }
     }
 
     final def isDClosureExclusiveTo(d: BType, master: BType): Boolean = {
@@ -338,7 +350,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         s"Who plays each role: D by ${dc.getInternalName} , C by ${enclClass.getInternalName} "
       )
       if(enclClass != masterClass(dc)) {
-        nonMasterUsers(dc) += enclClass
+        val others = nonMasterUsers.getOrElse(dc, mutable.Set.empty)
+        nonMasterUsers.put(dc, others += enclClass)
       }
     }
 
@@ -375,7 +388,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           assert(
             dc == null ||
             enclClassBT == masterClass(dc) ||
-            (isInliningDone && nonMasterUsers(dc).contains(enclClassBT)),
+            (isInliningDone && isNonMasterUser(dc, enclClassBT)),
              "A dclosure D is instantiated by a class C other than its master class, and " +
              "inlining + nonMasterUsers doesn't explain it either. " +
             s"Who plays each role: D by ${dc.getInternalName} , its master class is ${masterClass(dc).getInternalName} , " +
@@ -387,7 +400,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           assert(
             dc == null ||
             enclClassBT == dc ||
-            (isInliningDone && (enclClassBT == masterClass(dc) || nonMasterUsers(dc).contains(enclClassBT))),
+            (isInliningDone && (enclClassBT == masterClass(dc) || isNonMasterUser(dc, enclClassBT))),
             "A dclosure D is has its endpoint invoked by a class C other than D itself, and " +
             "inlining + nonMasterUsers doesn't explain it either. " +
            s"Who plays each role: D by ${dc.getInternalName} , and the enclosing class is ${enclClassBT.getInternalName} "
@@ -421,7 +434,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      * */
     def retractAsDClosure(dc: BType) {
       assert(
-        nonMasterUsers(dc).isEmpty,
+        !hasMultipleUsers(dc),
         s"A dclosure can't be retracted unless used only by its master class, but ${dc.getInternalName} in use by ${nonMasterUsers(dc).mkString}"
       )
       val exMaster = masterClass(dc)
@@ -1972,11 +1985,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               s"DClosure usage in non-master: a static-HiO method added to class ${hostOwner.name} " +
               s"(resulting from inlining closure $dclosure) invokes that closure's endpoint method (which is declared in $mc)"
             )
-            assert(closuRepo.nonMasterUsers(dclosure).contains(enclClass))
+            assert(closuRepo.isNonMasterUser(dclosure, enclClass))
           }
 
           // once inlined, a dclosure used only by its master class loses its "dclosure" status
-          if(closuRepo.nonMasterUsers(dclosure).isEmpty) {
+          if(!closuRepo.hasMultipleUsers(dclosure)) {
             Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
             closuRepo.retractAsDClosure(dclosure)
           }
