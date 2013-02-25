@@ -396,10 +396,76 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      * */
     final def squashOuterForLCC() {
 
-          def strKey(mn: MethodNode): String = { mn.name + mn.desc }
+          def key(mn: MethodNode): String = { mn.name + mn.desc }
 
       val masterBT = lookupRefBType(cnode.name)
-      val eps = closuRepo.dclosures.get(masterBT)
+
+      // list of all dclosure endpoints for the master-class of interest, as String keys
+      val eps: List[String] =
+        for(
+          closuBT <- closuRepo.dclosures.get(masterBT);
+          ep = closuRepo.endpoint.get(closuBT)
+        ) yield key(ep.mnode)
+
+      if(eps.isEmpty) { return }
+
+      // key standing for a candidate -> MethodNode
+      val candidate: Map[String, MethodNode] = {
+
+        def canBeCandidate(mn: MethodNode): Boolean = {
+          mn.isLiftedMethod && Util.isInstanceMethod(mn) && (Util.isPrivateMethod(mn) || eps.contains(key(mn)))
+        }
+
+        val pairs =
+          for(mn <- cnode.toMethodList; if canBeCandidate(mn))
+          yield Pair(key(mn), mn)
+
+        pairs.toMap
+      }
+
+          def isCandidate(s: String) = { candidate contains s }
+
+          def extractKey(i: AbstractInsnNode): String = {
+            if(i.getType == AbstractInsnNode.METHOD_INSN) {
+              val mi = i.asInstanceOf[MethodInsnNode]
+              if(mi.owner == cnode.name) {
+                val s = mi.name + mi.desc
+                if(isCandidate(s)) {
+                  return s
+                }
+              }
+            }
+
+            null
+          }
+
+      val allCandidates: Set[String] = candidate.keySet
+      val isEP: Set[String] = eps.toSet
+      assert(isEP subsetOf allCandidates)
+
+      /*
+       * given a key its direct callers among candidates
+       * (no-one else can possibly contain a callsite targeting the method given by the key)
+       */
+      val callers = mutable.Map.empty ++ (
+        allCandidates map { key => Pair(key, mutable.Set.empty[String]) }
+      )
+
+      var toVisit: List[String] = eps ::: (allCandidates filterNot isEP).toList
+
+      val remainingeps = mutable.Set(eps) // in case search gives empty, no more work to do
+      val statifiable  = mutable.Set(allCandidates)
+
+      while(toVisit.nonEmpty && remainingeps.nonEmpty) {
+        val current = toVisit.head
+        toVisit = toVisit.tail
+
+        // val cp = ...
+        // val consumers = ...
+        var abandonCurrent = false
+
+
+      }
 
       // TODO needed? ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
     }
