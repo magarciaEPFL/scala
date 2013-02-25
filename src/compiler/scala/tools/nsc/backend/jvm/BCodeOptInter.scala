@@ -179,6 +179,11 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       (others != null) && others.contains(enclClass)
     }
 
+    def addAnotherUser(closuBT: BType, enclClass: BType) {
+      val others = nonMasterUsers.getOrElse(closuBT, mutable.Set.empty)
+      nonMasterUsers.put(closuBT, others += enclClass)
+    }
+
     // --------------------- query methods ---------------------
 
     final def isDelegatingClosure( c:    BType):     Boolean = { endpoint.containsKey(c) }
@@ -350,8 +355,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         s"Who plays each role: D by ${dc.getInternalName} , C by ${enclClass.getInternalName} "
       )
       if(enclClass != masterClass(dc)) {
-        val others = nonMasterUsers.getOrElse(dc, mutable.Set.empty)
-        nonMasterUsers.put(dc, others += enclClass)
+        addAnotherUser(dc, enclClass)
       }
     }
 
