@@ -32,9 +32,17 @@ import collection.convert.Wrappers.JSetWrapper
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
  */
-abstract class BCodeOptIntra extends BCodeTypes {
+abstract class BCodeOptIntra extends BCodeOptCommon {
 
   import global._
+
+  final override def createBCodeCleanser(cnode: asm.tree.ClassNode, isInterClosureOptimizOn: Boolean) = {
+    new BCodeCleanser(cnode, isInterClosureOptimizOn)
+  }
+
+  final override def createQuickCleanser(cnode: asm.tree.ClassNode) = {
+    new QuickCleanser(cnode)
+  }
 
   /**
    * Set of known JVM-level getters and fields allowing access to stable values
@@ -45,10 +53,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
   val knownLacksInline = mutable.Set.empty[Symbol] // cache to avoid multiple inliner.hasInline() calls.
   val knownHasInline   = mutable.Set.empty[Symbol] // as above. Motivated by the need to warn on "inliner failures".
-
-  val elidedClasses: java.util.Set[BType] = java.util.Collections.newSetFromMap(
-    new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
-  )
 
   def hasInline(sym: Symbol) = {
     if     (knownLacksInline(sym)) false
@@ -68,42 +72,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
     val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
 
     !cnodeEx.isSerializable
-  }
-
-  final def methodSignature(ownerIName: String, methodName: String, methodDescriptor: String): String = {
-    ownerIName + "::" + methodName + methodDescriptor
-  }
-
-  final def methodSignature(ownerBT: BType, methodName: String, methodDescriptor: String): String = {
-    methodSignature(ownerBT.getInternalName, methodName, methodDescriptor)
-  }
-
-  final def methodSignature(ownerBT: BType, methodName: String, methodType: BType): String = {
-    methodSignature(ownerBT, methodName, methodType.getDescriptor)
-  }
-
-  final def methodSignature(ownerIName: String, mnode: MethodNode): String = {
-    methodSignature(ownerIName, mnode.name, mnode.desc)
-  }
-
-  final def methodSignature(ownerBT: BType, mnode: MethodNode): String = {
-    methodSignature(ownerBT, mnode.name, mnode.desc)
-  }
-
-  final def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
-    methodSignature(lookupRefBType(cnode.name), mnode.name, mnode.desc)
-  }
-
-  final def insnPos(insn: AbstractInsnNode, mnode: MethodNode): String = {
-   s"${Util.textify(insn)} at index ${mnode.instructions.indexOf(insn)}"
-  }
-
-  final def insnPosInMethodSignature(insn: AbstractInsnNode, mnode: MethodNode, cnode: ClassNode): String = {
-    insnPos(insn, mnode) + s" in method ${methodSignature(cnode, mnode)}"
-  }
-
-  final def insnPosInMethodSignature(insn: AbstractInsnNode, mnode: MethodNode, ownerIName: String): String = {
-    insnPos(insn, mnode) + s" in method ${methodSignature(ownerIName, mnode)}"
   }
 
   /**
@@ -145,17 +113,6 @@ abstract class BCodeOptIntra extends BCodeTypes {
     repeatableReads.clear()
     knownLacksInline.clear()
     knownHasInline.clear()
-  }
-
-  def isDClosure(iname: String): Boolean                                  // implemented by subclass BCodeOptInter
-  def isMasterClass(bt: BType):  Boolean                                  // implemented by subclass BCodeOptInter
-  def createDClosureOptimizer(masterCNode: ClassNode): DClosureOptimizer  // implemented by subclass BCodeOptInter
-
-  /** implemented by BCodeOptInter.DClosureOptimizerImpl */
-  trait DClosureOptimizer {
-    def shakeAndMinimizeClosures():    Boolean
-    def minimizeDClosureAllocations(): Unit
-    def closureCachingAndEviction():   Unit
   }
 
   /**
@@ -439,6 +396,11 @@ abstract class BCodeOptIntra extends BCodeTypes {
      * */
     final def squashOuterForLCC() {
 
+          def strKey(mn: MethodNode): String = { mn.name + mn.desc }
+
+      val masterBT = lookupRefBType(cnode.name)
+      val eps = closuRepo.dclosures.get(masterBT)
+
       // TODO needed? ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
     }
 
@@ -566,7 +528,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
   } // end of class EssentialCleanser
 
-  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
+  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) with QuickCleanserIface {
 
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
@@ -654,12 +616,10 @@ abstract class BCodeOptIntra extends BCodeTypes {
    *
    *  The entry point is `cleanseClass()`.
    */
-  final class BCodeCleanser(cnode: asm.tree.ClassNode, isInterClosureOptimizOn: Boolean) extends QuickCleanser(cnode) {
+  final class BCodeCleanser(cnode: asm.tree.ClassNode, isInterClosureOptimizOn: Boolean) extends QuickCleanser(cnode) with BCodeCleanserIface {
 
-    val unboxElider         = new asm.optimiz.UnBoxElider
-
-    val lvCompacter         = new asm.optimiz.LocalVarCompact(null)
-
+    val unboxElider           = new asm.optimiz.UnBoxElider
+    val lvCompacter           = new asm.optimiz.LocalVarCompact(null)
     val unusedPrivateDetector = new asm.optimiz.UnusedPrivateDetector()
 
     /**
