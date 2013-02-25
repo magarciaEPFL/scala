@@ -34,7 +34,7 @@ trait Names extends api.Names {
        cs(offset) * (41 * 41) +
        cs(offset + len - 1) * 41 +
        cs(offset + (len >> 1)))
-    else 0;
+    else 0
 
   /** Is (the ASCII representation of) name at given index equal to
    *  cs[offset..offset+len-1]?
@@ -42,7 +42,7 @@ trait Names extends api.Names {
   private def equals(index: Int, cs: Array[Char], offset: Int, len: Int): Boolean = {
     var i = 0
     while ((i < len) && (chrs(index + i) == cs(offset + i)))
-      i += 1;
+      i += 1
     i == len
   }
 
@@ -252,7 +252,7 @@ trait Names extends api.Names {
      *  this name from start, length if not found.
      *
      *  @param c     the character
-     *  @param start ...
+     *  @param start the index from which to search
      *  @return      the index of the first occurrence of c
      */
     final def pos(c: Char, start: Int): Int = {
@@ -265,7 +265,7 @@ trait Names extends api.Names {
      *  in this name from start, length if not found.
      *
      *  @param s     the string
-     *  @param start ...
+     *  @param start the index from which to search
      *  @return      the index of the first occurrence of s
      */
     final def pos(s: String, start: Int): Int = {
@@ -293,7 +293,7 @@ trait Names extends api.Names {
      *  name from start, -1 if not found.
      *
      *  @param c     the character
-     *  @param start ...
+     *  @param start the index from which to search
      *  @return      the index of the last occurrence of c
      */
     final def lastPos(c: Char, start: Int): Int = {
@@ -310,7 +310,7 @@ trait Names extends api.Names {
       var i = 0
       while (i < prefix.length && start + i < len &&
              chrs(index + start + i) == chrs(prefix.start + i))
-        i += 1;
+        i += 1
       i == prefix.length
     }
 
@@ -322,7 +322,7 @@ trait Names extends api.Names {
       var i = 1
       while (i <= suffix.length && i <= end &&
              chrs(index + end - i) == chrs(suffix.start + suffix.length - i))
-        i += 1;
+        i += 1
       i > suffix.length
     }
 
