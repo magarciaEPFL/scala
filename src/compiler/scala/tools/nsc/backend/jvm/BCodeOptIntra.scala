@@ -349,7 +349,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
               if(ji.getOpcode == Opcodes.JSR) {
                 return false // don't touch methods containing subroutines (perhaps was inlined, scalac doesn't emit JSR/RET)
               }
-              if(Util.isCondJump(reach) || (reach.getOpcode == Opcodes.IF_ACMPEQ) || (reach.getOpcode == Opcodes.IF_ACMPNE)) {
+              if(Util.isCondJump(reach)) {
                 transfer(ji.label)
                 transfer(reach.getNext)
               } else {
