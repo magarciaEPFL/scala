@@ -836,12 +836,16 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
       do { } while (!staticMaker.transform(masterCNode).isEmpty)
 
+      val tooManyMethodsToScan = (masterCNode.methods.size() > 100) // otherwise files/run/bridges.scala takes unbelievably long to complete.
+
       var changed = false
       for(d <- closuRepo.liveDClosures(masterCNode)) {
 
         val dep = closuRepo.endpoint.get(d).mnode
         // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
-        val unused = { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
+        val unused =
+          !tooManyMethodsToScan &&
+          { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
         if(unused) {
           changed = true
           elidedClasses.add(d) // a concurrent set
