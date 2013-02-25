@@ -406,7 +406,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
     }
 
     /**
-     *  Removes dead code.
+     *  (1) Removes dead code, and (2) elide redundant outer-fields for Late-Closure-Classes.
      *
      *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
      *  the very least we want to do is remove dead code beforehand,
@@ -420,16 +420,26 @@ abstract class BCodeOptIntra extends BCodeTypes {
      *
      * */
     final def codeFixups() {
+      // 1 of 2
       val iter = cnode.methods.iterator()
       while(iter.hasNext) {
         val mnode = iter.next()
-
         if(Util.hasBytecodeInstructions(mnode)) {
           Util.computeMaxLocalsMaxStack(mnode)
           cleanseMethod(cnode.name, mnode) // remove unreachable code
         }
-
       }
+      // 2 of 2
+      squashOuterForLCC()
+    }
+
+    /**
+     *  Those dclosures that don't really depend on their outer instance are rewritten to actually not depend on it.
+     *
+     * */
+    final def squashOuterForLCC() {
+
+      // TODO needed? ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
     }
 
     /**

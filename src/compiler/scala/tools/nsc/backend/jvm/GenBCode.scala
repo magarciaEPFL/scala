@@ -412,16 +412,15 @@ abstract class GenBCode extends BCodeOptInter {
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode, isInterClosureOptimizOn)
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
+          if(!isInterClosureOptimizOn) {
+            // under unoptimized, -o1 and -o2; let squashOuterForLCC() eliminate redundant outer-fields for Late-Closure-Classes
+            // otherwise minimizeDClosureFields() takes care of that (under -o3 and -o4)
+            cleanser.squashOuterForLCC()   // squashOuterForLCC() may mutate dclosures that cnode is responsible for
+          }
         }
         else {
           val essential = new EssentialCleanser(cnode)
           essential.codeFixups()    // the very least fixups that must be done, even for unoptimized runs.
-        }
-
-        if(!isInterClosureOptimizOn) {
-          // squashOuterForLCC for unoptimized, -o1 and -o2, otherwise minimizeDClosureFields() does it (for -o3 and -o4)
-          // TODO squashOuterForLCC()    // squashOuterForLCC() may mutate dclosures that cnode is responsible for
-          // TODO needed? cleanser.ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         }
 
         refreshInnerClasses(cnode)
