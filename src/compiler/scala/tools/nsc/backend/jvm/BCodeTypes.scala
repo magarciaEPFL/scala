@@ -3112,9 +3112,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  can-multi-thread
      */
     def ubytesToCharArray(bytes: Array[Byte]): Array[Char] = {
-      val ca = new Array[Char](bytes.size)
+      val ca = new Array[Char](bytes.length)
       var idx = 0
-      while(idx < bytes.size) {
+      while(idx < bytes.length) {
         val b: Byte = bytes(idx)
         assert((b & ~0x7f) == 0)
         ca(idx) = b.asInstanceOf[Char]
