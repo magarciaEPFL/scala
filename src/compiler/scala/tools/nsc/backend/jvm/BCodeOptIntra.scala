@@ -539,24 +539,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             v
           }
 
-          override def unaryOperation(i: AbstractInsnNode,
-                                      v: TV): TV = {
+          override def unaryOperation(i: AbstractInsnNode, v: TV): TV = {
             track(i, v)
             super.unaryOperation(i, v)
           }
 
-          override def binaryOperation(i:  AbstractInsnNode,
-                                       v1: TV,
-                                       v2: TV): TV = {
+          override def binaryOperation(i:  AbstractInsnNode, v1: TV, v2: TV): TV = {
             track(i, v1)
             track(i, v2)
             super.binaryOperation(i, v1, v2)
           }
 
-          override def ternaryOperation(i:  AbstractInsnNode,
-                                        v1: TV,
-                                        v2: TV,
-                                        v3: TV): TV = {
+          override def ternaryOperation(i:  AbstractInsnNode, v1: TV, v2: TV, v3: TV): TV = {
             track(i, v1)
             track(i, v2)
             track(i, v3)
@@ -577,16 +571,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             }
           }
 
-          override def returnOperation(i:        AbstractInsnNode,
-                                       value:    TV,
-                                       expected: TV) {
-            track(i, value)
-            ()
-          }
+          override def returnOperation(i: AbstractInsnNode, value: TV, expected: TV) { track(i, value) }
 
-          override def drop(i: AbstractInsnNode, v: TV) {
-            track(i, v)
-          }
+          override def drop(i: AbstractInsnNode, v: TV) { track(i, v) }
 
           override def nullValue()   = TV1
           override def intValue()    = TV1
@@ -595,10 +582,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           override def doubleValue() = TV2
           override def stringValue() = TV1
 
-          override def opAALOAD(insn: InsnNode, arrayref: TV, index: TV): TV = {
-            assert(arrayref ne TVTHIS)
-            TV1
-          }
+          override def opAALOAD(i: InsnNode, arrayref: TV, index: TV): TV = { assert(arrayref ne TVTHIS); TV1 }
 
           override def opNEW(i: TypeInsnNode):       TV = { TV1 }
           override def opANEWARRAY(i: TypeInsnNode): TV = { TV1 }
@@ -614,7 +598,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             value
           }
 
-          override def opGETSTATIC(fi: FieldInsnNode):             TV = { newValue(asm.Type.getType(fi.desc)) }
+          override def opGETSTATIC(fi: FieldInsnNode):        TV = { newValue(asm.Type.getType(fi.desc)) }
           override def opPUTSTATIC(fi: FieldInsnNode, v: TV): TV = { track(fi, v); v }
 
           override def opLDCHandleValue(i:     AbstractInsnNode, cst: asm.Handle): TV = { ??? }
