@@ -419,6 +419,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      * */
     final class LCCOuterSquasher {
 
+      // instance methods declared by cnode are referred to using a String, @see `key(MethodNode)`
       type KT = String
 
       def key(mn: MethodNode): KT = { mn.name + mn.desc }
@@ -507,8 +508,30 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
 
         /**
-         *  Tracks the consumers of LOAD_0 , ie the consumers of THIS for an instance method
-         *  (this visitor should be invoked only on non-static methods).
+         *  A single pass is made over each candidate method, both to collect information needed later
+         *  and to update maps based on the instruction just visited.
+         *  This is a dataflow analysis, thus any instruction can be visited multiple times.
+         *  However, convergence is quite fast because of the simplistic abstract-values:
+         *  one to represent THIS, and one each to represent all other values (of JVM-level size 1 or 2, respectively).
+         *
+         *  Upon visiting an instruction its abstract inputs are also available,
+         *  which allows checking whether the method being visited can be made static:
+         *
+         *    (a) any consumer of THIS other than
+         *        (a.1) outer-value in instantiation of a dclosure
+         *        (a.2) receiver in a callsite where the callee is a candidate method
+         *        results in dis-qualifying the method being visited (ie, it can't be made static),
+         *        which in turn implies its direct callers can't be made static either, and so on.
+         *
+         *    (b) consumers as (a.1) and (a.2) above are tracked, in case at the end of the day:
+         *        (b.1) they can be made static, in which case rewriting is needed to
+         *              - drop the receiver, in all invocations to a non-endpoint that can be made static.
+         *              - similarly for the outer value, in all instantiations of dclosures for endpoints made static.
+         *        (b.2) when a consumer as in (a.1) or (a.2) can't be made static,
+         *              no rewriting for those instructions is needed of course
+         *              (what's needed is to propagate the non-static-ness status up the caller hierarchy,
+         *              as summarized in item (a) above, but this visitor isn't responsible for that,
+         *              see method `propagate()` instead).
          *
          *  All methods in this class can-multi-thread
          **/
