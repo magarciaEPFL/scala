@@ -580,13 +580,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           val TV1    = new TV(1)
           val TV2    = new TV(2)
 
-          def track(i: AbstractInsnNode, v: TV) { if(v eq TVTHIS) { propagate(beingVisited) } }
-
-          def trackCallsite(mni:    MethodInsnNode,
-                            values: java.util.List[_ <: TV]) {
-            val iter = values.iterator()
-            while(iter.hasNext) { track(mni, iter.next()) }
-          }
+          def track(v: TV) { if(v eq TVTHIS) { propagate(beingVisited) } }
 
           private def undet(size: Int): TV = {
             size match {
@@ -614,7 +608,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
            *  this method assumes ThisFlowInterpreter is only called on instance methods.
            * */
           override def copyOperation(i: AbstractInsnNode, v: TV): TV = {
-            track(i, v)
+            track(v)
             if(i.getOpcode == Opcodes.ALOAD) {
               val vi = i.asInstanceOf[VarInsnNode]
               if(vi.`var` == 0) {
@@ -625,43 +619,62 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
 
           override def unaryOperation(i: AbstractInsnNode, v: TV): TV = {
-            track(i, v)
+            track(v)
             super.unaryOperation(i, v)
           }
 
           override def binaryOperation(i:  AbstractInsnNode, v1: TV, v2: TV): TV = {
-            track(i, v1)
-            track(i, v2)
+            track(v1)
+            track(v2)
             super.binaryOperation(i, v1, v2)
           }
 
           override def ternaryOperation(i:  AbstractInsnNode, v1: TV, v2: TV, v3: TV): TV = {
-            track(i, v1)
-            track(i, v2)
-            track(i, v3)
+            track(v1)
+            track(v2)
+            track(v3)
             null
           }
 
           /**
-           *  values comprises receiver (if any) and arguments (if any)
+           *  Of the n-ary instructions arriving here, those that might be affected by
+           *  outer-squashing (and that we check in detail) are:
+           *
+           *    (a) invocation of non-endpoint candidate
+           *        Note: the only invoker (before inlining) of an endpoint
+           *        is an apply() method in its dclosure.
+           *
+           *    (b) initialization of a dclosure.
+           *
+           *  @param i      instruction being visited
+           *  @param values comprises receiver (if any) and arguments (if any)
            * */
           override def naryOperation(i:      AbstractInsnNode,
                                      values: java.util.List[_ <: TV]): TV = {
+            val vs = JListWrapper(values).toList
             i match {
               case mna: MultiANewArrayInsnNode => newValue(asm.Type.getType(mna.desc))
               case ivd: InvokeDynamicInsnNode  => newValue(asm.Type.getReturnType(ivd.desc))
-              case mni: MethodInsnNode =>
-                // INVOKEVIRTUAL, INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE
-                trackCallsite(mni, values)
-                val rt = asm.Type.getReturnType(mni.desc)
+              case mi:  MethodInsnNode =>
+                if(Util.isInstanceCallsite(mi)) {
+                  // INVOKEVIRTUAL, INVOKESPECIAL, INVOKEINTERFACE
+                  trackCallsite(mi, vs)
+                } else {
+                  vs foreach track
+                }
+                val rt = asm.Type.getReturnType(mi.desc)
                 if(rt == asm.Type.VOID_TYPE) null // will be discarded anyway by asm.tree.analysis.Frame.execute
                 else newValue(rt)
             }
           }
 
-          override def returnOperation(i: AbstractInsnNode, value: TV, expected: TV) { track(i, value) }
+          private def trackCallsite(mi: MethodInsnNode, vs: List[TV]) {
 
-          override def drop(i: AbstractInsnNode, v: TV) { track(i, v) }
+          }
+
+          override def returnOperation(i: AbstractInsnNode, value: TV, expected: TV) { track(value) }
+
+          override def drop(i: AbstractInsnNode, v: TV) { track(v) }
 
           override def nullValue()   = TV1
           override def intValue()    = TV1
@@ -677,17 +690,17 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           override def opCHECKCAST(i: TypeInsnNode): TV = { TV1 }
 
           override def opGETFIELD(fi: asm.tree.FieldInsnNode, objectref: TV): TV = {
-            track(fi, objectref)
+            track(objectref)
             newValue(asm.Type.getType(fi.desc))
           }
           override def opPUTFIELD(fi: asm.tree.FieldInsnNode, objectref: TV, value: TV): TV = {
-            track(fi, objectref)
-            track(fi, value)
+            track(objectref)
+            track(value)
             value
           }
 
           override def opGETSTATIC(fi: FieldInsnNode):        TV = { newValue(asm.Type.getType(fi.desc)) }
-          override def opPUTSTATIC(fi: FieldInsnNode, v: TV): TV = { track(fi, v); v }
+          override def opPUTSTATIC(fi: FieldInsnNode, v: TV): TV = { track(v); v }
 
           override def opLDCHandleValue(i:     AbstractInsnNode, cst: asm.Handle): TV = { ??? }
           override def opLDCMethodTypeValue(i: AbstractInsnNode, cst: asm.Type):   TV = { ??? }
