@@ -191,8 +191,9 @@ abstract class GenBCode extends BCodeOptInter {
      */
     class Worker1(needsOutfileForSymbol: Boolean) extends _root_.java.lang.Runnable {
 
-      val isDebugRun    = settings.debug.value
-      val mustPopulateCodeRepo = isOptimizRun || isDebugRun
+      val doesInliningAndNoMore = isInliningRun && !settings.isInterClosureOptimizOn
+      val isDebugRun            = settings.debug.value
+      val mustPopulateCodeRepo  = isOptimizRun || isDebugRun
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
@@ -309,6 +310,14 @@ abstract class GenBCode extends BCodeOptInter {
           }
         }
 
+        // ----------- squashOuter() cannot run after inliner (it relies on dclosures having a single owner)
+        // however, under -o3 and -o4 it's not necessary to squash them (on top of that, sequentially as done here)
+        // because minimizeDClosureFields() takes care of that
+        if(doesInliningAndNoMore) {
+          val essential = new EssentialCleanser(plainC)
+          essential.codeFixups()
+        }
+
         // ----------- hand over to pipeline-2
 
         val item2 =
@@ -412,11 +421,6 @@ abstract class GenBCode extends BCodeOptInter {
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode, isInterClosureOptimizOn)
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
-          if(!isInterClosureOptimizOn) {
-            // under unoptimized, -o1 and -o2; let squashOuterForLCC() eliminate redundant outer-fields for Late-Closure-Classes
-            // otherwise minimizeDClosureFields() takes care of that (under -o3 and -o4)
-            cleanser.squashOuterForLCC()   // squashOuterForLCC() may mutate dclosures that cnode is responsible for
-          }
         }
         else {
           val essential = new EssentialCleanser(cnode)
