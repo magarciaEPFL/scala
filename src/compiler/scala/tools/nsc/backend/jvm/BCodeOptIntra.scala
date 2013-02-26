@@ -493,9 +493,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
           def track(i: AbstractInsnNode, v: TV) { if(v eq TVTHIS) {  } }
 
-          /**
-           *  values comprises receiver (if any) and arguments (if any)
-           * */
           def trackCallsite(mni:    MethodInsnNode,
                             values: java.util.List[_ <: TV]) {
             val iter = values.iterator()
@@ -525,10 +522,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           // newOperation takes no input value, version in super is fine.
 
           /**
-           *  TODO this method assumes ThisFlowInterpreter is only called on instance methods.
+           *  this method assumes ThisFlowInterpreter is only called on instance methods.
            * */
-          override def copyOperation(i: AbstractInsnNode,
-                                     v: TV): TV = {
+          override def copyOperation(i: AbstractInsnNode, v: TV): TV = {
             track(i, v)
             if(i.getOpcode == Opcodes.ALOAD) {
               val vi = i.asInstanceOf[VarInsnNode]
@@ -557,6 +553,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             null
           }
 
+          /**
+           *  values comprises receiver (if any) and arguments (if any)
+           * */
           override def naryOperation(i:      AbstractInsnNode,
                                      values: java.util.List[_ <: TV]): TV = {
             i match {
@@ -616,29 +615,37 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
-            def allThisConsumers(mn: MethodNode) {
-              val thistrack = new ThisFlowInterpreter
-              val a = new asm.tree.analysis.Analyzer[TV](thistrack)
-              a.analyze(cnode.name, mn)
-            }
-
         var toVisit: List[String] = isEP.toList ::: (allCandidates filterNot isEP).toList
 
         /*
-         * given a key its direct callers among candidates
-         * (no-one else can possibly contain a callsite targeting the method given by the key)
+         * given a key (standing for a candidate) its direct callers among candidates
+         * Note: methods other than candidates may contain a callsite targeting the method given by the key.
+         * Example:
+         *
+         *   def nonCandidate() {
+         *
+         *       def candidate(j: Int) { println(j) }
+         *
+         *       for(i <- 1 to 10) { candidate(i) }
+         *
+         *       candidate(-1)
+         *
+         *   }
+         *
          */
-        val callers = mutable.Map.empty ++ (
-          toVisit map { key => Pair(key, mutable.Set.empty[String]) }
-        )
+        val callers = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[String]) } )
+
+        /*
+         * given a key (standing for a candidate) those candidates it contains callsites for.
+         */
+        val callees = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[String]) } )
 
         while(toVisit.nonEmpty && survivingeps.nonEmpty) {
           val current = toVisit.head
           toVisit = toVisit.tail
 
-          // val cp = ...
-          // val consumers = ...
-          var abandonCurrent = false
+          val a = new asm.tree.analysis.Analyzer[TV](new ThisFlowInterpreter)
+          a.analyze(cnode.name, candidate(current))
 
           toVisit = Nil
 
