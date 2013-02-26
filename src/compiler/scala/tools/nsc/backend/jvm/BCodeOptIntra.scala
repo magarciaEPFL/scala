@@ -449,16 +449,14 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         for(mn <- cnode.toMethodList; if Util.hasBytecodeInstructions(mn) && Util.isInstanceMethod(mn))
         yield mn;
 
+          def getKeyMethodNodeMap(ms: List[MethodNode]) = { (ms map { m => Pair(key(m), m) }).toMap }
+
       // key -> MethodNode
       val candidate: Map[KT, MethodNode] = {
         def canBeCandidate(mn: MethodNode): Boolean = {
           mn.isLiftedMethod && Util.isInstanceMethod(mn) && (Util.isPrivateMethod(mn) || isEP(key(mn)))
         }
-        val pairs =
-          for(mn <- methodsOfInterest; if canBeCandidate(mn))
-          yield Pair(key(mn), mn)
-
-        pairs.toMap
+        getKeyMethodNodeMap(methodsOfInterest filter canBeCandidate)
       }
 
       def isCandidate(s: KT) = { (s != null) && (candidate contains s) }
@@ -527,6 +525,19 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       val callees = mutable.Map.empty ++ ( toVisit map { k => Pair(k, mutable.Set.empty[KT]) } )
 
         /**
+         *  The argument has been determined must-remain-non-static.
+         *  This means those methods invoking it are also precluded from being static. And so on so forth.
+         * */
+        def propagate(k: KT) {
+          knownCannot += k
+          val cs = callers(k).toList
+          if(cs.nonEmpty) {
+            callers(k).clear
+            cs foreach propagate
+          }
+        }
+
+        /**
          *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
          */
         final class TV(size: Int) extends asm.tree.analysis.Value {
@@ -561,7 +572,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          *
          *  All methods in this class can-multi-thread
          **/
-        final class ThisFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TV] {
+        final class ThisFlowInterpreter(beingVisited: KT) extends asm.optimiz.InterpreterSkeleton[TV] {
 
           import asm.tree._
 
@@ -569,7 +580,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           val TV1    = new TV(1)
           val TV2    = new TV(2)
 
-          def track(i: AbstractInsnNode, v: TV) { if(v eq TVTHIS) {  } }
+          def track(i: AbstractInsnNode, v: TV) { if(v eq TVTHIS) { propagate(beingVisited) } }
 
           def trackCallsite(mni:    MethodInsnNode,
                             values: java.util.List[_ <: TV]) {
@@ -697,7 +708,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           val current = toVisit.head
           toVisit = toVisit.tail
 
-          val a = new asm.tree.analysis.Analyzer[TV](new ThisFlowInterpreter)
+          val a = new asm.tree.analysis.Analyzer[TV](new ThisFlowInterpreter(current))
           a.analyze(cnode.name, candidate(current))
 
           toVisit = Nil
