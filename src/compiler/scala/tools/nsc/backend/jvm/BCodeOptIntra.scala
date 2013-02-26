@@ -394,15 +394,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       sq.squashOuterForLCC()
     }
 
-    /**
-     *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
-     *
-     *  All methods in this class can-multi-thread
-     */
-    final class L0Value(size: Int) extends asm.tree.analysis.Value {
-      override def getSize: Int = { size }
-    }
-
     final class LCCOuterSquasher {
 
       def key(mn: MethodNode): String = { mn.name + mn.desc }
@@ -441,21 +432,30 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       def isCandidate(s: String) = { (s != null) && (candidate contains s) }
 
       /**
-       *  Is the instruction a consumer of THIS that in principle is amenable to be made static?
-       *  If so, return the key for the candidate method in question.
+       *  Is this a callsite targeting a non-endpoint candidate (an ex-local method)?
+       *  If so, return the key for the candidate method in question, null otherwise.
        * */
-      def extractKey(i: AbstractInsnNode): String = {
-        if(i.getType == AbstractInsnNode.METHOD_INSN) {
-          val mi = i.asInstanceOf[MethodInsnNode]
-          var s: String = null
-          if(mi.name == "<init>") {
-            s = epByDCName.getOrElse(mi.owner, null)
-          } else if((mi.getOpcode != Opcodes.INVOKESTATIC) && (mi.owner == cnode.name)) {
-            s = mi.name + mi.desc
-          }
-          if(isCandidate(s)) {
-            return s
-          }
+      def extractKeyLM(i: AbstractInsnNode): String = {
+        i match {
+          case mi: MethodInsnNode if Util.isInstanceCallsite(mi) && (mi.name != "<init>") && (mi.owner == cnode.name) =>
+            val s = mi.name + mi.desc
+            if(isCandidate(s)) {
+              return s
+            }
+          case _ => ()
+        }
+        null
+      }
+
+      /**
+       *  Is this a dclosure initialization?
+       *  If so, return the key for the dclosure's endpoint, null otherwise.
+       * */
+      def extractKeyEP(i: AbstractInsnNode): String = {
+        i match {
+          case mi: MethodInsnNode if (mi. getOpcode == Opcodes.INVOKESPECIAL) && (mi.name == "<init>") =>
+            return epByDCName.getOrElse(mi.owner, null)
+          case _ => ()
         }
         null
       }
@@ -468,40 +468,47 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       val survivors    = mutable.Set.empty[String] ++ allCandidates
       val knownCannot  = mutable.Set.empty[String]
 
+      /**
+       *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
+       *
+       *  All methods in this class can-multi-thread
+       */
+      final class TV(size: Int) extends asm.tree.analysis.Value {
+        override def getSize: Int = { size }
+      }
+
         /**
          *  Focuses on tracking the consumers of LOAD_0 , ie the consumers of THIS.
          *
          *  All methods in this class can-multi-thread
          **/
-        final class ThisFlowInterpreter extends asm.optimiz.InterpreterSkeleton[L0Value] {
+        final class ThisFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TV] {
 
           import asm.tree._
 
-          val tracked = mutable.Set.empty[AbstractInsnNode]
+          val L0THIS   = new TV(1)
+          val L0UNDET1 = new TV(1)
+          val L0UNDET2 = new TV(2)
 
-          val L0THIS   = new L0Value(1)
-          val L0UNDET1 = new L0Value(1)
-          val L0UNDET2 = new L0Value(2)
-
-          def track(i: AbstractInsnNode, v: L0Value) { if(v eq L0THIS) { tracked += i } }
+          def track(i: AbstractInsnNode, v: TV) { if(v eq L0THIS) {  } }
 
           /**
            *  values comprises receiver (if any) and arguments (if any)
            * */
           def trackCallsite(mni:    MethodInsnNode,
-                            values: java.util.List[_ <: L0Value]) {
+                            values: java.util.List[_ <: TV]) {
             val iter = values.iterator()
             while(iter.hasNext) { track(mni, iter.next()) }
           }
 
-          private def undet(size: Int): L0Value = {
+          private def undet(size: Int): TV = {
             size match {
               case 1 => L0UNDET1
               case 2 => L0UNDET2
             }
           }
 
-          override def merge(v: L0Value, w: L0Value): L0Value = {
+          override def merge(v: TV, w: TV): TV = {
             if(v == null)   return w
             if(w == null)   return v
             if(v eq L0THIS) return L0THIS
@@ -509,7 +516,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             v // any of them will do
           }
 
-          override def newValue(t: asm.Type): L0Value = {
+          override def newValue(t: asm.Type): TV = {
             if (t == null || t == asm.Type.VOID_TYPE) { null }
             else { undet(t.getSize) }
           }
@@ -520,7 +527,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
            *  TODO this method assumes ThisFlowInterpreter is only called on instance methods.
            * */
           override def copyOperation(i: AbstractInsnNode,
-                                     v: L0Value): L0Value = {
+                                     v: TV): TV = {
             track(i, v)
             if(i.getOpcode == Opcodes.ALOAD) {
               val vi = i.asInstanceOf[VarInsnNode]
@@ -532,23 +539,23 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
 
           override def unaryOperation(i: AbstractInsnNode,
-                                      v: L0Value): L0Value = {
+                                      v: TV): TV = {
             track(i, v)
             super.unaryOperation(i, v)
           }
 
           override def binaryOperation(i:  AbstractInsnNode,
-                                       v1: L0Value,
-                                       v2: L0Value): L0Value = {
+                                       v1: TV,
+                                       v2: TV): TV = {
             track(i, v1)
             track(i, v2)
             super.binaryOperation(i, v1, v2)
           }
 
           override def ternaryOperation(i:  AbstractInsnNode,
-                                        v1: L0Value,
-                                        v2: L0Value,
-                                        v3: L0Value): L0Value = {
+                                        v1: TV,
+                                        v2: TV,
+                                        v3: TV): TV = {
             track(i, v1)
             track(i, v2)
             track(i, v3)
@@ -556,7 +563,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
 
           override def naryOperation(i:      AbstractInsnNode,
-                                     values: java.util.List[_ <: L0Value]): L0Value = {
+                                     values: java.util.List[_ <: TV]): TV = {
             i match {
               case mna: MultiANewArrayInsnNode => newValue(asm.Type.getType(mna.desc))
               case ivd: InvokeDynamicInsnNode  => newValue(asm.Type.getReturnType(ivd.desc))
@@ -570,13 +577,13 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
 
           override def returnOperation(i:        AbstractInsnNode,
-                                       value:    L0Value,
-                                       expected: L0Value) {
+                                       value:    TV,
+                                       expected: TV) {
             track(i, value)
             ()
           }
 
-          override def drop(i: AbstractInsnNode, v: L0Value) {
+          override def drop(i: AbstractInsnNode, v: TV) {
             track(i, v)
           }
 
@@ -587,32 +594,32 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           override def doubleValue() = L0UNDET2
           override def stringValue() = L0UNDET1
 
-          override def opAALOAD(insn: InsnNode, arrayref: L0Value, index: L0Value): L0Value = {
+          override def opAALOAD(insn: InsnNode, arrayref: TV, index: TV): TV = {
             assert(arrayref ne L0THIS)
             L0UNDET1
           }
 
-          override def opNEW(i: TypeInsnNode):       L0Value = { L0UNDET1 }
-          override def opANEWARRAY(i: TypeInsnNode): L0Value = { L0UNDET1 }
-          override def opCHECKCAST(i: TypeInsnNode): L0Value = { L0UNDET1 }
+          override def opNEW(i: TypeInsnNode):       TV = { L0UNDET1 }
+          override def opANEWARRAY(i: TypeInsnNode): TV = { L0UNDET1 }
+          override def opCHECKCAST(i: TypeInsnNode): TV = { L0UNDET1 }
 
-          override def opGETFIELD(fi: asm.tree.FieldInsnNode, objectref: L0Value): L0Value = {
+          override def opGETFIELD(fi: asm.tree.FieldInsnNode, objectref: TV): TV = {
             track(fi, objectref)
             newValue(asm.Type.getType(fi.desc))
           }
-          override def opPUTFIELD(fi: asm.tree.FieldInsnNode, objectref: L0Value, value: L0Value): L0Value = {
+          override def opPUTFIELD(fi: asm.tree.FieldInsnNode, objectref: TV, value: TV): TV = {
             track(fi, objectref)
             track(fi, value)
             value
           }
 
-          override def opGETSTATIC(fi: FieldInsnNode):             L0Value = { newValue(asm.Type.getType(fi.desc)) }
-          override def opPUTSTATIC(fi: FieldInsnNode, v: L0Value): L0Value = { track(fi, v); v }
+          override def opGETSTATIC(fi: FieldInsnNode):             TV = { newValue(asm.Type.getType(fi.desc)) }
+          override def opPUTSTATIC(fi: FieldInsnNode, v: TV): TV = { track(fi, v); v }
 
-          override def opLDCHandleValue(i:     AbstractInsnNode, cst: asm.Handle): L0Value = { ??? }
-          override def opLDCMethodTypeValue(i: AbstractInsnNode, cst: asm.Type):   L0Value = { ??? }
+          override def opLDCHandleValue(i:     AbstractInsnNode, cst: asm.Handle): TV = { ??? }
+          override def opLDCMethodTypeValue(i: AbstractInsnNode, cst: asm.Type):   TV = { ??? }
 
-          override def opLDCRefTypeValue(i:    AbstractInsnNode, cst: asm.Type):   L0Value = { newValue(cst) }
+          override def opLDCRefTypeValue(i:    AbstractInsnNode, cst: asm.Type):   TV = { newValue(cst) }
 
         } // end of class ThisFlowInterpreter
 
@@ -624,11 +631,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
-            def allThisConsumers(mn: MethodNode): collection.Set[AbstractInsnNode] = {
+            def allThisConsumers(mn: MethodNode) {
               val thistrack = new ThisFlowInterpreter
-              val a = new asm.tree.analysis.Analyzer[L0Value](thistrack)
+              val a = new asm.tree.analysis.Analyzer[TV](thistrack)
               a.analyze(cnode.name, mn)
-              thistrack.tracked
             }
 
         var toVisit: List[String] = isEP.toList ::: (allCandidates filterNot isEP).toList
