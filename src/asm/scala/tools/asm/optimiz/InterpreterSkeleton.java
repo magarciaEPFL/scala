@@ -264,7 +264,11 @@ public abstract class InterpreterSkeleton<V extends Value> extends Interpreter<V
 
     public abstract V opAALOAD(InsnNode insn, V arrayref, V index);
 
-    public abstract Type arrayOf(Type t);
+    public Type arrayOf(Type t) {
+        String arrType = "[" + t.getDescriptor();
+        return Type.getObjectType(arrType);
+    }
+
     public abstract V opANEWARRAY(TypeInsnNode insn);
     public abstract V opNEW(TypeInsnNode insn);
 

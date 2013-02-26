@@ -4204,10 +4204,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     override def opNEW(insn: asm.tree.TypeInsnNode): TFValue = {
       newValue(lookupRefBType(insn.desc), fromNEW = true)
     }
-    override def arrayOf(t: asm.Type): asm.Type = {
-      val arrType = "[" + t.getDescriptor
-      asm.Type.getObjectType(arrType)
-    }
     override def opANEWARRAY(insn: asm.tree.TypeInsnNode): TFValue = {
       val c: Char = insn.desc(0)
       assert(c != '(', "Unexpected method type: " + insn.desc)
