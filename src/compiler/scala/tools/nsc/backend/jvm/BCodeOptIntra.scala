@@ -637,12 +637,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
 
           /**
-           *  Of the n-ary instructions arriving here, those that might be affected by
-           *  outer-squashing (and that we check in detail) are:
+           *  Of the n-ary instructions arriving here, those that can be leveraged for outer-squashing are:
            *
            *    (a) invocation of non-endpoint candidate
-           *        Note: the only invoker (before inlining) of an endpoint
-           *        is an apply() method in its dclosure.
+           *        Note: the only invoker (before inlining) of an endpoint is an apply() method in its dclosure.
            *
            *    (b) initialization of a dclosure.
            *
@@ -670,7 +668,40 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
           private def trackCallsite(mi: MethodInsnNode, vs: List[TV]) {
 
-          }
+                def visitCandidate(c: KT) {
+                  if(knownCannot(c)) propagate(beingVisited)
+                  else {
+                    callers(c)            += beingVisited
+                    callees(beingVisited) += c
+                  }
+                }
+
+            // ------ case (1 of 3) ------ initialization of dclosure
+            val epk = extractKeyEP(mi)
+            if(epk != null) {
+              // the 2nd element in `vs` denotes outer-value, which must be TFTHIS
+              assert(vs.tail.head eq TVTHIS)
+              assert(vs.head      ne TVTHIS)
+              vs.tail.tail foreach track
+              visitCandidate(epk)
+              // TODO pendingOuterElision(beingVisited) += mi
+              return
+            }
+
+            // ------ case (2 of 3) ------ invocation of candidate
+            val lmk = extractKeyLM(mi)
+            if(lmk != null) {
+              // the 1st elem in `vs` denotes the receiver, which may be (not necessarily) TVTHIS
+              vs.tail foreach track
+              visitCandidate(lmk)
+              // TODO pendingReceiverElision(beingVisited) += mi
+              return
+            }
+
+            // ------ case (3 of 3) ------ a callsite to a non-candidate
+            vs foreach track
+
+          } // end of method trackCallsite()
 
           override def returnOperation(i: AbstractInsnNode, value: TV, expected: TV) { track(value) }
 
