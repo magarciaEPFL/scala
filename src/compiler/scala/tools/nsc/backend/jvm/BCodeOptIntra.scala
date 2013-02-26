@@ -421,7 +421,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
       type KT = String
 
-      def key(mn: MethodNode): String = { mn.name + mn.desc }
+      def key(mn: MethodNode): KT = { mn.name + mn.desc }
 
       val masterBT = lookupRefBType(cnode.name)
 
@@ -432,7 +432,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       }
 
       // closure name -> key of endpoint
-      val epByDCName: Map[String, String] = (
+      val epByDCName: Map[String, KT] = (
         for(
           closuBT <- dcbts;
           ep = closuRepo.endpoint.get(closuBT).mnode;
@@ -441,27 +441,32 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       ).toMap
 
       // keys of all dclosure endpoints
-      val isEP: Set[String] = epByDCName.values.toSet
+      val isEP: Set[KT] = epByDCName.values.toSet
+
+      // all concrete instance methods, including <init>
+      val methodsOfInterest: List[MethodNode] =
+        for(mn <- cnode.toMethodList; if Util.hasBytecodeInstructions(mn) && Util.isInstanceMethod(mn))
+        yield mn;
 
       // key -> MethodNode
-      val candidate: Map[String, MethodNode] = {
+      val candidate: Map[KT, MethodNode] = {
         def canBeCandidate(mn: MethodNode): Boolean = {
           mn.isLiftedMethod && Util.isInstanceMethod(mn) && (Util.isPrivateMethod(mn) || isEP(key(mn)))
         }
         val pairs =
-          for(mn <- cnode.toMethodList; if canBeCandidate(mn))
+          for(mn <- methodsOfInterest; if canBeCandidate(mn))
           yield Pair(key(mn), mn)
 
         pairs.toMap
       }
 
-      def isCandidate(s: String) = { (s != null) && (candidate contains s) }
+      def isCandidate(s: KT) = { (s != null) && (candidate contains s) }
 
       /**
        *  Is this a callsite targeting a non-endpoint candidate (an ex-local method)?
        *  If so, return the key for the candidate method in question, null otherwise.
        * */
-      def extractKeyLM(i: AbstractInsnNode): String = {
+      def extractKeyLM(i: AbstractInsnNode): KT = {
         i match {
           case mi: MethodInsnNode if Util.isInstanceCallsite(mi) && (mi.name != "<init>") && (mi.owner == cnode.name) =>
             val s = mi.name + mi.desc
@@ -477,7 +482,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        *  Is this a dclosure initialization?
        *  If so, return the key for the dclosure's endpoint, null otherwise.
        * */
-      def extractKeyEP(i: AbstractInsnNode): String = {
+      def extractKeyEP(i: AbstractInsnNode): KT = {
         i match {
           case mi: MethodInsnNode if (mi. getOpcode == Opcodes.INVOKESPECIAL) && (mi.name == "<init>") =>
             return epByDCName.getOrElse(mi.owner, null)
@@ -486,22 +491,20 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         null
       }
 
-      val allCandidates: Set[String] = candidate.keySet
+      val allCandidates: Set[KT] = candidate.keySet
       assert(isEP subsetOf allCandidates)
 
-      // in case (endpoints with a change of being made static) becomes empty during search, no more work to do
-      val survivingeps = mutable.Set.empty[String] ++ isEP
-      val survivors    = mutable.Set.empty[String] ++ allCandidates
-      val knownCannot  = mutable.Set.empty[String]
+      // in case (endpoints with a chance of being made static) becomes empty during search, no more work to do
+      val survivingeps = mutable.Set.empty[KT] ++ isEP
+      val survivors    = mutable.Set.empty[KT] ++ allCandidates
+      val knownCannot  = mutable.Set.empty[KT]
 
-      /**
-       *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
-       *
-       *  All methods in this class can-multi-thread
-       */
-      final class TV(size: Int) extends asm.tree.analysis.Value {
-        override def getSize: Int = { size }
-      }
+        /**
+         *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
+         */
+        final class TV(size: Int) extends asm.tree.analysis.Value {
+          override def getSize: Int = { size }
+        }
 
         /**
          *  Tracks the consumers of LOAD_0 , ie the consumers of THIS for an instance method
@@ -634,14 +637,14 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         } // end of class ThisFlowInterpreter
 
       /**
-       *  Those dclosures that don't really depend on their outer instance are rewritten to actually not depend on it.
+       *  This method orchestrates the sub-steps involved in eliding redundant outer references.
        *
        * */
       def squashOuterForLCC() {
 
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
-        var toVisit: List[String] = isEP.toList ::: (allCandidates filterNot isEP).toList
+        var toVisit: List[KT] = isEP.toList ::: (allCandidates filterNot isEP).toList
 
         /*
          * given a key (standing for a candidate) its direct callers among candidates
@@ -659,12 +662,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          *   }
          *
          */
-        val callers = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[String]) } )
+        val callers = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[KT]) } )
 
         /*
          * given a key (standing for a candidate) those candidates it contains callsites for.
          */
-        val callees = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[String]) } )
+        val callees = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[KT]) } )
 
         while(toVisit.nonEmpty && survivingeps.nonEmpty) {
           val current = toVisit.head
