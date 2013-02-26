@@ -394,12 +394,38 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       sq.squashOuterForLCC()
     }
 
+    /**
+     *  Initially all endpoints of dclosures owned by `cnode` are instance methods
+     *  (unless `cnode` is an implementation-class derived from a trait,
+     *  in which case all of its methods including dclosure-endpoints are static).
+     *
+     *  In order to invoke an instance-level endpoint, a Late-Closure-Class captures outer.
+     *  However some endpoints don't actually depend on a THIS reference, ie they could be made static.
+     *  Some useful facts:
+     *
+     *    (a) `isLiftedMethod`s and endpoints aren't part of the public type,
+     *        they are implementation artifacts all whose usages can be found
+     *        (e.g. to rewrite INVOKESPECIAL into INVOKESTATIC)
+     *
+     *    (b) the "static-ness" of an endpoint containing only callsites to methods as above
+     *        depends on the "static-ness" of those methods. It suffices for one of those callees
+     *        not to be amenable to be made static, to preclude the endpoint from being made static.
+     *
+     *  Class `LCCOuterSquasher` searches for the largest subset of endpoints that can be made static,
+     *  under the constraint that only (a) methods can be made static.
+     *
+     *
+     *
+     * */
     final class LCCOuterSquasher {
+
+      type KT = String
 
       def key(mn: MethodNode): String = { mn.name + mn.desc }
 
       val masterBT = lookupRefBType(cnode.name)
 
+      // dclosures owned by cnode (cnode is the "master class")
       val dcbts: List[BType] = {
         val dcbts0 = closuRepo.dclosures.get(masterBT)
         if(dcbts0 == null) Nil else dcbts0
@@ -414,10 +440,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         ) yield Pair(closuBT.getInternalName, key(ep))
       ).toMap
 
-      // all dclosure endpoints for the master-class of interest, as String keys
+      // keys of all dclosure endpoints
       val isEP: Set[String] = epByDCName.values.toSet
 
-      // key of candidate -> MethodNode
+      // key -> MethodNode
       val candidate: Map[String, MethodNode] = {
         def canBeCandidate(mn: MethodNode): Boolean = {
           mn.isLiftedMethod && Util.isInstanceMethod(mn) && (Util.isPrivateMethod(mn) || isEP(key(mn)))
