@@ -203,6 +203,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     nxtIdx
   } // end of method rephraseBackedgesInCtorArg()
 
+  /**
+   *  All methods in this class can-multi-thread
+   */
   class EssentialCleanser(cnode: asm.tree.ClassNode) {
 
     val jumpsCollapser      = new asm.optimiz.JumpChainsCollapser(null)
@@ -387,190 +390,29 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
       }
       // 2 of 2
-      squashOuterForLCC()
+      val sq = new LCCOuterSquasher
+      sq.squashOuterForLCC()
     }
 
     /**
      *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
+     *
+     *  All methods in this class can-multi-thread
      */
     final class L0Value(size: Int) extends asm.tree.analysis.Value {
       override def getSize: Int = { size }
     }
 
-    /**
-     *  Focuses on tracking the consumers of LOAD_0 , ie the consumers of THIS.
-     *
-     *  All methods in this class can-multi-thread
-     **/
-    class ThisFlowInterpreter extends asm.optimiz.InterpreterSkeleton[L0Value] {
+    final class LCCOuterSquasher {
 
-      val tracked = mutable.Set.empty[AbstractInsnNode]
-
-      val L0THIS   = new L0Value(1)
-      val L0UNDET1 = new L0Value(1)
-      val L0UNDET2 = new L0Value(2)
-
-      def track(i: asm.tree.AbstractInsnNode, v: L0Value) {
-        if(v eq L0THIS) {
-          tracked += i
-        }
-      }
-
-      /**
-       *  values comprises receiver (if any) and arguments (if any)
-       * */
-      def trackCallsite(mni:    asm.tree.MethodInsnNode,
-                        values: java.util.List[_ <: L0Value]) {
-        val iter = values.iterator()
-        while(iter.hasNext) { track(mni, iter.next()) }
-      }
-
-      private def undet(size: Int): L0Value = {
-        size match {
-          case 1 => L0UNDET1
-          case 2 => L0UNDET2
-        }
-      }
-
-      override def merge(v: L0Value, w: L0Value): L0Value = {
-        if(v == null) return w
-        if(w == null) return v
-        if(v eq L0THIS) return L0THIS
-        if(w eq L0THIS) return L0THIS
-        v // any of them will do
-      }
-
-      override def newValue(t: asm.Type): L0Value = {
-        if (t == null || t == asm.Type.VOID_TYPE) { null }
-        else { undet(t.getSize) }
-      }
-
-      // newOperation takes no input value, version in super is fine.
-
-      /**
-       *  TODO this method assumes ThisFlowInterpreter is only called on instance methods.
-       * */
-      override def copyOperation(i: asm.tree.AbstractInsnNode,
-                                 v: L0Value): L0Value = {
-        track(i, v)
-        if(i.getOpcode == Opcodes.ALOAD) {
-          val vi = i.asInstanceOf[asm.tree.VarInsnNode]
-          if(vi.`var` == 0) {
-            return L0THIS
-          }
-        }
-        v
-      }
-
-      override def unaryOperation(i: asm.tree.AbstractInsnNode,
-                                  v: L0Value): L0Value = {
-        track(i, v)
-        super.unaryOperation(i, v)
-      }
-
-      override def binaryOperation(i:  asm.tree.AbstractInsnNode,
-                                   v1: L0Value,
-                                   v2: L0Value): L0Value = {
-        track(i, v1)
-        track(i, v2)
-        super.binaryOperation(i, v1, v2)
-      }
-
-      override def ternaryOperation(i:  asm.tree.AbstractInsnNode,
-                                    v1: L0Value,
-                                    v2: L0Value,
-                                    v3: L0Value): L0Value = {
-        track(i, v1)
-        track(i, v2)
-        track(i, v3)
-        null
-      }
-
-      override def naryOperation(insn:   asm.tree.AbstractInsnNode,
-                                 values: java.util.List[_ <: L0Value]): L0Value = {
-        insn match {
-          case mna: asm.tree.MultiANewArrayInsnNode => newValue(asm.Type.getType(mna.desc))
-          case ivd: asm.tree.InvokeDynamicInsnNode  => newValue(asm.Type.getReturnType(ivd.desc))
-          case mni: asm.tree.MethodInsnNode =>
-            // INVOKEVIRTUAL, INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE
-            trackCallsite(mni, values)
-            val rt = asm.Type.getReturnType(mni.desc)
-            if(rt == asm.Type.VOID_TYPE) null // will be discarded anyway by asm.tree.analysis.Frame.execute
-            else newValue(rt)
-        }
-      }
-
-      override def returnOperation(insn:     asm.tree.AbstractInsnNode,
-                                   value:    L0Value,
-                                   expected: L0Value) {
-        track(insn, value)
-        ()
-      }
-
-      override def drop(i: AbstractInsnNode, v: L0Value) {
-        track(i, v)
-      }
-
-      override def nullValue()   = L0UNDET1
-      override def intValue()    = L0UNDET1
-      override def longValue()   = L0UNDET2
-      override def floatValue()  = L0UNDET1
-      override def doubleValue() = L0UNDET2
-      override def stringValue() = L0UNDET1
-
-      override def opAALOAD(insn: asm.tree.InsnNode, arrayref: L0Value, index: L0Value): L0Value = {
-        assert(arrayref ne L0THIS)
-        L0UNDET1
-      }
-
-      override def opNEW(insn: asm.tree.TypeInsnNode): L0Value = {
-        L0UNDET1
-      }
-      override def opANEWARRAY(insn: asm.tree.TypeInsnNode): L0Value = {
-        L0UNDET1
-      }
-
-      override def opCHECKCAST(insn: asm.tree.TypeInsnNode): L0Value = {
-        L0UNDET1
-      }
-
-      override def opGETFIELD(fi: asm.tree.FieldInsnNode, objectref: L0Value): L0Value = {
-        track(fi, objectref)
-        newValue(asm.Type.getType(fi.desc))
-      }
-      override def opPUTFIELD(fi: asm.tree.FieldInsnNode, objectref: L0Value, value: L0Value): L0Value = {
-        track(fi, objectref)
-        track(fi, value)
-        value
-      }
-
-      override def opGETSTATIC(fi: asm.tree.FieldInsnNode): L0Value = {
-        newValue(asm.Type.getType(fi.desc))
-      }
-      override def opPUTSTATIC(fi: asm.tree.FieldInsnNode, v: L0Value): L0Value = {
-        track(fi, v)
-        v
-      }
-
-      override def opLDCHandleValue(insn: asm.tree.AbstractInsnNode,     cst: asm.Handle): L0Value = { ??? }
-      override def opLDCMethodTypeValue(insn: asm.tree.AbstractInsnNode, cst: asm.Type):   L0Value = { ??? }
-
-      override def opLDCRefTypeValue(insn: asm.tree.AbstractInsnNode,    cst: asm.Type):   L0Value = { newValue(cst) }
-
-    } // end of class ThisFlowInterpreter
-
-    /**
-     *  Those dclosures that don't really depend on their outer instance are rewritten to actually not depend on it.
-     *
-     * */
-    final def squashOuterForLCC() {
-
-          def key(mn: MethodNode): String = { mn.name + mn.desc }
+      def key(mn: MethodNode): String = { mn.name + mn.desc }
 
       val masterBT = lookupRefBType(cnode.name)
 
-      val dcbts: List[BType] = closuRepo.dclosures.get(masterBT)
-      if(dcbts == null) { return }
+      val dcbts: List[BType] = {
+        val dcbts0 = closuRepo.dclosures.get(masterBT)
+        if(dcbts0 == null) Nil else dcbts0
+      }
 
       // closure name -> key of endpoint
       val epByDCName: Map[String, String] = (
@@ -583,7 +425,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
       // all dclosure endpoints for the master-class of interest, as String keys
       val isEP: Set[String] = epByDCName.values.toSet
-      if(isEP.isEmpty) { return }
 
       // key of candidate -> MethodNode
       val candidate: Map[String, MethodNode] = {
@@ -597,77 +438,226 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         pairs.toMap
       }
 
-          def isCandidate(s: String) = { (s != null) && (candidate contains s) }
+      def isCandidate(s: String) = { (s != null) && (candidate contains s) }
 
-          /**
-           *  Is the instruction a consumer of THIS that in principle is amenable to be made static?
-           *  If so, return the key for the candidate method in question.
-           * */
-          def extractKey(i: AbstractInsnNode): String = {
-            if(i.getType == AbstractInsnNode.METHOD_INSN) {
-              val mi = i.asInstanceOf[MethodInsnNode]
-              var s: String = null
-              if(mi.name == "<init>") {
-                s = epByDCName.getOrElse(mi.owner, null)
-              } else if((mi.getOpcode != Opcodes.INVOKESTATIC) && (mi.owner == cnode.name)) {
-                s = mi.name + mi.desc
-              }
-              if(isCandidate(s)) {
-                return s
-              }
-            }
-            null
+      /**
+       *  Is the instruction a consumer of THIS that in principle is amenable to be made static?
+       *  If so, return the key for the candidate method in question.
+       * */
+      def extractKey(i: AbstractInsnNode): String = {
+        if(i.getType == AbstractInsnNode.METHOD_INSN) {
+          val mi = i.asInstanceOf[MethodInsnNode]
+          var s: String = null
+          if(mi.name == "<init>") {
+            s = epByDCName.getOrElse(mi.owner, null)
+          } else if((mi.getOpcode != Opcodes.INVOKESTATIC) && (mi.owner == cnode.name)) {
+            s = mi.name + mi.desc
           }
+          if(isCandidate(s)) {
+            return s
+          }
+        }
+        null
+      }
 
       val allCandidates: Set[String] = candidate.keySet
       assert(isEP subsetOf allCandidates)
 
-          def allThisConsumers(mn: MethodNode): collection.Set[AbstractInsnNode] = {
-            val thistrack = new ThisFlowInterpreter
-            val a = new asm.tree.analysis.Analyzer[L0Value](thistrack)
-            a.analyze(cnode.name, mn)
-            thistrack.tracked
-          }
-
-          def isPlausiblyStatifiable(key: String): Boolean = {
-            allThisConsumers(candidate(key)) forall { i => extractKey(i) != null }
-          }
-
-      val knownCannot   = mutable.Set.empty[String]
-          knownCannot ++= (allCandidates filterNot isPlausiblyStatifiable)
-
       // in case (endpoints with a change of being made static) becomes empty during search, no more work to do
-      val remainingeps   = mutable.Set.empty[String]
-          remainingeps ++= (isEP filterNot knownCannot)
+      val survivingeps = mutable.Set.empty[String] ++ isEP
+      val survivors    = mutable.Set.empty[String] ++ allCandidates
+      val knownCannot  = mutable.Set.empty[String]
 
-      val statifiable   = mutable.Set.empty[String]
-          statifiable ++= (allCandidates filterNot knownCannot)
+        /**
+         *  Focuses on tracking the consumers of LOAD_0 , ie the consumers of THIS.
+         *
+         *  All methods in this class can-multi-thread
+         **/
+        final class ThisFlowInterpreter extends asm.optimiz.InterpreterSkeleton[L0Value] {
 
-      var toVisit: List[String] = remainingeps.toList ::: (statifiable filterNot isEP).toList
+          import asm.tree._
 
-      /*
-       * given a key its direct callers among candidates
-       * (no-one else can possibly contain a callsite targeting the method given by the key)
-       */
-      val callers = mutable.Map.empty ++ (
-        toVisit map { key => Pair(key, mutable.Set.empty[String]) }
-      )
+          val tracked = mutable.Set.empty[AbstractInsnNode]
 
-      while(toVisit.nonEmpty && remainingeps.nonEmpty) {
-        val current = toVisit.head
-        toVisit = toVisit.tail
+          val L0THIS   = new L0Value(1)
+          val L0UNDET1 = new L0Value(1)
+          val L0UNDET2 = new L0Value(2)
 
-        // val cp = ...
-        // val consumers = ...
-        var abandonCurrent = false
+          def track(i: AbstractInsnNode, v: L0Value) { if(v eq L0THIS) { tracked += i } }
 
-        toVisit = Nil
+          /**
+           *  values comprises receiver (if any) and arguments (if any)
+           * */
+          def trackCallsite(mni:    MethodInsnNode,
+                            values: java.util.List[_ <: L0Value]) {
+            val iter = values.iterator()
+            while(iter.hasNext) { track(mni, iter.next()) }
+          }
 
+          private def undet(size: Int): L0Value = {
+            size match {
+              case 1 => L0UNDET1
+              case 2 => L0UNDET2
+            }
+          }
 
-      }
+          override def merge(v: L0Value, w: L0Value): L0Value = {
+            if(v == null)   return w
+            if(w == null)   return v
+            if(v eq L0THIS) return L0THIS
+            if(w eq L0THIS) return L0THIS
+            v // any of them will do
+          }
 
-      // TODO needed? ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
-    }
+          override def newValue(t: asm.Type): L0Value = {
+            if (t == null || t == asm.Type.VOID_TYPE) { null }
+            else { undet(t.getSize) }
+          }
+
+          // newOperation takes no input value, version in super is fine.
+
+          /**
+           *  TODO this method assumes ThisFlowInterpreter is only called on instance methods.
+           * */
+          override def copyOperation(i: AbstractInsnNode,
+                                     v: L0Value): L0Value = {
+            track(i, v)
+            if(i.getOpcode == Opcodes.ALOAD) {
+              val vi = i.asInstanceOf[VarInsnNode]
+              if(vi.`var` == 0) {
+                return L0THIS
+              }
+            }
+            v
+          }
+
+          override def unaryOperation(i: AbstractInsnNode,
+                                      v: L0Value): L0Value = {
+            track(i, v)
+            super.unaryOperation(i, v)
+          }
+
+          override def binaryOperation(i:  AbstractInsnNode,
+                                       v1: L0Value,
+                                       v2: L0Value): L0Value = {
+            track(i, v1)
+            track(i, v2)
+            super.binaryOperation(i, v1, v2)
+          }
+
+          override def ternaryOperation(i:  AbstractInsnNode,
+                                        v1: L0Value,
+                                        v2: L0Value,
+                                        v3: L0Value): L0Value = {
+            track(i, v1)
+            track(i, v2)
+            track(i, v3)
+            null
+          }
+
+          override def naryOperation(i:      AbstractInsnNode,
+                                     values: java.util.List[_ <: L0Value]): L0Value = {
+            i match {
+              case mna: MultiANewArrayInsnNode => newValue(asm.Type.getType(mna.desc))
+              case ivd: InvokeDynamicInsnNode  => newValue(asm.Type.getReturnType(ivd.desc))
+              case mni: MethodInsnNode =>
+                // INVOKEVIRTUAL, INVOKESPECIAL, INVOKESTATIC, INVOKEINTERFACE
+                trackCallsite(mni, values)
+                val rt = asm.Type.getReturnType(mni.desc)
+                if(rt == asm.Type.VOID_TYPE) null // will be discarded anyway by asm.tree.analysis.Frame.execute
+                else newValue(rt)
+            }
+          }
+
+          override def returnOperation(i:        AbstractInsnNode,
+                                       value:    L0Value,
+                                       expected: L0Value) {
+            track(i, value)
+            ()
+          }
+
+          override def drop(i: AbstractInsnNode, v: L0Value) {
+            track(i, v)
+          }
+
+          override def nullValue()   = L0UNDET1
+          override def intValue()    = L0UNDET1
+          override def longValue()   = L0UNDET2
+          override def floatValue()  = L0UNDET1
+          override def doubleValue() = L0UNDET2
+          override def stringValue() = L0UNDET1
+
+          override def opAALOAD(insn: InsnNode, arrayref: L0Value, index: L0Value): L0Value = {
+            assert(arrayref ne L0THIS)
+            L0UNDET1
+          }
+
+          override def opNEW(i: TypeInsnNode):       L0Value = { L0UNDET1 }
+          override def opANEWARRAY(i: TypeInsnNode): L0Value = { L0UNDET1 }
+          override def opCHECKCAST(i: TypeInsnNode): L0Value = { L0UNDET1 }
+
+          override def opGETFIELD(fi: asm.tree.FieldInsnNode, objectref: L0Value): L0Value = {
+            track(fi, objectref)
+            newValue(asm.Type.getType(fi.desc))
+          }
+          override def opPUTFIELD(fi: asm.tree.FieldInsnNode, objectref: L0Value, value: L0Value): L0Value = {
+            track(fi, objectref)
+            track(fi, value)
+            value
+          }
+
+          override def opGETSTATIC(fi: FieldInsnNode):             L0Value = { newValue(asm.Type.getType(fi.desc)) }
+          override def opPUTSTATIC(fi: FieldInsnNode, v: L0Value): L0Value = { track(fi, v); v }
+
+          override def opLDCHandleValue(i:     AbstractInsnNode, cst: asm.Handle): L0Value = { ??? }
+          override def opLDCMethodTypeValue(i: AbstractInsnNode, cst: asm.Type):   L0Value = { ??? }
+
+          override def opLDCRefTypeValue(i:    AbstractInsnNode, cst: asm.Type):   L0Value = { newValue(cst) }
+
+        } // end of class ThisFlowInterpreter
+
+      /**
+       *  Those dclosures that don't really depend on their outer instance are rewritten to actually not depend on it.
+       *
+       * */
+      def squashOuterForLCC() {
+
+        if(dcbts.isEmpty || isEP.isEmpty) { return }
+
+            def allThisConsumers(mn: MethodNode): collection.Set[AbstractInsnNode] = {
+              val thistrack = new ThisFlowInterpreter
+              val a = new asm.tree.analysis.Analyzer[L0Value](thistrack)
+              a.analyze(cnode.name, mn)
+              thistrack.tracked
+            }
+
+        var toVisit: List[String] = isEP.toList ::: (allCandidates filterNot isEP).toList
+
+        /*
+         * given a key its direct callers among candidates
+         * (no-one else can possibly contain a callsite targeting the method given by the key)
+         */
+        val callers = mutable.Map.empty ++ (
+          toVisit map { key => Pair(key, mutable.Set.empty[String]) }
+        )
+
+        while(toVisit.nonEmpty && survivingeps.nonEmpty) {
+          val current = toVisit.head
+          toVisit = toVisit.tail
+
+          // val cp = ...
+          // val consumers = ...
+          var abandonCurrent = false
+
+          toVisit = Nil
+
+        }
+
+        // TODO needed? ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+
+      } // end of method squashOuterForLCC()
+
+    } // end of class LCCOuterSquasher
 
     /**
      *  This version can cope with <init> super-calls (which are valid only in ctors) as well as
