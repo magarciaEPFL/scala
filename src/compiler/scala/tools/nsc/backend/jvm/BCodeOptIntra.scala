@@ -500,6 +500,32 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       val survivors    = mutable.Set.empty[KT] ++ allCandidates
       val knownCannot  = mutable.Set.empty[KT]
 
+      var toVisit: List[KT] = isEP.toList ::: (allCandidates filterNot isEP).toList
+
+      /*
+       * key of candidate C -> subset of candidates that directly call C
+       *
+       * Note: methods other than candidates may contain a callsite targeting C.
+       * Example:
+       *
+       *   def nonCandidate() {
+       *
+       *       def candidate(j: Int) { println(j) }
+       *
+       *       for(i <- 1 to 10) { candidate(i) }
+       *
+       *       candidate(-1)
+       *
+       *   }
+       *
+       */
+      val callers = mutable.Map.empty ++ ( toVisit map { k => Pair(k, mutable.Set.empty[KT]) } )
+
+      /*
+       * key of candidate C -> those candidates that C contains callsites for
+       */
+      val callees = mutable.Map.empty ++ ( toVisit map { k => Pair(k, mutable.Set.empty[KT]) } )
+
         /**
          *  Represents either THIS or an undistinguished value (which can be of JVM-level size 1 or 2)
          */
@@ -666,31 +692,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       def squashOuterForLCC() {
 
         if(dcbts.isEmpty || isEP.isEmpty) { return }
-
-        var toVisit: List[KT] = isEP.toList ::: (allCandidates filterNot isEP).toList
-
-        /*
-         * given a key (standing for a candidate) its direct callers among candidates
-         * Note: methods other than candidates may contain a callsite targeting the method given by the key.
-         * Example:
-         *
-         *   def nonCandidate() {
-         *
-         *       def candidate(j: Int) { println(j) }
-         *
-         *       for(i <- 1 to 10) { candidate(i) }
-         *
-         *       candidate(-1)
-         *
-         *   }
-         *
-         */
-        val callers = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[KT]) } )
-
-        /*
-         * given a key (standing for a candidate) those candidates it contains callsites for.
-         */
-        val callees = mutable.Map.empty ++ ( toVisit map { key => Pair(key, mutable.Set.empty[KT]) } )
 
         while(toVisit.nonEmpty && survivingeps.nonEmpty) {
           val current = toVisit.head
