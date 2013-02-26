@@ -478,7 +478,8 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       }
 
         /**
-         *  Focuses on tracking the consumers of LOAD_0 , ie the consumers of THIS.
+         *  Tracks the consumers of LOAD_0 , ie the consumers of THIS for an instance method
+         *  (this visitor should be invoked only on non-static methods).
          *
          *  All methods in this class can-multi-thread
          **/
@@ -486,11 +487,11 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
           import asm.tree._
 
-          val L0THIS   = new TV(1)
-          val L0UNDET1 = new TV(1)
-          val L0UNDET2 = new TV(2)
+          val TVTHIS = new TV(1)
+          val TV1    = new TV(1)
+          val TV2    = new TV(2)
 
-          def track(i: AbstractInsnNode, v: TV) { if(v eq L0THIS) {  } }
+          def track(i: AbstractInsnNode, v: TV) { if(v eq TVTHIS) {  } }
 
           /**
            *  values comprises receiver (if any) and arguments (if any)
@@ -503,16 +504,16 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
           private def undet(size: Int): TV = {
             size match {
-              case 1 => L0UNDET1
-              case 2 => L0UNDET2
+              case 1 => TV1
+              case 2 => TV2
             }
           }
 
           override def merge(v: TV, w: TV): TV = {
             if(v == null)   return w
             if(w == null)   return v
-            if(v eq L0THIS) return L0THIS
-            if(w eq L0THIS) return L0THIS
+            if(v eq TVTHIS) return TVTHIS
+            if(w eq TVTHIS) return TVTHIS
             v // any of them will do
           }
 
@@ -532,7 +533,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             if(i.getOpcode == Opcodes.ALOAD) {
               val vi = i.asInstanceOf[VarInsnNode]
               if(vi.`var` == 0) {
-                return L0THIS
+                return TVTHIS
               }
             }
             v
@@ -587,21 +588,21 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             track(i, v)
           }
 
-          override def nullValue()   = L0UNDET1
-          override def intValue()    = L0UNDET1
-          override def longValue()   = L0UNDET2
-          override def floatValue()  = L0UNDET1
-          override def doubleValue() = L0UNDET2
-          override def stringValue() = L0UNDET1
+          override def nullValue()   = TV1
+          override def intValue()    = TV1
+          override def longValue()   = TV2
+          override def floatValue()  = TV1
+          override def doubleValue() = TV2
+          override def stringValue() = TV1
 
           override def opAALOAD(insn: InsnNode, arrayref: TV, index: TV): TV = {
-            assert(arrayref ne L0THIS)
-            L0UNDET1
+            assert(arrayref ne TVTHIS)
+            TV1
           }
 
-          override def opNEW(i: TypeInsnNode):       TV = { L0UNDET1 }
-          override def opANEWARRAY(i: TypeInsnNode): TV = { L0UNDET1 }
-          override def opCHECKCAST(i: TypeInsnNode): TV = { L0UNDET1 }
+          override def opNEW(i: TypeInsnNode):       TV = { TV1 }
+          override def opANEWARRAY(i: TypeInsnNode): TV = { TV1 }
+          override def opCHECKCAST(i: TypeInsnNode): TV = { TV1 }
 
           override def opGETFIELD(fi: asm.tree.FieldInsnNode, objectref: TV): TV = {
             track(fi, objectref)
