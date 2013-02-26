@@ -529,7 +529,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          *  This means those methods invoking it are also precluded from being static. And so on so forth.
          * */
         def propagate(k: KT) {
-          knownCannot += k
+          knownCannot  += k
+          survivingeps -= k
+          survivors    -= k
           val cs = callers(k).toList
           if(cs.nonEmpty) {
             callers(k).clear
@@ -572,7 +574,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          *
          *  All methods in this class can-multi-thread
          **/
-        final class ThisFlowInterpreter(beingVisited: KT) extends asm.optimiz.InterpreterSkeleton[TV] {
+        final class ThisFlowInterpreter(current: KT) extends asm.optimiz.InterpreterSkeleton[TV] {
 
           import asm.tree._
 
@@ -580,7 +582,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           val TV1    = new TV(1)
           val TV2    = new TV(2)
 
-          def track(v: TV) { if(v eq TVTHIS) { propagate(beingVisited) } }
+          def track(v: TV) { if(v eq TVTHIS) { propagate(current) } }
 
           private def undet(size: Int): TV = {
             size match {
@@ -669,10 +671,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           private def trackCallsite(mi: MethodInsnNode, vs: List[TV]) {
 
                 def visitCandidate(c: KT) {
-                  if(knownCannot(c)) propagate(beingVisited)
+                  if(knownCannot(c)) propagate(current)
                   else {
-                    callers(c)            += beingVisited
-                    callees(beingVisited) += c
+                    callers(c)       += current
+                    callees(current) += c
                   }
                 }
 
@@ -748,14 +750,14 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
-        while(toVisit.nonEmpty && survivingeps.nonEmpty) {
+        while(toVisit.nonEmpty) {
           val current = toVisit.head
           toVisit = toVisit.tail
 
           val a = new asm.tree.analysis.Analyzer[TV](new ThisFlowInterpreter(current))
           a.analyze(cnode.name, candidate(current))
 
-          toVisit = Nil
+          if(survivingeps.isEmpty) { return } // no dclosure will have outer removed, quit early.
 
         }
 
