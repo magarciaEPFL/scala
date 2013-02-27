@@ -831,7 +831,16 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
 
         def elideReceiver(call: MethodInsnNode) {
-          // TODO
+          val f = cp.frameAt(call)
+          val rcvProds: SourceValue = f.getReceiver(call)
+          if(cp.isMux(rcvProds.insns, call)) {
+            dropAtSource(rcvProds.insns)
+          } else {
+            // drop at sink
+            val numberOfArgs = BType.getMethodType(call.desc).getArgumentCount
+            dropStackElem(call, numberOfArgs + 1)
+          }
+          // call.setOpcode(Opcodes.INVOKESTATIC)
         }
 
         private def dropAtSource(producers: _root_.java.util.Set[_ <: AbstractInsnNode]) {
@@ -846,7 +855,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
         }
 
-        private def dropStackElem(sink: AbstractInsnNode, down: Int) {
+        /**
+         *  Inserts STORE, POP, and LOAD, instructions so as to drop the n-th stack element counting from top starting at 0.
+         *  E.g., dropStackElem(mi, 0) amounts to dropping stack top
+         *        dropStackElem(mi, 1) drops the element pushed just before stack top, and so on.
+         *
+         *  As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
+         *   "Long and double values are treated as single values."
+         *
+         * */
+        private def dropStackElem(sink: MethodInsnNode, below: Int) {
+          val f = cp.frameAt(sink)
+
           // TODO
         }
 
