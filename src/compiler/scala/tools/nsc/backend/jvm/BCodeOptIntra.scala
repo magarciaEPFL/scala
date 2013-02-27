@@ -769,27 +769,33 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
 
         // for each method containing <init> of a dclosure whose outer was elided, those usages
-        val pendingOuterElision    = (methodsOfInterest map { mn => Pair(key(mn), emptyKeySet) }).toMap
-        val pendingReceiverElision = (methodsOfInterest map { mn => Pair(key(mn), emptyKeySet) }).toMap
+        val pendingOuterElision    = (methodsOfInterest map { mn => Pair(mn, mutable.Set.empty[MethodInsnNode]) }).toMap
+        val pendingReceiverElision = (methodsOfInterest map { mn => Pair(mn, mutable.Set.empty[MethodInsnNode]) }).toMap
 
-        // set of methods (candidates and otherwise) containing usages of mustStatify
+        // methods (candidates and otherwise) containing usages of mustStatify
+        val toRewrite = mutable.Set.empty[MethodNode]
         for(mn <- methodsOfInterest; k = key(mn)) {
           mn.foreachInsn {
             case mi: MethodInsnNode =>
               val call = extractKeyLM(mi)
               if((call != null) && mustStatify(call)) {
-                pendingReceiverElision(k) += call
+                pendingReceiverElision(mn) += mi
+                toRewrite += mn
               } else {
                 val init = extractKeyEP(mi)
                 if((init != null) && mustStatify(init)) {
-                  pendingOuterElision(k) += init
+                  pendingOuterElision(mn) += mi
+                  toRewrite += mn
                  }
               }
             case _ => ()
           }
         }
 
-        //
+      // rewrite usages
+      for(mn <- toRewrite) {
+
+      }
 
         // asm.optimiz.PushPopCollapser isn't used because most LOAD-POP pairs were cancelled out during construction
 
