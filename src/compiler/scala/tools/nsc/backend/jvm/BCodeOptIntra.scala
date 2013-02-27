@@ -465,14 +465,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        *  Is this a callsite targeting a non-endpoint candidate (an ex-local method)?
        *  If so, return the key for the candidate method in question, null otherwise.
        * */
-      def extractKeyLM(i: AbstractInsnNode): KT = {
-        i match {
-          case mi: MethodInsnNode if Util.isInstanceCallsite(mi) && (mi.name != "<init>") && (mi.owner == cnode.name) =>
+      def extractKeyLM(mi: MethodInsnNode): KT = {
+        if(Util.isInstanceCallsite(mi) && (mi.name != "<init>") && (mi.owner == cnode.name)) {
             val s = mi.name + mi.desc
             if(isCandidate(s)) {
               return s
             }
-          case _ => ()
         }
         null
       }
@@ -481,13 +479,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        *  Is this a dclosure initialization?
        *  If so, return the key for the dclosure's endpoint, null otherwise.
        * */
-      def extractKeyEP(i: AbstractInsnNode): KT = {
-        i match {
-          case mi: MethodInsnNode if (mi. getOpcode == Opcodes.INVOKESPECIAL) && (mi.name == "<init>") =>
-            return epByDCName.getOrElse(mi.owner, null)
-          case _ => ()
-        }
-        null
+      def extractKeyEP(mi: MethodInsnNode): KT = {
+        if((mi.getOpcode == Opcodes.INVOKESPECIAL) && (mi.name == "<init>")) {
+            epByDCName.getOrElse(mi.owner, null)
+        } else null
       }
 
       val allCandidates: Set[KT] = candidate.keySet
