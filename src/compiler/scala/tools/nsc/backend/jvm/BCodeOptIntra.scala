@@ -753,17 +753,37 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         while(toVisit.nonEmpty) {
           val current = toVisit.head
           toVisit = toVisit.tail
-
           val a = new asm.tree.analysis.Analyzer[TV](new ThisFlowInterpreter(current))
           a.analyze(cnode.name, candidate(current))
-
           if(survivingeps.isEmpty) { return } // no dclosure will have outer removed, quit early.
-
         }
 
-        // TODO needed? ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+        // set of candidates that must be made static:
+        // transitive closure over callees starting from surivivingeps
+        val mustStatify: collection.Set[KT] = {
+          val tc = new TransitiveClosure(callees)
+          tc.walk(survivingeps)
+          tc.reached
+        }
+
+        // set of methods (candidates and otherwise) containing usages of mustStatify
+
+
+        // no asm.optimiz.PushPopCollapser is used because most LOAD-POP pairs were cancelled out during construction
 
       } // end of method squashOuterForLCC()
+
+      class TransitiveClosure[E](relation: collection.Map[E, collection.Set[E]]) {
+        val reached = mutable.Set.empty[E]
+        def walk(starting: Iterable[E]) {
+          val direct = mutable.Set.empty[E]
+          for(point <- starting; if !reached(point)) {
+            reached  += point
+            direct  ++= relation(point)
+          }
+          if(direct.nonEmpty) { walk(direct) }
+        }
+      }
 
     } // end of class LCCOuterSquasher
 
