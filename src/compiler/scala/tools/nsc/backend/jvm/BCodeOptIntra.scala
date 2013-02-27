@@ -792,10 +792,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
         }
 
-      // rewrite usages
-      for(mn <- toRewrite) {
-
-      }
+        // rewrite usages
+        for(mn <- toRewrite) {
+          val sr = new Statifier(mn)
+          pendingOuterElision(mn)    foreach { init => sr elideOuter    init }
+          pendingReceiverElision(mn) foreach { call => sr elideReceiver call }
+        }
 
         // asm.optimiz.PushPopCollapser isn't used because most LOAD-POP pairs were cancelled out during construction
 
@@ -811,6 +813,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
           if(direct.nonEmpty) { walk(direct) }
         }
+      }
+
+      class Statifier(mnode: MethodNode) {
+
+        def elideOuter(init: MethodInsnNode) {
+          // TODO
+        }
+
+        def elideReceiver(call: MethodInsnNode) {
+          // TODO
+        }
+
       }
 
     } // end of class LCCOuterSquasher
