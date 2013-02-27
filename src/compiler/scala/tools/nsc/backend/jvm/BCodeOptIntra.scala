@@ -493,10 +493,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       val allCandidates: Set[KT] = candidate.keySet
       assert(isEP subsetOf allCandidates)
 
+          def emptyKeySet = mutable.Set.empty[KT]
+
       // in case (endpoints with a chance of being made static) becomes empty during search, no more work to do
-      val survivingeps = mutable.Set.empty[KT] ++ isEP
-      val survivors    = mutable.Set.empty[KT] ++ allCandidates
-      val knownCannot  = mutable.Set.empty[KT]
+      val survivingeps = emptyKeySet ++ isEP
+      val survivors    = emptyKeySet ++ allCandidates
+      val knownCannot  = emptyKeySet
 
       var toVisit: List[KT] = isEP.toList ::: (allCandidates filterNot isEP).toList
 
@@ -517,12 +519,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        *   }
        *
        */
-      val callers = mutable.Map.empty ++ ( toVisit map { k => Pair(k, mutable.Set.empty[KT]) } )
+      val callers = mutable.Map.empty ++ ( toVisit map { k => Pair(k, emptyKeySet) } )
 
       /*
        * key of candidate C -> those candidates that C contains callsites for
        */
-      val callees = mutable.Map.empty ++ ( toVisit map { k => Pair(k, mutable.Set.empty[KT]) } )
+      val callees = mutable.Map.empty ++ ( toVisit map { k => Pair(k, emptyKeySet) } )
 
         /**
          *  The argument has been determined must-remain-non-static.
@@ -765,6 +767,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           tc.walk(survivingeps)
           tc.reached
         }
+
+        // for each method containing <init> of a dclosure whose outer was elided, those usages
+        val pendingOuterElision    = (methodsOfInterest map { mn => Pair(key(mn), emptyKeySet) }).toMap
+        val pendingReceiverElision = (methodsOfInterest map { mn => Pair(key(mn), emptyKeySet) }).toMap
 
         // set of methods (candidates and otherwise) containing usages of mustStatify
 
