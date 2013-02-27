@@ -798,10 +798,14 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         // TODO mustStatify foreach { k => Util.makeStaticMethod(candidate(k)) }
         for(dc <- dcbts; if survivingeps(epByDCName(dc.getInternalName))) {
-          closuRepo.forgetAboutOuter(dc)
+          forgetAboutOuter(dc)
         }
 
       } // end of method squashOuterForLCC()
+
+      private def forgetAboutOuter(dc: BType) {
+        // TODO
+      }
 
       class TransitiveClosure[E](relation: collection.Map[E, collection.Set[E]]) {
         val reached = mutable.Set.empty[E]

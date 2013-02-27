@@ -2723,7 +2723,7 @@ abstract class GenBCode extends BCodeOptInter {
                 def createClosuCtor(): asm.tree.MethodNode = {
 
                   // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
-                  val ctorDescr = BType.getMethodType(BType.VOID_TYPE, closuStateBTs.toArray).getDescriptor
+                  val ctorDescr = BType.getMethodType(BType.VOID_TYPE, mkArray(closuStateBTs)).getDescriptor
 
                   {
                     // also registers "premonitorily" a ctor signature as above except outer is elided,
@@ -2731,7 +2731,7 @@ abstract class GenBCode extends BCodeOptInter {
                     // Better to do it now as this code runs single-threaded, as opposed to `squashOuter()`.
                     if(hasOuter) {
                       assert(closuStateBTs.nonEmpty)
-                      BType.getMethodType(BType.VOID_TYPE, closuStateBTs.tail.toArray)
+                      BType.getMethodType(BType.VOID_TYPE, mkArray(closuStateBTs.tail))
                     }
                   }
 
