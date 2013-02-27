@@ -683,7 +683,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
               assert(vs.head      ne TVTHIS)
               vs.tail.tail foreach track
               visitCandidate(epk)
-              // TODO pendingOuterElision(beingVisited) += mi
               return
             }
 
@@ -693,7 +692,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
               // the 1st elem in `vs` denotes the receiver, which may be (not necessarily) TVTHIS
               vs.tail foreach track
               visitCandidate(lmk)
-              // TODO pendingReceiverElision(beingVisited) += mi
               return
             }
 
