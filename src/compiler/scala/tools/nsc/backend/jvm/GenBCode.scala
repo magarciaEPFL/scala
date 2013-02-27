@@ -377,6 +377,7 @@ abstract class GenBCode extends BCodeOptInter {
     class Worker2 extends _root_.java.lang.Runnable {
 
       val isInterClosureOptimizOn = settings.isInterClosureOptimizOn
+      val doesLevelO1AndNoMore    = isOptimizRun && !isInliningRun
 
       def run() {
         val id = java.lang.Thread.currentThread.getId
@@ -420,6 +421,13 @@ abstract class GenBCode extends BCodeOptInter {
 
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode, isInterClosureOptimizOn)
+          if(doesLevelO1AndNoMore) {
+            // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
+            // (under -o0 `squashOuter()` is invoked in the else-branch below)
+            // (under -o2 `squashOuter()` runs before inlining, ie in PlainClassBuilder)
+            // (under -o3 and -o4 `minimizeDClosureFields()` takes care of outer-elimination)
+            cleanser.codeFixups()
+          }
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
         }
         else {
