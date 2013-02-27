@@ -8,6 +8,7 @@ package scala.tools.asm.optimiz;
 import java.util.HashSet;
 import java.util.Iterator;
 
+import scala.tools.asm.Opcodes;
 import scala.tools.asm.tree.*;
 
 /**
@@ -48,7 +49,7 @@ public class DanglingExcHandlers extends MethodTransformer {
             assert mn.instructions.contains(tcb.start);
             assert mn.instructions.contains(tcb.end);
 
-            if(containsJustNops(tcb.start, tcb.end)) {
+            if(containsJustNopsOrGotos(tcb.start, tcb.end)) {
                 changed = true;
                 tryIter.remove();
             }
@@ -60,13 +61,16 @@ public class DanglingExcHandlers extends MethodTransformer {
     /**
      *  Any LineNumberNode or LabelNode or FrameNode will be skipped.
      */
-    public boolean containsJustNops(final LabelNode start, final LabelNode end) {
+    public boolean containsJustNopsOrGotos(final LabelNode start, final LabelNode end) {
         assert start != null;
         assert end   != null;
 
         AbstractInsnNode current = start;
         while(current != end) {
-          if(current.getOpcode() > 0) {
+          boolean skip   = (current.getOpcode() == -1);
+          boolean isNOP  = (current.getOpcode() == Opcodes.NOP);
+          boolean isGoto = (current.getOpcode() == Opcodes.GOTO);
+          if(!skip && !isNOP && !isGoto) {
               return false;
           }
           current = current.getNext();
