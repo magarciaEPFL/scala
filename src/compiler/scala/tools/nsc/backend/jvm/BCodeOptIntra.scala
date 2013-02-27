@@ -743,6 +743,8 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        * */
       def squashOuterForLCC(lateClosures: List[ClassNode]) {
 
+        val txtBefore = Util.textify(cnode)
+
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
         while(toVisit.nonEmpty) {
@@ -799,14 +801,17 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
               asm.optimiz.StaticMaker.downShiftLocalVarUsages(mn)
             }
 
-        // TODO mustStatify foreach { k => statify(candidate(k)) }
+        mustStatify foreach { k => statify(candidate(k)) }
         for(
           dcNode <- lateClosures;
           epk = epByDCName(dcNode.name);
           if survivingeps(epk)
         ) {
-          // TODO forgetAboutOuter(dcNode, epk)
+          forgetAboutOuter(dcNode, epk)
         }
+
+        val txtAfter = Util.textify(cnode)
+        println()
 
       } // end of method squashOuterForLCC()
 
@@ -917,10 +922,21 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         val cp: ProdConsAnalyzer = ProdConsAnalyzer.create()
         cp.analyze(cnode.name, mnode)
 
+            def isSoleConsumer(producers: java.util.Set[_ <: AbstractInsnNode], consumer: AbstractInsnNode): Boolean = {
+                val iter = producers.iterator()
+                while (iter.hasNext) {
+                    val prod = iter.next
+                    if(!cp.hasUniqueImage(prod, consumer)) {
+                        return false
+                    }
+                }
+                true
+            }
+
         def elideOuter(init: MethodInsnNode) {
           val f = cp.frameAt(init)
           val outerProds: SourceValue = toSourceValueArray(f.getActualArguments(init))(0)
-          if(cp.isMux(outerProds.insns, init)) {
+          if(isSoleConsumer(outerProds.insns, init)) {
             dropAtSource(outerProds.insns)
           } else {
             // drop at sink
@@ -928,20 +944,20 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             dropStackElem(init, numberOfArgs, 1)
           }
           val updatedDesc = descriptorWithoutOuter(init.desc)
-          // TODO init.desc = updatedDesc
+          init.desc = updatedDesc
         }
 
         def elideReceiver(call: MethodInsnNode) {
           val f = cp.frameAt(call)
           val rcvProds: SourceValue = f.getReceiver(call)
-          if(cp.isMux(rcvProds.insns, call)) {
+          if(isSoleConsumer(rcvProds.insns, call)) {
             dropAtSource(rcvProds.insns)
           } else {
             // drop at sink
             val numberOfArgs = BType.getMethodType(call.desc).getArgumentCount
             dropStackElem(call, numberOfArgs + 1, 1)
           }
-          // TODO call.setOpcode(Opcodes.INVOKESTATIC)
+          call.setOpcode(Opcodes.INVOKESTATIC)
         }
 
         private def dropAtSource(producers: _root_.java.util.Set[_ <: AbstractInsnNode]) {
@@ -949,9 +965,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           while(iter.hasNext) {
             val prod = iter.next
             if(Util.isLOAD(prod)) {
-              // TODO mnode.instructions.remove(prod)
+              mnode.instructions.remove(prod)
             } else {
-              // TODO mnode.instructions.insert(prod, Util.getDrop(1))
+              mnode.instructions.insert(prod, Util.getDrop(1))
             }
           }
         }
@@ -978,9 +994,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             stores.add(  new VarInsnNode(argT.getOpcode(Opcodes.ISTORE), local))
             loads.insert(new VarInsnNode(argT.getOpcode(Opcodes.ILOAD),  local))
           }
-          // TODO mnode.instructions.insertBefore(sink, stores)
-          // TODO mnode.instructions.insertBefore(sink, Util.getDrop(elemSize))
-          // TODO mnode.instructions.insertBefore(sink, loads)
+          mnode.instructions.insertBefore(sink, stores)
+          mnode.instructions.insertBefore(sink, Util.getDrop(elemSize))
+          mnode.instructions.insertBefore(sink, loads)
         }
 
       }
