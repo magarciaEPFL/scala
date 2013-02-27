@@ -823,7 +823,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           } else {
             // drop at sink
             val numberOfArgs = BType.getMethodType(init.desc).getArgumentCount
-            dropStackElem(init, numberOfArgs)
+            dropStackElem(init, numberOfArgs, 1)
           }
           val commaIdx    = init.desc.indexOf(',')
           val updatedDesc = "(" + init.desc.substring(commaIdx + 1)
@@ -838,7 +838,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           } else {
             // drop at sink
             val numberOfArgs = BType.getMethodType(call.desc).getArgumentCount
-            dropStackElem(call, numberOfArgs + 1)
+            dropStackElem(call, numberOfArgs + 1, 1)
           }
           // call.setOpcode(Opcodes.INVOKESTATIC)
         }
@@ -864,10 +864,22 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          *   "Long and double values are treated as single values."
          *
          * */
-        private def dropStackElem(sink: MethodInsnNode, below: Int) {
-          val f = cp.frameAt(sink)
-
-          // TODO
+        private def dropStackElem(sink: MethodInsnNode, below: Int, elemSize: Int) {
+          val mt     = BType.getMethodType(sink.desc)
+          val argTs  = mt.getArgumentTypes
+          val stores = new InsnList
+          val loads  = new InsnList
+          for(n <- 0 to (below - 1)) {
+            val argT  = argTs(argTs.length - 1 - n)
+            val size  = argT.getSize
+            val local = mnode.maxLocals
+            mnode.maxLocals += size
+            stores.add(  new VarInsnNode(argT.getOpcode(Opcodes.ISTORE), local))
+            loads.insert(new VarInsnNode(argT.getOpcode(Opcodes.ILOAD),  local))
+          }
+          // mnode.instructions.insertBefore(sink, stores)
+          // mnode.instructions.insertBefore(sink, Util.getDrop(elemSize))
+          // mnode.instructions.insertBefore(sink, loads)
         }
 
       }
