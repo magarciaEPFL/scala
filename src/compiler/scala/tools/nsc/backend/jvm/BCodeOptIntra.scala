@@ -812,11 +812,41 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
       class Statifier(mnode: MethodNode) {
 
+        val cp: ProdConsAnalyzer = ProdConsAnalyzer.create()
+        cp.analyze(cnode.name, mnode)
+
         def elideOuter(init: MethodInsnNode) {
-          // TODO
+          val f = cp.frameAt(init)
+          val outerProds: SourceValue = f.getActualArguments(init)(0)
+          if(cp.isMux(outerProds.insns, init)) {
+            dropAtSource(outerProds.insns)
+          } else {
+            // drop at sink
+            val numberOfArgs = BType.getMethodType(init.desc).getArgumentCount
+            dropStackElem(init, numberOfArgs)
+          }
+          val commaIdx    = init.desc.indexOf(',')
+          val updatedDesc = "(" + init.desc.substring(commaIdx + 1)
+          // init.desc = updatedDesc
         }
 
         def elideReceiver(call: MethodInsnNode) {
+          // TODO
+        }
+
+        private def dropAtSource(producers: _root_.java.util.Set[_ <: AbstractInsnNode]) {
+          val iter = producers.iterator()
+          while(iter.hasNext) {
+            val prod = iter.next
+            if(Util.isLOAD(prod)) {
+              // mnode.instructions.remove(prod)
+            } else {
+              // mnode.instructions.insert(prod, Util.getDrop(1))
+            }
+          }
+        }
+
+        private def dropStackElem(sink: AbstractInsnNode, down: Int) {
           // TODO
         }
 
