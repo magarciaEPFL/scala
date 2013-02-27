@@ -379,7 +379,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      *  thus `cleanseMethod()` also gets rid of those.
      *
      * */
-    final def codeFixups() {
+    final def codeFixups(lateClosures: List[ClassNode]) {
       // 1 of 2
       val iter = cnode.methods.iterator()
       while(iter.hasNext) {
@@ -391,7 +391,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       }
       // 2 of 2
       val sq = new LCCOuterSquasher
-      sq.squashOuterForLCC()
+      sq.squashOuterForLCC(lateClosures)
     }
 
     /**
@@ -743,7 +743,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        *  This method orchestrates the sub-steps involved in eliding redundant outer references.
        *
        * */
-      def squashOuterForLCC() {
+      def squashOuterForLCC(lateClosures: List[ClassNode]) {
 
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
@@ -797,13 +797,13 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         // asm.optimiz.PushPopCollapser isn't used because LOAD-POP pairs cancel-out via `Statifier.dropAtSource()`
 
         // TODO mustStatify foreach { k => Util.makeStaticMethod(candidate(k)) }
-        for(dc <- dcbts; if survivingeps(epByDCName(dc.getInternalName))) {
-          forgetAboutOuter(dc)
+        for(dcNode <- lateClosures; if survivingeps(epByDCName(dcNode.name))) {
+          forgetAboutOuter(dcNode)
         }
 
       } // end of method squashOuterForLCC()
 
-      private def forgetAboutOuter(dc: BType) {
+      private def forgetAboutOuter(dcNode: ClassNode) {
         // TODO
       }
 

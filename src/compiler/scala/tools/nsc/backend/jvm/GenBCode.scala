@@ -315,7 +315,7 @@ abstract class GenBCode extends BCodeOptInter {
         // because minimizeDClosureFields() takes care of that
         if(doesInliningAndNoMore) {
           val essential = new EssentialCleanser(plainC)
-          essential.codeFixups()
+          essential.codeFixups(lateClosures)
         }
 
         // ----------- hand over to pipeline-2
@@ -426,13 +426,13 @@ abstract class GenBCode extends BCodeOptInter {
             // (under -o0 `squashOuter()` is invoked in the else-branch below)
             // (under -o2 `squashOuter()` runs before inlining, ie in PlainClassBuilder)
             // (under -o3 and -o4 `minimizeDClosureFields()` takes care of outer-elimination)
-            cleanser.codeFixups()
+            cleanser.codeFixups(item.lateClosures)
           }
           cleanser.cleanseClass()   // cleanseClass() may mutate dclosures that cnode is responsible for
         }
         else {
           val essential = new EssentialCleanser(cnode)
-          essential.codeFixups()    // the very least fixups that must be done, even for unoptimized runs.
+          essential.codeFixups(item.lateClosures)    // the very least fixups that must be done, even for unoptimized runs.
         }
 
         refreshInnerClasses(cnode)
