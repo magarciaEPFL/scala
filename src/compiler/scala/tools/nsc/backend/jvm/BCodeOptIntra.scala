@@ -796,7 +796,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         // asm.optimiz.PushPopCollapser isn't used because LOAD-POP pairs cancel-out via `Statifier.dropAtSource()`
 
-        // TODO mustStatify foreach { k => Util.makeStaticMethod(candidate(k)) }
+            def statify(mn: MethodNode) {
+              Util.makeStaticMethod(mn)
+              asm.optimiz.StaticMaker.downShiftLocalVarUsages(mn)
+            }
+
+        // TODO mustStatify foreach { k => statify(candidate(k)) }
         for(dcNode <- lateClosures; if survivingeps(epByDCName(dcNode.name))) {
           forgetAboutOuter(dcNode)
         }
@@ -804,7 +809,34 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       } // end of method squashOuterForLCC()
 
       private def forgetAboutOuter(dcNode: ClassNode) {
-        // TODO
+
+        // Step 1: outer field
+        val of = JListWrapper(dcNode.fields).find(_.name == nme.OUTER.toString).get
+        dcNode.fields.remove(of)
+
+        // Step 2: first argument of <init>
+        val ctor = JListWrapper(dcNode.methods).find(_.name == "<init>").get
+
+        // Step 2.a: method descriptor
+        val updatedDesc = descriptorWithoutOuter(ctor.desc)
+        ctor.desc = updatedDesc
+
+        /*
+         * Step 2.b: remove PUTFIELD for $outer, ie remove:
+         *    ALOAD 0
+         *    ALOAD 1
+         *    PUTFIELD Test$LCC$anonfun$main$1.$outer : LTest;
+         */
+
+            def removeFirstInstructionInCtor() {
+              val h = ctor.instructions.getFirst
+              ctor.instructions.remove(h)
+            }
+
+        removeFirstInstructionInCtor()
+        removeFirstInstructionInCtor()
+        removeFirstInstructionInCtor()
+
       }
 
       class TransitiveClosure[E](relation: collection.Map[E, collection.Set[E]]) {
@@ -819,6 +851,17 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
       }
 
+      def toSourceValueArray(arr: Array[_ <: asm.tree.analysis.Value]): Array[SourceValue] = {
+        arr map (_.asInstanceOf[SourceValue])
+      }
+
+      def descriptorWithoutOuter(desc: String): String = {
+        val commaIdx    = desc.indexOf(',')
+        val updatedDesc = "(" + desc.substring(commaIdx + 1)
+
+        updatedDesc
+      }
+
       class Statifier(mnode: MethodNode) {
 
         val cp: ProdConsAnalyzer = ProdConsAnalyzer.create()
@@ -826,7 +869,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         def elideOuter(init: MethodInsnNode) {
           val f = cp.frameAt(init)
-          val outerProds: SourceValue = f.getActualArguments(init)(0)
+          val outerProds: SourceValue = toSourceValueArray(f.getActualArguments(init))(0)
           if(cp.isMux(outerProds.insns, init)) {
             dropAtSource(outerProds.insns)
           } else {
@@ -834,8 +877,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             val numberOfArgs = BType.getMethodType(init.desc).getArgumentCount
             dropStackElem(init, numberOfArgs, 1)
           }
-          val commaIdx    = init.desc.indexOf(',')
-          val updatedDesc = "(" + init.desc.substring(commaIdx + 1)
+          val updatedDesc = descriptorWithoutOuter(init.desc)
           // TODO init.desc = updatedDesc
         }
 
