@@ -773,9 +773,25 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         val pendingReceiverElision = (methodsOfInterest map { mn => Pair(key(mn), emptyKeySet) }).toMap
 
         // set of methods (candidates and otherwise) containing usages of mustStatify
+        for(mn <- methodsOfInterest; k = key(mn)) {
+          mn.foreachInsn {
+            case mi: MethodInsnNode =>
+              val call = extractKeyLM(mi)
+              if((call != null) && mustStatify(call)) {
+                pendingReceiverElision(k) += call
+              } else {
+                val init = extractKeyEP(mi)
+                if((init != null) && mustStatify(init)) {
+                  pendingOuterElision(k) += init
+                 }
+              }
+            case _ => ()
+          }
+        }
 
+        //
 
-        // no asm.optimiz.PushPopCollapser is used because most LOAD-POP pairs were cancelled out during construction
+        // asm.optimiz.PushPopCollapser isn't used because most LOAD-POP pairs were cancelled out during construction
 
       } // end of method squashOuterForLCC()
 
