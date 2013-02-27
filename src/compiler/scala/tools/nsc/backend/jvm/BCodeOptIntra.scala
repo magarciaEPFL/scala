@@ -802,13 +802,17 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             }
 
         // TODO mustStatify foreach { k => statify(candidate(k)) }
-        for(dcNode <- lateClosures; if survivingeps(epByDCName(dcNode.name))) {
-          forgetAboutOuter(dcNode)
+        for(
+          dcNode <- lateClosures;
+          epk = epByDCName(dcNode.name);
+          if survivingeps(epk)
+        ) {
+          forgetAboutOuter(dcNode, epk)
         }
 
       } // end of method squashOuterForLCC()
 
-      private def forgetAboutOuter(dcNode: ClassNode) {
+      private def forgetAboutOuter(dcNode: ClassNode, epk: String) {
 
         // Step 1: outer field
         val of = JListWrapper(dcNode.fields).find(_.name == nme.OUTER.toString).get
@@ -817,7 +821,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         // Step 2: first argument of <init>
         val ctor = JListWrapper(dcNode.methods).find(_.name == "<init>").get
 
-        // Step 2.a: method descriptor
+        // Step 2.a: method descriptor of <init>
         val updatedDesc = descriptorWithoutOuter(ctor.desc)
         ctor.desc = updatedDesc
 
@@ -825,7 +829,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          * Step 2.b: remove PUTFIELD for $outer, ie remove:
          *    ALOAD 0
          *    ALOAD 1
-         *    PUTFIELD Test$LCC$anonfun$main$1.$outer : LTest;
+         *    PUTFIELD LCC.$outer : OuterClass;
          */
 
             def removeFirstInstructionInCtor() {
@@ -837,6 +841,53 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         removeFirstInstructionInCtor()
         removeFirstInstructionInCtor()
 
+        // Step 2.c: downshift variables past local-index 1
+        ctor.foreachInsn { insn =>
+          if(insn.getType == AbstractInsnNode.VAR_INSN) {
+            val vi = insn.asInstanceOf[VarInsnNode]
+            if(vi.`var` > 1) {
+              vi.`var` -= 1
+            }
+          }
+        }
+
+        /*
+         * Step 3: one of the apply methods (the "ultimate apply") invokes the endpoint, using outer as receiver
+         *    ALOAD 0
+         *    GETFIELD LCC.$outer : OuterClass;
+         *    . . . instructions loading arguments if any
+         *    INVOKEVIRTUAL OuterClass.dlgt$....
+         * Rather than finding the-one apply method containing the pattern above,
+         * each apply method is explored, looking for:
+         *   - GETFIELD of outer field
+         *   - INVOKEVIRTUAL of endpoint
+         * so as to
+         *   - remove the ALOAD 0; GETFIELD outer
+         *   - INVOKESTATIC
+         */
+        for(appMNode <- dcNode.toMethodList; if !Util.isConstructor(appMNode)) {
+          val insns = appMNode.instructions.toList
+          val getOuter: List[FieldInsnNode] = insns collect {
+            case fi: FieldInsnNode if fi.getOpcode == Opcodes.GETFIELD && fi.name == nme.OUTER.toString => fi
+          }
+          assert(getOuter.isEmpty || getOuter.tail.isEmpty)
+          val callEP: List[MethodInsnNode]  = insns collect {
+            case mi: MethodInsnNode
+              if Util.isInstanceCallsite(mi) &&
+                 mi.owner == cnode.name      &&
+                 ((mi.name + mi.desc) == epk)
+            => mi
+          }
+          assert(callEP.isEmpty || callEP.tail.isEmpty)
+          assert(getOuter.size == callEP.size)
+          if(getOuter.nonEmpty) {
+            val load = getOuter.head.getPrevious
+            appMNode.instructions.remove(load)
+            appMNode.instructions.remove(getOuter.head)
+
+            callEP.head.setOpcode(Opcodes.INVOKESTATIC)
+          }
+        }
       }
 
       class TransitiveClosure[E](relation: collection.Map[E, collection.Set[E]]) {
