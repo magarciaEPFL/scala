@@ -796,6 +796,11 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         // asm.optimiz.PushPopCollapser isn't used because LOAD-POP pairs cancel-out via `Statifier.dropAtSource()`
 
+        // TODO mustStatify foreach { k => Util.makeStaticMethod(candidate(k)) }
+        for(dc <- dcbts; if survivingeps(epByDCName(dc.getInternalName))) {
+          closuRepo.forgetAboutOuter(dc)
+        }
+
 
 
       } // end of method squashOuterForLCC()
