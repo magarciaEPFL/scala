@@ -2725,6 +2725,16 @@ abstract class GenBCode extends BCodeOptInter {
                   // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
                   val ctorDescr = BType.getMethodType(BType.VOID_TYPE, closuStateBTs.toArray).getDescriptor
 
+                  {
+                    // also registers "premonitorily" a ctor signature as above except outer is elided,
+                    // just in case `squashOuter()` removes it afterwards.
+                    // Better to do it now as this code runs single-threaded, as opposed to `squashOuter()`.
+                    if(hasOuter) {
+                      assert(closuStateBTs.nonEmpty)
+                      BType.getMethodType(BType.VOID_TYPE, closuStateBTs.tail.toArray)
+                    }
+                  }
+
                   val ctor = new asm.tree.MethodNode(
                     asm.Opcodes.ASM4, asm.Opcodes.ACC_PUBLIC,
                     nme.CONSTRUCTOR.toString, ctorDescr,

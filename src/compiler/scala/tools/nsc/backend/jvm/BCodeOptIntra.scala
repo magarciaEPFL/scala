@@ -801,8 +801,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           closuRepo.forgetAboutOuter(dc)
         }
 
-
-
       } // end of method squashOuterForLCC()
 
       class TransitiveClosure[E](relation: collection.Map[E, collection.Set[E]]) {
