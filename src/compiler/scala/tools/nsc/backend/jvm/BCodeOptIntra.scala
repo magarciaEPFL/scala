@@ -807,7 +807,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           epk = epByDCName(dcNode.name);
           if survivingeps(epk)
         ) {
-          forgetAboutOuter(dcNode, epk)
+          // TODO forgetAboutOuter(dcNode, epk)
         }
 
       } // end of method squashOuterForLCC()
@@ -888,7 +888,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             callEP.head.setOpcode(Opcodes.INVOKESTATIC)
           }
         }
-      }
+      } // end of method forgetAboutOuter()
 
       class TransitiveClosure[E](relation: collection.Map[E, collection.Set[E]]) {
         val reached = mutable.Set.empty[E]
@@ -907,8 +907,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       }
 
       def descriptorWithoutOuter(desc: String): String = {
-        val commaIdx    = desc.indexOf(',')
-        val updatedDesc = "(" + desc.substring(commaIdx + 1)
+        val mt = BType.getMethodType(desc)
+        val argsExceptHead = mt.getArgumentTypes.drop(1)
+        val updatedDesc    = BType.getMethodDescriptor(mt.getReturnType, argsExceptHead)
 
         updatedDesc
       }
