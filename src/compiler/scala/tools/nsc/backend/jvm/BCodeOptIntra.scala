@@ -794,7 +794,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           pendingReceiverElision(mn) foreach { call => sr elideReceiver call }
         }
 
-        // asm.optimiz.PushPopCollapser isn't used because most LOAD-POP pairs were cancelled out during construction
+        // asm.optimiz.PushPopCollapser isn't used because LOAD-POP pairs cancel-out via `Statifier.dropAtSource()`
+
+
 
       } // end of method squashOuterForLCC()
 
@@ -827,7 +829,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
           val commaIdx    = init.desc.indexOf(',')
           val updatedDesc = "(" + init.desc.substring(commaIdx + 1)
-          // init.desc = updatedDesc
+          // TODO init.desc = updatedDesc
         }
 
         def elideReceiver(call: MethodInsnNode) {
@@ -840,7 +842,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             val numberOfArgs = BType.getMethodType(call.desc).getArgumentCount
             dropStackElem(call, numberOfArgs + 1, 1)
           }
-          // call.setOpcode(Opcodes.INVOKESTATIC)
+          // TODO call.setOpcode(Opcodes.INVOKESTATIC)
         }
 
         private def dropAtSource(producers: _root_.java.util.Set[_ <: AbstractInsnNode]) {
@@ -848,9 +850,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           while(iter.hasNext) {
             val prod = iter.next
             if(Util.isLOAD(prod)) {
-              // mnode.instructions.remove(prod)
+              // TODO mnode.instructions.remove(prod)
             } else {
-              // mnode.instructions.insert(prod, Util.getDrop(1))
+              // TODO mnode.instructions.insert(prod, Util.getDrop(1))
             }
           }
         }
@@ -877,9 +879,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             stores.add(  new VarInsnNode(argT.getOpcode(Opcodes.ISTORE), local))
             loads.insert(new VarInsnNode(argT.getOpcode(Opcodes.ILOAD),  local))
           }
-          // mnode.instructions.insertBefore(sink, stores)
-          // mnode.instructions.insertBefore(sink, Util.getDrop(elemSize))
-          // mnode.instructions.insertBefore(sink, loads)
+          // TODO mnode.instructions.insertBefore(sink, stores)
+          // TODO mnode.instructions.insertBefore(sink, Util.getDrop(elemSize))
+          // TODO mnode.instructions.insertBefore(sink, loads)
         }
 
       }
