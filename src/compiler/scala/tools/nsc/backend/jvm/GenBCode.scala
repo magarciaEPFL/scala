@@ -3141,7 +3141,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       def adapt(from: BType, to: BType) {
-        if (!conforms(from, to) && !(from.isNullType && to.isNothingType)) {
+        if (!conforms(from, to)) {
           to match {
             case UNIT => bc drop from
             case _    => bc.emitT2T(from, to)
@@ -3151,9 +3151,6 @@ abstract class GenBCode extends BCodeOptInter {
         } else if (from.isNullType) {
           bc drop from
           mnode.visitInsn(asm.Opcodes.ACONST_NULL)
-        }
-        else if (from == ThrowableReference && !conforms(ThrowableReference, to)) {
-          bc checkCast to
         }
         else (from, to) match  {
           case (BYTE, LONG) | (SHORT, LONG) | (CHAR, LONG) | (INT, LONG) => bc.emitT2T(INT, LONG)

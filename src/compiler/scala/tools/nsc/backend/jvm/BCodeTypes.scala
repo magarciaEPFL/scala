@@ -1833,14 +1833,6 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     /**
      * can-multi-thread
      **/
-    final def genPrimitiveConversion(src: BType, dst: BType, pos: Position) {
-      if (dst == BOOL) { println("Illegal conversion at: " + pos.source + ":" + pos.line) }
-      else { emitT2T(src, dst) }
-    }
-
-    /**
-     * can-multi-thread
-     **/
     final def genStartConcat {
       jmethod.visitTypeInsn(Opcodes.NEW, StringBuilderClassName)
       jmethod.visitInsn(Opcodes.DUP)
@@ -1882,10 +1874,10 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      **/
     final def emitT2T(from: BType, to: BType) {
 
-          def msg = "(from: " + from + ", to: " + to + ")"
-
-      assert(from.isNonUnitValueType, "from is !isNonUnitValueType. " + msg)
-      assert(to.isNonUnitValueType,   "to is !isNonUnitValueType. " + msg)
+      assert(
+        from.isNonUnitValueType && to.isNonUnitValueType,
+        s"Cannot emit primitive conversion from $from to $to"
+      )
 
           def pickOne(opcs: Array[Int]) { // TODO index on to.sort
             val chosen = (to: @unchecked) match {
@@ -1901,10 +1893,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
           }
 
       if(from == to) { return }
-      if((from == BOOL) || (to == BOOL)) {
-        // the only conversion involving BOOL that is allowed is (BOOL -> BOOL)
-        throw new Error("inconvertible types : " + from.toString + " -> " + to.toString)
-      }
+      // the only conversion involving BOOL that is allowed is (BOOL -> BOOL)
+      assert(from != BOOL && to != BOOL, s"inconvertible types : $from -> $to")
 
       // We're done with BOOL already
       (from.sort: @switch) match {
