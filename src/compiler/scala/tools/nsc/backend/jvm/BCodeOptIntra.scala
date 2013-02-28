@@ -807,9 +807,14 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         for(
           dcNode <- lateClosures;
           epk = epByDCName.getOrElse(dcNode.name, null);
-          if (epk != null) && survivingeps(epk)
+          if (epk != null)
         ) {
-          forgetAboutOuter(dcNode, epk)
+          if(survivingeps(epk)) {
+            forgetAboutOuter(dcNode, epk)
+            log(s"Squashed outer-pointer for Late-Closure-Class ${dcNode.name}")
+          } else {
+            log(s"Keeping the outer-pointer for Late-Closure-Class ${dcNode.name}")
+          }
         }
 
       } // end of method squashOuterForLCC()
