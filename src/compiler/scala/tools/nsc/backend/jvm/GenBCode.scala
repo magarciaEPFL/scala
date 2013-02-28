@@ -1639,11 +1639,11 @@ abstract class GenBCode extends BCodeOptInter {
        *                upon early returns is called "cleanup chain"
        *
        *        As an additional spin, consider a return statement in a finally-block.
-       *        In this case, the value to return depends on how control arrived to that statement:
-       *        in case it arrive via a previous return, the value to return
+       *        In this case, the value to return depends on how control arrived at that statement:
+       *        in case it arrived via a previous return, the value to return
        *        is given by that previously run statement.
        *
-       *    (b) a finally-block protects both the try-clause and the catch-clauses.
+       *    (b) A finally-block protects both the try-clause and the catch-clauses.
        *
        *           Sidenote:
        *             A try-clause may contain an empty block. On CLR, a finally-block has special semantics
@@ -1651,13 +1651,29 @@ abstract class GenBCode extends BCodeOptInter {
        *             that protects an "empty" range ("empty" as containing NOPs only,
        *             see `asm.optimiz.DanglingExcHandlers` and SI-6720).
        *
-       *        This means a finally-block indicates instructions that can be reached via:
-       *          (b.1) upon normal (non-early-returning) completion of the try-clause or a catch-clause
+       *        This means a finally-block indicates instructions that can be reached:
+       *          (b.1) Upon normal (non-early-returning) completion of the try-clause or a catch-clause
        *                In this case, the next-program-point is that following the try-catch-finally expression.
-       *          (b.2) upon early-return initiated in the try-clause or a catch-clause
+       *          (b.2) Upon early-return initiated in the try-clause or a catch-clause
        *                In this case, the next-program-point is the enclosing cleanup section (if any), otherwise return.
-       *          (b.3) upon abrupt termination (due to unhandled exception) of the try-clause or a catch-clause
-       *                In this case, the unhandled exception must be re-thrown.
+       *          (b.3) Upon abrupt termination (due to unhandled exception) of the try-clause or a catch-clause
+       *                In this case, the unhandled exception must be re-thrown after runnint the finally-block.
+       *
+       *  A number of code patterns can be emitted to realize the intended semantics.
+       *
+       *  A popular alternative (GenICode, javac) consists in duplicating the cleanup-chain at each early-return position.
+       *  The principle at work being that once control is transferred to a cleanup-section,
+       *  control will always stay within the cleanup-chain.
+       *  That is, barring an exception being thrown in a cleanup-section, in which case the enclosing try-block
+       *  (reached via abrupt termination) takes over.
+       *
+       *  The observations above hint at another code layout, less verbose, for the cleanup-chain.
+       *  Provided a cleanup section has been reached, jumping to the next cleanup-section until the outermost one.
+       *  There is still code duplication in that two cleanup-chains are needed:
+       *  one for normal control flow and another chain consisting of exception handlers.
+       *  The in-line comments below refer to them as
+       *    - "early-return-cleanups" and
+       *    - "exception-handler-version-of-finally-block" respectively.
        *
        * */
       def genLoadTry(tree: Try): BType = {
