@@ -1659,6 +1659,9 @@ abstract class GenBCode extends BCodeOptInter {
        *          (b.3) Upon abrupt termination (due to unhandled exception) of the try-clause or a catch-clause
        *                In this case, the unhandled exception must be re-thrown after runnint the finally-block.
        *
+       *    (c) finally-blocks are implicit to `synchronized` (releasing the lock goes in a finally-block)
+       *        that's why `genSynchronized()` too emits cleanup-sections.
+       *
        *  A number of code patterns can be emitted to realize the intended semantics.
        *
        *  A popular alternative (GenICode, javac) consists in duplicating the cleanup-chain at each early-return position.
@@ -1668,8 +1671,11 @@ abstract class GenBCode extends BCodeOptInter {
        *  (reached via abrupt termination) takes over.
        *
        *  The observations above hint at another code layout, less verbose, for the cleanup-chain.
-       *  Provided a cleanup section has been reached, jumping to the next cleanup-section until the outermost one.
-       *  There is still code duplication in that two cleanup-chains are needed:
+       *
+       *  The code layout that GenBCode emits takes into account that once a cleanup section has been reached,
+       *  jumping to the next cleanup-section (and so on, until the outermost one) realizes the correct semantics.
+       *
+       *  There is still code duplication in that two cleanup-chains are needed (but this is unavoidable, anyway):
        *  one for normal control flow and another chain consisting of exception handlers.
        *  The in-line comments below refer to them as
        *    - "early-return-cleanups" and
