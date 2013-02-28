@@ -1611,14 +1611,19 @@ abstract class GenBCode extends BCodeOptInter {
         resKind
       }
 
-      /** Detects whether no instructions have been emitted since label `lbl` (by checking whether the current program point is still `lbl`)
-       *  and if so emits a NOP. This can be used to avoid an empty try-block being protected by exception handlers, which results in an illegal class file format exception. */
+      /**
+       *  Detects whether no instructions have been emitted since label `lbl` and if so emits a NOP.
+       *  Useful to avoid emitting an empty try-block being protected by exception handlers,
+       *  which results in "java.lang.ClassFormatError: Illegal exception table range". See SI-6102.
+       */
       def nopIfNeeded(lbl: asm.Label) {
         val noInstructionEmitted = isAtProgramPoint(lbl)
         if(noInstructionEmitted) { emit(asm.Opcodes.NOP) }
       }
 
-      /** TODO documentation */
+      /**
+       *
+       * */
       def genLoadTry(tree: Try): BType = {
 
         val Try(block, catches, finalizer) = tree
@@ -1635,14 +1640,32 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ------ (0) locals used later ------
 
-        // points to (a) the finally-clause conceptually reached via fall-through from try-catch, or (b) program point right after the try-catch-finally.
+        /*
+         * `postHandlers` is a program point denoting:
+         *     (a) the finally-clause conceptually reached via fall-through from try-catch-finally
+         *         (in case a finally-block is present); or
+         *     (b) the program point right after the try-catch
+         *         (in case there's no finally-block).
+         * */
         val postHandlers = new asm.Label
+
         val hasFinally   = (finalizer != EmptyTree)
-        // used in the finally-clause reached via fall-through from try-catch, if any.
+
+        /*
+         * used in the finally-clause reached via fall-through from try-catch, if any.
+         */
         val guardResult  = hasFinally && (kind != UNIT) && mayCleanStack(finalizer)
-        // please notice `tmp` has type tree.tpe, while `earlyReturnVar` has the method return type. Because those two types can be different, dedicated vars are needed.
+
+        /*
+         * please notice `tmp` has type tree.tpe, while `earlyReturnVar` has the method return type.
+         * Because those two types can be different, dedicated vars are needed.
+         */
         val tmp          = if(guardResult) makeLocal(tpeTK(tree), "tmp") else null;
-        // upon early return from the try-body or one of its EHs (but not the EH-version of the finally-clause) AND hasFinally, a cleanup is needed.
+
+        /*
+         * upon early return from the try-body or one of its EHs (but not the EH-version of the finally-clause)
+         * AND hasFinally, a cleanup is needed.
+         * */
         val finCleanup   = if(hasFinally) new asm.Label else null
 
         /* ------ (1) try-block, protected by:
@@ -1656,7 +1679,7 @@ abstract class GenBCode extends BCodeOptInter {
         registerCleanup(finCleanup)
         genLoad(block, kind)
         unregisterCleanup(finCleanup)
-        nopIfNeeded(startTryBody) // we can't elide an exception-handler protecting an empty try-body, that would change semantics (e.g. NoClassDefFoundError due to the EH)
+        nopIfNeeded(startTryBody)
         val endTryBody = currProgramPoint()
         bc goTo postHandlers
 
@@ -1726,7 +1749,12 @@ abstract class GenBCode extends BCodeOptInter {
          *              (and only from there, ie reached only upon early RETURN from
          *               program regions bracketed by registerCleanup/unregisterCleanup).
          *              Protected only by whatever protects the whole try-catch-finally expression.
-         * TODO explain what happens upon RETURN contained in (3.B)
+         *
+         *              Given that control arrives to a cleanup section only upon early RETURN,
+         *              the value to return (if any) is always available. Therefore, a further RETURN
+         *              found in a cleanup section is always ignored (a warning is displayed, @see `genReturn()`).
+         *              In order for `genReturn()` to know whether the return stament is enclosed in a cleanup section,
+         *              the variable `insideCleanupBlock` is used.
          * ------
          */
 
