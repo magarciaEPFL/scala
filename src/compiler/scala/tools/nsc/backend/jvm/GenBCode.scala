@@ -2498,7 +2498,7 @@ abstract class GenBCode extends BCodeOptInter {
         val isStaticImplMethod = delegateSym.owner.isImplClass
 
         assert(
-          uncurry.closureDelegates.contains(delegateSym),
+          uncurry.closureDelegates.contains(delegateSym.id),
           s"Not a dclosure-endpoint: ${delegateSym.fullLocationString}"
         )
         assert(
@@ -3245,10 +3245,7 @@ abstract class GenBCode extends BCodeOptInter {
       def isPrimitive(fun: Symbol): Boolean = scalaPrimitives.isPrimitive(fun)
 
       /** Is the given symbol a MethodSymbol that was created by UnCurry's closureConversionModern() ? */
-      def isClosureDelegate(msym: Symbol): Boolean = {
-        msym.isInstanceOf[MethodSymbol] &&
-        uncurry.closureDelegates(msym.asInstanceOf[MethodSymbol])
-      }
+      def isClosureDelegate(msym: Symbol): Boolean = { uncurry.closureDelegates(msym.id) }
 
       /** Generate coercion denoted by "code" */
       def genCoercion(code: Int) = {

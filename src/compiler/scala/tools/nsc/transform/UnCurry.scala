@@ -63,8 +63,10 @@ abstract class UnCurry extends InfoTransform
    *  and populates the `uncurry.closureDelegates` set with the MethodSymbols of the delegates just created.
    *  That information is used by GenBCode to build on the spot an AbstractFunctionX subclass + instantiation,
    *  see `PlainClassBuilder.genLateClosure()`
+   *
+   *  Why Set[Int] and not Set[Symbol] A set-of-symbol-ids provides the same information at a fraction of the GC cost.
    * */
-  val closureDelegates = mutable.Set.empty[MethodSymbol]
+  val closureDelegates = mutable.Set.empty[Int]
 
 // ------ Type transformation --------------------------------------------------------
 
@@ -385,7 +387,7 @@ abstract class UnCurry extends InfoTransform
 
       val callDisguisedAsClosure = gen.mkAsInstanceOf(fakeCallsite, closureType, wrapInApply = false)
 
-      closureDelegates += hoistedMethodDef.symbol.asInstanceOf[MethodSymbol]
+      closureDelegates += hoistedMethodDef.symbol.id
 
       localTyper.typedPos(fun.pos) {
         Block(
