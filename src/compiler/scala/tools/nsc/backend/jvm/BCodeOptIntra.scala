@@ -743,8 +743,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
        * */
       def squashOuterForLCC(lateClosures: List[ClassNode]) {
 
-        val txtBefore = Util.textify(cnode)
-
         if(dcbts.isEmpty || isEP.isEmpty) { return }
 
         while(toVisit.nonEmpty) {
@@ -789,14 +787,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         // rewrite usages
         for(mn <- toRewrite) {
-          val sr = new Statifier(mn)
+          val pending = pendingOuterElision(mn) ++ pendingReceiverElision(mn)
+          val sr = new Statifier(mn, pending)
+
           pendingOuterElision(mn)    foreach { init => sr elideOuter    init }
           pendingReceiverElision(mn) foreach { call => sr elideReceiver call }
+          Util.computeMaxLocalsMaxStack(mn) // `dropStackElem()` does add a number of STOREs and LOADs.
         }
 
         // asm.optimiz.PushPopCollapser isn't used because LOAD-POP pairs cancel-out via `Statifier.dropAtSource()`
 
             def statify(mn: MethodNode) {
+              assert(Util.isInstanceMethod(mn))
               Util.makeStaticMethod(mn)
               asm.optimiz.StaticMaker.downShiftLocalVarUsages(mn)
             }
@@ -804,14 +806,11 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         mustStatify foreach { k => statify(candidate(k)) }
         for(
           dcNode <- lateClosures;
-          epk = epByDCName(dcNode.name);
-          if survivingeps(epk)
+          epk = epByDCName.getOrElse(dcNode.name, null);
+          if (epk != null) && survivingeps(epk)
         ) {
           forgetAboutOuter(dcNode, epk)
         }
-
-        val txtAfter = Util.textify(cnode)
-        println()
 
       } // end of method squashOuterForLCC()
 
@@ -917,10 +916,13 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         updatedDesc
       }
 
-      class Statifier(mnode: MethodNode) {
+      class Statifier(mnode: MethodNode, pending: collection.Set[MethodInsnNode]) {
 
         val cp: ProdConsAnalyzer = ProdConsAnalyzer.create()
         cp.analyze(cnode.name, mnode)
+        val frames: Map[AbstractInsnNode, asm.tree.analysis.Frame[_ <: asm.tree.analysis.Value]] = {
+          pending map { mi => Pair(mi, cp.frameAt(mi)) }
+        }.toMap
 
             def isSoleConsumer(producers: java.util.Set[_ <: AbstractInsnNode], consumer: AbstractInsnNode): Boolean = {
                 val iter = producers.iterator()
@@ -934,28 +936,29 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             }
 
         def elideOuter(init: MethodInsnNode) {
-          val f = cp.frameAt(init)
-          val outerProds: SourceValue = toSourceValueArray(f.getActualArguments(init))(0)
+          val f = frames(init)
+          val actArgs = f.getActualArguments(init)
+          val outerProds: SourceValue = toSourceValueArray(actArgs)(0)
           if(isSoleConsumer(outerProds.insns, init)) {
             dropAtSource(outerProds.insns)
           } else {
             // drop at sink
             val numberOfArgs = BType.getMethodType(init.desc).getArgumentCount
-            dropStackElem(init, numberOfArgs, 1)
+            dropStackElem(init, numberOfArgs - 1, 1)
           }
           val updatedDesc = descriptorWithoutOuter(init.desc)
           init.desc = updatedDesc
         }
 
         def elideReceiver(call: MethodInsnNode) {
-          val f = cp.frameAt(call)
-          val rcvProds: SourceValue = f.getReceiver(call)
+          val f = frames(call)
+          val rcvProds = f.getReceiver(call).asInstanceOf[SourceValue]
           if(isSoleConsumer(rcvProds.insns, call)) {
             dropAtSource(rcvProds.insns)
           } else {
             // drop at sink
             val numberOfArgs = BType.getMethodType(call.desc).getArgumentCount
-            dropStackElem(call, numberOfArgs + 1, 1)
+            dropStackElem(call, numberOfArgs, 1)
           }
           call.setOpcode(Opcodes.INVOKESTATIC)
         }
@@ -981,12 +984,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
          *   "Long and double values are treated as single values."
          *
          * */
-        private def dropStackElem(sink: MethodInsnNode, below: Int, elemSize: Int) {
+        private def dropStackElem(sink: MethodInsnNode, argsToSave: Int, elemSize: Int) {
           val mt     = BType.getMethodType(sink.desc)
           val argTs  = mt.getArgumentTypes
           val stores = new InsnList
           val loads  = new InsnList
-          for(n <- 0 to (below - 1)) {
+          for(n <- 0 to (argsToSave - 1)) {
             val argT  = argTs(argTs.length - 1 - n)
             val size  = argT.getSize
             val local = mnode.maxLocals
