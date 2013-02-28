@@ -1622,6 +1622,42 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       /**
+       *  Emitting try-catch is easy, emitting try-catch-finally not quite so.
+       *  A finally-block (which always has type Unit, thus leaving the operand stack unchanged)
+       *  affects control-transfer from protected regions, as follows:
+       *
+       *    (a) `return` statement:
+       *
+       *        First, the value to return (if any is evaluated).
+       *        Afterwards, all enclosing finally-blocks are run, from innermost to outermost.
+       *        Only then the return value (if any) is returned.
+       *
+       *        Some terminology:
+       *          (a.1) Executing a return statement that is protected
+       *                by one or more finally-blocks is called "early return"
+       *          (a.2) the chain of code sections (one for each enclosing finally-block) to execute
+       *                upon early returns is called "cleanup chain"
+       *
+       *        As an additional spin, consider a return statement in a finally-block.
+       *        In this case, the value to return depends on how control arrived to that statement:
+       *        in case it arrive via a previous return, the value to return
+       *        is given by that previously run statement.
+       *
+       *    (b) a finally-block protects both the try-clause and the catch-clauses.
+       *
+       *           Sidenote:
+       *             A try-clause may contain an empty block. On CLR, a finally-block has special semantics
+       *             regarding Abort interruptions; but on the JVM it's safe to elide an exception-handler
+       *             that protects an "empty" range ("empty" as containing NOPs only,
+       *             see `asm.optimiz.DanglingExcHandlers` and SI-6720).
+       *
+       *        This means a finally-block indicates instructions that can be reached via:
+       *          (b.1) upon normal (non-early-returning) completion of the try-clause or a catch-clause
+       *                In this case, the next-program-point is that following the try-catch-finally expression.
+       *          (b.2) upon early-return initiated in the try-clause or a catch-clause
+       *                In this case, the next-program-point is the enclosing cleanup section (if any), otherwise return.
+       *          (b.3) upon abrupt termination (due to unhandled exception) of the try-clause or a catch-clause
+       *                In this case, the unhandled exception must be re-thrown.
        *
        * */
       def genLoadTry(tree: Try): BType = {
