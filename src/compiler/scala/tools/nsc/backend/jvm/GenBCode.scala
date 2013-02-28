@@ -727,6 +727,7 @@ abstract class GenBCode extends BCodeOptInter {
       // used by genLoadTry() and genSynchronized()
       private var earlyReturnVar: Symbol     = null
       private var shouldEmitCleanup          = false
+      private var insideCleanupBlock         = false
       // line numbers
       private var lastEmittedLineNr          = -1
 
@@ -1733,10 +1734,13 @@ abstract class GenBCode extends BCodeOptInter {
         // `shouldEmitCleanup` can be set, yet this try expression lack a finally-clause.
         // In other words, all combinations of (hasFinally, shouldEmitCleanup) are valid.
         if(hasFinally && shouldEmitCleanup) {
+          val savedInsideCleanup = insideCleanupBlock
+          insideCleanupBlock = true
           markProgramPoint(finCleanup)
           // regarding return value, the protocol is: in place of a `return-stmt`, a sequence of `adapt, store, jump` are inserted.
           emitFinalizer(finalizer, null, false)
           pendingCleanups()
+          insideCleanupBlock = savedInsideCleanup
         }
 
         /* ------ (4) finally-clause-for-normal-nonEarlyReturn-exit
@@ -2086,7 +2090,7 @@ abstract class GenBCode extends BCodeOptInter {
             bc emitRETURN returnType
           case nextCleanup :: rest =>
             if(saveReturnValue) {
-              if(shouldEmitCleanup) {
+              if(insideCleanupBlock) {
                 cunit.warning(r.pos, "Return statement found in finally-clause, discarding its return-value in favor of that of a more deeply nested return.")
                 bc drop returnType
               } else {
