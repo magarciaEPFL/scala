@@ -1659,7 +1659,7 @@ abstract class GenBCode extends BCodeOptInter {
        *          (b.3) Upon abrupt termination (due to unhandled exception) of the try-clause or a catch-clause
        *                In this case, the unhandled exception must be re-thrown after runnint the finally-block.
        *
-       *    (c) finally-blocks are implicit to `synchronized` (releasing the lock goes in a finally-block)
+       *    (c) finally-blocks are implicit to `synchronized` (a finally-block that just releases the lock)
        *        that's why `genSynchronized()` too emits cleanup-sections.
        *
        *  A number of code patterns can be emitted to realize the intended semantics.
