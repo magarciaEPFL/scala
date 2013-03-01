@@ -401,25 +401,28 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      *
      *  In order to invoke an instance-level endpoint, a Late-Closure-Class captures outer.
      *  However some endpoints don't actually depend on a THIS reference, ie they could be made static.
-     *  Some useful facts:
+     *  A few useful facts:
      *
      *    (a) `isLiftedMethod`s and endpoints aren't part of the public type,
      *        they are implementation artifacts all whose usages can be found
-     *        (e.g. to rewrite INVOKESPECIAL into INVOKESTATIC)
+     *        (for example, after turning them into static methods,
+     *        their usages have to be rewritten into INVOKESTATIC)
      *
      *    (b) the "static-ness" of an endpoint containing only callsites to methods as above
-     *        depends on the "static-ness" of those methods. It suffices for one of those callees
+     *        depends on the "static-ness" of those callees. It suffices for one of those callees
      *        not to be amenable to be made static, to preclude the endpoint from being made static.
      *
-     *  Class `LCCOuterSquasher` searches for the largest subset of endpoints that can be made static,
-     *  under the constraint that only (a) methods can be made static.
+     *  Method `squashOuterForLCC()` detects the largest subset of endpoints that can be made static,
+     *  under the constraint that only (a) methods can be made static, ie leaving the public API as is.
+     *  Afterwards, all usages of those "must-be-made-static" methods are found, and rewritten as appropriate.
+     *  The Late-Closure-Class is also modified: $outer field is removed, constructor is adapted, etc.
      *
-     *
+     *  @see squashOuterForLCC()
      *
      * */
     final class LCCOuterSquasher {
 
-      // instance methods declared by cnode are referred to using a String, @see `key(MethodNode)`
+      // instance methods declared by cnode are identified using a String as key, @see `key(MethodNode)`
       type KT = String
 
       def key(mn: MethodNode): KT = { mn.name + mn.desc }
@@ -451,7 +454,15 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
           def getKeyMethodNodeMap(ms: List[MethodNode]) = { (ms map { m => Pair(key(m), m) }).toMap }
 
-      // key -> MethodNode
+      /**
+       *  A "candidate" is a method that we might want to turn into static in order to turn an endpoint into static
+       *  (and only then). Basically, to be candidate, the method must be instance and not part of the public API.
+       *  This last condition is guaranteed for methods that either:
+       *    (a) were originally local,  ie methods that have been lifted; or
+       *    (b) are dclosure-endpoints, ie only dclosures know about them.
+       *
+       *  key -> MethodNode
+       * */
       val candidate: Map[KT, MethodNode] = {
         def canBeCandidate(mn: MethodNode): Boolean = {
           mn.isLiftedMethod && Util.isInstanceMethod(mn) && (Util.isPrivateMethod(mn) || isEP(key(mn)))
@@ -462,7 +473,15 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       def isCandidate(s: KT) = { (s != null) && (candidate contains s) }
 
       /**
-       *  Is this a callsite targeting a non-endpoint candidate (an ex-local method)?
+       *  The extractors `extractKeyLM()` and `extractKeyEP()` inform us about an usage
+       *  that will require rewriting in case the "candidate" it refers to is turned into static.
+       *  These extractors are used on the master class
+       *  (in contrast, detecting usages in the Late-Closure-Class is the sole province of `forgetAboutOuter()`).
+       *
+       * */
+
+      /**
+       *  Is this a callsite targeting a non-endpoint candidate (ie what used to be a Local Method)?
        *  If so, return the key for the candidate method in question, null otherwise.
        * */
       def extractKeyLM(mi: MethodInsnNode): KT = {
@@ -490,15 +509,26 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
           def emptyKeySet = mutable.Set.empty[KT]
 
-      // in case (endpoints with a chance of being made static) becomes empty during search, no more work to do
-      val survivingeps = emptyKeySet ++ isEP
+      /**
+       *  Upong visiting the instructions of a candidate it may become clear it can't be turned into static,
+       *  in which case `propagate()` "propagates" the non-staticness status up the call hierarchy.
+       *  That candidate is removed from `survivors` and added to `knownCannot`.
+       *
+       *  Endpoints not-yet-determined-to-be-static are a subset of `survivors`
+       *  yet they're also tracked in `survivingeps` for a simple reason:
+       *  in case we run out of endpoints to turn into static, we can quit early.
+       *
+       * */
       val survivors    = emptyKeySet ++ allCandidates
+
+      val survivingeps = emptyKeySet ++ isEP
+
       val knownCannot  = emptyKeySet
 
       var toVisit: List[KT] = isEP.toList ::: (allCandidates filterNot isEP).toList
 
       /*
-       * key of candidate C -> subset of candidates that directly call C
+       * key of candidate C -> candidates that directly call C
        *
        * Note: methods other than candidates may contain a callsite targeting C.
        * Example:
@@ -546,7 +576,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         /**
          *  A single pass is made over each candidate method, both to collect information needed later
          *  and to update maps based on the instruction just visited.
-         *  This is a dataflow analysis, thus any instruction can be visited multiple times.
+         *  This is a dataflow analysis, thus instructions can be visited multiple times.
          *  However, convergence is quite fast because of the simplistic abstract-values:
          *  one to represent THIS, and one each to represent all other values (of JVM-level size 1 or 2, respectively).
          *
