@@ -768,7 +768,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         } // end of class ThisFlowInterpreter
 
       /**
-       *  This method orchestrates the sub-steps involved in eliding redundant outer references.
+       *  Elides redundant outer references for all dclosures that cnode is responsible for
+       *  (catch: if eliding didn't happen is because the outer-pointer wasn't redundant after all).
+       *
+       *  This method manages to stay brief by delegating work:
+       *
+       *    (a) determining candidates, setting up maps for use when ruling out candidates:
+       *        delegated to the constructor of `LCCOuterSquasher`
+       *    (b) ruling out candidates is delegated to `ThisFlowInterpreter` and `propagate()`
+       *    (c) set of candidates that must be made static: delegated to `TransitiveClosure`
+       *    (d) determining those methods containing usages of what's about to be turned into static: ok, not delegated.
+       *    (e) rewriting usages in master-class: delegated to `Statifier`
+       *    (f) rewriting Late-Closure-Class: delegated to `forgetAboutOuter()`
        *
        * */
       def squashOuterForLCC(lateClosures: List[ClassNode]) {
@@ -849,6 +860,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
       } // end of method squashOuterForLCC()
 
+      /**
+       *  The division of labor between `squashOuterForLCC()` and `forgetAboutOuter()` can be explained easily:
+       *    (a) `forgetAboutOuter()` rewrites a Late-Closure-Class to remove outer pointer;
+       *    (b) while `squashOuterForLCC()` does all the rest, includind determining which
+       *        Late-Closure-Classes should be handed to `forgetAboutOuter()`.
+       * */
       private def forgetAboutOuter(dcNode: ClassNode, epk: String) {
 
         // Step 1: outer field
