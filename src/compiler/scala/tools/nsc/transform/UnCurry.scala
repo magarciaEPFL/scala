@@ -65,6 +65,9 @@ abstract class UnCurry extends InfoTransform
    *  see `PlainClassBuilder.genLateClosure()`
    *
    *  Why Set[Int] and not Set[Symbol] A set-of-symbol-ids provides the same information at a fraction of the GC cost.
+   *  Caveats:
+   *    - the Symbols will stay reachable (eg Trees point to them)
+   *    - Set specialized for ints is actually what we're after
    * */
   val closureDelegates = mutable.Set.empty[Int]
 

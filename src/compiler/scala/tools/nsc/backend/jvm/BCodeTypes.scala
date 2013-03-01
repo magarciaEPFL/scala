@@ -1055,7 +1055,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   // ------------------------------------------------
   // accessory maps tracking the isInterface, innerClasses, superClass, and supportedInterfaces relations,
-  // allowing answering `conforms()` resorting to typer.
+  // allowing answering `conforms()` without resorting to typer.
   // ------------------------------------------------
 
   val exemplars       = new java.util.concurrent.ConcurrentHashMap[BType,  Tracked]

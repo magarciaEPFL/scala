@@ -389,16 +389,16 @@ abstract class BCodeOptCommon extends BCodeTypes {
   // Tracking of delegating-closures
   //--------------------------------------------------------
 
-  def isDClosure(iname: String) = closuRepo.isDelegatingClosure(iname)
+  final def isDClosure(iname: String) = closuRepo.isDelegatingClosure(iname)
 
-  def isMasterClass(bt: BType)  = closuRepo.isMasterClass(bt)
+  final def isMasterClass(bt: BType)  = closuRepo.isMasterClass(bt)
 
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
   /**
    *  @return the callee, for a MethodNodeInsn, represented as MethodRef. Otherwise null.
    * */
-  def accessedMethodRef(insn: AbstractInsnNode): MethodRef = {
+  final def accessedMethodRef(insn: AbstractInsnNode): MethodRef = {
     insn match {
       case mi: MethodInsnNode =>
         val ownerBT = lookupRefBType(mi.owner)
@@ -483,21 +483,21 @@ abstract class BCodeOptCommon extends BCodeTypes {
      *
      *  @see populateDClosureMaps() Before that method runs, this map is empty.
      */
-    final val endpoint = new java.util.concurrent.ConcurrentHashMap[BType, MethodRef]
+    val endpoint = new java.util.concurrent.ConcurrentHashMap[BType, MethodRef]
 
     /**
      *  master-class -> dclosure-classes-it's-responsible-for
      *
      *  @see populateDClosureMaps() Before that method runs, this map is empty.
      */
-    final val dclosures = new java.util.concurrent.ConcurrentHashMap[BType, List[BType]]
+    val dclosures = new java.util.concurrent.ConcurrentHashMap[BType, List[BType]]
 
     /**
      *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
      *
      *  @see populateNonMasterUsers() Before that method runs, this map is empty.
      */
-    final val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]]
+    val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]]
 
     def hasMultipleUsers(closuBT: BType): Boolean = {
       val others = nonMasterUsers.getOrElse(closuBT, null)
@@ -518,34 +518,34 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
     // --------------------- query methods ---------------------
 
-    final def isDelegatingClosure( c:    BType):     Boolean = { endpoint.containsKey(c) }
-    final def isDelegatingClosure(iname: String):    Boolean = { isDelegatingClosure(lookupRefBType(iname)) }
-    final def isDelegatingClosure(cnode: ClassNode): Boolean = { isDelegatingClosure(cnode.name) }
+    def isDelegatingClosure( c:    BType):     Boolean = { endpoint.containsKey(c) }
+    def isDelegatingClosure(iname: String):    Boolean = { isDelegatingClosure(lookupRefBType(iname)) }
+    def isDelegatingClosure(cnode: ClassNode): Boolean = { isDelegatingClosure(cnode.name) }
 
-    final def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
+    def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
 
-    final def masterClass(dclosure: BType): BType = { endpoint.get(dclosure).ownerClass }
+    def masterClass(dclosure: BType): BType = { endpoint.get(dclosure).ownerClass }
 
-    final def isMasterClass(c:     BType ):    Boolean = { dclosures.containsKey(c) }
-    final def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
-    final def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
+    def isMasterClass(c:     BType ):    Boolean = { dclosures.containsKey(c) }
+    def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
+    def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
 
     /**
      * The set of delegating-closures created during UnCurry, represented as BTypes.
      * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
      * */
-    final def allDClosures:     collection.Set[BType] = { JSetWrapper(endpoint.keySet)  }
-    final def allMasterClasses: collection.Set[BType] = { JSetWrapper(dclosures.keySet) }
+    def allDClosures:     collection.Set[BType] = { JSetWrapper(endpoint.keySet)  }
+    def allMasterClasses: collection.Set[BType] = { JSetWrapper(dclosures.keySet) }
 
     /**
      * The set of delegating-closures used by no other class than the argument
      * (besides the trivial usage of each dclosure by itself).
      * */
-    final def exclusiveDClosures(master: BType): List[BType] = {
+    def exclusiveDClosures(master: BType): List[BType] = {
       dclosures.get(master) filter { dc => !hasMultipleUsers(dc) }
     }
 
-    final def isDClosureExclusiveTo(d: BType, master: BType): Boolean = {
+    def isDClosureExclusiveTo(d: BType, master: BType): Boolean = {
       exclusiveDClosures(master) contains d
     }
 
@@ -554,7 +554,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
      * (besides the trivial usage of each dclosure by itself)
      * and moreover not elided (as a consequence, endpoint is public).
      * */
-    final def liveDClosures(masterCNode: ClassNode): List[BType] = {
+    def liveDClosures(masterCNode: ClassNode): List[BType] = {
       val masterBT = lookupRefBType(masterCNode.name)
       assert(isMasterClass(masterBT), "Not a master class for any dclosure: " + masterBT.getInternalName)
       for(
@@ -796,7 +796,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
   // Optimization pack: closures (located here due to proximity with closuRepo)
   //---------------------------------------------------------------------------
 
-  def createDClosureOptimizer(masterCNode: ClassNode) = { new DClosureOptimizerImpl(masterCNode) }
+  final def createDClosureOptimizer(masterCNode: ClassNode) = { new DClosureOptimizerImpl(masterCNode) }
 
   /** implemented by BCodeOptInter.DClosureOptimizerImpl */
   trait DClosureOptimizer {

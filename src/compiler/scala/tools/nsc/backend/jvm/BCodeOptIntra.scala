@@ -54,7 +54,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
   val knownLacksInline = mutable.Set.empty[Symbol] // cache to avoid multiple inliner.hasInline() calls.
   val knownHasInline   = mutable.Set.empty[Symbol] // as above. Motivated by the need to warn on "inliner failures".
 
-  def hasInline(sym: Symbol) = {
+  final def hasInline(sym: Symbol) = {
     if     (knownLacksInline(sym)) false
     else if(knownHasInline(sym))   true
     else {
@@ -66,9 +66,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     }
   }
 
-  def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
+  final def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
 
-  def isAdaptingPrivateMembersOK(cnode: ClassNode): Boolean = {
+  final def isAdaptingPrivateMembersOK(cnode: ClassNode): Boolean = {
     val cnodeEx = exemplars.get(lookupRefBType(cnode.name))
 
     !cnodeEx.isSerializable
@@ -1182,7 +1182,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      *      the producer has its value consumed only by the DROP in question.
      *
      * */
-    def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+    final def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
       var changed   = false
       var keepGoing = false
 
@@ -1837,7 +1837,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
    *
    * can-multi-thread
    */
-  def refreshInnerClasses(cnode: ClassNode) {
+  final def refreshInnerClasses(cnode: ClassNode) {
 
     import scala.collection.convert.Wrappers.JListWrapper
 
