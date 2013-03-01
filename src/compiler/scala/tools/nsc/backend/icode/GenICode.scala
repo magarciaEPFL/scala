@@ -554,7 +554,7 @@ abstract class GenICode extends SubComponent  {
                   }
 
                   // duplicate finalizer (takes care of anchored labels)
-                  val f1 = duplicateFinalizer(Set.empty ++ ctx1.labels.keySet, ctx1, f)
+                  val f1 = duplicateFinalizer(SetOfSymIds.create(ctx1.labels.keySet), ctx1, f)
 
                   // we have to run this without the same finalizer in
                   // the list, otherwise infinite recursion happens for
@@ -1665,7 +1665,7 @@ abstract class GenICode extends SubComponent  {
      *  All LabelDefs are entered into the context label map, since it makes no sense
      *  to delay it any more: they will be used at some point.
      */
-    class DuplicateLabels(boundLabels: Set[Symbol]) extends Transformer {
+    class DuplicateLabels(boundLabels: SetOfSymIds) extends Transformer {
       val labels = perRunCaches.newMap[Symbol, Symbol]()
       var method: Symbol = _
       var ctx: Context = _
@@ -1713,7 +1713,7 @@ abstract class GenICode extends SubComponent  {
     case class MonitorRelease(m: Local) extends Cleanup(m) { }
     case class Finalizer(f: Tree, ctx: Context) extends Cleanup (f) { }
 
-    def duplicateFinalizer(boundLabels: Set[Symbol], targetCtx: Context, finalizer: Tree) =  {
+    def duplicateFinalizer(boundLabels: SetOfSymIds, targetCtx: Context, finalizer: Tree) =  {
       (new DuplicateLabels(boundLabels))(targetCtx, finalizer)
     }
 
@@ -1963,7 +1963,8 @@ abstract class GenICode extends SubComponent  {
         // we need to save bound labels before any code generation is performed on
         // the current context (otherwise, any new labels in the finalizer that need to
         // be duplicated would be incorrectly considered bound -- see #2850).
-        val boundLabels: Set[Symbol] = Set.empty ++ labels.keySet
+        val boundLabels     = SetOfSymIds.empty
+            boundLabels   ++= labels.keySet
 
         if (guardResult) {
           tmp = this.makeLocal(tree.pos, tree.tpe, "tmp")

@@ -39,7 +39,7 @@ abstract class DeadCodeElimination extends SubComponent {
   }
 
   /** closures that are instantiated at least once, after dead code elimination */
-  val liveClosures: mutable.Set[Symbol] = new mutable.HashSet()
+  val liveClosures = SetOfSymIds.empty
 
   /** Remove dead code.
    */

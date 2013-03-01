@@ -445,9 +445,9 @@ abstract class TypeFlowAnalysis {
        The condition of "being unsafe to inline in the current caller" sticks across inlinings and TFA re-inits
        because it depends on the instructions of the callee, which stay unchanged during the course of `analyzeInc(caller)`
        (with the caveat of the side-effecting `makePublic` in `helperIsSafeToInline`).*/
-    val knownUnsafe = mutable.Set.empty[Symbol]
-    val knownSafe   = mutable.Set.empty[Symbol]
-    val knownNever  = mutable.Set.empty[Symbol] // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `knownUnsafe` and `knownSafe`)
+    val knownUnsafe = SetOfSymIds.empty
+    val knownSafe   = SetOfSymIds.empty
+    val knownNever  = SetOfSymIds.empty // `knownNever` needs be cleared only at the very end of the inlining phase (unlike `knownUnsafe` and `knownSafe`)
     final def blackballed(msym: Symbol): Boolean = { knownUnsafe(msym) || knownNever(msym) }
 
     val relevantBBs   = mutable.Set.empty[BasicBlock]
