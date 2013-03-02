@@ -977,7 +977,9 @@ abstract class GenBCode extends BCodeOptInter {
         isCZStaticModule  = isStaticModule(claszSymbol)
         isCZRemote        = isRemote(claszSymbol)
         thisName          = internalName(claszSymbol)
-        cnode             = new asm.tree.ClassNode()
+
+        cnode = new asm.tree.ClassNode()
+        cnode.isStaticModule = isCZStaticModule
 
         initJClass(cnode)
 
@@ -2462,9 +2464,11 @@ abstract class GenBCode extends BCodeOptInter {
        *  The starting point is the "fake calliste" targeting the closure entrypoint (aka "delegate").
        *
        *    (a) The "fake calliste" may target:
-       *          - a static method (e.g., for closures enclosed in modules, or in implementation classes);
+       *          - a static method (e.g., for closures enclosed in implementation classes);
        *        or
        *          - an instance method (the receiver being the outer instance of the dclosure).
+       *            An anon-closure enclosed in a static module also has an instance method as endpoint,
+       *            however the apply() we'll emit will grab that instance via MODULE$ as opposed to capturing an outer value.
        *
        *    (b) Whenever the delegate is an instance method,
        *        the leading `arity` arguments to the fakeCallsite are Trees denoting zeroes.
@@ -2474,8 +2478,11 @@ abstract class GenBCode extends BCodeOptInter {
        *          - the following `arity` arguments are zeroes.
        *
        *    (c) remaining arguments denote non-outer captured values.
-       *        Whether an outer-instance is needed is determined by whether the delegate will be invoked via
-       *        invokevirtual or invokestatic, in turn determined by `delegateSym.isStaticMember`.
+       *        Whether an outer-instance is needed is determined by
+       *          (c.1) whether the delegate will be invoked via invokevirtual or invokestatic,
+       *                in turn determined by `delegateSym.isStaticMember`
+       *          (c.2) whether the delegate is owned by a static module,
+       *                no $outer field is needed in this case.
        *
        *  The resulting Late-Closure-Class is registered in `codeRepo.classes` and `exemplars`
        *  by `PlainClassBuilder.genPlainClass()` , see `PlainClassBuilder.lateClosures`
@@ -2494,7 +2501,8 @@ abstract class GenBCode extends BCodeOptInter {
         val arity = abstractFunctionArity(castToBT)
 
         val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
-        val hasOuter    = !delegateSym.isStaticMember
+        val hasStaticModuleOwner = isStaticModule(delegateSym.owner)
+        val hasOuter = !delegateSym.isStaticMember && !hasStaticModuleOwner
         val isStaticImplMethod = delegateSym.owner.isImplClass
 
         assert(
@@ -2906,7 +2914,7 @@ abstract class GenBCode extends BCodeOptInter {
             }
 
             /**
-             *  Adds instrucitons to the ultimate-apply (received as argument) to invoke the delegate.
+             *  Adds instrucitons to the ultimate-apply to invoke the delegate.
              * */
             def buildUltimateBody() {
               ultimate.instructions = new asm.tree.InsnList
@@ -2924,7 +2932,16 @@ abstract class GenBCode extends BCodeOptInter {
               val ultimateMT = BType.getMethodType(ultimate.desc)
 
               // in order to invoke the delegate, load the receiver if any
-              if(!isStaticImplMethod) {
+              if(hasStaticModuleOwner) {
+                // GETSTATIC the/module/Class$.MODULE$ : Lthe/module/Class;
+                ultimate.visitFieldInsn(
+                  asm.Opcodes.GETSTATIC,
+                  outerTK.getInternalName /* + "$" */ ,
+                  strMODULE_INSTANCE_FIELD,
+                  outerTK.getDescriptor
+                )
+              }
+              else if(!isStaticImplMethod) {
                 if(hasOuter) { loadField(nme.OUTER.toString) }
               } else {
                 loadField(closuStateNames.head)
@@ -2953,7 +2970,9 @@ abstract class GenBCode extends BCodeOptInter {
                 // no adapt needed because the closure-fields were derived from the delegate's params for captured valued.
               }
 
-              val callOpc = if(hasOuter) asm.Opcodes.INVOKEVIRTUAL else asm.Opcodes.INVOKESTATIC
+              val callOpc =
+                if(hasOuter || hasStaticModuleOwner) asm.Opcodes.INVOKEVIRTUAL
+                else asm.Opcodes.INVOKESTATIC
               ultimate.visitMethodInsn(
                 callOpc,
                 outerTK.getInternalName,
@@ -3219,11 +3238,12 @@ abstract class GenBCode extends BCodeOptInter {
         if (claszSymbol == module.moduleClass && jMethodName != "readResolve") {
           mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
         } else {
+          val mbt  = asmClassType(module)
           mnode.visitFieldInsn(
             asm.Opcodes.GETSTATIC,
-            internalName(module) /* + "$" */ ,
+            mbt.getInternalName /* + "$" */ ,
             strMODULE_INSTANCE_FIELD,
-            toTypeKind(module.tpe).getDescriptor
+            mbt.getDescriptor // for nostalgics: toTypeKind(module.tpe).getDescriptor
           )
         }
       }

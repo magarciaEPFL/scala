@@ -390,8 +390,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
       }
       // 2 of 2
-      val sq = new LCCOuterSquasher
-      sq.squashOuterForLCC(lateClosures)
+      if(!cnode.isStaticModule) {
+        val sq = new LCCOuterSquasher
+        sq.squashOuterForLCC(lateClosures)
+      }
     }
 
     /**
