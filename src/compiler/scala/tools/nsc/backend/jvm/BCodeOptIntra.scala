@@ -1029,8 +1029,8 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         /**
          *  Inserts STORE, POP, and LOAD, instructions so as to drop the n-th stack element counting from top starting at 0.
-         *  E.g., dropStackElem(mi, 0) amounts to dropping stack top
-         *        dropStackElem(mi, 1) drops the element pushed just before stack top, and so on.
+         *  E.g., dropStackElem(mi, 0, elemSize) amounts to dropping stack top
+         *        dropStackElem(mi, 1, elemSize) drops the element pushed just before stack top, and so on.
          *
          *  As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
          *   "Long and double values are treated as single values."
