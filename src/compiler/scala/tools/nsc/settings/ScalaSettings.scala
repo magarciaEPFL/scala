@@ -248,7 +248,7 @@ trait ScalaSettings extends AbsScalaSettings
    *              For details on individual transforms see `WholeProgramAnalysis.inlining()`
    *
    *    case 3 => "Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching.
-   *               For details see shakeAndMinimizeClosures()  minimizeDClosureAllocations() closureCachingAndEviction()
+   *               For details see shakeAndMinimizeClosures()  minimizeDClosureAllocations()
    *
    *    case 4 => Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface.
    *

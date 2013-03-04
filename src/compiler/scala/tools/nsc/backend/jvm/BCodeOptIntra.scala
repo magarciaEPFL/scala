@@ -1325,7 +1325,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      *    (b) only master classes (and their dclosures) go through the following optimizations:
      *          - shakeAndMinimizeClosures()
      *          - minimizeDClosureAllocations()
-     *          - closureCachingAndEviction()
      *        To recap, `cleanseClass()` executes in a Worker2 thread. The dclosure-specific optimizations are organized
      *        such that exclusive write access to a dclosure is granted to its master class (there's always one).
      *
@@ -1368,7 +1367,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         } while(keepGoing)
 
         dcloptim.minimizeDClosureAllocations()
-        // dcloptim.closureCachingAndEviction() TODO disabled because there's a bug in closureCachingAndEviction()
       }
 
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
