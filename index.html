@@ -216,12 +216,22 @@ the producer has its value consumed only by the DROP in question.</li>
 <ol>
 <li>"Old": GenICode, the current optimizer, and GenASM.</li>
 <li>"New": GenBCode and the experimental optimizer.</li>
-</ol><p>The new optimizer produces smaller JAR sizes:</p>
+</ol><p>The new optimizer produces smaller JARs:</p>
 
 <ol>
-<li><code>"Old": Total length 32'772'116, packed length 12'744'903</code></li>
-<li><code>"New": Total length 32'296'894, packed length 12'405'682</code></li>
-</ol><h2>3.3 Benchmarks</h2>
+<li><code>"Old": Total length 35'731'733, packed length 13'981'556</code></li>
+<li><code>"New": Total length 30'533'362, packed length 12'191'163</code></li>
+</ol><p>The above reflects not so much code reductions (in terms of instruction count) but smaller constant pools due to Lean Closure Classes (an LCC just delegates to the class where the anon-closure is instantiated, which usually already has the constant pool entries that under "traditional" closure conversion have to be duplicated in the anon-closure-class).</p>
+
+<p>If you're after code size reductions as well, use <code>-neo:o1</code> (intra-method optimizations) or up. For example, method <code>driver()</code> in <code>test/files/run/t7181.scala</code> results in:</p>
+
+<ul>
+<li>881 instructions, when compiled with <code>-neo:o2 -closurify:delegating</code>
+</li>
+<li>1004 instructions, when compiled with <code>-neo:GenASM -closurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison against <code>-neo:o2</code> is fair).</li>
+</ul><p>That's 881 vs 1004 instructions and not bytes, which still matters in case you're the one who has to read 881 vs 1004 lines of javap output.</p>
+
+<h2>3.3 Benchmarks</h2>
 
 <p>Feedback is welcome!</p>
 
