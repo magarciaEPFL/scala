@@ -44,7 +44,7 @@
 <p>The experimental optimizer instead:</p>
 
 <ul>
-<li>explores how performance can be improved today (you know, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8)</li>
+<li>improves performance today (you know, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8)</li>
 <li>while leaving a door open to future developments (closures via method handles are <em>also</em> optimized)</li>
 <li>consisting of many focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>
 </li>
@@ -61,7 +61,7 @@
 
 <p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). In this prototype, the creation of AST nodes for closures is postponed, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
-<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility of producing the JVM-level representation of closures. The implementation-level representation can be chosen among:</p>
+<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. The implementation-level representation can be chosen among:</p>
 
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
@@ -141,7 +141,7 @@ loop$1(scala.collection.mutable.ListBuffer,
 <span class="o">}</span>
 </pre></div>
 
-<h2>2.3 Fewer closure allocations: Singleton closures, Closure recycling</h2>
+<h2>2.3 GC-savvy closures: Singleton closures, Minimization of closure state</h2>
 
 <p>Some anonymous closures depend only on <code>apply()</code> arguments, for example the char filter function:</p>
 
@@ -152,34 +152,7 @@ loop$1(scala.collection.mutable.ListBuffer,
 
 <p>In these cases, the new optimizer avoids repeated allocations by keeping (in a static field) a singleton-instance that is reused.</p>
 
-<p>Closure recycling detects when the values captured by a closure haven't changed, avoiding allocating a new closure in that case. For example:</p>
-
-<div class="highlight"><pre><span class="k">object</span> <span class="nc">Test</span> <span class="o">{</span>
-
-  <span class="k">def</span> <span class="n">main</span><span class="o">(</span><span class="n">args</span><span class="k">:</span> <span class="kt">Array</span><span class="o">[</span><span class="kt">String</span><span class="o">])</span> <span class="o">{</span>
-
-    <span class="k">var</span> <span class="n">sum</span> <span class="k">=</span> <span class="mi">0</span>
-    <span class="k">val</span> <span class="n">a</span>   <span class="k">=</span> <span class="mi">123</span>
-    <span class="k">val</span> <span class="n">b</span>   <span class="k">=</span> <span class="mi">456</span>
-
-    <span class="k">var</span> <span class="n">i</span> <span class="k">=</span> <span class="mi">0</span>
-    <span class="k">while</span> <span class="o">(</span><span class="n">i</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="o">)</span> <span class="o">{</span>
-      <span class="n">higherOrderMethod</span> <span class="o">{</span>
-        <span class="o">(</span><span class="n">i</span><span class="k">:</span> <span class="kt">Int</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="o">{</span> <span class="n">sum</span> <span class="o">+=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="o">;</span> <span class="n">println</span><span class="o">(</span><span class="n">sum</span><span class="o">)</span> <span class="o">}</span>
-      <span class="o">}</span>
-      <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
-    <span class="o">}</span>
-
-  <span class="o">}</span>
-
-  <span class="k">def</span> <span class="n">higherOrderMethod</span><span class="o">(</span><span class="n">closure</span><span class="k">:</span> <span class="kt">Int</span> <span class="o">=&gt;</span> <span class="nc">Unit</span> <span class="o">)</span> <span class="o">{</span>
-    <span class="n">println</span><span class="o">(</span><span class="nc">System</span><span class="o">.</span><span class="n">identityHashCode</span><span class="o">(</span><span class="n">closure</span><span class="o">))</span>
-  <span class="o">}</span>
-
-<span class="o">}</span>
-</pre></div>
-
-<p>With the current optimizer, the above results in as many closure allocations as passes through the loop. The experimental optimizer instead recycles the first closure allocation. The idea is to expand the reach of this approach to work in more cases (right now, it won't trigger when using a for loop, but that's only because a private method isn't being inlined, for now).</p>
+<p>After dead-code elimination, closure state comprises only what is actually accessed.</p>
 
 <p>These features are more useful on Android (besides micro-benchmarks) where a vast RAM doesn't masquerade redundant allocations.</p>
 
@@ -202,7 +175,6 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>caching repeatable reads of stable values</li>
 <li>eliding box/unbox pairs</li>
 <li>eliding redundant local vars</li>
-<li>SI-6720: Uninitialized object exists on backward branch</li>
 </ul><h3>2.4.2 Intra-class optimizations</h3>
 
 <ul>
@@ -294,8 +266,6 @@ the producer has its value consumed only by the DROP in question.</li>
 <td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching</td> </tr>
 <tr>
 <td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
-<tr>
-<td><code>-neo:o5</code></td>       <td>Inlining of "small" private methods invoked from a single place</td> </tr>
 </table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenLCC/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L205">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
