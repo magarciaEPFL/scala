@@ -496,6 +496,8 @@ abstract class GenBCode extends BCodeOptInter {
      * */
     override def run() {
 
+      log(s"Early anon-closures: ${uncurry.convertedTraditional} Late anon-closures: ${uncurry.convertedModern}")
+
       arrivalPos = 0 // just in case
       scalaPrimitives.init
       initBCodeTypes()

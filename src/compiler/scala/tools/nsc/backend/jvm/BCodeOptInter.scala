@@ -459,7 +459,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *       callee instructions adapted to their new environment
      *         (accesses to local-vars shifted,
      *          RETURNs replaced by jumps to the single-exit of the inlined instructions,
-     *          without forgetting to empty all the stack slots except stack-top right before jumping)
+     *          without forgetting to empty all the stack slots except stack-top right before jumping to that single-exit)
      *   (c) copying the debug info from the callee's over to the host method
      *   (d) re-computing the maxLocals and maxStack of the host method.
      *   (e) return None (this indicates success).

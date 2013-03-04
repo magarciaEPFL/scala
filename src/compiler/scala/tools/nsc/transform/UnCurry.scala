@@ -71,6 +71,9 @@ abstract class UnCurry extends InfoTransform
    * */
   val closureDelegates = mutable.Set.empty[Int]
 
+  var convertedTraditional = 0
+  var convertedModern      = 0
+
 // ------ Type transformation --------------------------------------------------------
 
 // uncurry and uncurryType expand type aliases
@@ -252,9 +255,11 @@ abstract class UnCurry extends InfoTransform
               }
 
           if(doConvertTraditional || !isAmenableToModernConversion) {
+            convertedTraditional += 1
             closureConversionTraditional(fun)
           }
           else {
+            convertedModern += 1
             closureConversionModern(fun)
           }
       }
