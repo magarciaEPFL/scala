@@ -935,7 +935,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * Provided all pre-conditions have been satisfied, `StaticHiOUtil.buildStaticHiO()` is tasked with
      * preparing a MethodNode that will be invoked instead of hi-O. That method is the last one to have veto power.
-     * If successful, it only remains for `StaticHiOUtil.rewriteHost()` to patch `host` to changed the target of
+     * If successful, it only remains for `StaticHiOUtil.rewriteHost()` to patch `host` to change the target of
      * the original callsite invocation, as well as adapt its arguments.
      *
      * @param hostOwner        the class declaring the host method.
@@ -960,8 +960,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val hiO:      MethodNode     = inlineTarget.callee
       // the Classnode where callee is declared.
       val hiOOwner: ClassNode      = inlineTarget.owner
-
-      val callerId = hostOwner.name + "::" + host.name + host.desc
 
       codeRepo.registerUnseenTypeNames(hiO.instructions) // must-single-thread
 
@@ -1088,7 +1086,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val closureClassPerHiOFormal = survivors2()
       if(closureClassPerHiOFormal.isEmpty) {
         inlineTarget.warn(
-          s"Can't perform closure-inlining because in $callerId different closures may arrive at the same argument position."
+          s"Can't perform closure-inlining because in ${methodSignature(hostOwner, host)} different closures may arrive at the same argument position."
         )
         return None
       }
