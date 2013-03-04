@@ -356,8 +356,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
       tfa.analyze(leaf.hostOwner.name, leaf.host)
       // looking up in array `frames` using the whatever-then-current index of `insn` would assume the instruction list hasn't changed.
-      // while in general after adding or removing instructions an analysis should be re-run,
-      // for the purposes of inlining it's ok to have at hand for a callsite its frame as it was when the analysis was computed.
+      // In general that doesn't hold after inlineMethod() or inlineClosures()
+      // Instead of re-running the Type-Flow Analysis, for the purposes of inlining it's ok to have at hand for a callsite
+      // its frame as it was when the analysis was computed (because that frame stays the same irrespective of inlinings performed).
       val tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]] = {
          leaf.candidates
         .filter(it => leaf.host.instructions.contains(it.callsite))
