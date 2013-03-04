@@ -409,15 +409,17 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            "no frame is computed by type-flow analysis. Here's the complete bytecode of that method " + Util.textify(leaf.host)
         )
 
+        val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
+
         val outecome = inlineClosures(
           leaf.hostOwner,
           leaf.host,
           callsiteTypeFlow,
-          hiO
+          hiO,
+          hasNonNullReceiver
         )
         val success = outecome.nonEmpty
 
-        val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
         logInlining(
           success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true,
           hasNonNullReceiver,
@@ -592,7 +594,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       var nxtLocalIdx = host.maxLocals
       if(Util.isInstanceMethod(callee)) {
         if(!isDefinitelyNonNull) {
-          // similar in purpose to JDK7's j.u.Objects.requireNonNull
+          // similar in purpose to JDK7's j.u.Objects.requireNonNull, see SI-5850
           argStores.add(new InsnNode(Opcodes.DUP))
           val nonNullL  = new asm.Label
           val nonNullLN = new asm.tree.LabelNode(nonNullL)
@@ -702,9 +704,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                             hiO:       MethodNode,
                             hiOOwner:  ClassNode) {
 
-      val remark  = if(isReceiverKnownNonNull) ""  else " (albeit null receiver couldn't be ruled out)"
       val kind    = if(isHiO)   "closure-inlining" else "method-inlining"
-      val leading = if(success) "Successful " + kind + remark else "Failed " + kind
+      val leading = if(success) "Successful " + kind else "Failed " + kind
 
       log(leading + s"Callsite: ${insnPos(callsite, host)} , in method ${methodSignature(hostOwner, host)}")
 
@@ -953,7 +954,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def inlineClosures(hostOwner:        ClassNode,
                                host:             MethodNode,
                                callsiteTypeFlow: asm.tree.analysis.Frame[TFValue],
-                               inlineTarget:     InlineTarget): Option[String] = {
+                               inlineTarget:     InlineTarget,
+                               hasNonNullReceiver: Boolean): Option[String] = {
 
       // invocation of a higher-order method (taking one or more closures) whose inlining is requested.
       val callsite: MethodInsnNode = inlineTarget.callsite
@@ -1234,7 +1236,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       val shioUtil = StaticHiOUtil(hiO, closureClassUtils)
-      val staticHiO: MethodNode = shioUtil.buildStaticHiO(hostOwner, callsite, inlineTarget)
+      val staticHiO: MethodNode = shioUtil.buildStaticHiO(hostOwner, callsite, inlineTarget, hasNonNullReceiver)
       if(staticHiO == null) { return None }
       assert(Util.isPublicMethod(staticHiO), "Not a public method: " + methodSignature(hostOwner, staticHiO))
       if(!shioUtil.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
@@ -1771,7 +1773,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        *
        *  @return `staticHiO` if preconditions are satisfied. Otherwise null.
        */
-      def buildStaticHiO(hostOwner: ClassNode, callsite: MethodInsnNode, inlineTarget: InlineTarget): MethodNode = {
+      def buildStaticHiO(hostOwner:    ClassNode,
+                         callsite:     MethodInsnNode,
+                         inlineTarget: InlineTarget,
+                         hasNonNullReceiver: Boolean): MethodNode = {
 
         // (1) method name
         val name = {
@@ -1893,11 +1898,26 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           assert(!stubsIter.hasNext)
         }
 
-        // (9) update maxStack, run TFA for debug purposes
+        // (9) update maxStack
         Util.computeMaxLocalsMaxStack(shio)
         val quickOptimizer = new QuickCleanser(hostOwner)
         quickOptimizer.basicIntraMethodOpt(shio)
         Util.computeMaxLocalsMaxStack(shio)
+
+        // (10) requireNonNull if needed, see SI-5850
+        if(!hasNonNullReceiver && Util.isInstanceMethod(hiO)) {
+          // similar in purpose to JDK7's j.u.Objects.requireNonNull
+          val checkInsns = new InsnList
+          checkInsns.add(new VarInsnNode(Opcodes.ALOAD, 0))
+          val nonNullL  = new asm.Label
+          val nonNullLN = new asm.tree.LabelNode(nonNullL)
+          nonNullL.info = nonNullLN
+          checkInsns.add(new JumpInsnNode(Opcodes.IFNONNULL, nonNullLN))
+          checkInsns.add(new InsnNode(Opcodes.ACONST_NULL))
+          checkInsns.add(new InsnNode(Opcodes.ATHROW))
+          checkInsns.add(nonNullLN)
+          shio.instructions.insert(checkInsns)
+        }
 
         shio
       } // end of method buildStaticHiO()
