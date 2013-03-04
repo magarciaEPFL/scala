@@ -370,8 +370,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       leaf.procs foreach { proc =>
 
-        val hostOwner = leaf.hostOwner.name
-        val frame     = tfaFrameAt(proc.callsite)
+        val hostOwner    = leaf.hostOwner.name
+        val frame        = tfaFrameAt(proc.callsite)
+        val isRcvNonNull = isReceiverKnownNonNull(frame, proc.callsite)
 
         val inlineMethodOutcome = inlineMethod(
           hostOwner,
@@ -379,14 +380,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           proc.callsite,
           frame,
           proc.callee, proc.owner,
-          doTrackClosureUsage = true
+          doTrackClosureUsage = true,
+          isDefinitelyNonNull = isRcvNonNull
         )
         inlineMethodOutcome foreach proc.warn
 
         val success = inlineMethodOutcome.isEmpty
         logInlining(
           success, hostOwner, leaf.host, proc.callsite, isHiO = false,
-          isReceiverKnownNonNull(frame, proc.callsite),
+          isRcvNonNull,
           proc.callee, proc.owner
         )
 
@@ -489,7 +491,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                      frame:         asm.tree.analysis.Frame[TFValue],
                      callee:        MethodNode,
                      calleeOwner:   ClassNode,
-                     doTrackClosureUsage: Boolean): Option[String] = {
+                     doTrackClosureUsage: Boolean,
+                     isDefinitelyNonNull: Boolean): Option[String] = {
 
       assert(callee != null)
       assert(callsite.name == callee.name)
@@ -572,7 +575,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * Situation (a.3) under which method-inlining is unfeasible: callee has Nothing type.
        */
       if(calleeMethodType.getReturnType.isNothingType) {
-        return Some(s"Closure-inlining failed because ${methodSignature(calleeOwner, callee)} has Nothing type.")
+        return Some(s"Method-inlining failed because ${methodSignature(calleeOwner, callee)} has Nothing type.")
       }
 
       // By now it's a done deal that method-inlining will be performed. There's no going back.
@@ -587,7 +590,18 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val argStores   = new InsnList
       var nxtLocalIdx = host.maxLocals
       if(Util.isInstanceMethod(callee)) {
-        argStores.insert(new VarInsnNode(Opcodes.ASTORE, nxtLocalIdx))
+        if(!isDefinitelyNonNull) {
+          // similar purpose to JDK7's j.u.Objects.requireNonNull
+          argStores.add(new InsnNode(Opcodes.DUP))
+          val nonNullL  = new asm.Label
+          val nonNullLN = new asm.tree.LabelNode(nonNullL)
+          nonNullL.info = nonNullLN
+          argStores.add(new JumpInsnNode(Opcodes.IFNONNULL, nonNullLN))
+          argStores.add(new InsnNode(Opcodes.ACONST_NULL))
+          argStores.add(new InsnNode(Opcodes.ATHROW))
+          argStores.add(nonNullLN)
+        }
+        argStores.add(new VarInsnNode(Opcodes.ASTORE, nxtLocalIdx))
         nxtLocalIdx    += 1
       }
       for(at <- calleeMethodType.getArgumentTypes) {
@@ -997,7 +1011,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          * Example,
          *   callsite `global.log`
          *   in `def log(msg: => AnyRef) { global.log(msg) }`
-         * will have empty closureTypedArgs because it receives a Function0, not a closure-class.
+         * will have empty closureTypedArgs because it receives a Function0, not an anon-closure-class.
          * We try to overcome that by method-inlining (not closure-inlining) that callsite.
          * Doing so may unblock closure-inlining of the closure(s) passed to `host` (itself a higher-order method).
          *
@@ -1007,7 +1021,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             hostOwner.name, host,
             callsite, callsiteTypeFlow,
             hiO, hiOOwner,
-            doTrackClosureUsage = true
+            doTrackClosureUsage = true,
+            isDefinitelyNonNull = false
           )
 
         asMethodInlineOutcome match {
@@ -1538,7 +1553,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                           clonedForwarder,
                           frame,
                           rewritten, closureUsages.closureClass,
-                          doTrackClosureUsage = true
+                          doTrackClosureUsage = true,
+                          isDefinitelyNonNull = true
                         )
                         return inlineMethodOutcome match {
                           case None                => Right(clonedCurrent)
