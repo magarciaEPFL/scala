@@ -33,7 +33,7 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenLCC</code> of <code>scalac</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact, using all along the standard library available in the distribution.</p>
+<p>The experimental branch <code>GenRefactored2</code> of <code>scalac</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact, using all along the standard library available in the distribution.</p>
 
 <h2>1.1 Why a new optimizer</h2>
 
@@ -240,9 +240,20 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>actually, tools like Caliper or ScalaMeter, by themselves, tell how much faster sthg runs. When building an optimizer, it's more useful to know "why" stgh runs faster (specially with 20+ optimizations at play). With some work, the toolset that Grzegorz has jumpstarted can provide those insights. </li>
 </ul><p>The new optimizer may well make <em>your</em> code run faster. To find out, give it a try.</p>
 
-<h1>4 Getting Started</h1>
+<h2>3.5 Bugs fixed</h2>
 
-<p>The first step is checking out branch <code>GenLCC</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<ul>
+<li>SI-4767 Methods defined in traits are not inlined </li>
+<li>SI-5850 Inlined code shouldn't forget null-check on the original receiver</li>
+<li>SI-6191 2.10.0-M6: spurious SCOPE_EXIT warnings </li>
+<li>SI-5950 inlining creates duplicates when anon-closure-class can't be eliminated after all</li>
+<li>SI-6546 Optimizer leaves references to classes that have been eliminated by inlining </li>
+<li>SI-6720: Uninitialized object exists on backward branch</li>
+<li>SI-6759 seek clarification about necessary and sufficient conditions for inclusion in InnerClasses JVM attribute </li>
+<li>all <code>ICodeReader</code> bugs (not used anymore)</li>
+</ul><h1>4 Getting Started</h1>
+
+<p>The first step is checking out branch <code>GenRefactored2</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
 <p>After <code>ant all.clean &amp;&amp; ant</code> , a few knobs allow fine tuning: </p>
 
@@ -266,7 +277,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching</td> </tr>
 <tr>
 <td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
-</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenLCC/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L205">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored2/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L205">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
 
