@@ -191,7 +191,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <h2>3.1 How much does it add to compilation time?</h2>
 
-<p>The new optimizer (except a brief whole-program component) is task-parallel:</p>
+<p>The new optimizer (except the whole-program step) is task-parallel:</p>
 
 <ul>
 <li>intra-method optimizations are run in parallel for different methods;</li>
@@ -324,6 +324,7 @@ That optimization level requires --closurify:delegating or --closurify:MH
 <h1>5 Future Work</h1>
 
 <ul>
+<li>task-parallelism in <code>inliningRound()</code> thus making not just <code>-neo:o2</code> faster but higher levels too (inlining is the bottleneck, Levels 3 and 4 are themselves relatively fast).</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6941">SI-6941</a> Pattern matcher inefficiency for basic constructor patterns</li>
 <li>
