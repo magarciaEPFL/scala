@@ -466,7 +466,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *
      * Inlining is considered unfeasible in four cases, summarized below and described in more detail on the spot:
      *   (a.0) callee is a synchronized method
-     *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler, as well as
+     *   (a.1) due to the possibility of the callee clearing the operand-stack when entering an exception-handler
      *   (a.2) inlining would lead to illegal access errors.
      *   (a.3) calee returns scala.runtime.Nothing$ , which means it'll throw an exception
      *         (s.r.Nothing$ looks like an object to the type-flow analysis).
@@ -507,7 +507,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
        * Situation (a.0) under which method-inlining is unfeasible: synchronized callee.
        */
       if(Util.isSynchronizedMethod(callee)) {
-        return Some(s"Closure-inlining failed because ${methodSignature(calleeOwner, callee)} is synchronized.")
+        return Some(s"Method-inlining failed because ${methodSignature(calleeOwner, callee)} is synchronized.")
       }
 
       /*
