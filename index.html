@@ -181,7 +181,6 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>those private members of a class which see no use are elided</li>
 <li>tree-shake unused closures, minimize the fields of those remaining</li>
 <li>minimization of closure-allocations</li>
-<li>add caching for closure recycling</li>
 <li>refresh the InnerClasses JVM attribute</li>
 </ul><h3>2.4.3 Whole-program optimizations</h3>
 
@@ -223,7 +222,9 @@ the producer has its value consumed only by the DROP in question.</li>
 <li><code>"New": Total length 30'533'362, packed length 12'191'163</code></li>
 </ol><p>The above reflects not so much code reductions (in terms of instruction count) but smaller constant pools due to Lean Closure Classes (an LCC just delegates to the class where the anon-closure is instantiated, which usually already has the constant pool entries that under "traditional" closure conversion have to be duplicated in the anon-closure-class).</p>
 
-<p>If you're after code size reductions as well, use <code>-neo:o1</code> (intra-method optimizations) or up. For example, method <code>driver()</code> in <code>test/files/run/t7181.scala</code> results in:</p>
+<p>If you're after code size reductions as well, <code>-neo:o1</code> (intra-method optimizations) or up will do the trick. Moreover, on a multicore <code>-neo:o1</code> doesn't increase appreciably compilation time, I'm actually thinking making it default.</p>
+
+<p>For example, method <code>driver()</code> in <code>test/files/run/t7181.scala</code> results in:</p>
 
 <ul>
 <li>881 instructions, when compiled with <code>-neo:o2 -closurify:delegating</code>
@@ -289,7 +290,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <tr>
 <td><code>-neo:o2</code></td>       <td>Method inlining and closure stack-allocation, without "advanced" closure optimization</td> </tr>
 <tr>
-<td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching</td> </tr>
+<td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, "singletonize" closures</td> </tr>
 <tr>
 <td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
 </table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored2/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L204">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
