@@ -238,11 +238,16 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <h2>3.4 Speeding up scalac</h2>
 
-<p>A 10% speedup over the latest <code>scalac</code> is delivered by <code>-neo:GenBCode -closurify:delegating</code> (ie unoptimized compilation, using the new bytecode emitter and Leaner Closure ASTs).</p>
+<p>Speedups in the range 10% to 20% have been observed against the latest <code>scalac</code>. The upper range is achieved by having a compiler optimized by the new optimizer compile using <code>-neo:GenBCode -closurify:delegating</code> (ie unoptimized compilation, using the new bytecode emitter and Leaner Closure ASTs). Just one data point:</p>
+
+<pre><code>[stopwatch] [locker.comp.timer: 1:43.359 sec]
+...
+[stopwatch] [quick.comp.timer:  1:32.335 sec]
+</code></pre>
 
 <p>Comparing optimized runs (current vs new optimizer) doesn't make a lot of sense, however level <code>-neo:o2</code> is roughly equivalent to what the current optimizer strives for. On the other hand, a derby pitting optimized code produced by current vs new optimizer would be much desirable. Our benchmarks focus only on the compiler itself, as described below.</p>
 
-<p>Right now the new optimizer alone doesn't make scalac run faster (instead, the speedup is fully explained by Leaner Closure ASTs and the new bytecode emitter). That's normal: <code>scalac</code> is dominated by factors not optimizable (at least not in the short term). Examples abound: </p>
+<p>Right now the new optimizer alone makes scalac only marginally faster. Instead, the 15% speedup mentioned above is due to the compiler doing less work: (a) Leaner Closure ASTs, (b) the new bytecode emitter, and (c) lower GC overhead. That's normal: <code>scalac</code> is dominated by factors not optimizable (at least not in the short term). Examples abound: </p>
 
 <ul>
 <li>millions of <code>::</code> allocated. Neither the old nor the new optimizer are tuned to reduce that.</li>
