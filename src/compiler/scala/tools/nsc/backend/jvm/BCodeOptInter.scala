@@ -591,7 +591,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       var nxtLocalIdx = host.maxLocals
       if(Util.isInstanceMethod(callee)) {
         if(!isDefinitelyNonNull) {
-          // similar purpose to JDK7's j.u.Objects.requireNonNull
+          // similar in purpose to JDK7's j.u.Objects.requireNonNull
           argStores.add(new InsnNode(Opcodes.DUP))
           val nonNullL  = new asm.Label
           val nonNullLN = new asm.tree.LabelNode(nonNullL)
@@ -1068,7 +1068,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
            */
           def survivors2(): Map[Int, ClassNode] = {
 
-            // if cpHost where to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
+            // if cpHost were to be hoisted out of this method, cache `cpHost.frameAt()` before hiOs are inlined.
             val cpHost: UnBoxAnalyzer = UnBoxAnalyzer.create()
             cpHost.analyze(hostOwner.name, host)
             val callsiteCP: asm.tree.analysis.Frame[SourceValue] = cpHost.frameAt(callsite)
