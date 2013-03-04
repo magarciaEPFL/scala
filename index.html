@@ -245,8 +245,6 @@ the producer has its value consumed only by the DROP in question.</li>
 [stopwatch] [quick.comp.timer:  1:32.335 sec]
 </code></pre>
 
-<p>Comparing optimized runs (current vs new optimizer) doesn't make a lot of sense, however level <code>-neo:o2</code> is roughly equivalent to what the current optimizer strives for. On the other hand, a derby pitting optimized code produced by current vs new optimizer would be much desirable. Our benchmarks focus only on the compiler itself, as described below.</p>
-
 <p>Right now the new optimizer alone makes scalac only marginally faster. Instead, the 15% speedup mentioned above is due to the compiler doing less work: (a) Leaner Closure ASTs, (b) the new bytecode emitter, and (c) lower GC overhead. That's normal: <code>scalac</code> is dominated by factors not optimizable (at least not in the short term). Examples abound: </p>
 
 <ul>
