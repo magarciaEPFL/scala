@@ -2419,7 +2419,35 @@ abstract class GenBCode extends BCodeOptInter {
 
                   } // end of genNormalMethodCall()
 
-              genNormalMethodCall()
+              // inter-procedural optimization: directly target final method in trait
+              val detour = mixer.detouredFinalTraitMethods.getOrElse(sym, null)
+              if(detour != null) {
+                // selfRefBType is (also) the type of the self-param of an implementaion method
+                val selfRefBType          = toTypeKind(detour.firstParam.tpe)
+                val Select(qualifier, _)  = fun
+                val qualifierExpectedType = tpeTK(qualifier)
+                val isAdapted             = !exemplars.get(selfRefBType).isSubtypeOf(qualifierExpectedType)
+                log(
+                  s"Rewiring to directly invokestatic final method $detour in trait $qualifierExpectedType , " +
+                  s"used to be an invokeinterface to $sym"
+                )
+                genLoad(qualifier, qualifierExpectedType)
+                val lastInsn = mnode.instructions.getLast
+                if(
+                  isAdapted &&
+                  (lastInsn.getOpcode == asm.Opcodes.CHECKCAST)
+                ) {
+                  val ti = lastInsn.asInstanceOf[asm.tree.TypeInsnNode]
+                  if(lookupRefBType(ti.desc) != selfRefBType) {
+                    log(s"As part of rewiring a final trait method (SI-4767), removed ${insnPosInMethodSignature(ti, mnode, cnode)} ")
+                    mnode.instructions.remove(lastInsn)
+                  }
+                }
+                genLoadArguments(args, paramTKs(app))
+                genCallMethod(detour, icodes.opcodes.Static(onInstance = false), detour.owner, app.pos)
+              } else {
+                genNormalMethodCall()
+              }
 
               generatedType = asmMethodType(sym).getReturnType
         }

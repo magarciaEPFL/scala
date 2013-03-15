@@ -29,6 +29,9 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
   /** Map a lazy, mixedin field accessor to it's trait member accessor */
   private val initializer = perRunCaches.newMap[Symbol, Symbol]()
 
+  /** GenBCodeOpt: map the interface counterpart of a final trait method to its implementation module counterpart */
+  val detouredFinalTraitMethods = mutable.Map.empty[Symbol, Symbol]
+
 // --------- helper functions -----------------------------------------------
 
   /** A member of a trait is implemented statically if its implementation after the
@@ -227,6 +230,40 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
 
       clazz.info // make sure info is up to date, so that implClass is set.
       val impl = implClass(clazz) orElse abort("No impl class for " + clazz)
+
+        /**
+         * SI-4767 Methods defined in traits are not inlined
+         *
+         * The new optimizer would like to know which INVOKEINTERFACE callsites (for an interface-facet) invariably
+         * end up redirected to one and the same method in the implementation module for a trait,
+         * for all composite classes mixing in the original trait
+         *
+         * The above is fulfilled by final methods in a non-interface trait,
+         * irrespective of whether those final methods are marked @inline or not.
+         *
+         * The rewriting in question (replacing INVOKESTATIC for INVOKEINTERFACE)
+         * will be performed only when optimizing, and moreover only in classes being compiled,
+         * provided the trait with the final method is also being compiled.
+         * A final method in a trait living in a library won't be candidate for the rewriting in question.
+         *
+         * */
+        def detourFinalMethodsInTraits() {
+          val mixinInterface = clazz
+          val mixinImpl      = impl
+          assert(mixinInterface isTrait)
+          assert(mixinInterface hasFlag lateINTERFACE)
+          for (staticMethod <- mixinImpl.info.decls ; if staticMethod.isFinal ; if isForwarded(staticMethod)) {
+            val imember = staticMethod overriddenSymbol mixinInterface
+            assert(
+              !detouredFinalTraitMethods.contains(imember),
+              "As far as I understand addLateInterfaceMembers() is invoked once per trait, " +
+              "thus I'm perplexed we're visiting for a second time trait " + mixinInterface)
+            detouredFinalTraitMethods.put(imember, staticMethod)
+          }
+        }
+      if(settings.isInterTraitOptimizOn) {
+        detourFinalMethodsInTraits()
+      }
 
       for (member <- impl.info.decls) {
         if (!member.isMethod && !member.isModule && !member.isModuleVar) {
