@@ -785,6 +785,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
     def clear() {
       uncurry.closureDelegates.clear()
+      mixer.detouredFinalTraitMethods.clear()
       endpoint.clear()
       dclosures.clear()
       nonMasterUsers.clear()

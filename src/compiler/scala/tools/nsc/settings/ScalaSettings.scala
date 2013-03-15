@@ -203,7 +203,7 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode and the ASM-based optimizer
    */
   val neo         = ChoiceSetting ("-neo", "choice of bytecode emitter", "Choice of bytecode emitter.",
-                                   List("GenASM", "GenBCode", "o1", "o2", "o3"),
+                                   List("GenASM", "GenBCode", "o1", "o2", "o3", "o4"),
                                    "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
                                    List("traditional", "delegating", "MH"),
@@ -254,11 +254,14 @@ trait ScalaSettings extends AbsScalaSettings
    *    case 3 => "Advanced" closure optimization: minimization of closure state, of closure allocation, closure caching.
    *               For details see shakeAndMinimizeClosures()  minimizeDClosureAllocations()
    *
+   *    case 4 => Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface.
+   *
    * */
   def neoLevel: Int           = { if(neo.value.startsWith("o") && isBCodeActive) neo.value.substring(1).toInt else 0 }
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
   def isInterBasicOptimizOn   = (neoLevel >= 2)
   def isInterClosureOptimizOn = (neoLevel >= 3)
+  def isInterTraitOptimizOn   = (neoLevel >= 4)
 
   /**
    *  Appraches to lower anonymous closures:
