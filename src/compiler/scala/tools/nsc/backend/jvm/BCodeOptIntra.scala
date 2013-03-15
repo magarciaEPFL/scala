@@ -10,7 +10,8 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.Util
+import asm.optimiz.{ProdConsAnalyzer, Util}
+import asm.tree.analysis.SourceValue
 import asm.tree._
 
 import scala.collection.{ mutable, immutable }
@@ -32,6 +33,31 @@ import collection.convert.Wrappers.JListWrapper
 abstract class BCodeOptIntra extends BCodeOptCommon {
 
   import global._
+
+  val knownLacksInline = mutable.Set.empty[Symbol] // cache to avoid multiple inliner.hasInline() calls.
+  val knownHasInline   = mutable.Set.empty[Symbol] // as above. Motivated by the need to warn on "inliner failures".
+
+  final def hasInline(sym: Symbol) = {
+    if     (knownLacksInline(sym)) false
+    else if(knownHasInline(sym))   true
+    else {
+      val b = (sym hasAnnotation definitions.ScalaInlineClass)
+      if(b) { knownHasInline   += sym }
+      else  { knownLacksInline += sym }
+
+      b
+    }
+  }
+
+  final def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
+
+  /**
+   * must-single-thread
+   **/
+  def clearBCodeOpt() {
+    knownLacksInline.clear()
+    knownHasInline.clear()
+  }
 
   /**
    *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
@@ -82,14 +108,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
                                  initInsn: MethodInsnNode): Int = {
 
     var nxtIdx = nxtIdx0
-
-        def methodSignature(cnode: ClassNode, mnode: MethodNode): String = {
-          cnode.name + "::" + mnode.name + mnode.desc
-        }
-
-        def insnPos(insn: AbstractInsnNode, mnode: MethodNode): String = {
-          s"${Util.textify(insn)} at index ${mnode.instructions.indexOf(insn)}"
-        }
 
     import collection.convert.Wrappers.JSetWrapper
     for(
@@ -316,6 +334,46 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       }
     }
 
+    /**
+     *  This version can cope with <init> super-calls (which are valid only in ctors) as well as
+     *  with all code reductions the optimizer performs. This flexibility requires a producers-consumers analysis,
+     *  which makes the rewriting slower than its counterpart in GenBCode.
+     *
+     *  @see long description at `rephraseBackedgesInCtorArg()`
+     *
+     *  @return true iff the method body was mutated
+     * */
+    final def rephraseBackedgesSlow(mnode: MethodNode): Boolean = {
+
+      val inits =
+        for(
+          i <- mnode.instructions.toList;
+          if i.getType == AbstractInsnNode.METHOD_INSN;
+          mi = i.asInstanceOf[MethodInsnNode];
+          if (mi.name == "<init>") && (mi.desc != "()V")
+        ) yield mi;
+      if (inits.isEmpty) { return false }
+
+      val cp = ProdConsAnalyzer.create()
+      cp.analyze(cnode.name , mnode)
+
+      for(init <- inits) {
+        val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
+        assert(
+          receiverSV.insns.size == 1,
+          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, mnode, cnode)}"
+        )
+        val dupInsn = receiverSV.insns.iterator().next()
+        val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
+        if(!bes.isEmpty) {
+          val newInsn = dupInsn.getPrevious.asInstanceOf[TypeInsnNode]
+          mnode.maxLocals = rephraseBackedgesInCtorArg(mnode.maxLocals, bes, cnode, mnode, newInsn, init)
+        }
+      }
+
+      true
+    } // end of method rephraseBackedgesSlow()
+
     //--------------------------------------------------------------------
     // Utilities for reuse by different optimizers
     //--------------------------------------------------------------------
@@ -509,11 +567,22 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      *
+     *  TODO refreshInnerClasses() should also be run on dclosures
      */
     def cleanseClass() {
 
+      // a dclosure is optimized together with its master class by `DClosureOptimizer`
+      assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
+
+      val bt = lookupRefBType(cnode.name)
+      if(elidedClasses.contains(bt)) { return }
+
       // (1) intra-method
       intraMethodFixpoints(full = true)
+
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+        rephraseBackedgesSlow(mnode)
+      }
 
     } // end of method cleanseClass()
 
@@ -578,7 +647,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           if (bt.isArray) {
             bt = bt.getElementType
           }
-          if(bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime)) {
+          if(bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !elidedClasses.contains(bt)) {
             if(exemplars.get(bt).isInnerClass) {
               refedInnerClasses += bt
             }
