@@ -305,9 +305,10 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         // ----------- dead-code is removed before the inliner can see it.
+        // ----------- squashOuter() cannot run after inliner (it relies on dclosures having a single owner)
         if(isInliningRun) {
           val essential = new EssentialCleanser(plainC)
-          essential.codeFixups()
+          essential.codeFixups(lateClosures)
         }
 
         // ----------- hand over to pipeline-2
@@ -410,12 +411,16 @@ abstract class GenBCode extends BCodeOptInter {
 
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode)
-          cleanser.codeFixups()
+          // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
+          // (under -o0 `squashOuter()` is invoked in the else-branch below)
+          // (under -o2 or higher `squashOuter()` runs before inlining, ie in PlainClassBuilder)
+          val lccsToSquashOuterPointer = if(isInliningRun) Nil else item.lateClosures;
+          cleanser.codeFixups(lccsToSquashOuterPointer)
           cleanser.cleanseClass()
         }
         else {
           val essential = new EssentialCleanser(cnode)
-          essential.codeFixups()    // the minimal fixups needed, even for unoptimized runs.
+          essential.codeFixups(item.lateClosures)    // the minimal fixups needed, even for unoptimized runs.
         }
 
         refreshInnerClasses(cnode)
@@ -972,6 +977,7 @@ abstract class GenBCode extends BCodeOptInter {
         thisName          = internalName(claszSymbol)
 
         cnode = new asm.tree.ClassNode()
+        cnode.isStaticModule = isCZStaticModule
 
         initJClass(cnode)
 
@@ -1108,6 +1114,8 @@ abstract class GenBCode extends BCodeOptInter {
           jgensig,
           mkArray(thrownExceptions)
         ).asInstanceOf[asm.tree.MethodNode]
+
+        mnode.isLiftedMethod = methSymbol.isLiftedMethod
 
         // TODO param names: (m.params map (p => javaName(p.sym)))
 
