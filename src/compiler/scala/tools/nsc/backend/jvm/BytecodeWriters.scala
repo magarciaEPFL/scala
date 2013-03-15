@@ -6,7 +6,7 @@
 package scala.tools.nsc
 package backend.jvm
 
-import java.io.{ DataOutputStream, FileOutputStream, OutputStream, File => JFile }
+import java.io.{ DataOutputStream, FileOutputStream }
 import scala.tools.nsc.io._
 import scala.tools.nsc.util.ScalaClassLoader
 import java.util.jar.Attributes.Name
