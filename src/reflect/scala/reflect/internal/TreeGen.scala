@@ -249,27 +249,55 @@ abstract class TreeGen extends macros.TreeBuilder {
   /** Builds a list with given head and tail. */
   def mkNil: Tree = mkAttributedRef(NilModule)
 
-  /** Builds a tree representing an undefined local, as in
+  /** Builds a tree representing the value (appropriate to the given type) of an undefined local, as in
    *    var x: T = _
-   *  which is appropriate to the given Type.
+   *
+   *  Shared literals cut down on GC, at the cost of sharing Tree.pos
+   *  (initially NoPosition, but a `PosAssigner` can change all that).
+   *  No problem: `NoPosition` can't break `validatePositions()` under -Yrangepos.
+   *  Additionally, all (current) usages of `mkZero()` are from phases at or past UnCurry.
+   *
+   *  On the same theme of "shared immutable Trees" there's `CODE.sharedBoxedUnitRef`
+   *
    */
   def mkZero(tp: Type): Tree = tp.typeSymbol match {
     case NothingClass => mkMethodCall(Predef_???, Nil) setType NothingClass.tpe
-    case _            => Literal(mkConstantZero(tp)) setType tp
+    case tpsym        => sharedZeroLiterals.getOrElse(tpsym, Literal(mkConstantZero(tp)) setType tp)
   }
 
-  def mkConstantZero(tp: Type): Constant = tp.typeSymbol match {
-    case UnitClass    => Constant(())
-    case BooleanClass => Constant(false)
-    case FloatClass   => Constant(0.0f)
-    case DoubleClass  => Constant(0.0d)
-    case ByteClass    => Constant(0.toByte)
-    case ShortClass   => Constant(0.toShort)
-    case IntClass     => Constant(0)
-    case LongClass    => Constant(0L)
-    case CharClass    => Constant(0.toChar)
-    case _            => Constant(null)
-  }
+  private lazy val sharedZeroLiterals = Map[Symbol, Literal](
+    UnitClass    -> (Literal(Constant(()))        setType UnitClass.toTypeConstructor),
+    BooleanClass -> (Literal(Constant(false))     setType BooleanClass.toTypeConstructor),
+    FloatClass   -> (Literal(Constant(0.0f))      setType FloatClass.toTypeConstructor),
+    DoubleClass  -> (Literal(Constant(0.0d))      setType DoubleClass.toTypeConstructor),
+    ByteClass    -> (Literal(Constant(0.toByte))  setType ByteClass.toTypeConstructor),
+    ShortClass   -> (Literal(Constant(0.toShort)) setType ShortClass.toTypeConstructor),
+    IntClass     -> (Literal(Constant(0))         setType IntClass.toTypeConstructor),
+    LongClass    -> (Literal(Constant(0L))        setType LongClass.toTypeConstructor),
+    CharClass    -> (Literal(Constant(0.toChar))  setType CharClass.toTypeConstructor)
+  )
+
+  lazy val sharedNullLiteral = { Literal(sharedNullConstant) setType NullClass.typeConstructor }
+
+  lazy val sharedThrowNull = { Throw(mkZero(ThrowableClass.tpe)) }
+
+  lazy val sharedTrueLiteral = { Literal(Constant(true)) setType BooleanClass.toTypeConstructor }
+
+  def mkConstantZero(tp: Type): Constant = { sharedConstants.getOrElse(tp.typeSymbol, sharedNullConstant) }
+
+  private lazy val sharedConstants = Map[Symbol, Constant](
+    UnitClass    -> Constant(()),
+    BooleanClass -> Constant(false),
+    FloatClass   -> Constant(0.0f),
+    DoubleClass  -> Constant(0.0d),
+    ByteClass    -> Constant(0.toByte),
+    ShortClass   -> Constant(0.toShort),
+    IntClass     -> Constant(0),
+    LongClass    -> Constant(0L),
+    CharClass    -> Constant(0.toChar)
+  )
+
+  private lazy val sharedNullConstant = Constant(null)
 
   /** Wrap an expression in a named argument. */
   def mkNamedArg(name: Name, tree: Tree): Tree = mkNamedArg(Ident(name), tree)
