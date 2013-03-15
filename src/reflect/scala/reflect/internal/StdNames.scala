@@ -92,6 +92,7 @@ trait StdNames {
 
     val ANON_CLASS_NAME: NameType    = "$anon"
     val ANON_FUN_NAME: NameType      = "$anonfun"
+    val LCC_FUN_NAME: NameType       = "$LCC" + ANON_FUN_NAME.toString
     val EMPTY: NameType              = ""
     val EMPTY_PACKAGE_NAME: NameType = "<empty>"
     val IMPL_CLASS_SUFFIX            = "$class"

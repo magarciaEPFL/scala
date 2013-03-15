@@ -29,17 +29,9 @@ import collection.convert.Wrappers.JListWrapper
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
  */
-abstract class BCodeOptIntra extends BCodeTypes {
+abstract class BCodeOptIntra extends BCodeOptCommon {
 
   import global._
-
-  trait BCodeCleanserIface {
-    def intraMethodFixpoints(full: Boolean)
-  }
-
-  trait QuickCleanserIface {
-    def basicIntraMethodOpt(mnode: asm.tree.MethodNode)
-  }
 
   /**
    *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
