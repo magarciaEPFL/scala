@@ -12,3 +12,11 @@ package scala.runtime
 abstract class AbstractFunction1[@specialized(scala.Int, scala.Long, scala.Float, scala.Double/*, scala.AnyRef*/) -T1, @specialized(scala.Unit, scala.Boolean, scala.Int, scala.Float, scala.Long, scala.Double/*, scala.AnyRef*/) +R] extends Function1[T1, R] {
 
 }
+
+final class MHAbsFun1[@specialized(scala.Int, scala.Long, scala.Float, scala.Double/*, scala.AnyRef*/) -T1, @specialized(scala.Unit, scala.Boolean, scala.Int, scala.Float, scala.Long, scala.Double/*, scala.AnyRef*/) +R](target: _root_.java.lang.invoke.MethodHandle) extends AbstractFunction1[T1, R] {
+  def apply(v1: T1): R = { 
+    val args = new _root_.java.util.ArrayList[Any]()
+    args.add(v1)
+    target.invokeWithArguments(args).asInstanceOf[R]
+ }
+}

@@ -12,3 +12,13 @@ package scala.runtime
 abstract class AbstractFunction3[-T1, -T2, -T3, +R] extends Function3[T1, T2, T3, R] {
 
 }
+
+final class MHAbsFun3[-T1, -T2, -T3, +R](target: _root_.java.lang.invoke.MethodHandle) extends AbstractFunction3[T1, T2, T3, R] {
+  def apply(v1: T1, v2: T2, v3: T3): R = { 
+    val args = new _root_.java.util.ArrayList[Any]()
+    args.add(v1)
+    args.add(v2)
+    args.add(v3)
+    target.invokeWithArguments(args).asInstanceOf[R]
+ }
+}
