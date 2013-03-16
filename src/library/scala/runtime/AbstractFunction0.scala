@@ -12,3 +12,10 @@ package scala.runtime
 abstract class AbstractFunction0[@specialized(Specializable.Primitives) +R] extends Function0[R] {
 
 }
+
+final class MHAbsFun0[@specialized(Specializable.Primitives) +R](target: _root_.java.lang.invoke.MethodHandle) extends AbstractFunction0[R] {
+  def apply(): R = { 
+    val args = new _root_.java.util.ArrayList[Any]()
+    target.invokeWithArguments(args).asInstanceOf[R]
+ }
+}
