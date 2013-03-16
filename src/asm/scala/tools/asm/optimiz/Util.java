@@ -666,6 +666,24 @@ public class Util {
         return sw.toString().trim();
     }
 
+    /**
+     * Returns a human-readable representation of the given instruction sequence.
+     */
+    public static String textify(final Iterable<AbstractInsnNode> insns) {
+        scala.tools.asm.util.TraceMethodVisitor trace = new scala.tools.asm.util.TraceMethodVisitor(new Textifier());
+
+        Iterator<AbstractInsnNode> iter = insns.iterator();
+        while(iter.hasNext()) {
+            AbstractInsnNode insn = iter.next();
+            insn.accept(trace);
+        }
+
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter  pw = new java.io.PrintWriter(sw);
+        trace.p.print(pw);
+        return sw.toString().trim();
+    }
+
     public static class ClonedMethod {
 
         public final MethodNode mnode;
