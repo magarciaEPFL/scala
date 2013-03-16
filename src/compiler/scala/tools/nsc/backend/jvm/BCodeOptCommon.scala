@@ -608,7 +608,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
     /**
      * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
      * */
-    private def instantiatedDClosure(insn: AbstractInsnNode): BType = {
+    def instantiatedDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getOpcode == Opcodes.NEW) {
         val ti  = insn.asInstanceOf[TypeInsnNode]
         val dbt = lookupRefBType(ti.desc)
@@ -1122,7 +1122,9 @@ abstract class BCodeOptCommon extends BCodeTypes {
      *
      * */
     def minimizeDClosureAllocations() {
-      singletonizeDClosures()         // Case (1) empty closure state
+      if(!settings.isClosureConvMH) {
+        singletonizeDClosures()         // Case (1) empty closure state
+      }
     }
 
     /**

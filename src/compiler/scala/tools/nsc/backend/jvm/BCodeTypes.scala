@@ -844,9 +844,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   var StringBuilderReference: BType = null
 
-  // scala.FunctionX and scala.runtim.AbstractFunctionX
+  // scala.FunctionX , scala.runtime.AbstractFunctionX , scala.runtime.MHAbsFunX
   val FunctionReference                 = new Array[Tracked](definitions.MaxFunctionArity + 1)
   val AbstractFunctionReference         = new Array[Tracked](definitions.MaxFunctionArity + 1)
+  val MHAbsFunReference         = new Array[Tracked](definitions.MaxFunctionArity + 1)
+
   val abstractFunctionArityMap = mutable.Map.empty[BType, Int]
 
   var PartialFunctionReference:         BType = null // scala.PartialFunction
@@ -946,6 +948,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     for(idx <- 0 to definitions.MaxFunctionArity) {
       FunctionReference(idx)           = exemplar(FunctionClass(idx))
       AbstractFunctionReference(idx)   = exemplar(AbstractFunctionClass(idx))
+      MHAbsFunReference(idx)           = exemplar(MHAbsFunClass(idx))
       abstractFunctionArityMap        += (AbstractFunctionReference(idx).c -> idx)
       AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
 
