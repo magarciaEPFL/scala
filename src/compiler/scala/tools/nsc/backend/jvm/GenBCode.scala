@@ -13,7 +13,7 @@ import scala.tools.nsc.symtab._
 import scala.annotation.switch
 
 import scala.tools.asm
-import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
+import asm.tree.{LdcInsnNode, FieldNode, MethodInsnNode, MethodNode}
 
 /*
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -98,7 +98,7 @@ import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
  *  @version 1.0
  *
  */
-abstract class GenBCode extends BCodeOptInter {
+abstract class GenBCode extends BCodeOptMethodHandles {
   import global._
   import definitions._
 
@@ -114,6 +114,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     val isOptimizRun      = settings.isIntraMethodOptimizOn
     val isIntraProgramOpt = settings.isIntraProgramOpt
+    val isClosuConvMH     = settings.isClosureConvMH
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -212,7 +213,7 @@ abstract class GenBCode extends BCodeOptInter {
     class Worker1(needsOutFolder: Boolean) extends _root_.java.lang.Runnable {
 
       val isDebugRun            = settings.debug.value
-      val mustPopulateCodeRepo  = isIntraProgramOpt || isDebugRun
+      val mustPopulateCodeRepo  = isIntraProgramOpt || isDebugRun || settings.isClosureConvMH
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
@@ -445,6 +446,13 @@ abstract class GenBCode extends BCodeOptInter {
         refreshInnerClasses(cnode)
         item.lateClosures foreach refreshInnerClasses
 
+        if(isClosuConvMH) {
+          for(mnode <- cnode.toMethodList; if asm.optimiz.Util.hasBytecodeInstructions(mnode)) {
+            // it's ok for this to run after `rephraseBackedgesSlow()` because no backedges are introduced.
+            new LCC2MHBased(cnode, mnode)
+          }
+        }
+
         addToQ3(item)
 
       } // end of method visit(Item2)
@@ -480,7 +488,9 @@ abstract class GenBCode extends BCodeOptInter {
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
-          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
+          val s3 = if(isClosuConvMH) null else SubItem3(lateC.name, getByteArray(lateC))
+
+          q3 put Item3(arrivalPos + lateClosuresCount, null, s3, null, outFolder)
         }
 
       }

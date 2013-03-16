@@ -206,8 +206,8 @@ trait ScalaSettings extends AbsScalaSettings
                                    List("GenASM", "GenBCode", "o1", "o2", "o3"),
                                    "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
-                                   List("traditional", "delegating"),
-                                   "delegating") // TODO once merged into trunk "traditional" should be the default
+                                   List("traditional", "delegating", "MH"),
+                                   "MH") // TODO once merged into trunk "traditional" should be the default
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
