@@ -265,17 +265,20 @@ abstract class TreeGen extends macros.TreeBuilder {
     case tpsym        => sharedZeroLiterals.getOrElse(tpsym, Literal(mkConstantZero(tp)) setType tp)
   }
 
-  private lazy val sharedZeroLiterals = Map[Symbol, Literal](
-    UnitClass    -> (Literal(Constant(()))        setType UnitClass.toTypeConstructor),
-    BooleanClass -> (Literal(Constant(false))     setType BooleanClass.toTypeConstructor),
-    FloatClass   -> (Literal(Constant(0.0f))      setType FloatClass.toTypeConstructor),
-    DoubleClass  -> (Literal(Constant(0.0d))      setType DoubleClass.toTypeConstructor),
-    ByteClass    -> (Literal(Constant(0.toByte))  setType ByteClass.toTypeConstructor),
-    ShortClass   -> (Literal(Constant(0.toShort)) setType ShortClass.toTypeConstructor),
-    IntClass     -> (Literal(Constant(0))         setType IntClass.toTypeConstructor),
-    LongClass    -> (Literal(Constant(0L))        setType LongClass.toTypeConstructor),
-    CharClass    -> (Literal(Constant(0.toChar))  setType CharClass.toTypeConstructor)
-  )
+  private lazy val sharedZeroLiterals: Map[Symbol, Literal] = Map(
+    UnitClass    -> (),
+    BooleanClass -> false,
+    FloatClass   -> 0.0f,
+    DoubleClass  -> 0.0d,
+    ByteClass    -> 0.toByte,
+    ShortClass   -> 0.toShort,
+    IntClass     -> 0,
+    LongClass    -> 0L,
+    CharClass    -> 0.toChar
+  ).map {
+    case (cls, value) =>
+      Pair(cls, Literal(Constant(value)) setType cls.toTypeConstructor)
+  }
 
   lazy val sharedNullLiteral = { Literal(sharedNullConstant) setType NullClass.typeConstructor }
 
@@ -285,17 +288,7 @@ abstract class TreeGen extends macros.TreeBuilder {
 
   def mkConstantZero(tp: Type): Constant = { sharedConstants.getOrElse(tp.typeSymbol, sharedNullConstant) }
 
-  private lazy val sharedConstants = Map[Symbol, Constant](
-    UnitClass    -> Constant(()),
-    BooleanClass -> Constant(false),
-    FloatClass   -> Constant(0.0f),
-    DoubleClass  -> Constant(0.0d),
-    ByteClass    -> Constant(0.toByte),
-    ShortClass   -> Constant(0.toShort),
-    IntClass     -> Constant(0),
-    LongClass    -> Constant(0L),
-    CharClass    -> Constant(0.toChar)
-  )
+  private lazy val sharedConstants: Map[Symbol, Constant] = sharedZeroLiterals.map { case (cls, const) => (cls, const.value) }
 
   private lazy val sharedNullConstant = Constant(null)
 
