@@ -642,7 +642,8 @@ abstract class BCodeOptCommon extends BCodeTypes {
     }
 
     /**
-     * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case. Otherwise null.
+     * Matches a dclosure instantiation or endpoint invocation, BUT NOT a dclosure <init> invocation,
+     * returning the dclosure's BType in that case. Otherwise null.
      * */
     private def accessedDClosure(insn: AbstractInsnNode): BType = {
       instantiatedDClosure(insn) match {
@@ -1186,9 +1187,8 @@ abstract class BCodeOptCommon extends BCodeTypes {
           // -------- (1.b) modify the master class (replace instantiation by GETSTATIC of the singleton)
           for(
             callerInMaster <- JListWrapper(masterCNode.methods);
-            newInsn        <- closuRepo.closureAccesses(callerInMaster, d)
+            if Util.hasBytecodeInstructions(callerInMaster)
           ) {
-            assert(newInsn.getOpcode == Opcodes.NEW)
             /*
              * A dclosure instantiation (the code pattern to replace) usually looks like:
              *
@@ -1208,69 +1208,47 @@ abstract class BCodeOptCommon extends BCodeTypes {
              * The second case arises because PushPopCollapser doesn't back-propagate POP over CHECKCAST
              * (that would requires a type-flow based analysis).
              *
+             * In both cases, the instructions of `callerInMaster` are scanned to collect two lists:
+             *   (a) list of NEW dclosure
+             *   (b) list of INVOKESPECIAL dclosure.<init>(...)V
+             * where `dclosure` is the dclosure being singletonized.
+             * Once the scan of `callerInMaster.instructions` is over,
+             *   (c) elements of (a) and their following DUP are removed,
+             *   (d) elements of (b) are turned into GETSTATIC singleton
+             *
              * */
 
-                def snippetTest(idx: Int, insn: AbstractInsnNode, pf: PartialFunction[AbstractInsnNode, Boolean]): Boolean = {
-                  val isBoilerplate = pf.isDefinedAt(insn) && pf(insn)
-                  if(!isBoilerplate) {
-                    log(
-                      s"Attempt to replace instantiation with GETSTATIC of singleton dclosure ${d.getInternalName} " +
-                      s"in method ${methodSignature(masterCNode, callerInMaster)}."  +
-                      s"Expected another instruction at index ${callerInMaster.instructions.indexOf(insn)} but found ${Util.textify(insn)}\n." +
-                       "Here's the complete bytecode of that method:" + Util.textify(callerInMaster)
-                    )
-                  }
+            var newInsns: List[AbstractInsnNode] = Nil
+            var iniInsns: List[AbstractInsnNode] = Nil
 
-                  isBoilerplate
+            callerInMaster.foreachInsn { insn =>
+              if(insn.getOpcode == Opcodes.NEW) {
+                val ti = insn.asInstanceOf[TypeInsnNode]
+                if(ti.desc == dCNode.name) {
+                  newInsns ::= ti
                 }
-
-            val isLasInsnInBoilerplate: PartialFunction[AbstractInsnNode, Boolean] =
-              { case mi: MethodInsnNode =>
-                  mi.getOpcode == Opcodes.INVOKESPECIAL &&
-                  mi.owner     == d.getInternalName     &&
-                  mi.name      == "<init>" &&
-                  mi.desc      == "()V"
-                case _ => false
-              }
-
-                // logs only the first divergence from "boilerplate"
-                def isBoilerplate = {
-                  snippetTest(0, newInsn,         { case ti: TypeInsnNode   => ti.getOpcode == Opcodes.NEW && ti.desc == d.getInternalName }) &&
-                  snippetTest(1, newInsn.getNext, { case di: InsnNode       => di.getOpcode == Opcodes.DUP }) &&
-                  snippetTest(2, newInsn.getNext.getNext, isLasInsnInBoilerplate)
+              } else if (insn.getOpcode == Opcodes.INVOKESPECIAL) {
+                val mi = insn.asInstanceOf[MethodInsnNode]
+                if((mi.name == "<init>") && (mi.owner == dCNode.name)) {
+                  iniInsns ::= mi
                 }
-
-            val lastInsn: MethodInsnNode = {
-              var current: AbstractInsnNode = newInsn
-              while(!isLasInsnInBoilerplate(current)) {
-                current = current.getNext
               }
-              current.asInstanceOf[MethodInsnNode]
             }
 
-            if(!isBoilerplate) {
-              val dupInsn = newInsn.getNext
-              assert(dupInsn.getOpcode == Opcodes.DUP)
-              // move NEW, DUP right before INVOKESPECIAL <init> , ie right before `lastInsn` of the instruction bracket
-              callerInMaster.instructions.remove(newInsn)
-              callerInMaster.instructions.remove(dupInsn)
-              callerInMaster.instructions.insertBefore(lastInsn, newInsn)
-              callerInMaster.instructions.insertBefore(lastInsn, dupInsn)
-              assert(isBoilerplate)
+            val stream = callerInMaster.instructions
+            for(ni <- newInsns) {
+              val dup = ni.getNext
+              assert(dup.getOpcode == Opcodes.DUP)
+              stream.remove(ni)
+              stream.remove(dup)
+            }
+            for(ini <- iniInsns) {
+              stream.set(
+                ini,
+                new FieldInsnNode(Opcodes.GETSTATIC, dCNode.name, single.name, single.desc)
+              )
             }
 
-            // remove all instructions of the bracket except for the first one, NEW dclosure
-            var current: AbstractInsnNode = lastInsn
-            while(current ne newInsn) {
-              val prev = current.getPrevious
-              callerInMaster.instructions.remove(current)
-              current = prev
-            }
-            // replace NEW dclosure by GETSTATIC singleton
-            callerInMaster.instructions.set(
-              newInsn,
-              new FieldInsnNode(Opcodes.GETSTATIC, d.getInternalName, single.name, single.desc)
-            )
           }
 
         }
