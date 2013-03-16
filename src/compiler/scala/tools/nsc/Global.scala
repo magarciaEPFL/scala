@@ -1418,6 +1418,16 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
       }
 
+      // ------------ MethodHandles require -target:jvm-1.7 or higher
+
+      if(settings.isClosureConvMH) {
+        val tv = settings.target.value
+        val isTargetOK = (tv == "jvm-1.7") || (tv == "jvm-1.8")
+        if(!isTargetOK) {
+          complain(settings.target.toString + " does not support MethodHandles. They require -target:jvm-1.7 or higher.")
+        }
+      }
+
     } // end of method checkConflictingSettings()
 
     /* An iterator returning all the units being compiled in this run */
