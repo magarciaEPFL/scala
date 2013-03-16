@@ -434,7 +434,24 @@ class AbstractFunction(val i: Int) extends Group("AbstractFunction") with Arity
 abstract class {className}{contraCoArgs} extends Function{i}{superTypeArgs} {{
 {moreMethods}
 }}
+
+final class MHAbsFun{i}{contraCoArgs}(target: _root_.java.lang.invoke.MethodHandle) extends {className}{superTypeArgs} {{
+{mhApply}
+}}
 </file>}
+
+  def mhApply = {
+    // for example, def apply(v1: T1, v2: T2): R = { target.bindTo(v1).bindTo(v2).invoke().asInstanceOf[R] }
+    "  def apply" + appFormalParams.mkString("(", ", ", ")") + ": R = { \n" + appInvocation + " }"
+  }
+
+  def appFormalParams = { for(j <- 1 to i) yield { "v" + j + ": T" + j } }
+
+  def appInvocation: String = {
+    "    val args = new _root_.java.util.ArrayList[Any]()\n" +
+    ((1 to i) map { j: Int => "    args.add(v" + j + ")\n" }).mkString +
+    "    target.invokeWithArguments(args).asInstanceOf[R]\n"
+  }
 
 }
 object AbstractFunction
