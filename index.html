@@ -296,7 +296,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, "singletonize" closures</td> </tr>
 <tr>
 <td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
-</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored5/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L204">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored5/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
 
