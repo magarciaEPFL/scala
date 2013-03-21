@@ -705,6 +705,8 @@ trait Opcodes { self: ICodes =>
       /** Is this a static method call? */
       def isStatic: Boolean = false
 
+      def isSuper: Boolean = false
+
       /** Is this an instance method call? */
       def hasInstance: Boolean = true
 
@@ -738,6 +740,7 @@ trait Opcodes { self: ICodes =>
      *  On JVM, translated to `invokespecial`.
      */
     case class SuperCall(mix: Name) extends InvokeStyle {
+      override def isSuper = true
       override def toString(): String = { "super(" + mix + ")" }
     }
   }

@@ -24,6 +24,7 @@ import transform.patmat.PatternMatching
 import transform._
 import backend.icode.{ ICodes, GenICode, ICodeCheckers }
 import backend.{ ScalaPrimitives, Platform, JavaPlatform }
+import backend.jvm.GenBCode
 import backend.jvm.GenASM
 import backend.opt.{ Inliners, InlineExceptionHandlers, ConstantOptimization, ClosureElimination, DeadCodeElimination }
 import backend.icode.analysis._
@@ -614,6 +615,13 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val runsAfter = List("dce")
     val runsRightAfter = None
   } with GenASM
+
+  // phaseName = "bcode"
+  object genBCode extends {
+    val global: Global.this.type = Global.this
+    val runsAfter = List("dce")
+    val runsRightAfter = None
+  } with GenBCode
 
   // phaseName = "terminal"
   object terminal extends {
@@ -1368,14 +1376,49 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       _unitbufSize += 1 // counting as they're added so size is cheap
       compiledFiles += unit.source.file.path
     }
+    private def checkQuestionableSettings(unit: CompilationUnit) {
+      checkDeprecatedSettings(unit)
+      checkConflictingSettings(unit)
+    }
     private def checkDeprecatedSettings(unit: CompilationUnit) {
       // issue warnings for any usage of deprecated settings
       settings.userSetSettings filter (_.isDeprecated) foreach { s =>
         unit.deprecationWarning(NoPosition, s.name + " is deprecated: " + s.deprecationMessage.get)
       }
-      if (settings.target.value.contains("jvm-1.5"))
+      if (settings.target.value.contains("jvm-1.5")) {
         unit.deprecationWarning(NoPosition, settings.target.name + ":" + settings.target.value + " is deprecated: use target for Java 1.6 or above.")
     }
+    }
+    private def checkConflictingSettings(unit: CompilationUnit) {
+
+          def complain(msg: String) { unit.error(NoPosition, msg) }
+
+      // ------------ ICode and GenBCode exclude each other
+      //              To ease the transition, ICode is given preference whenever a compiler flag (indirectly) asks for it.
+
+      val c1 = settings.isICodeAskedFor
+      val c2 = settings.isBCodeAskedFor && settings.neo.isSetByUser
+      if(c1 && c2) {
+
+        var whyICode: List[String] = Nil
+
+        if (settings.optimise.isSetByUser) {
+          whyICode ::= settings.optimise.name
+        } else {
+          whyICode :::= settings.optimiseSettings.filter(_.value).map(s => s.name)
+        }
+
+        if (settings.writeICode.isSetByUser) { whyICode ::= settings.writeICode.name }
+        if (settings.neo.value == "GenASM")  { whyICode ::= settings.neo.toString }
+
+        complain(
+          s"Settings ${whyICode.mkString(" , ")} (requesting the GenASM backend) and " +
+          s"${settings.neo.toString} (requesting the GenBCode backend) are contradictory."
+        )
+
+      }
+
+    } // end of method checkConflictingSettings()
 
     /* An iterator returning all the units being compiled in this run */
     /* !!! Note: changing this to unitbuf.toList.iterator breaks a bunch
@@ -1481,7 +1524,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
       // nothing to compile, but we should still report use of deprecated options
       if (sources.isEmpty) {
-        checkDeprecatedSettings(newCompilationUnit(""))
+        checkQuestionableSettings(newCompilationUnit(""))
         reportCompileErrors()
         return
       }
@@ -1509,7 +1552,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       val startTime = currentTime
 
       reporter.reset()
-      checkDeprecatedSettings(unitbuf.head)
+      checkQuestionableSettings(unitbuf.head)
       globalPhase = fromPhase
 
      while (globalPhase.hasNext && !reporter.hasErrors) {
