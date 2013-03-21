@@ -305,9 +305,11 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         // ----------- dead-code is removed before the inliner can see it.
+        // ----------- squashOuter() cannot run after inliner (it relies on dclosures having a single owner)
         if(isInliningRun) {
           val essential = new EssentialCleanser(plainC)
-          essential.codeFixups()
+          essential.codeFixupDCE()
+          essential.codeFixupSquashLCC(lateClosures)
         }
 
         // ----------- hand over to pipeline-2
@@ -411,11 +413,18 @@ abstract class GenBCode extends BCodeOptInter {
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode)
           cleanser.codeFixupDCE()
+          // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
+          // under -o0 `squashOuter()` is invoked in the else-branch below
+          // under -o2 `squashOuter()` runs before inlining, ie in `Worker1.visit()`
+          // under -o3 or higher, rather than `squashOuter()`, the more powerful `minimizeDClosureFields()` is run instead
+          cleanser.codeFixupSquashLCC(item.lateClosures)
           cleanser.cleanseClass()
         }
         else {
+          // the minimal fixups needed, even for unoptimized runs.
           val essential = new EssentialCleanser(cnode)
-          essential.codeFixupDCE()    // the minimal fixups needed, even for unoptimized runs.
+          essential.codeFixupDCE()
+          essential.codeFixupSquashLCC(item.lateClosures)
         }
 
         refreshInnerClasses(cnode)
@@ -972,6 +981,7 @@ abstract class GenBCode extends BCodeOptInter {
         thisName          = internalName(claszSymbol)
 
         cnode = new asm.tree.ClassNode()
+        cnode.isStaticModule = isCZStaticModule
 
         initJClass(cnode)
 
@@ -1108,6 +1118,8 @@ abstract class GenBCode extends BCodeOptInter {
           jgensig,
           mkArray(thrownExceptions)
         ).asInstanceOf[asm.tree.MethodNode]
+
+        mnode.isLiftedMethod = methSymbol.isLiftedMethod
 
         // TODO param names: (m.params map (p => javaName(p.sym)))
 
@@ -1649,7 +1661,7 @@ abstract class GenBCode extends BCodeOptInter {
        *          (b.2) Upon early-return initiated in the try-clause or a catch-clause
        *                In this case, the next-program-point is the enclosing cleanup section (if any), otherwise return.
        *          (b.3) Upon abrupt termination (due to unhandled exception) of the try-clause or a catch-clause
-       *                In this case, the unhandled exception must be re-thrown after runnint the finally-block.
+       *                In this case, the unhandled exception must be re-thrown after running the finally-block.
        *
        *    (c) finally-blocks are implicit to `synchronized` (a finally-block is added to just release the lock)
        *        that's why `genSynchronized()` too emits cleanup-sections.
@@ -1803,7 +1815,7 @@ abstract class GenBCode extends BCodeOptInter {
          *              Given that control arrives to a cleanup section only upon early RETURN,
          *              the value to return (if any) is always available. Therefore, a further RETURN
          *              found in a cleanup section is always ignored (a warning is displayed, @see `genReturn()`).
-         *              In order for `genReturn()` to know whether the return stament is enclosed in a cleanup section,
+         *              In order for `genReturn()` to know whether the return statement is enclosed in a cleanup section,
          *              the variable `insideCleanupBlock` is used.
          * ------
          */
