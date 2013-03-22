@@ -66,7 +66,7 @@
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
 </ul><h2>1.4 Method handles</h2>
 
-<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv2</code> puts MHs to work in replacing anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is:</p>
+<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv2</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
 
 <p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored7...GenMHv2">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored7...GenMHv2</a></p>
 
@@ -78,11 +78,7 @@
     ant all.clean &amp;&amp; ant
 </code></pre>
 
-<p>This option requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format that JDK8 will introduce. In the meantime,  <code>-target:jvm-1.7</code> class files can also be used on that platform (JDK 8 is better at JSR-292 in terms of performance and bug fixes). </p>
-
-<p>Ways to improve performance are described (for a slighty older version of the prototype) at:</p>
-
-<p><a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
+<p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. More details about this prototype at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
 
 <h1>2 What's new in the new optimizer</h1>
 
