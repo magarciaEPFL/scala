@@ -36,11 +36,11 @@ trait TreeDSL {
     }
 
     // Boring, predictable trees.
-    def TRUE  = LIT typed true
-    def FALSE = LIT typed false
+    def TRUE  = LIT typed true  // TODO gen.sharedTrueLiteral
+    def FALSE = LIT typed false // TODO gen.mkZero(BooleanClass.tpe)
     def ZERO  = LIT(0)
-    def NULL  = LIT(null)
-    def UNIT  = LIT(())
+    def NULL  = LIT(null)       // TODO gen.sharedNullLiteral
+    def UNIT  = LIT(())         // TODO gen.mkZero(UnitClass.tpe)
 
     object WILD {
       def empty               = Ident(nme.WILDCARD)
