@@ -114,6 +114,7 @@ abstract class GenBCode extends BCodeOptInter {
 
     val isOptimizRun  = settings.isIntraMethodOptimizOn
     val isInliningRun = settings.isInterBasicOptimizOn
+    val doesInliningAndNoMore = isInliningRun && !settings.isInterClosureOptimizOn
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -306,7 +307,9 @@ abstract class GenBCode extends BCodeOptInter {
 
         // ----------- dead-code is removed before the inliner can see it.
         // ----------- squashOuter() cannot run after inliner (it relies on dclosures having a single owner)
-        if(isInliningRun) {
+        // however, under -o3 or higher it's not necessary to squash them here (sequentially)
+        // because minimizeDClosureFields() takes care of that
+        if(doesInliningAndNoMore) {
           val essential = new EssentialCleanser(plainC)
           essential.codeFixupDCE()
           essential.codeFixupSquashLCC(lateClosures)
@@ -370,6 +373,9 @@ abstract class GenBCode extends BCodeOptInter {
      */
     class Worker2 extends _root_.java.lang.Runnable {
 
+      val isInterClosureOptimizOn = settings.isInterClosureOptimizOn
+      val doesLevelO1AndNoMore    = isOptimizRun && !isInliningRun
+
       def run() {
         val id = java.lang.Thread.currentThread.getId
         woStarted.put(id, id)
@@ -411,7 +417,7 @@ abstract class GenBCode extends BCodeOptInter {
         }
 
         if(isOptimizRun) {
-          val cleanser = new BCodeCleanser(cnode)
+          val cleanser = new BCodeCleanser(cnode, isInterClosureOptimizOn)
           cleanser.codeFixupDCE()
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
