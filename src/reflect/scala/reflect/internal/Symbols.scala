@@ -3400,6 +3400,42 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
   Statistics.newView("#symbols")(ids)
 
+// -------------- Symbol-savvy collections ------------------------------------------
+
+  /**
+   *  In those cases where a Set[Symbol] is being used just to add, remove, and test membership;
+   *  a Set[Int] (containing symbol-ids) can be used to the same effect
+   *  (caveat: assuming the symbols in question are reachable via other means, eg via Tree references,
+   *  so that they aren't GC'd).
+   *
+   *  This class supports that scenario at a fraction of the GC cost, also saving on Symbol.hashCode().
+   *
+   */
+  final class SetOfSymIds {
+    private val s = new IntSet
+
+    def apply(sym: Symbol): Boolean = { s.apply(sym.id) }
+    def contains(sym: Symbol): Boolean = { s.apply(sym.id) }
+
+    def +=(sym: Symbol) { s insert (sym.id) }
+    def -=(sym: Symbol) { s -=     (sym.id) }
+
+    def ++=(syms: Iterable[Symbol])   { syms foreach += }
+    def --=(syms: Iterable[Symbol])   { syms foreach -= }
+
+    def clear() { s.clear() }
+  }
+
+  object SetOfSymIds {
+    def empty = { new SetOfSymIds }
+
+    def create(syms: Iterable[Symbol]): SetOfSymIds = {
+      val s = new SetOfSymIds
+      s ++= syms;
+      s
+    }
+  }
+
 }
 
 object SymbolsStats {
