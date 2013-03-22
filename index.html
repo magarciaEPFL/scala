@@ -33,7 +33,7 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored7</code> of <code>scalac</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact, using all along the standard library available in the distribution.</p>
+<p>The experimental branch <code>GenRefactored7</code> of <code>scalac</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <h2>1.1 Why a new optimizer</h2>
 
@@ -227,14 +227,13 @@ the producer has its value consumed only by the DROP in question.</li>
 <p>Let's take scala/scala as case study, compiling src/compiler and src/reflect together using:</p>
 
 <ol>
-<li>"Old": GenICode, the current optimizer, and GenASM.</li>
-<li>"New": GenBCode and the experimental optimizer.</li>
+<li>GenICode, the current optimizer, and GenASM.</li>
+<li>GenBCode and the experimental optimizer (highlighted).</li>
 </ol><p>The new optimizer produces smaller JARs:</p>
 
-<ol>
-<li><code>"Old": Total length 35'731'733, packed length 13'981'556</code></li>
-<li><code>"New": Total length 30'533'362, packed length 12'191'163</code></li>
-</ol><p>The above reflects not so much code reductions (in terms of instruction count) but smaller constant pools due to Lean Closure Classes (an LCC just delegates to the class where the anon-closure is instantiated, which usually already has the constant pool entries that under "traditional" closure conversion have to be duplicated in the anon-closure-class).</p>
+<p><img src="http://lampwww.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/SizeComparison.png" alt="jar size comparison"></p>
+
+<p>The above reflects not so much code reductions (in terms of instruction count) but smaller constant pools due to Lean Closure Classes (an LCC just delegates to the class where the anon-closure is instantiated, which usually already has the constant pool entries that under "traditional" closure conversion have to be duplicated in the anon-closure-class).</p>
 
 <p>If you're after code size reductions as well, <code>-neo:o1</code> (intra-method optimizations) or up will do the trick. Moreover, on a multicore <code>-neo:o1</code> doesn't increase appreciably compilation time, I'm actually thinking making it default.</p>
 
