@@ -381,7 +381,7 @@ abstract class UnCurry extends InfoTransform
       }
 
       val zeroes: List[Tree] = (formals map { frml =>
-        if (isRepeatedParamType(frml)) { gen.mkZero(NullClass.typeConstructor) }
+        if (isRepeatedParamType(frml)) { gen.sharedNullLiteral }
         else { gen.mkZero(frml) }
       })
 
