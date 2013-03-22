@@ -57,16 +57,34 @@
 <li>disk writing and class file building overlap (the more source files, the larger the speedup)</li>
 </ul><h2>1.3 Leaner Closure ASTs</h2>
 
-<p><strong>N.B.: MethodHandles are work in progress, the rest works already.</strong></p>
-
 <p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). In this prototype, the creation of AST nodes for closures is postponed, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
 <p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. The implementation-level representation can be chosen among:</p>
 
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
-<li>JSR-292 Method Handles, when using <code>-closurify:MH</code>. This option requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format that JDK8 will introduce. In the meantime,  <code>-target:jvm-1.7</code> class files can also be used on that platform (JDK 8 is better at JSR-292 in terms of performance and bug fixes). </li>
-</ul><h1>2 What's new in the new optimizer</h1>
+<li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
+</ul><h2>1.4 Method handles</h2>
+
+<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv2</code> puts MHs to work in replacing anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is:</p>
+
+<p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored7...GenMHv2">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored7...GenMHv2</a></p>
+
+<p>Sources can be obtained via:</p>
+
+<pre><code>    git clone git://github.com/magarciaEPFL/scala.git GenMHv2
+    cd GenMHv2
+    git checkout -b GenMHv2 origin/GenMHv2
+    ant all.clean &amp;&amp; ant
+</code></pre>
+
+<p>This option requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format that JDK8 will introduce. In the meantime,  <code>-target:jvm-1.7</code> class files can also be used on that platform (JDK 8 is better at JSR-292 in terms of performance and bug fixes). </p>
+
+<p>Ways to improve performance are described (for a slighty older version of the prototype) at:</p>
+
+<p><a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
+
+<h1>2 What's new in the new optimizer</h1>
 
 <h2>2.1 Inlining</h2>
 
