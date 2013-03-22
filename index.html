@@ -351,8 +351,6 @@ That optimization level requires --closurify:delegating or --closurify:MH
 <h1>5 Future Work</h1>
 
 <ol>
-<li>lower GC overhead in those cases where symbol-ids (Ints) can be used instead of symbols, ie rather than set-of-symbol and symbol-to-symbol map, use instead <code>Set[Int]</code> and <code>Map[Int, Symbol]</code>. Examples at <a href="https://groups.google.com/d/topic/scala-internals/leI41TCuTdc/discussion">down with set-of-symbol</a>
-</li>
 <li>task-parallelism in <code>inliningRound()</code> thus making not just <code>-neo:o2</code> faster but higher levels too (inlining is the bottleneck, Levels 3 and 4 are themselves relatively fast).</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6941">SI-6941</a> Pattern matcher inefficiency for basic constructor patterns</li>
@@ -365,17 +363,7 @@ That optimization level requires --closurify:delegating or --closurify:MH
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
-</ul><p>Suggestions for improvement need not be "sophisticate" to be useful :) For example, it's easy game for GenBCode to reduce:</p>
-
-<pre><code>new #17; //class scala/runtime/IntRef
-dup
-iconst_0
-invokespecial   #20; //Method scala/runtime/IntRef."&lt;init&gt;":(I)V
-</code></pre>
-
-<p>to just a static invocation (of a factory method added for that common case in <code>scala.runtime.IntRef</code>). And so on so forth.</p>
-
-<h1>6 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+</ul><h1>6 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
