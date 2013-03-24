@@ -98,9 +98,10 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
 
       debuglog(s"Created new bytecode generator for ${classes.size} classes.")
       val bytecodeWriter  = initBytecodeWriter(sortedClasses filter isJavaEntryPoint)
-      val plainCodeGen    = new JPlainBuilder(bytecodeWriter)
-      val mirrorCodeGen   = new JMirrorBuilder(bytecodeWriter)
-      val beanInfoCodeGen = new JBeanInfoBuilder(bytecodeWriter)
+      val needsOutfile    = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
+      val plainCodeGen    = new JPlainBuilder(   bytecodeWriter, needsOutfile)
+      val mirrorCodeGen   = new JMirrorBuilder(  bytecodeWriter, needsOutfile)
+      val beanInfoCodeGen = new JBeanInfoBuilder(bytecodeWriter, needsOutfile)
 
       def emitFor(c: IClass) {
         if (isStaticModule(c.symbol) && isTopLevelModule(c.symbol)) {
@@ -393,7 +394,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
   }
 
   /** basic functionality for class file building */
-  abstract class JBuilder(bytecodeWriter: BytecodeWriter) {
+  abstract class JBuilder(bytecodeWriter: BytecodeWriter, needsOutfile: Boolean) {
 
     val EMPTY_STRING_ARRAY = Array.empty[String]
 
@@ -451,7 +452,10 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
     def writeIfNotTooBig(label: String, jclassName: String, jclass: asm.ClassWriter, sym: Symbol) {
       try {
         val arr = jclass.toByteArray()
-        bytecodeWriter.writeClass(label, jclassName, arr, sym)
+        val outF: scala.tools.nsc.io.AbstractFile = {
+          if(needsOutfile) getFile(sym, jclassName, ".class") else null
+        }
+        bytecodeWriter.writeClass(label, jclassName, arr, outF)
       } catch {
         case e: java.lang.RuntimeException if(e.getMessage() == "Class file too large!") =>
           // TODO check where ASM throws the equivalent of CodeSizeTooBigException
@@ -682,7 +686,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
 
 
   /** functionality for building plain and mirror classes */
-  abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter) extends JBuilder(bytecodeWriter) {
+  abstract class JCommonBuilder(bytecodeWriter: BytecodeWriter, needsOutfile: Boolean) extends JBuilder(bytecodeWriter, needsOutfile) {
 
     def debugLevel = settings.debuginfo.indexOfChoice
 
@@ -1232,8 +1236,8 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
   case class BlockInteval(start: BasicBlock, end: BasicBlock)
 
   /** builder of plain classes */
-  class JPlainBuilder(bytecodeWriter: BytecodeWriter)
-    extends JCommonBuilder(bytecodeWriter)
+  class JPlainBuilder(bytecodeWriter: BytecodeWriter, needsOutfile: Boolean)
+    extends JCommonBuilder(bytecodeWriter, needsOutfile)
     with    JAndroidBuilder {
 
     val MIN_SWITCH_DENSITY = 0.7
@@ -2869,7 +2873,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
 
 
   /** builder of mirror classes */
-  class JMirrorBuilder(bytecodeWriter: BytecodeWriter) extends JCommonBuilder(bytecodeWriter) {
+  class JMirrorBuilder(bytecodeWriter: BytecodeWriter, needsOutfile: Boolean) extends JCommonBuilder(bytecodeWriter, needsOutfile) {
 
     private var cunit: CompilationUnit = _
     def getCurrentCUnit(): CompilationUnit = cunit
@@ -2921,7 +2925,7 @@ abstract class GenASM extends SubComponent with BytecodeWriters with GenJVMASM {
 
 
   /** builder of bean info classes */
-  class JBeanInfoBuilder(bytecodeWriter: BytecodeWriter) extends JBuilder(bytecodeWriter) {
+  class JBeanInfoBuilder(bytecodeWriter: BytecodeWriter, needsOutfile: Boolean) extends JBuilder(bytecodeWriter, needsOutfile) {
 
     /**
      * Generate a bean info class that describes the given class.
