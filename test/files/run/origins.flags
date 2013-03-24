@@ -1,1 +1,1 @@
--no-specialization
+-closurify:traditional -no-specialization
