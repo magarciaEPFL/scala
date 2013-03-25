@@ -56,6 +56,11 @@ public class MethodNode extends MethodVisitor {
     public int access;
 
     /**
+     * Whether the Scala MethodSymbol for this ASM MethodNode isLiftedMethod.
+     */
+    public boolean isLiftedMethod;
+
+    /**
      * The method's name.
      */
     public String name;
