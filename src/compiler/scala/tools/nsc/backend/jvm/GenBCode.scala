@@ -116,7 +116,7 @@ abstract class GenBCode extends BCodeOptIntra {
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
-      8,
+      if(isOptimizRun) 8 else 4,
       java.lang.Runtime.getRuntime.availableProcessors
     )
 
@@ -141,12 +141,35 @@ abstract class GenBCode extends BCodeOptIntra {
                      mirror:       asm.tree.ClassNode,
                      plain:        asm.tree.ClassNode,
                      bean:         asm.tree.ClassNode,
-                     lateClosures: List[asm.tree.ClassNode],
+                     lateClosures:      List[asm.tree.ClassNode],
+                     dClosureEndpoints: Iterable[DClosureEndpoint],
                      outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
+
+      /* LCC-internal-name -> endpoint-as-MethodNode */
+      def epByDCName: Map[String, MethodNode] = {
+
+        if(dClosureEndpoints == null) {
+          assert(lateClosures.isEmpty)
+          return null
+        }
+
+        val isDelegateMethodName = (dClosureEndpoints map (epInfo => epInfo.epName)).toSet
+        assert(isDelegateMethodName.size == dClosureEndpoints.size, "Names of endpoints should be unique within their master-class")
+
+        val mnodeByName: Map[String, MethodNode] = (
+          plain.toMethodList filter { mn => isDelegateMethodName(mn.name) } map { mn => Pair(mn.name, mn) }
+        ).toMap
+
+        val result =
+          for(epInfo <- dClosureEndpoints)
+          yield Pair(epInfo.closuBT.getInternalName, mnodeByName(epInfo.epName))
+
+        result.toMap
+      }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
     private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
 
     /* ---------------- q3 ---------------- */
@@ -259,12 +282,18 @@ abstract class GenBCode extends BCodeOptIntra {
           exemplars.put(trackedClosu.c, trackedClosu)
         }
 
+        var dClosureEndpoints: Iterable[DClosureEndpoint] = null
+        if(lateClosures.nonEmpty) {
+          dClosureEndpoints = pcb.closuresForDelegates.values
+          assert(lateClosures.size == dClosureEndpoints.size)
+        }
+
         // ----------- hand over to pipeline-2
 
         val item2 =
           Item2(arrivalPos + lateClosuresCount,
                 mirrorC, plainC, beanC,
-                lateClosures,
+                lateClosures, dClosureEndpoints,
                 outF)
         lateClosuresCount += lateClosures.size
 
@@ -302,6 +331,10 @@ abstract class GenBCode extends BCodeOptIntra {
      *          - removing dead code, and then
      *          - converting the plain ClassNode to byte array and placing it on queue-3
      *
+     *    (b) with intra-procedural optimization on,
+     *          - cleanseClass() is invoked on the plain class, and then
+     *          - the plain class is serialized as above (ending up in queue-3)
+     *
      *  can-multi-thread
      */
     class Worker2 extends _root_.java.lang.Runnable {
@@ -333,6 +366,8 @@ abstract class GenBCode extends BCodeOptIntra {
 
       /*
        *  Performs optimizations using task parallelism.
+       *  A task has exclusive access to ASM ClassNodes that need to be mutated in-tandem,
+       *  for example a master class and the dclosures it's responsible for.
        *  Afterwards, adds the ClassNode(s) to queue-3.
        */
       def visit(item: Item2) {
@@ -342,11 +377,18 @@ abstract class GenBCode extends BCodeOptIntra {
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode)
           cleanser.codeFixupDCE()
+          // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
+          // under -o0 `squashOuter()` is invoked in the else-branch below
+          // under -o2 `squashOuter()` runs before inlining, ie in `Worker1.visit()`
+          // under -o3 or higher, rather than `squashOuter()`, the more powerful `minimizeDClosureFields()` is run instead
+          cleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
           cleanser.cleanseClass()
         }
         else {
+          // the minimal fixups needed, even for unoptimized runs.
           val essential = new EssentialCleanser(cnode)
-          essential.codeFixupDCE()    // the minimal fixups needed, even for unoptimized runs.
+          essential.codeFixupDCE()
+          essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
         }
 
         refreshInnerClasses(cnode)
@@ -373,7 +415,7 @@ abstract class GenBCode extends BCodeOptIntra {
               cw.toByteArray
             }
 
-        val Item2(arrivalPos, mirror, plain, bean, lateClosures, outFolder) = item
+        val Item2(arrivalPos, mirror, plain, bean, lateClosures, _, outFolder) = item
 
         // TODO aren't mirror.outFolder , plain.outFolder , and bean.outFolder one and the same? Remove duplicity.
 
@@ -857,6 +899,7 @@ abstract class GenBCode extends BCodeOptIntra {
         thisName          = internalName(claszSymbol)
 
         cnode = new asm.tree.ClassNode()
+        cnode.isStaticModule = isCZStaticModule
 
         initJClass(cnode)
 
@@ -993,6 +1036,8 @@ abstract class GenBCode extends BCodeOptIntra {
           jgensig,
           mkArray(thrownExceptions)
         ).asInstanceOf[asm.tree.MethodNode]
+
+        mnode.isLiftedMethod = methSymbol.isLiftedMethod
 
         // TODO param names: (m.params map (p => javaName(p.sym)))
 
