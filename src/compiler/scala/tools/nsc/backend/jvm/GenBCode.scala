@@ -113,6 +113,7 @@ abstract class GenBCode extends BCodeOptInter {
     override def erasedTypes = true
 
     val isOptimizRun  = settings.isIntraMethodOptimizOn
+    val isClosureOptRun = settings.isClosureOptRun
     val isInliningRun = settings.isInliningRun
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
@@ -426,7 +427,7 @@ abstract class GenBCode extends BCodeOptInter {
         val cnodeBT = lookupRefBType(cnode.name)
 
         if(isOptimizRun) {
-          val cleanser = new BCodeCleanser(cnode)
+          val cleanser = new BCodeCleanser(cnode, isClosureOptRun)
           cleanser.codeFixupDCE()
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
