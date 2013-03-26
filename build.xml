@@ -673,6 +673,7 @@ targets exercised:
         srcdir="${src.dir}/asm"
         destdir="${build-asm.dir}/classes"
         classpath="${build-asm.dir}/classes"
+        debug="true" debuglevel="lines,vars,source"
         includes="**/*.java"
         target="1.6" source="1.5">
           <compilerarg line="${javac.args} -XDignore.symbol.file"/>
@@ -1961,3 +1962,4 @@ targets exercised:
     <vizant antfile="${ant.file}" outfile="${ant.project.name}.dot"/>
   </target>
 </project>
+
