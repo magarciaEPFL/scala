@@ -112,9 +112,9 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isOptimizRun  = settings.isIntraMethodOptimizOn
+    val isOptimizRun    = settings.isIntraMethodOptimizOn
     val isClosureOptRun = settings.isClosureOptRun
-    val isInliningRun = settings.isInliningRun
+    val isInliningRun   = settings.isInliningRun
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -814,7 +814,7 @@ abstract class GenBCode extends BCodeOptInter {
        */
       var esote = immutable.Map.empty[LabelNode, TryExitInfo]
 
-      /**
+      /*
        *  A program point may be lexically nested (at some depth)
        *    (a) in the try-clause of a try-with-finally expression
        *    (b) in a synchronized block.
@@ -1910,7 +1910,7 @@ abstract class GenBCode extends BCodeOptInter {
               startTryBody.info.asInstanceOf[LabelNode],
               TryExitInfo(
                 postHandlers.info.asInstanceOf[LabelNode],
-        kind
+                kind
               )
             )
         }
@@ -3410,6 +3410,19 @@ abstract class GenBCode extends BCodeOptInter {
           assert(style.isSuper, "An unknown InvokeStyle: " + style)
           bc.invokespecial(jowner, jname, mdescr)
           initModule()
+        }
+
+        if(isOptimizRun) {
+
+          /*
+           * Gather data for "caching of stable values".
+           *
+           * The pattern matcher (and possible others) emit stable methods that take args. Our analysis won't cache invocations to them.
+           */
+          if((bmType.getArgumentCount == 0) && !bmType.getReturnType.isUnitType && method.isStable) {
+            repeatableReads.markAsRepeatableRead(bmOwner, jname, bmType)
+          }
+
         }
 
         if(isInliningRun) {
