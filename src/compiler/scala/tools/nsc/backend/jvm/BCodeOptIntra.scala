@@ -152,7 +152,19 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     nxtIdx
   } // end of method rephraseBackedgesInCtorArg()
 
+
   /*
+   *  Guaranteeing "Empty Stack on Try Entry" ("esote" for short)
+   *  involves collecting some information about try-expressions during GenBCode,
+   *  for later processing during `EssentialCleanser.codeFixupESOTE()`
+   *
+   *  In addition to the `startTryBody`, we also need to know
+   *  the program point where the try is over
+   *  (and has left its result on the operand stack if any, of type `evalsTo`)
+   */
+  case class TryExitInfo(postHandlers: LabelNode, evalsTo: BType)
+
+  /**
    *  All methods in this class can-multi-thread
    */
   class EssentialCleanser(cnode: asm.tree.ClassNode) {
@@ -352,6 +364,400 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         val sq = new LCCOuterSquasher(lccsToSquashOuterPointer, dClosureEndpoint)
         sq.squashOuterForLCC()
       }
+    }
+
+    /*
+     * Motivation
+     * ----------
+     *
+     * In Scala `try` is an expression, whose translation into bytecode may find a non-empty operand stack on try-entry.
+     * By "try-entry" is meant the start of the instruction range protected by the exception-handlers of the try-expr.
+     *
+     * In case:
+     *
+     *   (a) the try-expr involves one or more catch-clauses with type other than Nothing,
+     *
+     * the straightforward lowering performed by GenBCode's `genLoadTry()` will lead to a VerifyError provided an additional condition holds:
+     *
+     *   (b) non-empty operand stack on try-entry
+     *
+     * The VerifyError (again, assuming a naive lowering) is of the "Inconsistent Stack Heights" variety,
+     * and refers to the program point where the following joins:
+     *
+     *   (c) normal exit from the protected range
+     *
+     *   (d) normal exit from an exception handler (an EH that protects the protected range)
+     *
+     * Related discussion: https://groups.google.com/d/msg/scala-internals/VkEL7wOVQpE/aSiNnF3ym-cJ
+     *
+     *
+     * Rewriting
+     * ---------
+     *
+     * In `PlainClassBuilder.genLoadTry()` the protected range for each exception handler is demarcated.
+     * The LabelNode denoting range-start is the same for all such protected ranges, it's `startTryBody`.
+     * To recap, `genLoadTry` emits:
+     *
+     *   (a) a protected range for each exception handler clause in the try-expr:
+     *       protect(startTryBody, endTryBody, startHandler, excType)
+     *
+     *   (b) a protected range for the finally clause (if any) in the try-expr:
+     *       protect(startTryBody, finalHandler, finalHandler, null)
+     *
+     *  There's no control-flow transfer instruction targeting `startTryBody`:
+     *    - that LabelNode was fabricated in `genLoadTry()`, and
+     *    - we didn't emit there any jump targeting it.
+     *  Therefore we can safely splice STOREs right before `startTryBody` to drain the operand stack,
+     *  while leaving existing exception-table entries as-is.
+     *
+     *  As explained in `genLoadTry()`, by the time `postHandlers` is reached,
+     *  the value produced by the try-expr (if any) is on stack top.
+     *  The program point given by `postHandlers` can only be reached after passing through `startTryBody`
+     *  which guarantees the LOAD instructions we'll splice-in right after `postHandlers`
+     *  will find values assigned by the STOREs spliced right before `startTryBody`.
+     *  BTW, we can't splice any stack-changing instructions before `postHandlers` because
+     *  it's in general the target of jumps (from the end of try-body, from the end of each exception-handler).
+     *
+     *  @return true iff anything was changed
+     *
+     */
+    final def codeFixupESOTE(mnode: MethodNode, esote: immutable.Map[LabelNode, TryExitInfo]): Boolean = {
+      val stream = mnode.instructions
+      val input  = mutable.Map.empty[AbstractInsnNode, TryExitInfo]
+      for(
+        Pair(startTryBody, texit) <- esote;
+        if stream.contains(startTryBody)
+      ) {
+        input.put(startTryBody, texit)
+      }
+      if(input.isEmpty) { return false }
+
+      type AStack  = List[BType]
+      val state    = mutable.Map.empty[AbstractInsnNode, AStack]
+      val worklist = mutable.Queue.empty[AbstractInsnNode]
+
+          def schedule(i: AbstractInsnNode, st: AStack) {
+            val prevState = state.getOrElse(i, null)
+            if(prevState != null) {
+              assert(st == prevState, s"Abstract states differ: ${prevState.toString} vs. ${st.toString}")
+            } else {
+              state(i) = st
+              if(!worklist.contains(i)) {
+                worklist.enqueue(i)
+              }
+            }
+          }
+
+      schedule(stream.getFirst, Nil)
+      for(tcb <- JListWrapper(mnode.tryCatchBlocks)) {
+        if(!input.contains(tcb.start)) {
+          schedule(tcb.handler, ObjectReference :: Nil)
+        }
+      }
+
+      var changed = false
+
+      while(worklist.nonEmpty) {
+
+        var currInsn  = worklist.dequeue()
+        var currState = state(currInsn)
+
+            def advanceProgramState() {
+
+                def push(bt: BType) {
+                  if(bt.isRefOrArrayType) { currState ::= ObjectReference }
+                  else { currState ::= bt }
+                }
+                def pop() = { val h = currState.head; currState = currState.tail; h }
+                def twice() { pop(); pop() }
+                def thrice() { pop(); pop(); pop() }
+
+                def pushObj { push(ObjectReference) }
+                def pushC { push(CHAR) }
+                def pushB { push(BYTE) }
+                def pushS { push(SHORT) }
+                def pushI { push(INT) }
+                def pushF { push(FLOAT) }
+                def pushJ { push(LONG) }
+                def pushD { push(DOUBLE) }
+
+                def pushConstant() {
+                  val cst = currInsn.asInstanceOf[LdcInsnNode].cst
+                  cst match {
+                    case _: java.lang.Integer => pushI
+                    case _: java.lang.Float   => pushF
+                    case _: java.lang.Long    => pushJ
+                    case _: java.lang.Double  => pushD
+                    case _ => pushObj
+                  }
+                }
+
+              var isFallThrough = true
+
+              import Opcodes._
+              currInsn.getOpcode match {
+                case -1 => () // ie LabelNode or FrameNode or LineNumberNode
+
+                case NOP => ()
+
+                case ACONST_NULL => pushObj
+                case ICONST_M1 | ICONST_0 | ICONST_1 | ICONST_2 | ICONST_3 | ICONST_4 | ICONST_5 => pushI
+                case LCONST_0  | LCONST_1 => pushJ
+                case FCONST_0  | FCONST_1 | FCONST_2 => pushF
+                case DCONST_0  | DCONST_1 => pushD
+                case BIPUSH => pushB
+                case SIPUSH => pushS
+                case LDC => pushConstant()
+
+                case ILOAD => pushI
+                case LLOAD => pushJ
+                case FLOAD => pushF
+                case DLOAD => pushD
+                case ALOAD => pushObj
+
+                case IALOAD => twice(); pushI
+                case LALOAD => twice(); pushJ
+                case FALOAD => twice(); pushF
+                case DALOAD => twice(); pushD
+                case AALOAD => twice(); pushObj
+                case BALOAD => twice(); pushB
+                case CALOAD => twice(); pushC
+                case SALOAD => twice(); pushS
+
+                case ISTORE | LSTORE | FSTORE | DSTORE | ASTORE => pop()
+
+                case IASTORE | LASTORE | FASTORE | DASTORE | AASTORE | BASTORE | CASTORE | SASTORE => thrice()
+
+                case POP  => pop()
+                case POP2 => if(pop().getSize == 1) { pop() }
+
+                case DUP =>
+                  val v = pop();
+                  assert(v.getSize == 1, "DUP found operating on value of JVM computational size != 1")
+                  push(v); push(v)
+                case DUP_X1 =>
+                  val v1 = pop()
+                  val v2 = pop()
+                  push(v1); push(v2); push(v1)
+                case DUP_X2 =>
+                  val v1 = pop()
+                  val v2 = pop()
+                  if(v2.getSize == 1) {
+                    val v3 = pop()
+                    push(v1); push(v3); push(v2); push(v1)
+                  } else {
+                    push(v1); push(v2); push(v1)
+                  }
+                case DUP2 =>
+                  val v1 = pop()
+                  if(v1.getSize == 1) {
+                    val v2 = pop()
+                    push(v2); push(v1); push(v2); push(v1)
+                  } else {
+                    push(v1); push(v1);
+                  }
+                case DUP2_X1 =>
+                  val v1 = pop()
+                  val v2 = pop()
+                  if(v1.getSize == 1) {
+                    val v3 = pop()
+                    push(v2); push(v1); push(v3); push(v2); push(v1)
+                  } else {
+                    push(v1); push(v2); push(v1)
+                  }
+                case DUP2_X2 => // TODO
+                  ???
+
+                case SWAP =>
+                  val v1 = pop()
+                  val v2 = pop()
+                  push(v1); push(v2)
+
+                case IADD | ISUB | IMUL | IDIV | IREM => twice(); pushI
+                case LADD | LSUB | LMUL | LDIV | LREM => twice(); pushJ
+                case FADD | FSUB | FMUL | FDIV | FREM => twice(); pushF
+                case DADD | DSUB | DMUL | DDIV | DREM => twice(); pushD
+
+                case INEG | LNEG | FNEG | DNEG => push(pop())
+
+                case ISHL | ISHR | IUSHR | IAND | IOR | IXOR => twice(); pushI
+                case LSHL | LSHR | LUSHR | LAND | LOR | LXOR => twice(); pushJ
+
+                case IINC => ()
+
+                case I2L | F2L | D2L => pop(); pushJ
+                case I2F | L2F | D2F => pop(); pushF
+                case I2D | L2D | F2D => pop(); pushD
+                case L2I | F2I | D2I => pop(); pushI
+
+                case I2B => pop(); pushB
+                case I2C => pop(); pushC
+                case I2S => pop(); pushS
+
+                case LCMP  | FCMPL | FCMPG | DCMPL | DCMPG => twice(); pushI
+
+                case IFEQ | IFNE | IFLT | IFGE | IFGT | IFLE =>
+                  pop()
+                  val ji = currInsn.asInstanceOf[JumpInsnNode]
+                  schedule(currInsn.getNext, currState)
+                  schedule(ji.label,         currState)
+                  isFallThrough = false
+
+                case IF_ICMPEQ | IF_ICMPNE | IF_ICMPLT | IF_ICMPGE | IF_ICMPGT | IF_ICMPLE | IF_ACMPEQ | IF_ACMPNE =>
+                  twice()
+                  val ji = currInsn.asInstanceOf[JumpInsnNode]
+                  schedule(currInsn.getNext, currState)
+                  schedule(ji.label,         currState)
+                  isFallThrough = false
+
+                case GOTO =>
+                  val ji = currInsn.asInstanceOf[JumpInsnNode]
+                  schedule(ji.label, currState)
+                  isFallThrough = false
+
+                case JSR | RET => throw new UnsupportedOperationException
+
+                case TABLESWITCH =>
+                  pop()
+                  val ts = currInsn.asInstanceOf[TableSwitchInsnNode]
+                  schedule(ts.dflt, currState)
+                  for(target <- JListWrapper(ts.labels)) { schedule(target, currState) }
+                  isFallThrough = false
+
+                case LOOKUPSWITCH =>
+                  pop()
+                  val ls = currInsn.asInstanceOf[LookupSwitchInsnNode]
+                  schedule(ls.dflt, currState)
+                  for(target <- JListWrapper(ls.labels)) { schedule(target, currState) }
+                  isFallThrough = false
+
+                case IRETURN | LRETURN | FRETURN | DRETURN | ARETURN =>
+                  pop()
+                  isFallThrough = false
+
+                case RETURN =>
+                  isFallThrough = false
+
+                case GETSTATIC =>
+                  val fi = currInsn.asInstanceOf[FieldInsnNode]
+                  push(descrToBType(fi.desc))
+
+                case PUTSTATIC => pop()
+
+                case GETFIELD =>
+                  pop()
+                  val fi = currInsn.asInstanceOf[FieldInsnNode]
+                  push(descrToBType(fi.desc))
+
+                case PUTFIELD => twice()
+
+                case INVOKEVIRTUAL | INVOKESPECIAL | INVOKESTATIC | INVOKEINTERFACE =>
+                  val mi = currInsn.asInstanceOf[MethodInsnNode]
+                  val mt = BType.getMethodType(mi.desc)
+                  for(p <- 1 to mt.getArgumentCount) { pop() }
+                  if(mi.getOpcode != INVOKESTATIC)   { pop() }
+                  if(mt.getReturnType != UNIT)       { push(mt.getReturnType) }
+
+                case INVOKEDYNAMIC =>
+                  val id = currInsn.asInstanceOf[InvokeDynamicInsnNode]
+                  val mt = BType.getMethodType(id.desc)
+                  for(p <- 1 to mt.getArgumentCount) { pop() }
+                  if(mt.getReturnType != UNIT)       { push(mt.getReturnType) }
+
+                case NEW => pushObj
+
+                case NEWARRAY | ANEWARRAY => pop(); pushObj
+
+                case ARRAYLENGTH => pop(); pushI
+
+                case ATHROW =>
+                  pop()
+                  isFallThrough = false
+
+                case CHECKCAST => ()
+
+                case INSTANCEOF => pop(); pushI
+
+                case MONITORENTER | MONITOREXIT => pop()
+
+                case MULTIANEWARRAY =>
+                  val ma = currInsn.asInstanceOf[MultiANewArrayInsnNode]
+                  for(d <- 1 to ma.dims) { pop() }
+                  pushObj
+
+                case IFNULL | IFNONNULL =>
+                  pop()
+                  val ji = currInsn.asInstanceOf[JumpInsnNode]
+                  schedule(currInsn.getNext, currState)
+                  schedule(ji.label,         currState)
+                  isFallThrough = false
+
+              }
+
+              currInsn = if(isFallThrough) currInsn.getNext else null
+            }
+
+        while(currInsn != null) {
+
+          val exitInfo = input.getOrElse(currInsn, null)
+          if(exitInfo != null) {
+
+            val startTryBody = currInsn.asInstanceOf[LabelNode]
+
+            if(currState.nonEmpty) {
+
+              changed = true
+              val TryExitInfo(postHandlers, evalsTo) = exitInfo
+
+              // ------ (1 of 3) save try-value if any
+              val hasResult = (evalsTo != UNIT)
+              var resultIdx = -1
+              if(hasResult) {
+                resultIdx = mnode.maxLocals
+                val loadResult = new VarInsnNode(evalsTo.getOpcode(Opcodes.ILOAD), resultIdx)
+                stream.insert(postHandlers, loadResult)
+                mnode.maxLocals += evalsTo.getSize
+              }
+
+              // ------ (2 of 3) insert stores: the head of currState represents stack top
+              for(bt <- currState) {
+                val idx   = mnode.maxLocals
+                val store = new VarInsnNode(bt.getOpcode(Opcodes.ISTORE), idx)
+                val load  = new VarInsnNode(bt.getOpcode(Opcodes.ILOAD),  idx)
+                stream.insertBefore(startTryBody, store)
+                stream.insert(postHandlers, load)
+                mnode.maxLocals += bt.getSize
+              }
+              currState = Nil
+
+              // ------ (3 of 3) restore try-value if any
+              if(hasResult) {
+                val storeResult = new VarInsnNode(evalsTo.getOpcode(Opcodes.ISTORE), resultIdx)
+                stream.insert(postHandlers, storeResult)
+              }
+
+            }
+
+            /* now that startTryBody has been visited (possibly adding stack-restoration instructions), postHandlers can be scheduled */
+            for(tcb <- JListWrapper(mnode.tryCatchBlocks)) {
+              if(tcb.start eq startTryBody) {
+                schedule(tcb.handler, ObjectReference :: Nil)
+              }
+            }
+
+            input.remove(startTryBody)
+            if(input.isEmpty) { return changed }
+          }
+
+          advanceProgramState()
+
+        }
+      }
+
+      // actually this should be unreachable
+      assert(input.isEmpty, "Not all startTryBody were visited.")
+
+      changed
     }
 
     /*
@@ -1146,6 +1552,26 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     val jumpReducer         = new asm.optimiz.JumpReducer
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
+
+    /*
+     *  Empty Stack on Try Entry.
+     *
+     *  @see the other method called `codeFixupESOTE()` , ie the one taking a MethodNode argument.
+     *
+     */
+    final def codeFixupESOTE(esote: immutable.Map[LabelNode, TryExitInfo]) {
+      if(esote == null) { return }
+      val iter = cnode.methods.iterator()
+      while(iter.hasNext) {
+        val mnode = iter.next()
+        if(Util.hasBytecodeInstructions(mnode)) {
+          val changed = codeFixupESOTE(mnode, esote)
+          if(changed) {
+            elimRedundantCode(cnode.name, mnode)
+          }
+        }
+      }
+    }
 
     //--------------------------------------------------------------------
     // First optimization pack

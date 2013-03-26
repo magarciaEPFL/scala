@@ -13,7 +13,7 @@ import scala.tools.nsc.symtab._
 import scala.annotation.switch
 
 import scala.tools.asm
-import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
+import asm.tree.{LabelNode, FieldNode, MethodInsnNode, MethodNode}
 
 /*
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -145,6 +145,7 @@ abstract class GenBCode extends BCodeOptInter {
                      bean:         asm.tree.ClassNode,
                      lateClosures:      List[asm.tree.ClassNode],
                      dClosureEndpoints: Iterable[DClosureEndpoint],
+                     esote:        immutable.Map[LabelNode, TryExitInfo],
                      outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
 
@@ -171,7 +172,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
     } // end of case class Item2
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null, null)
     private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
 
     /* ---------------- q3 ---------------- */
@@ -328,13 +329,15 @@ abstract class GenBCode extends BCodeOptInter {
           Item2(arrivalPos + lateClosuresCount,
                 mirrorC, plainC, beanC,
                 lateClosures, dClosureEndpoints,
+                if(isInliningRun) null else pcb.esote,
                 outF)
 
         // ----------- dead-code is removed before the inliner can see it.
         if(isInliningRun) {
-          val essential = new EssentialCleanser(plainC)
-          essential.codeFixupDCE()
-          essential.codeFixupSquashLCC(lateClosures, item2.epByDCName)
+          val qcleanser = new QuickCleanser(plainC)
+          qcleanser.codeFixupDCE()
+          qcleanser.codeFixupESOTE(pcb.esote)
+          qcleanser.codeFixupSquashLCC(lateClosures, item2.epByDCName)
         }
 
         // ----------- hand over to pipeline-2
@@ -429,6 +432,7 @@ abstract class GenBCode extends BCodeOptInter {
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode, isClosureOptRun)
           cleanser.codeFixupDCE()
+          cleanser.codeFixupESOTE(item.esote)
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
           // under -o2 `squashOuter()` runs before inlining, ie in `Worker1.visit()`
@@ -438,9 +442,10 @@ abstract class GenBCode extends BCodeOptInter {
         }
         else {
           // the minimal fixups needed, even for unoptimized runs.
-          val essential = new EssentialCleanser(cnode)
-          essential.codeFixupDCE()
-          essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          val qcleanser = new QuickCleanser(cnode)
+          qcleanser.codeFixupDCE()
+          qcleanser.codeFixupESOTE(item.esote)
+          qcleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
         }
 
         refreshInnerClasses(cnode)
@@ -467,7 +472,7 @@ abstract class GenBCode extends BCodeOptInter {
               cw.toByteArray
             }
 
-        val Item2(arrivalPos, mirror, plain, bean, lateClosures, _, outFolder) = item
+        val Item2(arrivalPos, mirror, plain, bean, lateClosures, _, _, outFolder) = item
 
         // TODO aren't mirror.outFolder , plain.outFolder , and bean.outFolder one and the same? Remove duplicity.
 
@@ -795,6 +800,21 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       /*
+       *  In order to guarantee "Empty Stack on Try Entry" ("esote" for short)
+       *  a rewriting (performed in `EssentialCleanser.codeFixups()`) is needed.
+       *  (That rewirting must be done before optimization on bytecode starts)
+       *
+       *  That rewriting needs information on:
+       *    (a) start of the protected region of a try-block
+       *    (b) program-point where control-flow joins
+       *        (after exiting the protected try-clause and the exception handlers for it if any,
+       *         this is the program point where "incompatible stack height" would happen if ESOTE were not assured.)
+       *
+       *  Map `esote` uses a LabelNode for program-point (a) as key, mapping to (b) which is also a LabelNode.
+       */
+      var esote = immutable.Map.empty[LabelNode, TryExitInfo]
+
+      /**
        *  A program point may be lexically nested (at some depth)
        *    (a) in the try-clause of a try-with-finally expression
        *    (b) in a synchronized block.
@@ -943,15 +963,18 @@ abstract class GenBCode extends BCodeOptInter {
       private def resetMethodBookkeeping(dd: DefDef) {
         locals.clear()
         jumpDest = immutable.Map.empty[ /* LabelDef */ Symbol, asm.Label ]
+
         // populate labelDefsAtOrUnder
         val ldf = new LabelDefsFinder
         ldf.traverse(dd.rhs)
         labelDefsAtOrUnder = ldf.result.withDefaultValue(Nil)
         labelDef = labelDefsAtOrUnder(dd.rhs).map(ld => (ld.symbol -> ld)).toMap
+
         // check previous invocation of genDefDef exited as many varsInScope as it entered.
         assert(varsInScope == null, "Unbalanced entering/exiting of GenBCode's genBlock().")
         // check previous invocation of genDefDef unregistered as many cleanups as it registered.
         assert(cleanups == Nil, "Previous invocation of genDefDef didn't unregister as many cleanups as it registered.")
+
         isModuleInitialized = false
         earlyReturnVar      = null
         shouldEmitCleanup   = false
@@ -996,6 +1019,7 @@ abstract class GenBCode extends BCodeOptInter {
       def genPlainClass(cd: ClassDef) {
         assert(cnode == null, "GenBCode detected nested methods.")
         innerClassBufferASM.clear()
+        esote = immutable.Map.empty[LabelNode, TryExitInfo]
 
         claszSymbol       = cd.symbol
         isCZParcelable    = isAndroidParcelableClass(claszSymbol)
@@ -1731,6 +1755,9 @@ abstract class GenBCode extends BCodeOptInter {
          *         (in case a finally-block is present); or
          *     (b) the program point right after the try-catch
          *         (in case there's no finally-block).
+         *  In case the try-expression evaluates to something other than UNIT or NOTHING,
+         *  such value is stack top at program point `postHandlers`
+         *  (either because the try-clause, or one of the exception handlers, loaded it onto the operand stack).
          */
         val postHandlers = new asm.Label
 
@@ -1760,7 +1787,13 @@ abstract class GenBCode extends BCodeOptInter {
          * ------
          */
 
-        val startTryBody = currProgramPoint()
+        // By virtue of `new asm.Label` (as opposed to `currProgramPoint()`) we make sure the associated LabelNode
+        // is not visible to other instructions (ie none may jump into it) thus we can freely insert
+        // right before `startTryBody` STOREs to guarantee "Empty Stack on Try Entry"
+        // (followed by LOADs to restore the stack contents as appropriate). See `QuickCleanserCleanser.codeFixupESOTE()`
+        val startTryBody = new asm.Label
+        mnode visitLabel startTryBody
+
         registerCleanup(finCleanup)
         genLoad(block, kind)
         unregisterCleanup(finCleanup)
@@ -1824,7 +1857,7 @@ abstract class GenBCode extends BCodeOptInter {
           protect(startTryBody, finalHandler, finalHandler, null)
           val Local(eTK, _, eIdx, _) = locals(makeLocal(ThrowableReference, "exc"))
           bc.store(eIdx, eTK)
-          emitFinalizer(finalizer, null, true)
+          emitFinalizer(finalizer, null, isDuplicate = true)
           bc.load(eIdx, eTK)
           emit(asm.Opcodes.ATHROW)
         }
@@ -1851,7 +1884,7 @@ abstract class GenBCode extends BCodeOptInter {
           insideCleanupBlock = true
           markProgramPoint(finCleanup)
           // regarding return value, the protocol is: in place of a `return-stmt`, a sequence of `adapt, store, jump` are inserted.
-          emitFinalizer(finalizer, null, false)
+          emitFinalizer(finalizer, null, isDuplicate = false)
           pendingCleanups()
           insideCleanupBlock = savedInsideCleanup
         }
@@ -1865,7 +1898,21 @@ abstract class GenBCode extends BCodeOptInter {
 
         markProgramPoint(postHandlers)
         if(hasFinally) {
-          emitFinalizer(finalizer, tmp, false) // the only invocation of emitFinalizer with `isDuplicate == false`
+          emitFinalizer(finalizer, tmp, isDuplicate = false) // the only invocation of emitFinalizer with `isDuplicate == false`
+        }
+
+        val hasControlFlowJoinPointWhereTryBodyAndEHClausesMerge = {
+          catches.nonEmpty && catches.exists(c => c.tpe.typeSymbolDirect ne NothingClass)
+        }
+        if(hasControlFlowJoinPointWhereTryBodyAndEHClausesMerge) {
+          esote +=
+            Pair(
+              startTryBody.info.asInstanceOf[LabelNode],
+              TryExitInfo(
+                postHandlers.info.asInstanceOf[LabelNode],
+        kind
+              )
+            )
         }
 
         kind
