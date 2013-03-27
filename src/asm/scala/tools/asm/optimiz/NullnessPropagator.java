@@ -185,7 +185,7 @@ public class NullnessPropagator {
      *    (b) whether the branch is (always or never) taken is given by `doJump`,
      *        depending on which a GOTO is inserted or not.
      *
-     *  As usual when inserting instructions, we adopt an instruction as "anchor" (`insns` in this case)
+     *  As usual when inserting instructions, we adopt an instruction as "anchor" (`insn` in this case)
      *  and insert *one by one* the instructions of interest *right after the anchor*.
      *  As a result, "the instructions of interest" are inserted in the reverse order they will appear.
      *  Alternatively, an InsnList could be inserted in one go.
@@ -515,7 +515,7 @@ public class NullnessPropagator {
          *
          *  Regarding NullnessFrame, the above can be seen at work as follows:
          *
-         *    (a) After, say, GETFIELD we know (assuming normal ternimation) that the "receiver" object reference is not null.
+         *    (a) After, say, GETFIELD we know (assuming normal termination) that the "receiver" object reference is not null.
          *        Similarly for array de-references, callsites targeting instance methods, and a few others.
          *
          *    (b) We can encode the thus gained information in the abstract values the dataflow manipulates
