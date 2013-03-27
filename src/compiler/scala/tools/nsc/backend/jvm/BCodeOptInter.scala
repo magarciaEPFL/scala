@@ -298,12 +298,10 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     } // end of method inlining()
 
     /*
-     *  TODO leaves are independent from each other, use task-parallelism thus making not just -o2 faster but also
-     *       -o3 and -o4 (inlining is the bottleneck, -o3 and -o4 are relatively fast).
+     *  TODO use task-parallelism (inlining is the bottleneck, with bytecode parsing perhaps a large contributor).
      *  In more detail:
      *    (a) all `leaves` sharing the same `hostOwner` should be inlined in a fixed sequence (for test.stability purposes).
      *    (b) after partitioning `leaves` by `hostOwner` different partitions can be processed in parallel.
-     *
      *
      *  @param leaves set of inlining requests that are independent from each other.
      *
