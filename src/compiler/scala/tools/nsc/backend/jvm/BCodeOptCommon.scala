@@ -634,13 +634,34 @@ abstract class BCodeOptCommon extends BCodeTypes {
     }
 
     /*
+     * Matches a "GETSTATIC singleton-dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
+     */
+    private def getSingletonDClosure(insn: AbstractInsnNode): BType = {
+      if(insn.getOpcode == Opcodes.GETSTATIC) {
+        val fi  = insn.asInstanceOf[FieldInsnNode]
+        if(fi.name == "$single") {
+          val dbt = lookupRefBType(fi.owner)
+          if(isDelegatingClosure(dbt)) {
+            return dbt
+          }
+        }
+      }
+
+      null
+    }
+
+    /*
      * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case. Otherwise null.
      */
     private def accessedDClosure(insn: AbstractInsnNode): BType = {
-      instantiatedDClosure(insn) match {
-        case null => invokedDClosure(insn)
-        case dc   => dc
+      var res = instantiatedDClosure(insn)
+      if(res == null) {
+        res = invokedDClosure(insn)
+        if(res == null) {
+          res = getSingletonDClosure(insn)
+        }
       }
+      res
     }
 
     /*
@@ -814,11 +835,32 @@ abstract class BCodeOptCommon extends BCodeTypes {
      * only isLiftedMethods or dclosure-endpoints will be mutated.
      *
      */
-    def shakeAndMinimizeClosures(): Boolean = {
+    def minimizeDClosureFields(): Boolean = {
 
       do { } while (!staticMaker.transform(masterCNode).isEmpty)
 
-      val tooManyMethodsToScan = (masterCNode.methods.size() > 100) // otherwise files/run/bridges.scala takes unbelievably long to complete.
+      var changed = false
+      for(d <- closuRepo.liveDClosures(masterCNode)) {
+
+        val dep = closuRepo.endpoint.get(d).mnode
+        // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
+        assert(masterCNode.methods.contains(dep))
+        assert(Util.isPublicMethod(dep))
+        changed |= minimizeDClosureFields(dep, d)
+
+      }
+
+      changed
+    }
+
+    /*
+     * Focuses on those dclosures that the `cnode` argument is exclusively responsible for
+     * (consequence: all usages of the dclosure are confined to two places: cnode and the dclosure itself).
+     *
+     * For each such closure, lack of usages in `cnode` (eg as a result of dead-code elimination) means
+     * the closure can be elided, along with its endpoint. This may lead to further tree-shaking in `cnode` (via UnusedPrivateDetector).
+     */
+    def treeShakeUnusedDClosures(): Boolean = {
 
       var changed = false
       for(d <- closuRepo.liveDClosures(masterCNode)) {
@@ -826,7 +868,6 @@ abstract class BCodeOptCommon extends BCodeTypes {
         val dep = closuRepo.endpoint.get(d).mnode
         // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
         val unused =
-          !tooManyMethodsToScan &&
           { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
         if(unused) {
           changed = true
@@ -835,17 +876,11 @@ abstract class BCodeOptCommon extends BCodeTypes {
           /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
            * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
         }
-        else if (!Util.isStaticMethod(dep)) {
-          // the dclosure remains in use in cnode (it wasn't elided). The endpoint must still be there.
-          assert(masterCNode.methods.contains(dep))
-          assert(Util.isPublicMethod(dep))
-          changed |= minimizeDClosureFields(dep, d)
-        }
 
       }
 
       changed
-    }
+    } // end of method treeShakeUnusedDClosures()
 
     /*
      * All usages of the dclosure are confined to two places: its master class and the dclosure itself.
@@ -871,7 +906,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
            *  (2) attempt to make static the endpoint (and its invocation).
            *
            *  A master-class of a non-elided dclosure contains:
-           *    - one or more instantiations of it ("or more" because of duplication of catch and try clauses), and
+           *    - one or more instantiations of it (may be more than one because of duplication of catch and try clauses), and
            *    - no invocations to the dclosure's endpoint
            *     (the "non-elided" part is responsible for "no invocations to the dclosure's endpoint":
            *      a dclosure that was inlined has a callsite to the endpoint in the shio method

@@ -1311,13 +1311,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             keepGoing  = removeUnusedLiftedMethods()
 
             // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
-            keepGoing |= dcloptim.shakeAndMinimizeClosures()
+            keepGoing |= dcloptim.minimizeDClosureFields()
 
             if(keepGoing) { intraMethodFixpoints(full = false) }
 
         } while(keepGoing)
 
         dcloptim.minimizeDClosureAllocations()
+
+        if(dcloptim.treeShakeUnusedDClosures()) {
+          do {} while(removeUnusedLiftedMethods())
+        }
+
       }
 
       for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
