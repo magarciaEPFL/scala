@@ -112,9 +112,8 @@ abstract class GenBCode extends BCodeOptInter {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isOptimizRun  = settings.isIntraMethodOptimizOn
-    val isClosureOptRun = settings.isClosureOptRun
-    val isInliningRun = settings.isInliningRun
+    val isOptimizRun      = settings.isIntraMethodOptimizOn
+    val isIntraProgramOpt = settings.isIntraProgramOpt
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -213,7 +212,7 @@ abstract class GenBCode extends BCodeOptInter {
     class Worker1(needsOutFolder: Boolean) extends _root_.java.lang.Runnable {
 
       val isDebugRun            = settings.debug.value
-      val mustPopulateCodeRepo  = isInliningRun || isDebugRun
+      val mustPopulateCodeRepo  = isIntraProgramOpt || isDebugRun
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
@@ -331,7 +330,7 @@ abstract class GenBCode extends BCodeOptInter {
                 outF)
 
         // ----------- dead-code is removed before the inliner can see it.
-        if(isInliningRun) {
+        if(isIntraProgramOpt) {
           val essential = new EssentialCleanser(plainC)
           essential.codeFixupDCE()
           essential.codeFixupSquashLCC(lateClosures, item2.epByDCName)
@@ -421,13 +420,13 @@ abstract class GenBCode extends BCodeOptInter {
        */
       def visit(item: Item2) {
 
-        assert(isInliningDone == isInliningRun)
+        assert(isInliningDone == isIntraProgramOpt)
 
         val cnode   = item.plain
         val cnodeBT = lookupRefBType(cnode.name)
 
         if(isOptimizRun) {
-          val cleanser = new BCodeCleanser(cnode, isClosureOptRun)
+          val cleanser = new BCodeCleanser(cnode, isIntraProgramOpt)
           cleanser.codeFixupDCE()
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
@@ -516,7 +515,7 @@ abstract class GenBCode extends BCodeOptInter {
       beanInfoCodeGen = new JBeanInfoBuilder
 
       val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
-      if(isInliningRun) {
+      if(isIntraProgramOpt) {
         wholeProgramThenWriteToDisk(needsOutfileForSymbol)
       } else {
         buildAndSendToDiskInParallel(needsOutfileForSymbol)
@@ -565,7 +564,7 @@ abstract class GenBCode extends BCodeOptInter {
      *
      */
     private def wholeProgramThenWriteToDisk(needsOutFolder: Boolean) {
-      assert(isInliningRun)
+      assert(isIntraProgramOpt)
 
       // sequentially
       feedPipeline1()
@@ -588,7 +587,7 @@ abstract class GenBCode extends BCodeOptInter {
      *
      */
     private def buildAndSendToDiskInParallel(needsOutFolder: Boolean) {
-      assert(!isInliningRun)
+      assert(!isIntraProgramOpt)
 
       new _root_.java.lang.Thread(new Worker1(needsOutFolder), "bcode-typer").start()
       spawnPipeline2()
@@ -3365,7 +3364,7 @@ abstract class GenBCode extends BCodeOptInter {
           initModule()
         }
 
-        if(isInliningRun) {
+        if(isIntraProgramOpt) {
 
           /*
            * Gather data for "method inlining".

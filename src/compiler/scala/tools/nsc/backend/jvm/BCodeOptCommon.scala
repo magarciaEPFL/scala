@@ -41,7 +41,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
     new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
   )
 
-  def createBCodeCleanser(cnode: asm.tree.ClassNode, isClosureOptRun: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
+  def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
 
   trait BCodeCleanserIface {
     def intraMethodFixpoints(full: Boolean)
@@ -1000,7 +1000,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
         }
       }
 
-      val cleanser = createBCodeCleanser(dCNode, false)
+      val cleanser = createBCodeCleanser(dCNode, isIntraProgramOpt = false)
       cleanser.intraMethodFixpoints(full = false)
 
       /*

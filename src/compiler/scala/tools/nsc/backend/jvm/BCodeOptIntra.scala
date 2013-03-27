@@ -35,8 +35,8 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
   import global._
 
-  final override def createBCodeCleanser(cnode: asm.tree.ClassNode, isClosureOptRun: Boolean) = {
-    new BCodeCleanser(cnode, isClosureOptRun)
+  final override def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean) = {
+    new BCodeCleanser(cnode, isIntraProgramOpt)
   }
 
   val knownLacksInline = mutable.Set.empty[Symbol] // cache to avoid multiple inliner.hasInline() calls.
@@ -1226,7 +1226,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
    *
    *  The entry point is `cleanseClass()`.
    */
-  final class BCodeCleanser(cnode: asm.tree.ClassNode, isClosureOptRun: Boolean) extends QuickCleanser(cnode) with BCodeCleanserIface {
+  final class BCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean) extends QuickCleanser(cnode) with BCodeCleanserIface {
 
     val unboxElider           = new asm.optimiz.UnBoxElider
     val lvCompacter           = new asm.optimiz.LocalVarCompact
@@ -1300,7 +1300,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       // (1) intra-method
       intraMethodFixpoints(full = true)
 
-      if(isClosureOptRun && isMasterClass(bt)) {
+      if(isIntraProgramOpt && isMasterClass(bt)) {
 
         val dcloptim  = new DClosureOptimizerImpl(cnode)
         var keepGoing = false

@@ -141,6 +141,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
     def warn(msg: String) = cunit.inlinerWarning(pos, msg)
 
+    /* is the target of the callsite part of the program being compiled? */
+    def isBeingCompiled: Boolean = {
+      val ownerBT = lookupRefBType(callsite.owner)
+      codeRepo.classes.containsKey(ownerBT)
+    }
+
   }
 
   object inlineTargetOrdering extends scala.math.Ordering[InlineTarget] {
@@ -232,6 +238,15 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     private def inlining() {
 
       isInliningDone = true
+
+      // without committing to compile-time-libraries also being used at runtime,
+      // the only inlinings we can perform are those where callee is being compiled.
+      if(!settings.isCrossLibOpt) {
+        for(cgn <- cgns) {
+          cgn.hiOs  = cgn.hiOs  filter { it: InlineTarget => it.isBeingCompiled }
+          cgn.procs = cgn.procs filter { it: InlineTarget => it.isBeingCompiled }
+        }
+      }
 
       // not that anyone is running yet dead-code elimination before inlining, just future-proofing for that case.
       for(cgn <- cgns) {
