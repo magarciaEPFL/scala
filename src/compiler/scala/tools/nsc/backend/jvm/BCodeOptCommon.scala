@@ -838,7 +838,12 @@ abstract class BCodeOptCommon extends BCodeTypes {
      */
     def minimizeDClosureFields(): Boolean = {
 
-      do { } while (!staticMaker.transform(masterCNode).isEmpty)
+      val startStaticMaker = System.currentTimeMillis()
+      do { }
+      while (
+        !staticMaker.transform(masterCNode).isEmpty &&
+        System.currentTimeMillis() - startStaticMaker < 5000
+      )
 
       var changed = false
       for(d <- closuRepo.liveDClosures(masterCNode)) {
