@@ -1302,8 +1302,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
       if(isIntraProgramOpt && isMasterClass(bt)) {
 
-        val dcloptim  = new DClosureOptimizerImpl(cnode)
-        var keepGoing = false
+        val dcloptim   = new DClosureOptimizerImpl(cnode)
+        var keepGoing  = false
+        val startClosu = System.currentTimeMillis()
 
         do {
 
@@ -1315,12 +1316,20 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
             if(keepGoing) { intraMethodFixpoints(full = false) }
 
-        } while(keepGoing)
+        } while(
+          keepGoing &&
+          (System.currentTimeMillis() - startClosu < 5000)
+        )
 
         dcloptim.minimizeDClosureAllocations()
 
         if(dcloptim.treeShakeUnusedDClosures()) {
-          do {} while(removeUnusedLiftedMethods())
+          val startTreeShake = System.currentTimeMillis()
+          do { }
+          while(
+            removeUnusedLiftedMethods() &&
+            (System.currentTimeMillis() - startTreeShake < 1000)
+          )
         }
 
       }
