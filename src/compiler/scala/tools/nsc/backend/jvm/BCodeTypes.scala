@@ -2334,7 +2334,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
             null
           else {
             val outerName = innerSym.rawowner.javaBinaryName
-            if (isTopLevelModule(innerSym.rawowner)) nme.stripModuleSuffix(outerName)
+            if (isTopLevelModule(innerSym.rawowner)) outerName.dropModule
             else outerName
           }
         }
