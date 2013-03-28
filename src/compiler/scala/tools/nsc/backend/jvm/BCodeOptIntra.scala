@@ -33,6 +33,14 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
   import global._
 
+  trait BCodeCleanserIface {
+    def intraMethodFixpoints(full: Boolean)
+  }
+
+  trait QuickCleanserIface {
+    def basicIntraMethodOpt(mnode: asm.tree.MethodNode)
+  }
+
   /*
    *  SI-6720: Avoid java.lang.VerifyError: Uninitialized object exists on backward branch.
    *
@@ -376,7 +384,170 @@ abstract class BCodeOptIntra extends BCodeTypes {
       true
     }
 
+    //--------------------------------------------------------------------
+    // Type-flow analysis
+    //--------------------------------------------------------------------
+
+    final def runTypeFlowAnalysis(mnode: MethodNode) {
+
+      import asm.tree.analysis.{ Analyzer, Frame }
+      import asm.tree.AbstractInsnNode
+
+      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+      tfa.analyze(cnode.name, mnode)
+      val frames: Array[Frame[TFValue]]   = tfa.getFrames()
+      val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
+      var i = 0
+      while(i < insns.length) {
+        if (frames(i) == null && insns(i) != null) {
+          // TODO abort("There should be no unreachable code left by now.")
+        }
+        i += 1
+      }
+    }
+
   } // end of class EssentialCleanser
+
+  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) with QuickCleanserIface {
+
+    val copyPropagator      = new asm.optimiz.CopyPropagator
+    val deadStoreElim       = new asm.optimiz.DeadStoreElim
+    val ppCollapser         = new asm.optimiz.PushPopCollapser
+    val jumpReducer         = new asm.optimiz.JumpReducer
+    val nullnessPropagator  = new asm.optimiz.NullnessPropagator
+    val constantFolder      = new asm.optimiz.ConstantFolder
+
+    //--------------------------------------------------------------------
+    // First optimization pack
+    //--------------------------------------------------------------------
+
+    /*
+     *  Intra-method optimizations performed until a fixpoint is reached.
+     */
+    final def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
+      val cName = cnode.name
+      var keepGoing = false
+      do {
+        keepGoing = false
+
+        keepGoing |= cleanseMethod(cName, mnode)
+        keepGoing |= elimRedundantCode(cName, mnode)
+
+        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+        keepGoing |= nullnessPropagator.changed
+
+        constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
+        keepGoing |= constantFolder.changed
+
+      } while(keepGoing)
+    }
+
+    //--------------------------------------------------------------------
+    // Second optimization pack
+    //--------------------------------------------------------------------
+
+    /*
+     *  This method performs a few intra-method optimizations,
+     *  aimed at reverting the extra copying introduced by inlining:
+     *    - replace the last link in a chain of data accesses by a direct access to the chain-start.
+     *    - dead-store elimination
+     *    - remove those (producer, consumer) pairs where the consumer is a DROP and
+     *      the producer has its value consumed only by the DROP in question.
+     *
+     */
+    final def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+      var changed   = false
+      var keepGoing = false
+
+      do {
+
+        keepGoing = false
+
+        copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
+        keepGoing |= copyPropagator.changed
+
+        deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+        keepGoing |= deadStoreElim.changed
+
+        ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+        keepGoing |= ppCollapser.changed
+
+        jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
+        keepGoing |= jumpReducer.changed
+
+        changed = (changed || keepGoing)
+
+      } while (keepGoing)
+
+      changed
+    }
+
+  } // end of class QuickCleanser
+
+  /*
+   *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
+   *  optimizations are applied iteratively until a fixpoint is reached.
+   *
+   *  All optimizations implemented here can do based solely on information local to the method
+   *  (in particular, no lookups on `exemplars` are performed).
+   *  That way, intra-method optimizations can be performed in parallel (in pipeline-2)
+   *  while GenBCode's pipeline-1 keeps building more `asm.tree.ClassNode`s.
+   *  Moreover, pipeline-2 is realized by a thread-pool.
+   *
+   *  The entry point is `cleanseClass()`.
+   */
+  final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) with BCodeCleanserIface {
+
+    val unboxElider           = new asm.optimiz.UnBoxElider
+    val lvCompacter           = new asm.optimiz.LocalVarCompact
+
+    /*
+     *  The intra-method optimizations below are performed until a fixpoint is reached.
+     *  They are grouped somewhat arbitrarily into:
+     *    - those performed by `cleanseMethod()`
+     *    - those performed by `elimRedundandtCode()`
+     *    - nullness propagation
+     *    - constant folding
+     *
+     *  After the fixpoint has been reached, three more intra-method optimizations are performed just once
+     *  (further applications wouldn't reduce any further):
+     *    - eliding box/unbox pairs
+     *    - eliding redundant local vars
+     *
+     *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
+     *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
+     *
+     */
+    def cleanseClass() {
+
+      // (1) intra-method
+      intraMethodFixpoints(full = true)
+
+    } // end of method cleanseClass()
+
+    /*
+     *  intra-method optimizations
+     */
+    def intraMethodFixpoints(full: Boolean) {
+
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+
+        Util.computeMaxLocalsMaxStack(mnode)
+
+        basicIntraMethodOpt(mnode)                 // intra-method optimizations performed until a fixpoint is reached
+
+        if(full) {
+          unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
+          lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
+        }
+
+        ifDebug { runTypeFlowAnalysis(mnode) }
+
+      }
+
+    }
+
+  } // end of class BCodeCleanser
 
   /*
    * One of the intra-method optimizations (dead-code elimination)
