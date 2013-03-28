@@ -838,11 +838,11 @@ abstract class BCodeOptCommon extends BCodeTypes {
      */
     def minimizeDClosureFields(): Boolean = {
 
-      val startStaticMaker = System.currentTimeMillis()
-      do { }
+      var rounds = 0
+      do { rounds += 1 }
       while (
         !staticMaker.transform(masterCNode).isEmpty &&
-        System.currentTimeMillis() - startStaticMaker < 3000
+        rounds < 10
       )
 
       var changed = false
