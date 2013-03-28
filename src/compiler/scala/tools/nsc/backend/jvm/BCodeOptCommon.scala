@@ -651,7 +651,8 @@ abstract class BCodeOptCommon extends BCodeTypes {
     }
 
     /*
-     * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case. Otherwise null.
+     * Matches a dclosure instantiation, singleton access, or endpoint invocation,
+     * returning the dclosure's BType in that case. Otherwise null.
      */
     private def accessedDClosure(insn: AbstractInsnNode): BType = {
       var res = instantiatedDClosure(insn)
