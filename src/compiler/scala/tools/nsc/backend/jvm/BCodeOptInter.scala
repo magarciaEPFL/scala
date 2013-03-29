@@ -169,6 +169,23 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     val unreachCodeRemover = new asm.optimiz.UnreachableCode
 
     /*
+     * Usually, after a hi-O method has been inlined, the dclosures it used to receive as arguments can be elided right away.
+     * (After all, no method-inlining can possibly have copied usages of those dclosures to another class,
+     * at least not before the closure-inlining has been performed, because method-inlining only inlines the bodies of
+     * methods that have stabilized, ie methods for which all inlinings have been performed in their body).
+     *
+     * Still, the same dclosure may be instantiated at more than one place in the same `host` method
+     * as a result of "finalizer duplication", see `genLoadTry()`. In these cases, all replicas of the same hi-O callsite
+     * are going to have the same closures-inlined, because the CFG has the same shape for all finalizer-Block replicas,
+     * ie the type-flow frame and the consumers-producers frame at each such callsite leads to making the same
+     * closure-inlining decisions.
+     *
+     * Rather than eliding a dclosure as soon as it has been inlined, we keep it in `lccElisionCandidates`
+     * until an inlining round is over (which guarantees all hi-O callsite replicas have been processed), and only then elide them.
+     * */
+    val lccElisionCandidates = mutable.Set.empty[BType]
+
+    /*
      *  TODO documentation
      *
      *  must-single-thread due to `inlining()`
@@ -413,6 +430,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // Part 4 of 4: closure-inlining
       //------------------------------
 
+      lccElisionCandidates.clear()
+
       leaf.hiOs foreach { hiO =>
 
         val callsiteTypeFlow = tfaFrameAt(hiO.callsite)
@@ -444,6 +463,19 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       }
       leaf.hiOs = Nil
+
+      // see explanation in the docu for `lccElisionCandidates`
+      for(dclosure <- lccElisionCandidates) {
+        // once inlined, a dclosure used only by its master class loses its "dclosure" status
+        if(closuRepo.hasMultipleUsers(dclosure)) {
+          log(s"Delegating-closure ${dclosure.getInternalName} wasn't elided after all. Reason: also in use from ${closuRepo.nonMasterUsers(dclosure)}")
+        }
+        else {
+          Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
+          closuRepo.retractAsDClosure(dclosure)
+          elidedClasses.add(dclosure)
+        }
+      }
 
       ifDebug {
         val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
@@ -1261,25 +1293,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       hostOwner.methods.add(staticHiO)
       privatizables.track(hostOwner, staticHiO)
+
+      // see explanation in the docu of `lccElisionCandidates`
       for(ccu <- closureClassUtils) {
         val dclosure: BType = lookupRefBType(ccu.closureClass.name)
         if(closuRepo.isDelegatingClosure(dclosure)) {
-
-          val mc = closuRepo.masterClass(dclosure)
-          if(mc != enclClass) {
-            log(
-              s"DClosure usage in non-master: a static-HiO method added to class ${hostOwner.name} " +
-              s"(resulting from inlining closure $dclosure) invokes that closure's endpoint method (which is declared in $mc)"
-            )
-            assert(closuRepo.isNonMasterUser(dclosure, enclClass))
-          }
-
-          // once inlined, a dclosure used only by its master class loses its "dclosure" status
-          if(!closuRepo.hasMultipleUsers(dclosure)) {
-            Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
-            closuRepo.retractAsDClosure(dclosure)
-          }
-
+          lccElisionCandidates += dclosure
         }
       }
 
@@ -2032,7 +2051,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
         /*
          * No need to attempt eliding here those closure classes for which hostOwner is the only "master class".
-         * Intra-class analysis `shakeAndMinimizeClosures()` will do that.
+         * Intra-class analysis `treeShakeUnusedDClosures()` will do that.
          * Actually, information on `nonMasterUsers` is complete by now
          * (because `populateNonMasterUsers()` runs before `inlining()`).
          * Thus in theory eliding could be done here. But that would add to the code to understand, unlike this comment, right? ;-)
