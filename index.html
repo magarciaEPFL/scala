@@ -58,7 +58,7 @@
 </li>
 </ul><h2>1.2 And a faster code emitter, too</h2>
 
-<p>Before the new optimizer runs (<code>GenBCodeOpt</code>) a bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
+<p>Before the new optimizer runs (<code>GenBCodeOpt</code>) the new bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
 
 <ul>
 <li>the intermediate step to build Control Flow Graphs is not needed,</li>
@@ -222,7 +222,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <h2>3.2 Emitted code size</h2>
 
-<p>Let's take scala/scala as case study, compiling src/compiler and src/reflect (on the one hand) and the library using:</p>
+<p>Let's take scala/scala as case study, compiling src/compiler and src/reflect (on the one hand) and the standard library (on the other) using:</p>
 
 <ol>
 <li>GenICode and GenASM.</li>
@@ -233,14 +233,14 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>The above reflects not so much code reductions (in terms of instruction count) but smaller constant pools due to Lean Closure Classes (an LCC just delegates to the class where the anon-closure is instantiated, which usually already has the constant pool entries that under "traditional" closure conversion have to be duplicated in the anon-closure-class).</p>
 
-<p>If you're after code size reductions as well, <code>-neo:o1</code> (intra-method optimizations) or up will do the trick. Moreover, on a multicore <code>-neo:o1</code> doesn't increase appreciably compilation time, I'm actually thinking making it default.</p>
+<p>To benefit from code size reductions as well, <code>-neo:o1</code> (intra-method optimizations) or up will do the trick. Moreover, on a multicore <code>-neo:o1</code> doesn't increase appreciably compilation time, I'm actually thinking making it default.</p>
 
 <p>For example, method <code>driver()</code> in <code>test/files/run/t7181.scala</code> results in:</p>
 
 <ul>
 <li>881 instructions, when compiled with <code>-neo:o2 -closurify:delegating</code>
 </li>
-<li>1004 instructions, when compiled with <code>-neo:GenASM -closurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison against <code>-neo:o2</code> is fair).</li>
+<li>1004 instructions, when compiled with <code>-neo:GenASM -closurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison with <code>-neo:o2</code> is fair).</li>
 </ul><p>That's 881 vs 1004 instructions and not bytes, which still matters in case you're the one who has to read 881 vs 1004 lines of javap output.</p>
 
 <h2>3.3 Benchmarks</h2>
@@ -269,17 +269,15 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <ul>
 <li>
-<a href="https://issues.scala-lang.org/browse/SI-4767">SI-4767</a> Methods defined in traits are not inlined </li>
-<li>
 <a href="https://issues.scala-lang.org/browse/SI-5850">SI-5850</a> Inlined code shouldn't forget null-check on the original receiver</li>
 <li>
-<a href="https://issues.scala-lang.org/browse/SI-5950">SI-5950</a> inlining creates duplicates when anon-closure-class can't be eliminated after all</li>
+<a href="https://issues.scala-lang.org/browse/SI-5950">SI-5950</a> Inlining creates duplicates when anon-closure-class can't be eliminated after all</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6546">SI-6546</a> Optimizer leaves references to classes that have been eliminated by inlining </li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6720">SI-6720</a> Uninitialized object exists on backward branch</li>
 <li>
-<a href="https://issues.scala-lang.org/browse/SI-6759">SI-6759</a> seek clarification about necessary and sufficient conditions for inclusion in InnerClasses JVM attribute </li>
+<a href="https://issues.scala-lang.org/browse/SI-6759">SI-6759</a> Seek clarification about necessary and sufficient conditions for inclusion in InnerClasses JVM attribute </li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>4 Getting Started</h1>
 
@@ -294,11 +292,12 @@ ant all.clean &amp;&amp; ant
 <p>After <code>ant all.clean &amp;&amp; ant</code> , a few knobs allow fine tuning: </p>
 
 <ul>
-<li>fine grained optimization levels (shown below) to progressively move into more advanced (more recent, less tested) optimizations.</li>
+<li>fine grained optimization levels (shown below) to progressively move into more advanced optimizations.</li>
 <li>backdoor to use the "old" optimizer and backend, to ease comparison. All options of the "old" optimizer are available in this case ( <code>-optimise</code> <code>-Yinline</code>  <code>-Yinline-handlers</code>  <code>-Yclosure-elim</code>  and <code>-Ydead-code</code> ).</li>
+<li>to ease migration from old to new optimizer, for now no error is emitted when compiler flags are given for both old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</li>
 </ul><h2>4.1 Choosing optimization level via compiler flags</h2>
 
-<p>Each optimization level includes all optimizations from lower levels. Levels <code>o1</code> and up activate the new code emitter (<code>GenBCode</code>):</p>
+<p>Each optimization level includes all optimizations from lower levels, and assume the new code emitter (<code>GenBCode</code>) is active:</p>
 
 <table>
 <tr>
