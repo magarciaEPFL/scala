@@ -92,7 +92,7 @@
 
 <h2>2.1 Distinction between intra-program and cross-library optimizations</h2>
 
-<p>The existing inliner, once activated, will inline both callees found in external libraries (against which the program is being compiled) as well as callees in the program being compiled. There's no way to tell it to inline only in the intra-program case. The advantage of applying intra-program optimizations only is that at runtime updated libraries may be used (granted, binary compatible ones).</p>
+<p>The existing inliner, once activated, will inline both callees found in external libraries (against which the program is being compiled) as well as callees in the program being compiled. There's no way to tell it to focus only in the intra-program case. The advantage of applying intra-program optimizations only is that at runtime updated libraries may be used (granted, binary compatible ones).</p>
 
 <p>The new optimizer associates <code>-neo:o2</code> with "intra-program optimizations" and <code>-neo:o3</code> with "cross-libraries optimizations", as discussed in more detail in Sec. 4.1.</p>
 
