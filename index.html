@@ -324,35 +324,20 @@ ant all.clean &amp;&amp; ant
 <td><code>-closurify:MH</code></td>       <td>A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
 is given as constructor-argument to a *standard* closure-class
 (thus doing away with the need for as many individual classes as closure definitions).
-Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode</td> </tr>
-</table><p>Upon choosing conflicting flags, the compiler will not only call them out but also suggest corrective action. For example, upon choosing <code>-closurify:traditional -neo:o2</code> the compiler reports:</p>
-
-<pre><code>error: Optimization level 2 isn't compatible with -closurify = traditional.
-That optimization level requires --closurify:delegating or --closurify:MH
-</code></pre>
-
-<h2>4.3 Diagnostics</h2>
+Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode. Further details in Sec. 1.4</td> </tr>
+</table><h2>4.3 Diagnostics</h2>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
 
 <p>Another useful flag is <code>-Ygen-asmp &lt;folder&gt;</code> which similar to <code>-Ygen-javap</code> will emit textual files but in ASM format.</p>
 
-<h1>5 Future Work</h1>
-
-<ol>
-<li>task-parallelism in <code>inliningRound()</code> thus making not just <code>-neo:o2</code> faster but higher levels too (inlining is the bottleneck, Levels 3 and 4 are themselves relatively fast).</li>
-<li>
-<a href="https://issues.scala-lang.org/browse/SI-6941">SI-6941</a> Pattern matcher inefficiency for basic constructor patterns</li>
-<li>
-<a href="https://issues.scala-lang.org/browse/SI-6863">SI-6863</a> Remember "Attempt to entry try block with non-empty stack" ? To circumvent that limitation, a try-occurrence found at an expression position is "refactored" into a dedicated method (see <code>liftTree()</code> in <code>UnCurry</code>). The performance problem with that are slower compilation (more <code>Tree</code> nodes) and slower run time (larger constant pool, more bytecode instructions, more <code>IntRef</code>s all over). An alternative approach consists in leaving try's in place, with a post-<code>Cleanup</code> step guaranteeing empty-stack-on-try-entry. A proposal (in the form of pseudocode) for that transformation can be found at <a href="https://groups.google.com/d/msg/scala-internals/VkEL7wOVQpE/aSiNnF3ym-cJ">this thread</a>
-</li>
-</ol><p>What others are doing:</p>
+<p>What others are doing:</p>
 
 <ul>
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
-</ul><h1>6 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+</ul><h1>5 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
