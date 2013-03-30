@@ -311,8 +311,6 @@ ant all.clean &amp;&amp; ant
 <td><code>-neo:o3</code></td>       <td>Cross-libraries optimization: this includes the same kind of optimization as above, with the caveat that bytecode from external <em>can be parsed</em> if needed to apply some optimization (e.g., this is the optimization level to picks to have <code>Range.foreach</code> inlined)</td> </tr>
 </table><p><em>Nota bene</em>: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</p>
 
-<p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored7/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
-
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
 
 <table>
@@ -337,7 +335,32 @@ Allows all optimization levels, -target must be jvm-1.7 or higher, and the backe
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
-</ul><h1>5 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+</ul><h1>4.4 Pro tip: Optimizing the compiler and standard library themselves</h1>
+
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored14/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored14</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+
+<p>First, update <code>build.xml</code> to the desired level of optimization:</p>
+
+<pre><code>-      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-optimise"/&gt;&lt;/antcall&gt;
++      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-neo:o3"/&gt;&lt;/antcall&gt;
+</code></pre>
+
+<p>Second, <code>ant all.clean &amp;&amp; ant &amp;&amp; ant replacelocker &amp;&amp; ant nightly</code></p>
+
+<p>The console will show something like:</p>
+
+<pre><code>init:
+     . . . 
+     [echo]       scalac args: -Yreify-copypaste  -neo:o1
+     [echo] scalac quick args: -Yreify-copypaste  -neo:o1 
+     . . . 
+</code></pre>
+
+<p>The nightly build takes from 80 minutes to 2 hours, depending on hardware.</p>
+
+<h1>5 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
