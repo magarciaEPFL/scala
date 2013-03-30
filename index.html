@@ -300,18 +300,18 @@ ant all.clean &amp;&amp; ant
 
 <table>
 <tr>
-<td><code>-neo:GenASM</code></td>   <td>backdoor flag to use the old backend. Nota bene: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for `-optimise` or one of its variants can run without modification.</td> </tr>
+<td><code>-neo:GenASM</code></td>   <td>backdoor flag to use the old backend.</td> </tr>
 <tr>
 <td><code>-neo:GenBCode</code></td> <td>use the new code emitter, just emitting trees as delivered by CleanUp</td> </tr>
 <tr>
 <td><code>-neo:o1</code></td>       <td>Intra-method optimizations only, ie no inlining, no closure optimizations</td> </tr>
 <tr>
-<td><code>-neo:o2</code></td>       <td>Method inlining and closure stack-allocation, without "advanced" closure optimization</td> </tr>
+<td><code>-neo:o2</code></td>       <td>Intra-program optimizations. This includes any method inlining, closure stack-allocation, or "advanced" closure optimization (ie minimization of closure state, "singletonize" closures) _as long as_ it affects only what's being compiled, as opposed to peeking inside external libraries (see below).</td> </tr>
 <tr>
-<td><code>-neo:o3</code></td>       <td>"Advanced" closure optimization: minimization of closure state, "singletonize" closures</td> </tr>
-<tr>
-<td><code>-neo:o4</code></td>       <td>Rewiring of final methods of traits to directly target them using invokestatic rather than invokeinterface</td> </tr>
-</table><p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored7/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<td><code>-neo:o3</code></td>       <td>Cross-libraries optimization: this includes the same kind of optimization as above, with the caveat that bytecode from external _can be parsed_ if needed to apply some optimization (e.g., this is the optimization level to picks to have `Range.foreach` inlined)</td> </tr>
+</table><p>Nota bene: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</p>
+
+<p>Pro tip: optimizing the compiler and standard library themselves under a level other than the default is as easy as tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored7/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
 <h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
 
