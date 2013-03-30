@@ -33,13 +33,14 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored7</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored14</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored7">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored7</a></li>
-<li><a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored14">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored14</a></li>
+<li>
+<a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
 
 <h2>1.1 Why a new optimizer</h2>
@@ -64,28 +65,28 @@
 <li>disk writing and class file building overlap (the more source files, the larger the speedup)</li>
 </ul><h2>1.3 Leaner Closure ASTs</h2>
 
-<p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). In this prototype, the creation of AST nodes for closures is postponed, simplifying the job of specialization, erasure, and other compiler phases. </p>
+<p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). Instead, the new backend postpones the creation of AST nodes for closures, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
-<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. The implementation-level representation can be chosen among:</p>
+<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. The implementation-level representation can be chosen between:</p>
 
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
 </ul><h2>1.4 Method handles</h2>
 
-<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv2</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
+<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
 
-<p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored7...GenMHv2">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored7...GenMHv2</a></p>
+<p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3</a></p>
 
 <p>Sources can be obtained via:</p>
 
-<pre><code>    git clone git://github.com/magarciaEPFL/scala.git GenMHv2
-    cd GenMHv2
-    git checkout -b GenMHv2 origin/GenMHv2
+<pre><code>    git clone git://github.com/magarciaEPFL/scala.git GenMHv3
+    cd GenMHv3
+    git checkout -b GenMHv2 origin/GenMHv3
     ant all.clean &amp;&amp; ant
 </code></pre>
 
-<p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. More details about this prototype at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
+<p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. A discussion about performance at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
 
 <h1>2 What's new in the new optimizer</h1>
 
