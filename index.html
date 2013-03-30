@@ -283,9 +283,9 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>The first step is checking out branch <code>GenRefactored7</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored7
-cd GenRefactored7
-git checkout -b GenRefactored7 origin/GenRefactored7
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored14
+cd GenRefactored14
+git checkout -b GenRefactored14 origin/GenRefactored14
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -294,14 +294,13 @@ ant all.clean &amp;&amp; ant
 <ul>
 <li>fine grained optimization levels (shown below) to progressively move into more advanced optimizations.</li>
 <li>backdoor to use the "old" optimizer and backend, to ease comparison. All options of the "old" optimizer are available in this case ( <code>-optimise</code> <code>-Yinline</code>  <code>-Yinline-handlers</code>  <code>-Yclosure-elim</code>  and <code>-Ydead-code</code> ).</li>
-<li>to ease migration from old to new optimizer, for now no error is emitted when compiler flags are given for both old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</li>
 </ul><h2>4.1 Choosing optimization level via compiler flags</h2>
 
-<p>Each optimization level includes all optimizations from lower levels, and assume the new code emitter (<code>GenBCode</code>) is active:</p>
+<p>Each optimization level includes all optimizations from lower levels, and assume the new bytecode emitter (<code>GenBCode</code>) is active:</p>
 
 <table>
 <tr>
-<td><code>-neo:GenASM</code></td>   <td>backdoor flag to use the old backend</td> </tr>
+<td><code>-neo:GenASM</code></td>   <td>backdoor flag to use the old backend. Nota bene: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for `-optimise` or one of its variants can run without modification.</td> </tr>
 <tr>
 <td><code>-neo:GenBCode</code></td> <td>use the new code emitter, just emitting trees as delivered by CleanUp</td> </tr>
 <tr>
