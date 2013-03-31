@@ -1241,6 +1241,10 @@ abstract class GenBCode extends BCodeOptInter {
         isMethSymStaticCtor = methSymbol.isStaticConstructor
         isMethSymBridge     = methSymbol.isBridge
 
+        if(hasInline(methSymbol) && !(methSymbol.isFinal || methSymbol.isEffectivelyFinal)) {
+          warnInliningWontHappen(claszSymbol, dd.pos)
+        }
+
         resetMethodBookkeeping(dd)
 
         // add method-local vars for params
@@ -3412,12 +3416,23 @@ abstract class GenBCode extends BCodeOptInter {
               val inlnTarget = new InlineTarget(callsite, cunit, pos)
               if(isHiO) { cgn.hiOs  ::= inlnTarget }
               else      { cgn.procs ::= inlnTarget }
+            } else {
+              warnInliningWontHappen(receiver, pos)
             }
           }
 
         } // inter-procedural optimizations
 
       } // end of genCallMethod()
+
+      private def warnInliningWontHappen(receiverClazz: Symbol, pos: Position) {
+        val msg =
+          if(receiverClazz.isTrait)
+            "Won't inline callsite to method declared in trait (SI-4767)"
+          else
+            "Won't inline callsite to non-final method, being marked @inline doesn't make the target in question final."
+        cunit.inlinerWarning(pos, msg)
+      }
 
       /* Generate the scala ## method. */
       def genScalaHash(tree: Tree): BType = {
