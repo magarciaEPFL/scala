@@ -3258,7 +3258,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       private def trackModuleClass(module: Symbol, mbt: BType) {
-        if(isStaticModule(module)) {
+        if(isStaticModule(module.moduleClass)) {
           knownModuleClasses += mbt
         }
         val cc = module.companionClass

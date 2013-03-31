@@ -16,9 +16,9 @@ import scala.tools.asm.tree.MethodInsnNode;
 import scala.tools.asm.tree.JumpInsnNode;
 import scala.tools.asm.tree.TypeInsnNode;
 import scala.tools.asm.tree.InsnNode;
+import scala.tools.asm.tree.FieldInsnNode;
 import scala.tools.asm.tree.VarInsnNode;
 import scala.tools.asm.tree.InsnList;
-
 import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.Analyzer;
 import scala.tools.asm.tree.analysis.Frame;
@@ -50,9 +50,9 @@ public class NullnessPropagator {
 
     private UnreachableCode unreachCodeRemover = new UnreachableCode();
 
-    public void transform(final String owner, final MethodNode mnode) throws AnalyzerException {
+    public void transform(final String owner, final MethodNode mnode, final TypeRepo typeRepo) throws AnalyzerException {
 
-        NullnessAnalyzer nany    = NullnessAnalyzer.create();
+        NullnessAnalyzer nany    = NullnessAnalyzer.create(typeRepo);
         NullnessFrame[] frames   = nany.analyze(owner, mnode);
         AbstractInsnNode[] insns = mnode.instructions.toArray();
 
@@ -264,14 +264,17 @@ public class NullnessPropagator {
     } // end of nested class StatusValue
 
 
+    static public interface TypeRepo {
+        public boolean isLoadModule(FieldInsnNode fi);
+    }
+
     static public class StatusInterpreter extends Interpreter<StatusValue> implements Opcodes {
 
-        public StatusInterpreter() {
-            super(ASM4);
-        }
+        private final TypeRepo typeRepo;
 
-        protected StatusInterpreter(final int api) {
-            super(api);
+        public StatusInterpreter(final TypeRepo typeRepo) {
+            super(ASM4);
+            this.typeRepo = typeRepo;
         }
 
         @Override
@@ -292,6 +295,10 @@ public class NullnessPropagator {
             Nullness status = Nullness.INDOUBT_STATUS;
             if (insn.getOpcode() == Opcodes.ACONST_NULL) {
                 status = Nullness.NULL_STATUS;
+            } else if(insn.getOpcode() == Opcodes.GETSTATIC) {
+                if(typeRepo.isLoadModule((FieldInsnNode) insn)) {
+                    status = Nullness.NONNULL_STATUS;
+                }
             }
             return new StatusValue(size, status);
         }
@@ -408,8 +415,8 @@ public class NullnessPropagator {
 
     static private class NullnessAnalyzer extends Analyzer<StatusValue> {
 
-        public static NullnessAnalyzer create() {
-            return new NullnessAnalyzer(new StatusInterpreter());
+        public static NullnessAnalyzer create(final TypeRepo typeRepo) {
+            return new NullnessAnalyzer(new StatusInterpreter(typeRepo));
         }
 
         public NullnessAnalyzer(final StatusInterpreter interpreter) {

@@ -10,7 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.{ProdConsAnalyzer, Util}
+import asm.optimiz.{NullnessPropagator, ProdConsAnalyzer, Util}
 import asm.tree.analysis.SourceValue
 import asm.tree._
 
@@ -61,6 +61,24 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
   /* bytecode-level classes defining (static) extension methods. */
   val knownCustomValueClasses = mutable.Set.empty[BType]
+
+  val typeRepo = new NullnessPropagator.TypeRepo {
+
+    def isClassOfModuleOrCustomValue(iname: String): Boolean = {
+      val bt = lookupRefBTypeIfExisting(iname)
+      (bt != null) && {
+        knownModuleClasses(bt) || knownCustomValueClasses(bt)
+      }
+    }
+
+    override def isLoadModule(fi: FieldInsnNode): Boolean = {
+      (fi.getOpcode == Opcodes.GETSTATIC) &&
+      (fi.name == reflect.NameTransformer.MODULE_INSTANCE_NAME) &&
+      (fi.desc == "L" + fi.owner + ";") &&
+      isClassOfModuleOrCustomValue(fi.owner)
+    }
+
+  }
 
   /*
    * must-single-thread
@@ -1171,7 +1189,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         keepGoing |= cleanseMethod(cName, mnode)
         keepGoing |= elimRedundantCode(cName, mnode)
 
-        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+        nullnessPropagator.transform(cName, mnode, typeRepo);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
         keepGoing |= nullnessPropagator.changed
 
         constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
