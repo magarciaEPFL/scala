@@ -1007,6 +1007,11 @@ abstract class GenBCode extends BCodeOptInter {
 
         initJClass(cnode)
 
+        if(isOptimizRun) {
+          val thisBT = lookupRefBType(thisName)
+          trackModuleClass(claszSymbol, thisBT)
+        }
+
         val hasStaticCtor = methodSymbols(cd) exists (_.isStaticConstructor)
         if(!hasStaticCtor) {
           // but needs one ...
@@ -3246,6 +3251,19 @@ abstract class GenBCode extends BCodeOptInter {
             strMODULE_INSTANCE_FIELD,
             mbt.getDescriptor // for nostalgics: toTypeKind(module.tpe).getDescriptor
           )
+          if(isOptimizRun) {
+            trackModuleClass(module, mbt)
+          }
+        }
+      }
+
+      private def trackModuleClass(module: Symbol, mbt: BType) {
+        if(isStaticModule(module)) {
+          knownModuleClasses += mbt
+        }
+        val cc = module.companionClass
+        if(cc != NoSymbol && enteringErasure(cc.isDerivedValueClass)) {
+          knownCustomValueClasses += mbt
         }
       }
 

@@ -56,12 +56,20 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
   final def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
 
+  /* static module classes we've come across during compilation, as reported by BCodeTypes.isStaticModule() */
+  val knownModuleClasses = mutable.Set.empty[BType]
+
+  /* bytecode-level classes defining (static) extension methods. */
+  val knownCustomValueClasses = mutable.Set.empty[BType]
+
   /*
    * must-single-thread
    */
   def clearBCodeOpt() {
     knownLacksInline.clear()
     knownHasInline.clear()
+    knownModuleClasses.clear()
+    knownCustomValueClasses.clear()
   }
 
   /*
