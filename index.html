@@ -360,7 +360,22 @@ Allows all optimization levels, -target must be jvm-1.7 or higher, and the backe
 
 <p>The nightly build takes from 80 minutes to 2 hours, depending on hardware.</p>
 
-<h1>5 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+<h1>5 FAQ</h1>
+
+<ul>
+<li>
+<strong>What are those Java sources doing in package <code>scala.tools.asm.optimiz</code>?</strong> </li>
+</ul><p>Those Java classes are a thin layer of functionality on top of the ASM library, which is written in Java. Package <code>scala.tools.asm.optimiz</code> contains intra-method optimizations which can be performed without knowledge about Scala-level types. The bulk of the optimizer, in constrast, is written in Scala.</p>
+
+<ul>
+<li><strong>If MethodHandles are slow on JDK7, how come other programming languages are happily using them?</strong></li>
+</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 1.4 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 1.4.</p>
+
+<ul>
+<li><strong>What about tests?</strong></li>
+</ul><p>As Sec. 4.4 shows, the test suite passes under all optimization levels, from <code>-neo:GenBCode</code> to <code>-neo:o1</code> through <code>-neo:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
+
+<h1>6 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
