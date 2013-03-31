@@ -131,8 +131,8 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
 
   // Minor variations on identity functions
   def identity[A](x: A): A         = x    // @see `conforms` for the implicit version
-  @inline def implicitly[T](implicit e: T) = e    // for summoning implicit values from the nether world -- TODO: when dependent method types are on by default, give this result type `e.type`, so that inliner has better chance of knowing which method to inline in calls like `implicitly[MatchingStrategy[Option]].zero`
-  @inline def locally[T](x: T): T  = x    // to communicate intent and avoid unmoored statements
+  @inline final def implicitly[T](implicit e: T) = e    // for summoning implicit values from the nether world -- TODO: when dependent method types are on by default, give this result type `e.type`, so that inliner has better chance of knowing which method to inline in calls like `implicitly[MatchingStrategy[Option]].zero`
+  @inline final def locally[T](x: T): T  = x    // to communicate intent and avoid unmoored statements
 
   // Apparently needed for the xml library
   val $scope = scala.xml.TopScope
@@ -248,7 +248,7 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
   // implicit classes -----------------------------------------------------
 
   implicit final class ArrowAssoc[A](val __leftOfArrow: A) extends AnyVal {
-    @inline def -> [B](y: B): Tuple2[A, B] = Tuple2(__leftOfArrow, y)
+    @inline final def -> [B](y: B): Tuple2[A, B] = Tuple2(__leftOfArrow, y)
     def →[B](y: B): Tuple2[A, B] = ->(y)
   }
 
@@ -295,8 +295,8 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
     def apply()             = mutable.StringBuilder.newBuilder
   }
 
-  @inline implicit def augmentString(x: String): StringOps = new StringOps(x)
-  @inline implicit def unaugmentString(x: StringOps): String = x.repr
+  @inline implicit final def augmentString(x: String): StringOps = new StringOps(x)
+  @inline implicit final def unaugmentString(x: StringOps): String = x.repr
 
   // printing and reading -----------------------------------------------
 
