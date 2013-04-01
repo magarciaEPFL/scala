@@ -496,6 +496,16 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
+      /*
+       * Don't pass unneeded arguments when invoking the static-HiO methods added for the current host method.
+       * Further details in the docu for `seenSHiOUtils`
+       */
+      val emittedSHiOs: Iterable[MethodNode] = seenSHiOUtils.values map { case EmittedSHiO(_, shio) => shio }
+      emittedSHiOs foreach { shio => pruneUnneededParams(leaf.hostOwner, leaf.host, shio) }
+
+      /*
+       * Get ready for next "leaf"
+       */
       lccElisionCandidates.clear()
       seenSHiOUtils.clear()
 
@@ -505,6 +515,30 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
     } // end of method inlineCallees()
+
+    /*
+     * When inlining a method invocation, those values formerly passed as arguments that go unused
+     * are amenable to optimization (eg, push-pop collapsing).
+     *
+     * Upon creating a shio-method and passing arguments to it (ie, upon closure-inlining)
+     * those arguments that go unsed won't be detected inter-procedurally,
+     * unless they are pruned explicitly (as done below).
+     *
+     * To recap, a shio-method at this point is invoked from hostOwner, and only from there.
+     *
+     * must-single-thread
+     */
+    private def pruneUnneededParams(hostOwner: ClassNode, host: MethodNode, shio: MethodNode) {
+      import asm.optimiz.UnusedParamsElider
+      Util.makePrivateMethod(shio)
+      val oldDescr = shio.desc
+      val elidedParams = UnusedParamsElider.elideUnusedParams(hostOwner, shio)
+      if(!elidedParams.isEmpty()) {
+        UnusedParamsElider.elideArguments(hostOwner, host, hostOwner, shio, oldDescr, elidedParams)
+        BType.getMethodType(shio.desc) // must-single-thread, register the new method descriptor in Names
+      }
+      Util.makePublicMethod(shio)
+    }
 
     /*
      * SI-5850: Inlined code shouldn't forget null-check on the original receiver
