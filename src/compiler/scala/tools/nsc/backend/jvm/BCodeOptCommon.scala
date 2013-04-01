@@ -573,6 +573,16 @@ abstract class BCodeOptCommon extends BCodeTypes {
       mnode.instructions.toList filter { insn => accessedDClosure(insn) == dclosure }
     }
 
+    /* those dclosures accessed one or more times in `mnode` */
+    def accesedDClosures(mnode: MethodNode): collection.Set[BType] = {
+      val result = mutable.Set.empty[BType]
+      for(insn <- mnode.instructions.toList; d = accessedDClosure(insn); if d != null) {
+        result += d
+      }
+
+      result
+    }
+
     // ------------------------------- yes/no inspectors and asserts ------------------------------
 
     /*
@@ -869,20 +879,25 @@ abstract class BCodeOptCommon extends BCodeTypes {
     def treeShakeUnusedDClosures(): Boolean = {
 
       var changed = false
-      for(d <- closuRepo.liveDClosures(masterCNode)) {
 
-        val dep = closuRepo.endpoint.get(d).mnode
-        // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
-        val unused =
-          { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
-        if(unused) {
-          changed = true
-          elidedClasses.add(d) // a concurrent set
-          masterCNode.methods.remove(dep)
-          /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
-           * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
+      // Initially `notInUse` contains all of the masterCNode's dclosures. Those for which usages are found are removed.
+      val notInUse = mutable.Set.empty[BType] ++ closuRepo.liveDClosures(masterCNode)
+      masterCNode.foreachMethod { mnode =>
+        if(Util.hasBytecodeInstructions(mnode)) {
+          notInUse --= closuRepo.accesedDClosures(mnode)
         }
+      }
 
+      // for those dclosures not in use anymore (e.g., due to dead-code elimination) remove its endpoint, and elide the class.
+      for(d <- notInUse) {
+        changed = true
+        val dep = closuRepo.endpoint.get(d).mnode
+        elidedClasses.add(d) // a concurrent set
+        masterCNode.methods.remove(dep)
+        /*
+         * At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
+         * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough.
+         */
       }
 
       changed
