@@ -477,6 +477,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         }
       }
 
+      lccElisionCandidates.clear()
+
       ifDebug {
         val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
         da.analyze(leaf.hostOwner.name, leaf.host)
