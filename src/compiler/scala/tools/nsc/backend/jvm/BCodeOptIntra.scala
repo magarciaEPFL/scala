@@ -1330,7 +1330,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
         val dcloptim  = new DClosureOptimizerImpl(cnode)
         var keepGoing = false
-        var rounds    = 0
 
         do {
 
@@ -1342,21 +1341,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
             if(keepGoing) { intraMethodFixpoints(full = false) }
 
-            rounds += 1
-
-        } while(
-          keepGoing && (rounds < 5)
-        )
+        } while(keepGoing)
 
         dcloptim.minimizeDClosureAllocations()
 
         if(dcloptim.treeShakeUnusedDClosures()) {
-          rounds = 0
-          do { rounds += 1 }
-          while(
-            removeUnusedLiftedMethods() &&
-            (rounds < 5)
-          )
+          do { } while(removeUnusedLiftedMethods())
         }
 
       }
