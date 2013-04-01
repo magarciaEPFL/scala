@@ -489,7 +489,9 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
       leaf.hiOs = Nil
 
-      // see explanation in the docu for `lccElisionCandidates`
+      /*
+       * Elision of not-in-use-anymore Late-Closure-Classes. Further details in the docu for `lccElisionCandidates`
+       */
       for(dclosure <- lccElisionCandidates) {
         // once inlined, a dclosure used only by its master class loses its "dclosure" status
         if(closuRepo.hasMultipleUsers(dclosure)) {
