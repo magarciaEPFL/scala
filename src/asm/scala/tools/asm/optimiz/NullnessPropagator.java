@@ -264,10 +264,6 @@ public class NullnessPropagator {
     } // end of nested class StatusValue
 
 
-    static public interface TypeRepo {
-        public boolean isLoadModule(FieldInsnNode fi);
-    }
-
     static public class StatusInterpreter extends Interpreter<StatusValue> implements Opcodes {
 
         private final TypeRepo typeRepo;

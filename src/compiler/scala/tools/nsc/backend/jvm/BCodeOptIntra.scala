@@ -62,7 +62,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
   /* bytecode-level classes defining (static) extension methods. */
   val knownCustomValueClasses = mutable.Set.empty[BType]
 
-  val typeRepo = new NullnessPropagator.TypeRepo {
+  val typeRepo = new asm.optimiz.TypeRepo {
 
     def isClassOfModuleOrCustomValue(iname: String): Boolean = {
       val bt = lookupRefBTypeIfExisting(iname)
