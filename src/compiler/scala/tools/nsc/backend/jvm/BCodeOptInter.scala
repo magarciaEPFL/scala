@@ -186,17 +186,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
     val lccElisionCandidates = mutable.Set.empty[BType]
 
     /*
-     * Reuse if possible an already emitted static-HiO method.
-     *
-     * This is possible when the hi-O callsite was enclosed (in terms of Scala source) inside the finally-clause
-     * of a try-expr with one or more catch-clauses. In this case, the finalizer has two versions:
-     *   - one reachable via exceptional control flow;
-     *   - the other via normal control flow.
-     */
-    val seenSHiOUtils = mutable.Map.empty[String, EmittedSHiO]
-
-    /*
-     *  Records a static-HiO method already emitted, along with the utility used to manipulate that method.
+     *  Records static-HiO methods already emitted, along with the utility used to manipulate each such static-HiO.
      *
      *  This information is useful to:
      *
@@ -207,6 +197,8 @@ abstract class BCodeOptInter extends BCodeOptIntra {
      *       enables other optimizations to kick in.
      *
      */
+    val seenSHiOUtils = mutable.Map.empty[String, EmittedSHiO]
+
     case class EmittedSHiO(shioUtil: StaticHiOUtil, shio: MethodNode)
 
     /*
@@ -1171,7 +1163,12 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       }
 
       /*
-       * Reuse if possible an already emitted static-HiO method. Further details in the docu for `seenSHiOUtils`
+       * Reuse if possible an already emitted static-HiO method.
+       *
+       * This is possible when the hi-O callsite was enclosed (in terms of Scala source) inside the finally-clause
+       * of a try-expr with one or more catch-clauses. In this case, the finalizer has two versions:
+       *   - one reachable via exceptional control flow;
+       *   - the other via normal control flow.
        */
       val hiOKey = ("" + hasNonNullReceiver + ";" + Util.textify(callsite) + actualsTypeFlow.mkString("[", ";", "]"))
 
