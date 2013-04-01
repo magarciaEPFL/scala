@@ -1149,7 +1149,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
 
-      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter(typeRepo))
       tfa.analyze(cnode.name, mnode)
       val frames: Array[Frame[TFValue]]   = tfa.getFrames()
       val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()

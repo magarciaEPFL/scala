@@ -383,7 +383,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       // Part 2 of 4: Type-Flow Analysis to determine non-nullness of receiver
       //----------------------------------------------------------------------
 
-      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter(typeRepo))
       tfa.analyze(leaf.hostOwner.name, leaf.host)
       // looking up in array `frames` using the whatever-then-current index of `insn` would assume the instruction list hasn't changed.
       // In general that doesn't hold after inlineMethod() or inlineClosures()
@@ -1573,7 +1573,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                       case Right(rewritten) =>
                         val cm: Util.ClonedMethod = Util.clonedMethodNode(current)
                         val clonedCurrent = cm.mnode
-                        val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+                        val tfa = new Analyzer[TFValue](new TypeFlowInterpreter(typeRepo))
                         tfa.analyze(closureClassName, current)
                         val clonedForwarder = cm.insnMap.get(forwarder).asInstanceOf[MethodInsnNode]
                         val frame   = tfa.frameAt(clonedForwarder).asInstanceOf[asm.tree.analysis.Frame[TFValue]]
