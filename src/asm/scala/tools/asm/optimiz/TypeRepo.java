@@ -9,4 +9,5 @@ import scala.tools.asm.tree.FieldInsnNode;
 
 public interface TypeRepo {
     public boolean isLoadModule(FieldInsnNode fi);
+    public boolean isSideEffectFreeModClass(String iname);
 }
