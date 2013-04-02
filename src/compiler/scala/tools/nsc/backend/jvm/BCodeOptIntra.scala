@@ -62,9 +62,19 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
   /* bytecode-level classes defining (static) extension methods. */
   val knownCustomValueClasses = mutable.Set.empty[BType]
 
-  val typeRepo = new asm.optimiz.TypeRepo {
+  /*
+   * A `typeRepo` answers:
+   *   (a) whether a GETSTATIC instruction loads a module-class instance
+   *   (b) whether the constructor of a module-class is side-effect free (other than initializing the MODULE$ singleton)
+   *
+   */
+  class TypeRepo extends asm.optimiz.TypeRepo {
 
-    def isClassOfModuleOrCustomValue(iname: String): Boolean = {
+    val isIntraProgramOpt = settings.isIntraProgramOpt
+    val isCrossLibOpt     = settings.isCrossLibOpt
+
+    private def isClassOfModuleOrCustomValue(iname: String): Boolean = {
+      // actually we might be handed in `iname` a descriptor and not an internal name, the correct answer (false) will be given anyway.
       val bt = lookupRefBTypeIfExisting(iname)
       (bt != null) && {
         knownModuleClasses(bt) || knownCustomValueClasses(bt)
@@ -78,7 +88,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       isClassOfModuleOrCustomValue(fi.owner)
     }
 
-  }
+  } // end of class TypeRepo
+
+  val typeRepo = new TypeRepo
 
   /*
    * must-single-thread
