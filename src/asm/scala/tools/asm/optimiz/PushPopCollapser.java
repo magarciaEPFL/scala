@@ -28,6 +28,16 @@ import java.util.*;
  */
 public class PushPopCollapser {
 
+    private final TypeRepo typeRepo;
+
+    public PushPopCollapser(final TypeRepo typeRepo) {
+        this.typeRepo = typeRepo;
+    }
+
+    public PushPopCollapser() {
+        this(null);
+    }
+
     private ProdConsAnalyzer cp = null;
     private MethodNode mnode = null;
 
@@ -368,7 +378,7 @@ public class PushPopCollapser {
                     break;
 
                 case Opcodes.GETSTATIC:
-                    if(SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
+                    if(SSLUtil.isSideEffectFreeGETSTATIC(prod) ||  canDropGETSTATIC(prod)) {
                         removeProducer(prod);
                     } else {
                         assert size == SizingUtil.getResultSize(prod);
@@ -544,7 +554,7 @@ public class PushPopCollapser {
                 return false;
 
             case Opcodes.GETSTATIC:
-                return SSLUtil.isSideEffectFreeGETSTATIC(producer);
+                return SSLUtil.isSideEffectFreeGETSTATIC(producer) || canDropGETSTATIC(producer);
 
             case Opcodes.GETFIELD:
                 return false;
@@ -566,6 +576,14 @@ public class PushPopCollapser {
 
         }
 
+    }
+
+    private boolean canDropGETSTATIC(final AbstractInsnNode insn) {
+        if(typeRepo == null) {
+            return false;
+        }
+        FieldInsnNode fi = (FieldInsnNode)insn;
+        return typeRepo.isLoadModule(fi) && typeRepo.isSideEffectFreeModClass(fi.owner);
     }
 
 }
