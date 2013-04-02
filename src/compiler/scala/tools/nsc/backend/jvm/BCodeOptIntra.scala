@@ -81,6 +81,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       (bt != null) && isKnownModClass(bt)
     }
 
+    override def isSideEffectFreeModClass(iname: String): Boolean = {
+      // actually we might be handed in `iname` a descriptor and not an internal name, the correct answer (false) will be given anyway.
+      val bt = lookupRefBTypeIfExisting(iname)
+      (bt != null) && knownCustomModValueClasses(bt)
+    }
+
     override def isLoadModule(fi: FieldInsnNode): Boolean = {
       (fi.getOpcode == Opcodes.GETSTATIC) &&
       (fi.name == reflect.NameTransformer.MODULE_INSTANCE_NAME) &&
@@ -1180,7 +1186,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
-    val ppCollapser         = new asm.optimiz.PushPopCollapser
+    val ppCollapser         = new asm.optimiz.PushPopCollapser(typeRepo)
     val jumpReducer         = new asm.optimiz.JumpReducer
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
