@@ -1331,6 +1331,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         val dcloptim  = new DClosureOptimizerImpl(cnode)
         var keepGoing = false
         var rounds    = 0
+        val MAX_ROUNDS = 10
 
         do {
 
@@ -1345,7 +1346,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             rounds += 1
 
         } while(
-          keepGoing && (rounds < 5)
+          keepGoing && (rounds < MAX_ROUNDS)
         )
 
         dcloptim.minimizeDClosureAllocations()
@@ -1355,7 +1356,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           do { rounds += 1 }
           while(
             removeUnusedLiftedMethods() &&
-            (rounds < 5)
+            (rounds < MAX_ROUNDS)
           )
         }
 
