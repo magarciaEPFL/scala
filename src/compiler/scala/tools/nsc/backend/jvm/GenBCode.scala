@@ -3263,7 +3263,7 @@ abstract class GenBCode extends BCodeOptInter {
         }
         val cc = module.companionClass
         if(cc != NoSymbol && enteringErasure(cc.isDerivedValueClass)) {
-          knownCustomValueClasses += mbt
+          knownCustomModValueClasses += mbt
         }
       }
 

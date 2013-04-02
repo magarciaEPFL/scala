@@ -59,8 +59,8 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
   /* static module classes we've come across during compilation, as reported by BCodeTypes.isStaticModule() */
   val knownModuleClasses = mutable.Set.empty[BType]
 
-  /* bytecode-level classes defining (static) extension methods. */
-  val knownCustomValueClasses = mutable.Set.empty[BType]
+  /* bytecode-level classes defining (static) extension methods (ie a bytecode-level module class of a user-defined value class). */
+  val knownCustomModValueClasses = mutable.Set.empty[BType]
 
   /*
    * A `typeRepo` answers:
@@ -73,19 +73,19 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     val isIntraProgramOpt = settings.isIntraProgramOpt
     val isCrossLibOpt     = settings.isCrossLibOpt
 
-    private def isClassOfModuleOrCustomValue(iname: String): Boolean = {
+    private def isKnownModClass(bt: BType): Boolean = { knownModuleClasses(bt) || knownCustomModValueClasses(bt) }
+
+    private def isKnownModClass(iname: String): Boolean = {
       // actually we might be handed in `iname` a descriptor and not an internal name, the correct answer (false) will be given anyway.
       val bt = lookupRefBTypeIfExisting(iname)
-      (bt != null) && {
-        knownModuleClasses(bt) || knownCustomValueClasses(bt)
-      }
+      (bt != null) && isKnownModClass(bt)
     }
 
     override def isLoadModule(fi: FieldInsnNode): Boolean = {
       (fi.getOpcode == Opcodes.GETSTATIC) &&
       (fi.name == reflect.NameTransformer.MODULE_INSTANCE_NAME) &&
       (fi.desc == "L" + fi.owner + ";") &&
-      isClassOfModuleOrCustomValue(fi.owner)
+      isKnownModClass(fi.owner)
     }
 
   } // end of class TypeRepo
@@ -99,7 +99,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     knownLacksInline.clear()
     knownHasInline.clear()
     knownModuleClasses.clear()
-    knownCustomValueClasses.clear()
+    knownCustomModValueClasses.clear()
   }
 
   /*
