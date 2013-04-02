@@ -30,17 +30,14 @@ public class SSLUtil {
         return false;
     }
 
+    /*
+     * Java cases reported here. In contrast, module-loads of Scala-defined objects are the realm of `BCodeOptIntra.TypeRepo`
+     */
     public static boolean isSideEffectFreeGETSTATIC(final AbstractInsnNode producer) {
         if(producer.getType() == AbstractInsnNode.FIELD_INSN) {
             FieldInsnNode fi = (FieldInsnNode)producer;
             if("scala/runtime/BoxedUnit".equals(fi.owner)) {
                 return "UNIT".equals(fi.name);
-            }
-            if("scala/Unit$".equals(fi.owner)) {
-                return "MODULE$".equals(fi.name); // SI-6527
-            }
-            if("scala/collection/immutable/Nil$".equals(fi.owner)) {
-                return "MODULE$".equals(fi.name);
             }
         }
         return false;
