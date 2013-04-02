@@ -73,7 +73,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     val isIntraProgramOpt = settings.isIntraProgramOpt
     val isCrossLibOpt     = settings.isCrossLibOpt
 
-    private def isKnownModClass(bt: BType): Boolean = { knownModuleClasses(bt) || knownCustomModValueClasses(bt) }
+    def isKnownModClass(bt: BType): Boolean = { knownModuleClasses(bt) || knownCustomModValueClasses(bt) }
 
     private def isKnownModClass(iname: String): Boolean = {
       // actually we might be handed in `iname` a descriptor and not an internal name, the correct answer (false) will be given anyway.
