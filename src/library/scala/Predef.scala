@@ -131,8 +131,8 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
 
   // Minor variations on identity functions
   def identity[A](x: A): A         = x    // @see `conforms` for the implicit version
-  @inline def implicitly[T](implicit e: T) = e    // for summoning implicit values from the nether world -- TODO: when dependent method types are on by default, give this result type `e.type`, so that inliner has better chance of knowing which method to inline in calls like `implicitly[MatchingStrategy[Option]].zero`
-  @inline def locally[T](x: T): T  = x    // to communicate intent and avoid unmoored statements
+  @inline final def implicitly[T](implicit e: T) = e    // for summoning implicit values from the nether world -- TODO: when dependent method types are on by default, give this result type `e.type`, so that inliner has better chance of knowing which method to inline in calls like `implicitly[MatchingStrategy[Option]].zero`
+  @inline final def locally[T](x: T): T  = x    // to communicate intent and avoid unmoored statements
 
   // Apparently needed for the xml library
   val $scope = scala.xml.TopScope
@@ -248,7 +248,7 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
   // implicit classes -----------------------------------------------------
 
   implicit final class ArrowAssoc[A](val __leftOfArrow: A) extends AnyVal {
-    @inline def -> [B](y: B): Tuple2[A, B] = Tuple2(__leftOfArrow, y)
+    @inline final def -> [B](y: B): Tuple2[A, B] = Tuple2(__leftOfArrow, y)
     def →[B](y: B): Tuple2[A, B] = ->(y)
   }
 
@@ -295,8 +295,8 @@ object Predef extends LowPriorityImplicits with DeprecatedPredef {
     def apply()             = mutable.StringBuilder.newBuilder
   }
 
-  @inline implicit def augmentString(x: String): StringOps = new StringOps(x)
-  @inline implicit def unaugmentString(x: StringOps): String = x.repr
+  @inline implicit final def augmentString(x: String): StringOps = new StringOps(x)
+  @inline implicit final def unaugmentString(x: StringOps): String = x.repr
 
   // printing and reading -----------------------------------------------
 
@@ -472,14 +472,14 @@ private[scala] abstract class LowPriorityImplicits {
    *  Even inlined, every call site does a no-op retrieval of Predef's MODULE$
    *  because maybe loading Predef has side effects!
    */
-  @inline implicit def byteWrapper(x: Byte)       = new runtime.RichByte(x)
-  @inline implicit def shortWrapper(x: Short)     = new runtime.RichShort(x)
-  @inline implicit def intWrapper(x: Int)         = new runtime.RichInt(x)
-  @inline implicit def charWrapper(c: Char)       = new runtime.RichChar(c)
-  @inline implicit def longWrapper(x: Long)       = new runtime.RichLong(x)
-  @inline implicit def floatWrapper(x: Float)     = new runtime.RichFloat(x)
-  @inline implicit def doubleWrapper(x: Double)   = new runtime.RichDouble(x)
-  @inline implicit def booleanWrapper(x: Boolean) = new runtime.RichBoolean(x)
+  @inline implicit final def byteWrapper(x: Byte)       = new runtime.RichByte(x)
+  @inline implicit final def shortWrapper(x: Short)     = new runtime.RichShort(x)
+  @inline implicit final def intWrapper(x: Int)         = new runtime.RichInt(x)
+  @inline implicit final def charWrapper(c: Char)       = new runtime.RichChar(c)
+  @inline implicit final def longWrapper(x: Long)       = new runtime.RichLong(x)
+  @inline implicit final def floatWrapper(x: Float)     = new runtime.RichFloat(x)
+  @inline implicit final def doubleWrapper(x: Double)   = new runtime.RichDouble(x)
+  @inline implicit final def booleanWrapper(x: Boolean) = new runtime.RichBoolean(x)
 
   // These eight implicits exist solely to exclude Null from the domain of
   // the boxed types, so that e.g. "var x: Int = null" is a compile time
