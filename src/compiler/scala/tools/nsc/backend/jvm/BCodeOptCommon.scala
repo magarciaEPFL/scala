@@ -45,10 +45,6 @@ abstract class BCodeOptCommon extends BCodeTypes {
     def intraMethodFixpoints(full: Boolean)
   }
 
-  trait QuickCleanserIface {
-    def basicIntraMethodOpt(mnode: asm.tree.MethodNode)
-  }
-
   /*
    *  Single-access point for requests to parse bytecode for inlining purposes.
    *  Given the BType of a class with internal name,

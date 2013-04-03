@@ -1133,7 +1133,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
   } // end of class EssentialCleanser
 
-  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) with QuickCleanserIface {
+  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
 
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
