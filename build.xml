@@ -756,6 +756,7 @@ TODO:
           srcdir="${src.dir}/@{project}"
           destdir="${@{project}-classes}"
           classpath="${@{project}-classes}"
+          debug="true" debuglevel="lines,vars,source"
           includes="**/*.java"
           target="1.6" source="1.5"
           compiler="javac1.6">
