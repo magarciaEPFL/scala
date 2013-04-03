@@ -33,14 +33,14 @@ private[scala] abstract class LowPriorityImplicits {
    *  Even inlined, every call site does a no-op retrieval of Predef's MODULE$
    *  because maybe loading Predef has side effects!
    */
-  @inline implicit def byteWrapper(x: Byte)       = new runtime.RichByte(x)
-  @inline implicit def shortWrapper(x: Short)     = new runtime.RichShort(x)
-  @inline implicit def intWrapper(x: Int)         = new runtime.RichInt(x)
-  @inline implicit def charWrapper(c: Char)       = new runtime.RichChar(c)
-  @inline implicit def longWrapper(x: Long)       = new runtime.RichLong(x)
-  @inline implicit def floatWrapper(x: Float)     = new runtime.RichFloat(x)
-  @inline implicit def doubleWrapper(x: Double)   = new runtime.RichDouble(x)
-  @inline implicit def booleanWrapper(x: Boolean) = new runtime.RichBoolean(x)
+  @inline implicit final def byteWrapper(x: Byte)       = new runtime.RichByte(x)
+  @inline implicit final def shortWrapper(x: Short)     = new runtime.RichShort(x)
+  @inline implicit final def intWrapper(x: Int)         = new runtime.RichInt(x)
+  @inline implicit final def charWrapper(c: Char)       = new runtime.RichChar(c)
+  @inline implicit final def longWrapper(x: Long)       = new runtime.RichLong(x)
+  @inline implicit final def floatWrapper(x: Float)     = new runtime.RichFloat(x)
+  @inline implicit final def doubleWrapper(x: Double)   = new runtime.RichDouble(x)
+  @inline implicit final def booleanWrapper(x: Boolean) = new runtime.RichBoolean(x)
 
   // These eight implicits exist solely to exclude Null from the domain of
   // the boxed types, so that e.g. "var x: Int = null" is a compile time
