@@ -1201,7 +1201,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         keepGoing |= cleanseMethod(cName, mnode)
         keepGoing |= elimRedundantCode(cName, mnode)
 
-        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+        nullnessPropagator.transform(cName, mnode, typeRepo);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
         keepGoing |= nullnessPropagator.changed
 
         constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
