@@ -4009,7 +4009,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    *  All methods in this class can-multi-thread
    **/
-  class TypeFlowInterpreter extends asm.optimiz.InterpreterSkeleton[TFValue] {
+  class TypeFlowInterpreter(typeRepo: asm.optimiz.TypeRepo) extends asm.optimiz.InterpreterSkeleton[TFValue] {
 
     override def newValue(t: asm.Type): TFValue = {
       if (t == null || t == asm.Type.VOID_TYPE) { null }
@@ -4207,7 +4207,16 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     override def opGETFIELD(insn: asm.tree.FieldInsnNode, objectref: TFValue):                 TFValue =  { newValue(descrToBType(insn.desc)) }
     override def opPUTFIELD(insn: asm.tree.FieldInsnNode, objectref: TFValue, value: TFValue): TFValue =  { value }
 
-    override def opGETSTATIC(insn: asm.tree.FieldInsnNode):                 TFValue = { newValue(descrToBType(insn.desc)) }
+    override def opGETSTATIC(insn: asm.tree.FieldInsnNode): TFValue = {
+      var isExact = false
+      var isKnownToBeNonNull = false
+      val bt = descrToBType(insn.desc)
+      if(typeRepo.isLoadModule(insn)) {
+        isExact = true
+        isKnownToBeNonNull = true
+      }
+      newValue(bt, isExact, isKnownToBeNonNull)
+    }
     override def opPUTSTATIC(insn: asm.tree.FieldInsnNode, value: TFValue): TFValue = { value }
 
     override def opLDCHandleValue(insn: asm.tree.AbstractInsnNode,     cst: asm.Handle): TFValue = { ??? }
