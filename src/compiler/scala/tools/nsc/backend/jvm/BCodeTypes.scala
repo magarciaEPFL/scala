@@ -4016,7 +4016,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       else { newValue(toBType(t)) }
     }
 
-    def newValue(t: BType, fromNEW: Boolean = false): TFValue = {
+    private def newValue(t: BType): TFValue = {
+      newValue(t, isExact = false, isKnownToBeNonNull = false)
+    }
+
+    private def newValue(t: BType, isExact: Boolean, isKnownToBeNonNull: Boolean): TFValue = {
       if (t == null || t.isUnitType) {
         return null
       }
@@ -4048,8 +4052,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       }
 
       var bits = 0
-      bits |= (if(isFinal || fromNEW) TypeFlowConstants.EXACT_MASK     else 0)
-      bits |= (if(fromNEW)            TypeFlowConstants.NON_NULL_MASK  else 0)
+      bits |= (if(isFinal || isExact) TypeFlowConstants.EXACT_MASK     else 0)
+      bits |= (if(isKnownToBeNonNull) TypeFlowConstants.NON_NULL_MASK  else 0)
 
       TFValue(lca, bits)
     }
@@ -4179,7 +4183,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
 
     override def opNEW(insn: asm.tree.TypeInsnNode): TFValue = {
-      newValue(lookupRefBType(insn.desc), fromNEW = true)
+      newValue(lookupRefBType(insn.desc), isExact = true, isKnownToBeNonNull = true)
     }
     override def opANEWARRAY(insn: asm.tree.TypeInsnNode): TFValue = {
       val c: Char = insn.desc(0)
