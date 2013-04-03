@@ -56,12 +56,50 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
   final def hasNoInline(sym: Symbol) = sym hasAnnotation definitions.ScalaNoInlineClass
 
+  /* static module classes we've come across during compilation, as reported by BCodeTypes.isStaticModule() */
+  val knownModuleClasses = mutable.Set.empty[BType]
+
+  /* bytecode-level classes defining (static) extension methods (ie a bytecode-level module class of a user-defined value class). */
+  val knownCustomModValueClasses = mutable.Set.empty[BType]
+
+  /*
+   * A `typeRepo` answers:
+   *   (a) whether a GETSTATIC instruction loads a module-class instance
+   *   (b) whether the constructor of a module-class is side-effect free (other than initializing the MODULE$ singleton)
+   *
+   */
+  class TypeRepo extends asm.optimiz.TypeRepo {
+
+    val isIntraProgramOpt = settings.isIntraProgramOpt
+    val isCrossLibOpt     = settings.isCrossLibOpt
+
+    def isKnownModClass(bt: BType): Boolean = { knownModuleClasses(bt) || knownCustomModValueClasses(bt) }
+
+    private def isKnownModClass(iname: String): Boolean = {
+      // actually we might be handed in `iname` a descriptor and not an internal name, the correct answer (false) will be given anyway.
+      val bt = lookupRefBTypeIfExisting(iname)
+      (bt != null) && isKnownModClass(bt)
+    }
+
+    override def isLoadModule(fi: FieldInsnNode): Boolean = {
+      (fi.getOpcode == Opcodes.GETSTATIC) &&
+      (fi.name == reflect.NameTransformer.MODULE_INSTANCE_NAME) &&
+      (fi.desc == "L" + fi.owner + ";") &&
+      isKnownModClass(fi.owner)
+    }
+
+  } // end of class TypeRepo
+
+  val typeRepo = new TypeRepo
+
   /*
    * must-single-thread
    */
   def clearBCodeOpt() {
     knownLacksInline.clear()
     knownHasInline.clear()
+    knownModuleClasses.clear()
+    knownCustomModValueClasses.clear()
   }
 
   /*
