@@ -280,7 +280,7 @@ abstract class ExplicitOuter extends InfoTransform
       */
     protected def isUnderConstruction(clazz: Symbol) = selfOrSuperCalls contains clazz
     protected val selfOrSuperCalls = mutable.Stack[Symbol]()
-    @inline protected def inSelfOrSuperCall[A](sym: Symbol)(a: => A) = {
+    @inline protected final def inSelfOrSuperCall[A](sym: Symbol)(a: => A) = {
       selfOrSuperCalls push sym
       try a finally selfOrSuperCalls.pop()
     }
