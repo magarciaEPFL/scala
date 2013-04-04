@@ -160,18 +160,23 @@ public class Analyzer<V extends Value> implements Opcodes {
         current.setReturn(interpreter.newValue(Type.getReturnType(m.desc)));
         Type[] args = Type.getArgumentTypes(m.desc);
         int local = 0;
-        if ((m.access & ACC_STATIC) == 0) {
+        boolean isInstanceMethod = (m.access & ACC_STATIC) == 0;
+        if (isInstanceMethod) {
             Type ctype = Type.getObjectType(owner);
-            current.setLocal(local++, interpreter.newValue(ctype));
+            current.setLocal(local, newFormal(isInstanceMethod, 0, ctype));
+            local += 1;
         }
         for (int i = 0; i < args.length; ++i) {
-            current.setLocal(local++, interpreter.newValue(args[i]));
+            current.setLocal(local, newFormal(isInstanceMethod, local, args[i]));
+            local += 1;
             if (args[i].getSize() == 2) {
-                current.setLocal(local++, interpreter.newValue(null));
+                current.setLocal(local, interpreter.newValue(null));
+                local += 1;
             }
         }
         while (local < m.maxLocals) {
-            current.setLocal(local++, interpreter.newValue(null));
+            current.setLocal(local, newNonFormalLocal(local));
+            local += 1;
         }
         merge(0, current, null);
 
@@ -284,21 +289,26 @@ public class Analyzer<V extends Value> implements Opcodes {
                         if (newControlFlowExceptionEdge(insn, tcb)) {
                             handler.init(f);
                             handler.clearStack();
-                            handler.push(interpreter.newValue(type));
+                            handler.push(newException(tcb, handler, type));
                             merge(jump, handler, subroutine);
                         }
                     }
                 }
             } catch (AnalyzerException e) {
                 throw new AnalyzerException(e.node, "Error at instruction "
-                        + insn + ": " + e.getMessage(), e);
+                        + insn + ": " + e.getMessage() + " in method " + m.name + m.desc + " in class " + owner, e);
             } catch (Exception e) {
                 throw new AnalyzerException(insnNode, "Error at instruction "
-                        + insn + ": " + e.getMessage(), e);
+                        + insn + ": " + e.getMessage() + " in method " + m.name + m.desc + " in class " + owner, e);
             }
         }
 
         return frames;
+    }
+
+    public Frame frameAt(AbstractInsnNode insn) {
+        int idx = insns.indexOf(insn);
+        return frames[idx];
     }
 
     private void findSubroutine(int insn, final Subroutine sub,
@@ -546,4 +556,33 @@ public class Analyzer<V extends Value> implements Opcodes {
             queue[top++] = insn;
         }
     }
+
+    /**
+     * An initial value for a formal param.
+     *
+     * This overridable method comes handy (for example) to track as non-null the THIS reference of an instance method.
+     *
+     * @param isInstanceMethod if false the method being analyzed should be invoked via invokestatic
+     * @param idx   the index of the local-var whose abstract value we're returning.
+     * @param ctype the type of the local-var
+     * @return the created abstract value.
+     */
+    public V newFormal(boolean isInstanceMethod, int idx, Type ctype) {
+        return interpreter.newValue(ctype);
+    }
+
+    /**
+     * An initial value (e.g. "uninitialized") for a non-formal-param local variable.
+     *
+     * @param idx   the index of the local-var whose abstract value we're returning.
+     * @return the created abstract value.
+     */
+    public V newNonFormalLocal(int idx) {
+        return interpreter.newValue(null);
+    }
+
+    public V newException(TryCatchBlockNode tcb, Frame current, Type type) {
+        return interpreter.newValue(type);
+    }
+
 }
