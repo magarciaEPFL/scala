@@ -367,7 +367,7 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
   /** Return a list of all type environments for all specializations
    *  of @specialized types in `tps`.
    */
-  private def specializations(tps: List[Symbol]): List[TypeEnv] = {
+  def specializations(tps: List[Symbol]): List[TypeEnv] = {
     // the keys in each TypeEnv
     val keys: List[Symbol] = tps filter (_.isSpecialized)
     // creating each permutation of concrete types
