@@ -200,10 +200,10 @@ trait ScalaSettings extends AbsScalaSettings
   val Xexperimental = BooleanSetting("-Xexperimental", "Enable experimental extensions.") enabling experimentalSettings
 
   /**
-   * Settings motivated by GenBCode
+   * Settings motivated by GenBCode and the ASM-based optimizer
    */
   val neo         = ChoiceSetting ("-neo", "choice of bytecode emitter", "Choice of bytecode emitter.",
-                                   List("GenASM", "GenBCode"),
+                                   List("GenASM", "GenBCode", "o1"),
                                    "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -228,11 +228,24 @@ trait ScalaSettings extends AbsScalaSettings
   /** Test whether this is scaladoc we're looking at */
   def isScaladoc = false
 
-  /**
+  /*
    * Helper utilities for use by checkConflictingSettings()
+   * To ease the transition, ICode is given preference whenever a compiler flag asks for it, directly or indirectly.
    */
   def isBCodeActive   = !isICodeAskedFor
   def isBCodeAskedFor = (neo.value != "GenASM")
   def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
+
+  /*
+   *  Each optimization level (neoLevel) includes all optimizations from lower levels:
+   *
+   *    case 0 => Just emit trees as delivered by CleanUp, -neo indicates whether GenASM or GenBCode is to be used.
+   *
+   *    case 1 => Intra-method optimizations only, ie no inlining, no closure optimizations.
+   *              Implies GenBCode code emitter. For details on individual transforms see `BCodeCleanser.cleanseClass()`
+   *
+   */
+  def neoLevel: Int           = { if(neo.value.startsWith("o") && isBCodeActive) neo.value.substring(1).toInt else 0 }
+  def isIntraMethodOptimizOn  = (neoLevel >= 1)
 
 }
