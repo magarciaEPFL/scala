@@ -1007,6 +1007,16 @@ abstract class GenBCode extends BCodeOptInter {
 
         initJClass(cnode)
 
+        // tracking static module classes and those of custom-value-classes
+        val thisBT = lookupRefBType(thisName)
+        if(enteringErasure(claszSymbol.isDerivedValueClass)) {
+          val cm   = claszSymbol.companionModule
+          val cmBT = brefType(cm.javaBinaryName.toTypeName)
+          knownCustomModValueClasses += cmBT
+        } else if(isStaticModule(claszSymbol)) {
+          knownModuleClasses += thisBT
+        }
+
         val hasStaticCtor = methodSymbols(cd) exists (_.isStaticConstructor)
         if(!hasStaticCtor) {
           // but needs one ...
@@ -3244,6 +3254,18 @@ abstract class GenBCode extends BCodeOptInter {
             strMODULE_INSTANCE_FIELD,
             mbt.getDescriptor // for nostalgics: toTypeKind(module.tpe).getDescriptor
           )
+          trackModuleClass(module, mbt)
+        }
+      }
+
+      private def trackModuleClass(module: Symbol, mbt: BType) {
+        if(!typeRepo.isKnownModClass(mbt)) {
+          val cc = module.companionClass
+          if(cc != NoSymbol && enteringErasure(cc.isDerivedValueClass)) {
+            knownCustomModValueClasses += mbt
+          } else if(isStaticModule(module.moduleClass)) {
+            knownModuleClasses += mbt
+          }
         }
       }
 
