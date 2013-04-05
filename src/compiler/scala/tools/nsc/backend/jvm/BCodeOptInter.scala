@@ -532,7 +532,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
       val elidedParams = UnusedParamsElider.elideUnusedParams(hostOwner, shio)
       if(!elidedParams.isEmpty()) {
         UnusedParamsElider.elideArguments(hostOwner, host, hostOwner, shio, oldDescr, elidedParams)
-        BType.getMethodType(shio.desc) // must-single-thread, register the new method descriptor in Names
+        BT.getMethodType(shio.desc) // must-single-thread, register the new method descriptor in Names
       }
       Util.makePublicMethod(shio)
     }
@@ -669,7 +669,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         )
       }
 
-      val calleeMethodType = BType.getMethodType(callee.desc) // must-single-thread
+      val calleeMethodType = BT.getMethodType(callee.desc) // must-single-thread
 
       /*
        * Situation (a.3) under which method-inlining is unfeasible: callee has Nothing type.
@@ -1236,7 +1236,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             val cpHiO: ProdConsAnalyzer = ProdConsAnalyzer.create()
             cpHiO.analyze(hiOOwner.name, hiO)
 
-            val mtHiO = BType.getMethodType(hiO.desc)
+            val mtHiO = BT.getMethodType(hiO.desc)
             val isInstanceMethod = Util.isInstanceMethod(hiO)
 
                 /*
@@ -1315,7 +1315,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                   }
 
                   // (4) whether it's actually an apply or specialized-apply invocation
-                  val arity = BType.getMethodType(fst.desc).getArgumentCount
+                  val arity = BT.getMethodType(fst.desc).getArgumentCount
                   if(arity > definitions.MaxFunctionArity) {
                     warn("the callee invokes apply() on the closure with more than " + definitions.MaxFunctionArity + " arguments.")
                     return null
@@ -1463,7 +1463,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         result
       }
 
-      val constructorMethodType = BType.getMethodType(constructor.desc)
+      val constructorMethodType = BT.getMethodType(constructor.desc)
 
       /*
        *  The constructor of a closure-class has params for (a) the outer-instance; and (b) captured-locals.
@@ -1491,7 +1491,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
          *   find the single consumer of a LOAD of that local-var (should be a PUTFIELD)
          *   add pair to map.
          */
-        val constructorBT = BType.getMethodType(constructor.desc)
+        val constructorBT = BT.getMethodType(constructor.desc)
 
             def findClosureStateField(localVarIdx: Int): String = {
               val consumers = cpConstructor.consumersOfLocalVar(localVarIdx)
@@ -1906,7 +1906,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         if(Util.isInstanceMethod(hiO)) {
           formals ::= lookupRefBType(callsite.owner)
         }
-        val hiOMethodType = BType.getMethodType(hiO.desc)
+        val hiOMethodType = BT.getMethodType(hiO.desc)
         var maxLocals = hiO.maxLocals
         foreachWithIndex(hiOMethodType.getArgumentTypes.toList) {
           (hiOParamType, hiOParamPos) =>
@@ -1922,7 +1922,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
               formals ::= hiOParamType
             }
         }
-        val shiOMethodType = BType.getMethodType(hiOMethodType.getReturnType, formals.reverse.toArray)
+        val shiOMethodType = BT.getMethodType(hiOMethodType.getReturnType, formals.reverse.toArray)
 
         // (3) clone InsnList, get Label map
         val labelMap = Util.clonedLabels(hiO)
@@ -2170,7 +2170,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
         val oldMaxLocals = shio.maxLocals
         val stores = new InsnList
         var accArgSizes = 0
-        for(argT <- BType.getMethodType(ccu.stubTemplate.desc).getArgumentTypes) {
+        for(argT <- BT.getMethodType(ccu.stubTemplate.desc).getArgumentTypes) {
           val opcode = argT.getOpcode(Opcodes.ISTORE)
           stores.insert(new VarInsnNode(opcode, oldMaxLocals + accArgSizes))
           accArgSizes += argT.getSize
