@@ -72,13 +72,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
               len += 1
             }
           }
-          new BType(asm.Type.ARRAY, off, len + 1)
+          getCanonical(asm.Type.ARRAY, off, len + 1)
         case 'L' =>
           len = 1
           while (chrs(off + len) != ';') {
             len += 1
           }
-          new BType(asm.Type.OBJECT, off + 1, len - 1)
+          getCanonical(asm.Type.OBJECT, off + 1, len - 1)
         // case '(':
         case _ =>
           assert(chrs(off) == '(')
@@ -86,7 +86,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
           while(chrs(resPos) != ')') { resPos += 1 }
           val resType = getType(resPos + 1)
           val len = resPos - off + 1 + resType.len;
-          new BType(
+          getCanonical(
             asm.Type.METHOD,
             off,
             if(resType.hasObjectSort) {
@@ -96,6 +96,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
             }
           )
       }
+    }
+
+    private def getCanonical(sort: Int, off: Int, len: Int): BType = {
+      val ca  = _root_.java.util.Arrays.copyOfRange(chrs, off, off + len)
+      assert(new String(chrs, off, len) == new String(ca))  // TODO debug
+      val n = global.newTypeName(ca)
+      // this time we've fielded on the canonical offset.
+      new BType(sort, n.start, n.length)
     }
 
     /* Params denote an internal name.
@@ -674,31 +682,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         return false
       }
       val t = o.asInstanceOf[BType]
-      if (this eq t) {
-        return true
-      }
-      if (sort != t.sort) {
-        return false
-      }
-      if (sort >= asm.Type.ARRAY) {
-        if (len != t.len) {
-          return false
-        }
-        // sort checked already
-        if (off == t.off) {
-          return true
-        }
-        var i = 0
-        while(i < len) {
-          if (chrs(off + i) != chrs(t.off + i)) {
-            return false
-          }
-          i += 1
-        }
-        // If we reach here, we could update the largest of (this.off, t.off) to match the other, so as to simplify future == comparisons.
-        // But that would require a var rather than val.
-      }
-      true
+      (sort == t.sort) && (off == t.off) && (len == t.len)
     }
 
     /*
@@ -707,16 +691,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * can-multi-thread
      */
     override def hashCode(): Int = {
-      var hc = 13 * sort;
-      if (sort >= asm.Type.ARRAY) {
-        var i = off
-        val end = i + len
-        while (i < end) {
-          hc = 17 * (hc + chrs(i))
-          i += 1
-        }
-      }
-      hc
+      13 * sort + 17 * off + len
     }
 
     /*
