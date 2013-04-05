@@ -141,7 +141,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
       var current = bt
 
-      while(current != null) {
+      while(current != BT_ZERO) {
         val cn = getClassNode(current)
         val iter = cn.methods.iterator()
         while(iter.hasNext) {
@@ -150,7 +150,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
             return MethodNodeAndOwner(mn, cn)
           }
         }
-        current = if(cn.superName == null) null else lookupRefBType(cn.superName)
+        current = if(cn.superName == null) BT_ZERO else lookupRefBType(cn.superName)
       }
 
       MissingRequirementError.notFound(s"Could not find MethodNode: ${bt.getInternalName}.${name}${desc}")
@@ -609,7 +609,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
         }
       }
 
-      null
+      BT_ZERO
     }
 
     /*
@@ -630,7 +630,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
         }
       }
 
-      null
+      BT_ZERO
     }
 
     /*
@@ -647,7 +647,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
         }
       }
 
-      null
+      BT_ZERO
     }
 
     /*
@@ -656,9 +656,9 @@ abstract class BCodeOptCommon extends BCodeTypes {
      */
     private def accessedDClosure(insn: AbstractInsnNode): BType = {
       var res = instantiatedDClosure(insn)
-      if(res == null) {
+      if(res == BT_ZERO) {
         res = invokedDClosure(insn)
-        if(res == null) {
+        if(res == BT_ZERO) {
           res = getSingletonDClosure(insn)
         }
       }
