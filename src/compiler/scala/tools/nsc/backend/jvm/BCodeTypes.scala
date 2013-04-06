@@ -3845,7 +3845,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
  *
  * All methods of this classs can-multi-thread
  */
-final class BType(val sort: Int, val off: Int, val len: Int) {
+final class BType(sort0: Int, val off: Int, len0: Int) {
+
+  private val hiPart: Int = ((sort0 << 24) | len0)
+
+  @inline def len:  Int = (hiPart & 0x00FFFFFF)
+  @inline def sort: Int = (hiPart >> 24)
 
   /*
    * can-multi-thread
@@ -4237,7 +4242,7 @@ final class BType(val sort: Int, val off: Int, val len: Int) {
    * can-multi-thread
    */
   override def hashCode(): Int = {
-    13 * sort + 17 * off
+    (13 * sort + 17 * off) * 31 + len
   }
 
 } // end of class BType
