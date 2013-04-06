@@ -29,6 +29,20 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
 
+  def isCustomValueClass(csym: Symbol): Boolean = enteringErasure(csym.isDerivedValueClass)
+
+  /* A "known init-limited class" is a module class whose class initializer and instance constructor (if any)
+   * just limit themselves to assigning the MODULE$ instance with the singleton for that module class.
+   * This definition is useful for cancelling out a pair of instructions (load-module, drop).
+   *
+   * For now `knownInitLtdClasses` is populated only with module-classes of custom-value-classes.
+   *
+   * The module-classes of *some* static-modules also fit the definition
+   * (eg, those static-modules that have AnyRef as direct superclass, but not those extending an arbitrary class).
+   * However for the time being no module-class of static-module is added to this set.
+   */
+  val knownInitLtdClasses = mutable.Set.empty[BType]
+
   object BT {
 
     // ------------- primitive types -------------
@@ -528,6 +542,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
+    knownInitLtdClasses.clear()
     clearBCodeOpt()
   }
 
@@ -840,15 +855,20 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   /*
    * must-single-thread
+   *
+   * @param csym denotes either a "plain class" or a "module class", see `exemplar()`
+   * @param key  the BType for csym's javaBinaryName
    */
   private def buildExemplar(key: BType, csym: Symbol): Tracked = {
+    val isImplClass = csym.isImplClass
     val sc =
-     if(csym.isImplClass) definitions.ObjectClass
+     if(isImplClass) definitions.ObjectClass
      else csym.superClass
+    val isInterface = csym.isInterface
     assert(
       if(csym == definitions.ObjectClass)
         sc == NoSymbol
-      else if(csym.isInterface)
+      else if(isInterface)
         sc == definitions.ObjectClass
       else
         ((sc != NoSymbol) && !sc.isInterface) || isCompilingStdLib,
@@ -871,6 +891,18 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     val tsc = if(sc == NoSymbol) null else exemplar(sc)
 
     val innersChain = saveInnerClassesFor(csym, key)
+
+    if(!isImplClass && !isInterface) {
+      // track the module class of a custom value class
+      if(csym.isModuleClass) {
+        if(isCustomValueClass(csym.linkedClassOfClass)) {
+          knownInitLtdClasses += key
+        }
+      } else if(isCustomValueClass(csym)) {
+        val mcBT = brefType(key.getInternalName + "$")
+        knownInitLtdClasses += mcBT // notice we're not adding exemplar for it --- someone else will do that
+      }
+    }
 
     Tracked(key, flags, tsc, ifacesArr, innersChain)
   }
