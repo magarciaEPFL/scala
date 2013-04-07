@@ -868,16 +868,25 @@ abstract class BCodeOptCommon extends BCodeTypes {
      */
     def treeShakeUnusedDClosures(): Boolean = {
 
-      var changed = false
-      for(d <- closuRepo.liveDClosures(masterCNode)) {
+      val liveDCs = closuRepo.liveDClosures(masterCNode)
+      if(liveDCs.isEmpty) { return false }
 
-        val dep = closuRepo.endpoint.get(d).mnode
+      val masterMethods = JListWrapper(masterCNode.methods).toList // loop body may mutate the masterCNode.methods list.
+
+      var changed = false
+      for(d <- liveDCs) {
+
         // if d not in use anymore (e.g., due to dead-code elimination) then remove its endpoint, and elide the class.
-        val unused =
-          { JListWrapper(masterCNode.methods) forall { mnode => closuRepo.closureAccesses(mnode, d).isEmpty } }
+        val unused = {
+          masterMethods forall { mnode =>
+            masterCNode.methods.contains(mnode) && /* ie it hasn't been removed in a previous loop iteration */
+            closuRepo.closureAccesses(mnode, d).isEmpty
+          }
+        }
         if(unused) {
           changed = true
           elidedClasses.add(d) // a concurrent set
+          val dep = closuRepo.endpoint.get(d).mnode
           masterCNode.methods.remove(dep)
           /* At this point we should closuRepo.retractAsDClosure(d) but the supporting maps aren't concurrent,
            * and moreover all three of them should be updated atomically. Relying on elidedClasses is enough. */
