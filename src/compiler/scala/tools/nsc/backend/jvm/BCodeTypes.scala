@@ -1210,8 +1210,24 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       sups.distinct
     };
 
-    assert(!superInterfaces.contains(NoSymbol), "found NoSymbol among: " + superInterfaces.mkString)
-    assert(superInterfaces.forall(s => s.isInterface || s.isTrait), "found non-interface among: " + superInterfaces.mkString)
+        def checkSuperIfaces() {
+
+              def prettyPrint(syms: List[Symbol]): String = {
+                val lst = mapWithIndex(syms)({ case (sym, idx) => s"( $idx : ${sym.fullName})" })
+                lst.mkString
+              }
+
+          assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${prettyPrint(superInterfaces)}")
+
+          val nonIfaces = superInterfaces.filter(s => !s.isInterface && !s.isTrait)
+          assert(
+            nonIfaces.isEmpty,
+            s"found non-interfaces ${prettyPrint(nonIfaces)} among: ${prettyPrint(superInterfaces)}"
+          )
+
+        }
+
+    checkSuperIfaces()
 
     minimizeInterfaces(superInterfaces)
   }
