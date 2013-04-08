@@ -25,6 +25,59 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
 
+  def isCustomValueClass(csym: Symbol): Boolean = enteringErasure(csym.isDerivedValueClass)
+
+  /*
+   * A "known limited-init class" is a module class that fulfill all of the conditions below:
+   *   (1) fulfills the conditions for `statification` checked by `isStatifiableModuleClass()`
+   *   (2) class initializer and instance constructor (if any)
+   *       just limit themselves to assigning the MODULE$ instance with the singleton for that module class.
+   *
+   * This definition is useful for:
+   *   - cancelling out a pair of instructions (load-module, drop)
+   *   - inlining a INVOKESTATIC callsite without further analysis to determine whether the class-initializer has definitely run.
+   *
+   * The module-class of a custom-value-class is not necessarily "limited-init", as the following examples show.
+   *
+   * Example 1:
+   *     class A { println("A") }
+   *     object B extends A { }
+   *     class B(val underlying: Int) extends AnyVal { }
+   * Example 2:
+   *     object C {
+   *       val singleton1 = ...
+   *     }
+   *     class C(val underlying: Int) extends AnyVal { }
+   *
+   * The module-classes of *some* static-modules fit the definition
+   * (in particular those module-classes that have AnyRef as direct superclass).
+   *
+   */
+  val knownLtdInitClasses = mutable.Set.empty[BType]
+
+  /*
+   * Module-classes of custom-value-classes that fulfill the conditions for `statification` checked by `isStatifiableModuleClass()`
+   */
+  val knownModClassOfCustomVC = mutable.Set.empty[BType]
+
+  /*
+   * Module-classes of static-modules (this doesn't include the module-classes of custom-value-classes)
+   * that fulfill the conditions for `statification` checked by `isStatifiableModuleClass()`
+   *
+   * For example,
+   *   Lscala/Float$; extends interfaces ( 0 : scala.AnyValCompanion)( 1 : scala.Specializable)
+   *   Both are marker-interfaces (ie declare zero members) and thus the module-class Lscala/Float$; can be statified
+   *   (save for its toString() override, which together with the other Object methods won't be statified).
+   *
+   * Another example:
+   *   Lscala/collection/mutable/ArrayBuilder$; extends interfaces ( 0 : scala.Serializable)( 1 : java.io.Serializable)
+   *   All methods can be statified, except <init> and readResolve(), although there will be a discrepancy regarding java signatures, for example:
+   *       public <T extends java/lang/Object> scala.collection.mutable.ArrayBuilder<T> make(scala.reflect.ClassTag<T>);
+   *   will become a static method.
+   *
+   */
+  val knownModClassOfStaticModules = mutable.Set.empty[BType]
+
   object BT {
 
     import global.chrs
@@ -963,6 +1016,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
+    knownLtdInitClasses.clear()
+    knownModClassOfCustomVC.clear()
+    knownModClassOfStaticModules.clear()
     clearBCodeOpt()
   }
 
@@ -1212,17 +1268,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
         def checkSuperIfaces() {
 
-              def prettyPrint(syms: List[Symbol]): String = {
-                val lst = mapWithIndex(syms)({ case (sym, idx) => s"( $idx : ${sym.fullName})" })
-                lst.mkString
-              }
-
-          assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${prettyPrint(superInterfaces)}")
+          assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${prettyPrintFullnames(superInterfaces)}")
 
           val nonIfaces = superInterfaces.filter(s => !s.isInterface && !s.isTrait)
           assert(
             nonIfaces.isEmpty,
-            s"found non-interfaces ${prettyPrint(nonIfaces)} among: ${prettyPrint(superInterfaces)}"
+            s"found non-interfaces ${prettyPrintFullnames(nonIfaces)} among: ${prettyPrintFullnames(superInterfaces)}"
           )
 
         }
@@ -1230,6 +1281,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     checkSuperIfaces()
 
     minimizeInterfaces(superInterfaces)
+  }
+
+  def prettyPrintFullnames(syms: List[Symbol]): String = {
+    val lst = mapWithIndex(syms)({ case (sym, idx) => s"( $idx : ${sym.fullName})" })
+    lst.mkString
   }
 
   final def exemplarIfExisting(iname: String): Tracked = {
@@ -1291,15 +1347,20 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   /*
    * must-single-thread
+   *
+   * @param csym denotes either a "plain class" or a "module class", see `exemplar()`
+   * @param key  the BType for csym's javaBinaryName
    */
   private def buildExemplar(key: BType, csym: Symbol): Tracked = {
+    val isImplClass = csym.isImplClass
     val sc =
-     if(csym.isImplClass) definitions.ObjectClass
+     if(isImplClass) definitions.ObjectClass
      else csym.superClass
+    val isInterface = csym.isInterface
     assert(
       if(csym == definitions.ObjectClass)
         sc == NoSymbol
-      else if(csym.isInterface)
+      else if(isInterface)
         sc == definitions.ObjectClass
       else
         ((sc != NoSymbol) && !sc.isInterface) || isCompilingStdLib,
@@ -1323,8 +1384,88 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     val innersChain = saveInnerClassesFor(csym, key)
 
+    if(!isImplClass && !isInterface) {
+      // collect info needed later about custom value classes
+      if(csym.isModuleClass) {
+        trackModuleClass(csym, key)
+        val plainClassSym = csym.linkedClassOfClass
+        if(isCustomValueClass(plainClassSym)) {
+          trackCustomValueClass(plainClassSym, csym, key)
+        }
+      } else if(isCustomValueClass(csym)) {
+        val mcBT = brefType(key.getInternalName + "$")
+        trackCustomValueClass(csym, csym.linkedClassOfClass, mcBT)
+        // notice we're not adding exemplar for the module-class --- someone else will do that
+      }
+    }
+
     Tracked(key, flags, tsc, ifacesArr, innersChain)
   }
+
+  /*
+   * Track the module class of a custom value class.
+   */
+  private def trackCustomValueClass(plainClass: Symbol, modClass: Symbol, modClassBT: BType) {
+
+    if(knownModClassOfCustomVC(modClassBT)) { return }
+
+        def msg = { s"Module-class ${modClass.fullName} of a custom-value-class " }
+
+    assert(isStaticModule(modClass),      msg + s"isn't a static module (because it has an outer-instance.)")
+    assert(modClass.mixinClasses.isEmpty, msg + s"extends interfaces: ${prettyPrintFullnames(modClass.mixinClasses)}")
+
+    if(!isStatifiableModuleClass(modClass)) { return }
+    knownModClassOfCustomVC += modClassBT
+
+    // // collect syms of extension methods
+    // val extMSyms = enteringErasure {
+    //   plainClass.info.members.collect{ case m if m.isMethodWithExtension => extensionMethods.extensionMethod(m) }
+    // }
+
+  }
+
+  /*
+   * Track the module-classes of static-modules (this doesn't include the module-classes of custom-value-classes).
+   */
+  private def trackModuleClass(modClass: Symbol, modClassBT: BType) {
+    if(!isStatifiableModuleClass(modClass)) { return }
+    knownModClassOfStaticModules += modClassBT
+  }
+
+  /*
+   * @return true iff all of the conditions below hold:
+   *   (1) modClass is a static module
+   *   (2) modClass is direct subclass of AnyRef
+   *   (3) modClass doesn't extend any non-marker interfaces (thus, the members of the mod-class can be made static).
+   *
+   */
+  private def isStatifiableModuleClass(modClass: Symbol): Boolean = {
+
+    if(!isStaticModule(modClass)) {
+      return false
+    }
+
+        def msg = { s"Won't statify: static module class ${modClass.fullName}" }
+
+    val scSym = modClass.superClass
+    if(scSym != definitions.ObjectClass && scSym != NoSymbol) {
+      warning(msg + s" has a superClass other than AnyRef: ${scSym.fullName}")
+      return false
+    }
+
+        def isMarkerInterface(isym: Symbol): Boolean = {
+          isym.info.declarations.isEmpty &&
+          (isym.mixinClasses forall isMarkerInterface)
+        }
+
+    val nonMarkerIfaces = modClass.mixinClasses filter { iface => !isMarkerInterface(iface) }
+    if(!nonMarkerIfaces.isEmpty) {
+      warning(msg + s" extends non-marker interfaces ${prettyPrintFullnames(nonMarkerIfaces)}")
+      return false
+    }
+
+    true
+  } // end of method isStatifiableModuleClass()
 
   // ---------------- utilities around interfaces represented by Tracked instances. ----------------
 
