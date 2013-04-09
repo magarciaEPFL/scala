@@ -1,1 +1,1 @@
--optimise -Xfatal-warnings
+-neo:o3 -Xfatal-warnings
