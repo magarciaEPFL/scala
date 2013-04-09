@@ -437,7 +437,7 @@ abstract class GenBCode extends BCodeOptInter {
         val cnodeBT = lookupRefBType(cnode.name)
 
         if (isOptimizRun) {
-          val cleanser = new BCodeCleanser(cnode)
+          val cleanser = new BCodeCleanser(cnode, isIntraProgramOpt)
           cleanser.codeFixupDCE()
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
