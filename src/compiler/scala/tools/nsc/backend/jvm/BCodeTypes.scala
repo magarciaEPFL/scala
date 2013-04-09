@@ -1406,13 +1406,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       // collect info needed later about custom value classes
       if(csym.isModuleClass) {
         trackModuleClass(csym, key)
-        val plainClassSym = csym.linkedClassOfClass
-        if(isCustomValueClass(plainClassSym)) {
-          trackCustomValueClass(plainClassSym, csym, key)
-        }
       } else if(isCustomValueClass(csym)) {
         val mcBT = brefType(key.getInternalName + "$")
-        trackCustomValueClass(csym, csym.linkedClassOfClass, mcBT)
+        val modCSym = enteringErasure{ csym.linkedClassOfClass }
+        assert(modCSym != NoSymbol)
+        trackCustomValueClass(csym, modCSym, mcBT)
         // notice we're not adding exemplar for the module-class --- someone else will do that
       }
     }
@@ -1433,6 +1431,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     assert(modClass.mixinClasses.isEmpty, msg + s"extends interfaces: ${prettyPrintFullnames(modClass.mixinClasses)}")
 
     if(!isStatifiableModuleClass(modClass)) { return }
+
+    // it's possible to be classified as both module-class-for-statification and value-class-for-statification
+
     knownModClassOfCustomVC += modClassBT
 
     // // collect syms of extension methods
@@ -1458,6 +1459,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    */
   private def isStatifiableModuleClass(modClass: Symbol): Boolean = {
+
+    assert(modClass != NoSymbol)
 
     if(!isStaticModule(modClass)) {
       return false
