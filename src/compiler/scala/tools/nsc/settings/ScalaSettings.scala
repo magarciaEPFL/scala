@@ -203,7 +203,7 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode and the ASM-based optimizer
    */
   val neo         = ChoiceSetting ("-neo", "choice of bytecode emitter", "Choice of bytecode emitter.",
-                                   List("GenASM", "GenBCode", "o1", "o2"),
+                                   List("GenASM", "GenBCode", "o1", "o2", "o3"),
                                    "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
                                    List("traditional", "delegating"),
