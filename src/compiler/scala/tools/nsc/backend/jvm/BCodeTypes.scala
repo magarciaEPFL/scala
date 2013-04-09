@@ -78,6 +78,24 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    */
   val knownModClassOfStaticModules = mutable.Set.empty[BType]
 
+  /*
+   * "Statification" is a GenBCode-level transform that turns into static the members of those module classes
+   * that fulfill the conditions checked in `isStatifiableModuleClass()`. Usage sites are also adapted.
+   */
+  def shouldStatifyClass(bt: BType): Boolean = {
+    knownModClassOfCustomVC(bt) || knownModClassOfStaticModules(bt)
+  }
+
+  def shouldStatifyClass(csym: Symbol): Boolean = {
+    shouldStatifyClass(exemplar(csym).c)
+  }
+
+  def shouldStatifyMethod(msym: Symbol, owner: BType, methodName: String): Boolean = {
+    (methodName != nme.CONSTRUCTOR.toString) &&
+    shouldStatifyClass(owner) &&
+    (msym.overriddenSymbol(definitions.ObjectClass) == NoSymbol)
+  }
+
   object BT {
 
     import global.chrs
@@ -1445,11 +1463,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       return false
     }
 
-        def msg = { s"Won't statify: static module class ${modClass.fullName}" }
+        def msg = { s"Won't statify the static module class of ${modClass.fullName} because it " }
 
     val scSym = modClass.superClass
     if(scSym != definitions.ObjectClass && scSym != NoSymbol) {
-      warning(msg + s" has a superClass other than AnyRef: ${scSym.fullName}")
+      log(msg + s"has a superClass other than AnyRef: ${scSym.fullName}")
       return false
     }
 
@@ -1460,7 +1478,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     val nonMarkerIfaces = modClass.mixinClasses filter { iface => !isMarkerInterface(iface) }
     if(!nonMarkerIfaces.isEmpty) {
-      warning(msg + s" extends non-marker interfaces ${prettyPrintFullnames(nonMarkerIfaces)}")
+      log(msg + s"extends non-marker interfaces ${prettyPrintFullnames(nonMarkerIfaces)}")
       return false
     }
 
@@ -3575,7 +3593,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       mirrorMethod.visitCode()
 
-      mirrorMethod.visitFieldInsn(asm.Opcodes.GETSTATIC, moduleName, strMODULE_INSTANCE_FIELD, descriptor(module))
+      val isTargetStatified = !m.isStaticMember && {
+        val modBT = brefType(moduleName)
+        shouldStatifyMethod(m, modBT, mirrorMethodName)
+      }
+      if(!isTargetStatified) {
+        mirrorMethod.visitFieldInsn(asm.Opcodes.GETSTATIC, moduleName, strMODULE_INSTANCE_FIELD, descriptor(module))
+      }
 
       var index = 0
       for(jparamType <- paramJavaTypes) {
@@ -3584,7 +3608,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         index += jparamType.getSize
       }
 
-      mirrorMethod.visitMethodInsn(asm.Opcodes.INVOKEVIRTUAL, moduleName, mirrorMethodName, asmMethodType(m).getDescriptor)
+      val opc = if(isTargetStatified) asm.Opcodes.INVOKESTATIC else asm.Opcodes.INVOKEVIRTUAL
+      mirrorMethod.visitMethodInsn(opc, moduleName, mirrorMethodName, asmMethodType(m).getDescriptor)
       mirrorMethod.visitInsn(jReturnType.getOpcode(asm.Opcodes.IRETURN))
 
       mirrorMethod.visitMaxs(0, 0) // just to follow protocol, dummy arguments
