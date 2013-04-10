@@ -1,1 +1,29 @@
-bytecode identical
+1  == TypeOp(NEW,SameBytecode$Foo)                                                                        | TypeOp(NEW,SameBytecode$Foo)
+2  == Op(DUP)                                                                                             | Op(DUP)
+3  == VarOp(ALOAD,0)                                                                                      | VarOp(ALOAD,0)
+4  == Op(ICONST_1)                                                                                        | Op(ICONST_1)
+5  == Method(INVOKESTATIC,(I)Ljava/lang/Integer;,boxToInteger,scala/runtime/BoxesRunTime)                 | Method(INVOKESTATIC,(I)Ljava/lang/Integer;,boxToInteger,scala/runtime/BoxesRunTime)
+6  == Ldc(LDC,a)                                                                                          | Ldc(LDC,a)
+7  == Method(INVOKESPECIAL,(LSameBytecode;Ljava/lang/Object;Ljava/lang/String;)V,<init>,SameBytecode$Foo) | Method(INVOKESPECIAL,(LSameBytecode;Ljava/lang/Object;Ljava/lang/String;)V,<init>,SameBytecode$Foo)
+8  <> VarOp(ASTORE,2)                                                                                     | VarOp(ASTORE,1)
+9  <> VarOp(ALOAD,2)                                                                                      | VarOp(ALOAD,1)
+10 <> Method(INVOKEVIRTUAL,()Ljava/lang/String;,y,SameBytecode$Foo)                                       | Method(INVOKEVIRTUAL,()Ljava/lang/Object;,x,SameBytecode$Foo)
+11 <> VarOp(ASTORE,3)                                                                                     | TypeOp(INSTANCEOF,java/lang/String)
+12 <> VarOp(ALOAD,2)                                                                                      | Jump(IFEQ,Label(15))
+13 <> Method(INVOKEVIRTUAL,()Ljava/lang/Object;,x,SameBytecode$Foo)                                       | VarOp(ALOAD,1)
+14 <> TypeOp(INSTANCEOF,java/lang/String)                                                                 | Method(INVOKEVIRTUAL,()Ljava/lang/String;,y,SameBytecode$Foo)
+15 <> Jump(IFEQ,Label(18))                                                                                | Op(ARETURN)
+16 <> VarOp(ALOAD,3)                                                                                      | Label(15)
+17 <> VarOp(ASTORE,1)                                                                                     | FrameEntry(List(SameBytecode$Foo),List())
+18 <> Jump(GOTO,Label(25))                                                                                | TypeOp(NEW,scala/MatchError)
+19 <> Label(18)                                                                                           | Op(DUP)
+20 <> FrameEntry(List(0, SameBytecode$Foo, java/lang/String),List())                                      | VarOp(ALOAD,1)
+21 <> TypeOp(NEW,scala/MatchError)                                                                        | Method(INVOKESPECIAL,(Ljava/lang/Object;)V,<init>,scala/MatchError)
+22 <> Op(DUP)                                                                                             | Op(ATHROW)
+23 <> VarOp(ALOAD,2)                                                                                      | 
+24 <> Method(INVOKESPECIAL,(Ljava/lang/Object;)V,<init>,scala/MatchError)                                 | 
+25 <> Op(ATHROW)                                                                                          | 
+26 <> Label(25)                                                                                           | 
+27 <> FrameEntry(List(SameBytecode, java/lang/String, SameBytecode$Foo, java/lang/String),List())         | 
+28 <> VarOp(ALOAD,1)                                                                                      | 
+29 <> Op(ARETURN)                                                                                         | 
