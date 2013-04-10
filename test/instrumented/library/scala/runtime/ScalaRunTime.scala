@@ -8,7 +8,8 @@
 
 /* INSTRUMENTED VERSION */
 
-package scala.runtime
+package scala
+package runtime
 
 import scala.collection.{ Seq, IndexedSeq, TraversableView, AbstractIterator }
 import scala.collection.mutable.WrappedArray
@@ -17,6 +18,7 @@ import scala.collection.generic.{ Sorted }
 import scala.reflect.{ ClassTag, classTag }
 import scala.util.control.ControlThrowable
 import scala.xml.{ Node, MetaData }
+import java.lang.{ Class => jClass }
 
 import java.lang.Double.doubleToLongBits
 import java.lang.reflect.{ Modifier, Method => JMethod }
@@ -26,14 +28,13 @@ import java.lang.reflect.{ Modifier, Method => JMethod }
  *  outside the API and subject to change or removal without notice.
  */
 object ScalaRunTime {
-  def isArray(x: AnyRef): Boolean = isArray(x, 1)
-  def isArray(x: Any, atLevel: Int): Boolean =
+  def isArray(x: Any, atLevel: Int = 1): Boolean =
     x != null && isArrayClass(x.getClass, atLevel)
 
-  private def isArrayClass(clazz: Class[_], atLevel: Int): Boolean =
+  private def isArrayClass(clazz: jClass[_], atLevel: Int): Boolean =
     clazz.isArray && (atLevel == 1 || isArrayClass(clazz.getComponentType, atLevel - 1))
 
-  def isValueClass(clazz: Class[_]) = clazz.isPrimitive()
+  def isValueClass(clazz: jClass[_]) = clazz.isPrimitive()
   def isTuple(x: Any) = x != null && tupleNames(x.getClass.getName)
   def isAnyVal(x: Any) = x match {
     case _: Byte | _: Short | _: Char | _: Int | _: Long | _: Float | _: Double | _: Boolean | _: Unit => true
@@ -52,7 +53,7 @@ object ScalaRunTime {
 
   /** Return the class object representing an array with element class `clazz`.
    */
-  def arrayClass(clazz: Class[_]): Class[_] = {
+  def arrayClass(clazz: jClass[_]): jClass[_] = {
     // newInstance throws an exception if the erasure is Void.TYPE. see SI-5680
     if (clazz == java.lang.Void.TYPE) classOf[Array[Unit]]
     else java.lang.reflect.Array.newInstance(clazz, 0).getClass
@@ -60,18 +61,19 @@ object ScalaRunTime {
 
   /** Return the class object representing elements in arrays described by a given schematic.
    */
-  def arrayElementClass(schematic: Any): Class[_] = schematic match {
-    case cls: Class[_] => cls.getComponentType
+  def arrayElementClass(schematic: Any): jClass[_] = schematic match {
+    case cls: jClass[_]   => cls.getComponentType
     case tag: ClassTag[_] => tag.runtimeClass
-    case _ => throw new UnsupportedOperationException("unsupported schematic %s (%s)".format(schematic, if (schematic == null) "null" else schematic.getClass))
+    case _                =>
+      throw new UnsupportedOperationException(s"unsupported schematic $schematic (${schematic.getClass})")
   }
 
   /** Return the class object representing an unboxed value type,
    *  e.g. classOf[int], not classOf[java.lang.Integer].  The compiler
    *  rewrites expressions like 5.getClass to come here.
    */
-  def anyValClass[T <: AnyVal : ClassTag](value: T): Class[T] =
-    classTag[T].runtimeClass.asInstanceOf[Class[T]]
+  def anyValClass[T <: AnyVal : ClassTag](value: T): jClass[T] =
+    classTag[T].runtimeClass.asInstanceOf[jClass[T]]
 
   var arrayApplyCount = 0
 
@@ -156,7 +158,7 @@ object ScalaRunTime {
       dest
   }
 
-  def toArray[T](xs: collection.Seq[T]) = {
+  def toArray[T](xs: scala.collection.Seq[T]) = {
     val arr = new Array[AnyRef](xs.length)
     var i = 0
     for (x <- xs) {
@@ -168,13 +170,7 @@ object ScalaRunTime {
 
   // Java bug: http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=4071957
   // More background at ticket #2318.
-  def ensureAccessible(m: JMethod): JMethod = {
-    if (!m.isAccessible) {
-      try m setAccessible true
-      catch { case _: SecurityException => () }
-    }
-    m
-  }
+  def ensureAccessible(m: JMethod): JMethod = scala.reflect.ensureAccessible(m)
 
   def checkInitialized[T <: AnyRef](x: T): T =
     if (x == null) throw new UninitializedError else x
@@ -211,7 +207,7 @@ object ScalaRunTime {
   def _toString(x: Product): String =
     x.productIterator.mkString(x.productPrefix + "(", ",", ")")
 
-  def _hashCode(x: Product): Int = scala.util.MurmurHash3.productHash(x)
+  def _hashCode(x: Product): Int = scala.util.hashing.MurmurHash3.productHash(x)
 
   /** A helper for case classes. */
   def typedProductIterator[T](x: Product): Iterator[T] = {
@@ -246,12 +242,12 @@ object ScalaRunTime {
   // Note that these are the implementations called by ##, so they
   // must not call ## themselves.
 
-  @inline def hash(x: Any): Int =
+  def hash(x: Any): Int =
     if (x == null) 0
     else if (x.isInstanceOf[java.lang.Number]) BoxesRunTime.hashFromNumber(x.asInstanceOf[java.lang.Number])
     else x.hashCode
 
-  @inline def hash(dv: Double): Int = {
+  def hash(dv: Double): Int = {
     val iv = dv.toInt
     if (iv == dv) return iv
 
@@ -261,37 +257,37 @@ object ScalaRunTime {
     val fv = dv.toFloat
     if (fv == dv) fv.hashCode else dv.hashCode
   }
-  @inline def hash(fv: Float): Int = {
+  def hash(fv: Float): Int = {
     val iv = fv.toInt
     if (iv == fv) return iv
 
     val lv = fv.toLong
-    if (lv == fv) return hash(lv)
+    if (lv == fv) hash(lv)
     else fv.hashCode
   }
-  @inline def hash(lv: Long): Int = {
+  def hash(lv: Long): Int = {
     val low = lv.toInt
     val lowSign = low >>> 31
     val high = (lv >>> 32).toInt
     low ^ (high + lowSign)
   }
-  @inline def hash(x: Number): Int  = runtime.BoxesRunTime.hashFromNumber(x)
+  def hash(x: Number): Int  = runtime.BoxesRunTime.hashFromNumber(x)
 
   // The remaining overloads are here for completeness, but the compiler
   // inlines these definitions directly so they're not generally used.
-  @inline def hash(x: Int): Int = x
-  @inline def hash(x: Short): Int = x.toInt
-  @inline def hash(x: Byte): Int = x.toInt
-  @inline def hash(x: Char): Int = x.toInt
-  @inline def hash(x: Boolean): Int = if (x) true.hashCode else false.hashCode
-  @inline def hash(x: Unit): Int = 0
+  def hash(x: Int): Int = x
+  def hash(x: Short): Int = x.toInt
+  def hash(x: Byte): Int = x.toInt
+  def hash(x: Char): Int = x.toInt
+  def hash(x: Boolean): Int = if (x) true.hashCode else false.hashCode
+  def hash(x: Unit): Int = 0
 
   /** A helper method for constructing case class equality methods,
    *  because existential types get in the way of a clean outcome and
    *  it's performing a series of Any/Any equals comparisons anyway.
    *  See ticket #2867 for specifics.
    */
-  def sameElements(xs1: collection.Seq[Any], xs2: collection.Seq[Any]) = xs1 sameElements xs2
+  def sameElements(xs1: scala.collection.Seq[Any], xs2: scala.collection.Seq[Any]) = xs1 sameElements xs2
 
   /** Given any Scala value, convert it to a String.
    *
@@ -358,7 +354,7 @@ object ScalaRunTime {
       case x: String                    => if (x.head.isWhitespace || x.last.isWhitespace) "\"" + x + "\"" else x
       case x if useOwnToString(x)       => x.toString
       case x: AnyRef if isArray(x)      => arrayToString(x)
-      case x: collection.Map[_, _]      => x.iterator take maxElements map mapInner mkString (x.stringPrefix + "(", ", ", ")")
+      case x: scala.collection.Map[_, _]      => x.iterator take maxElements map mapInner mkString (x.stringPrefix + "(", ", ", ")")
       case x: Iterable[_]               => x.iterator take maxElements map inner mkString (x.stringPrefix + "(", ", ", ")")
       case x: Traversable[_]            => x take maxElements map inner mkString (x.stringPrefix + "(", ", ", ")")
       case x: Product1[_] if isTuple(x) => "(" + inner(x._1) + ",)" // that special trailing comma

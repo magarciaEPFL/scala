@@ -32,8 +32,8 @@ DESTINATION="$TOPDIR/test/files/speclib"
 
 # compile it
 run rm -rf $CLASSDIR && mkdir $CLASSDIR
-run cp $SOURCES $SRC_DIR
-( cd $SRC_DIR && run patch BoxesRunTime.java $scriptDir/boxes.patch && run patch ScalaRunTime.scala $scriptDir/srt.patch )
+# run cp $SOURCES $SRC_DIR
+# ( cd $SRC_DIR && run patch BoxesRunTime.java $scriptDir/boxes.patch && run patch ScalaRunTime.scala $scriptDir/srt.patch )
 
 ORIG=$(find $SRC_DIR -name '*.orig')
 [[ -z "$ORIG" ]] || rm -f $ORIG
