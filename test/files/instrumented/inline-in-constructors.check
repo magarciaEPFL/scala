@@ -1,3 +1,8 @@
 Method call statistics:
     1  instrumented/Bar.<init>(Z)V
+    1  instrumented/Bar$LCC$anonfun$$init$$1.<init>(Linstrumented/Bar;)V
     1  instrumented/Foo.<init>(I)V
+    1  instrumented/Foo$LCC$anonfun$$init$$1.<init>(Linstrumented/Foo;)V
+    2  instrumented/MyPredef$.assert(ZLscala/Function0;)V
+    2  scala/Function0$class.$init$(Lscala/Function0;)V
+    2  scala/runtime/AbstractFunction0.<init>()V
