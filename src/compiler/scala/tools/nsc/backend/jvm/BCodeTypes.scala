@@ -1447,7 +1447,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     assert(modClass != NoSymbol)
 
-    if(!isStaticModule(modClass)) {
+    if(modClass.isJavaDefined || !isStaticModule(modClass)) {
       return false
     }
 
