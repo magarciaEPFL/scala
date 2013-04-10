@@ -1,1 +1,14 @@
-bytecode identical
+1  == TypeOp(NEW,SameBytecode$Foo)                                                       | TypeOp(NEW,SameBytecode$Foo)
+2  == Op(DUP)                                                                            | Op(DUP)
+3  == VarOp(ALOAD,0)                                                                     | VarOp(ALOAD,0)
+4  == Op(ICONST_1)                                                                       | Op(ICONST_1)
+5  == Ldc(LDC,a)                                                                         | Ldc(LDC,a)
+6  == Method(INVOKESPECIAL,(LSameBytecode;ILjava/lang/String;)V,<init>,SameBytecode$Foo) | Method(INVOKESPECIAL,(LSameBytecode;ILjava/lang/String;)V,<init>,SameBytecode$Foo)
+7  <> VarOp(ASTORE,2)                                                                    | VarOp(ASTORE,1)
+8  <> VarOp(ALOAD,2)                                                                     | VarOp(ALOAD,1)
+9  == Method(INVOKEVIRTUAL,()Ljava/lang/String;,y,SameBytecode$Foo)                      | Method(INVOKEVIRTUAL,()Ljava/lang/String;,y,SameBytecode$Foo)
+10 <> VarOp(ASTORE,3)                                                                    | Op(ARETURN)
+11 <> VarOp(ALOAD,3)                                                                     | 
+12 <> VarOp(ASTORE,1)                                                                    | 
+13 <> VarOp(ALOAD,1)                                                                     | 
+14 <> Op(ARETURN)                                                                        | 
