@@ -14,6 +14,7 @@ import scala.annotation.switch
 
 import scala.tools.asm
 import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
+import scala.collection.convert.Wrappers.JListWrapper
 
 /*
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -440,6 +441,11 @@ abstract class GenBCode extends BCodeOptInter {
           val essential = new EssentialCleanser(cnode)
           essential.codeFixupDCE()
           essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          ifDebug {
+            for(m <- JListWrapper(cnode.methods); if asm.optimiz.Util.hasBytecodeInstructions(m)) {
+              essential.runTypeFlowAnalysis(m)
+            }
+          }
         }
 
         refreshInnerClasses(cnode)
