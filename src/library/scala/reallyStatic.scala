@@ -28,8 +28,8 @@ package scala
  * the companion-object contains statements, or defines vals or vars.
  *
  * Finally, an object annotated with @reallyStatic that also defines @inline methods
- * gives the inliner permission to replace an `invokestatic` (targeting the method in question)
- * with its body, thus potentially skipping running the class-initializer for the associated module-class.
+ * gives the inliner permission to replace an `invokestatic` (targeting the method in question) with its body,
+ * thus potentially skipping running the class-initializer for the associated module-class.
  *
  * The caveats above are listed for completeness. When used for its intended purpose, @reallyStatic is really useful!
  *
@@ -39,7 +39,10 @@ package scala
  * After JIT-compilation, performance is great because there's a single method method implementation to dispatch.
  *
  * However that could have been conveyed more directly by emitting "really static" methods, correspondinlgy invoked via invokestatic.
- * This is what the @reallyStatic annotation allows, for a static module (ie an object definitions that lacks outer instance) or for a value class.
+ * This is what the @reallyStatic annotation allows,
+ * for a static module (ie an object definitions that lacks outer instance) or for a value class.
+ *
+ * In case the compiler can't honor the request for really-static-ness, a descriptive error message is shown.
  * This can happen in two situations:
  *
  *   (a) extending another class:
@@ -57,7 +60,8 @@ package scala
  *
  *   (b) extending non-marker interfaces
  *
- *       For example, a value-class that "extends AnyVal with Serializable" is ok, but extending an interface that declares one or more members results in an error for an @reallyStatic-tagged class.
+ *       For example, a value-class that "extends AnyVal with Serializable" is ok,
+ *       but extending an interface that declares one or more members results in an error for an @reallyStatic-tagged class.
  *
  *
  *  @author  Miguel Garcia, http://lampwww.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
