@@ -33,13 +33,32 @@ package scala
  *
  * The caveats above are listed for completeness. When used for its intended purpose, @reallyStatic is really useful!
  *
- * Example:
- * {{{
- * @reallyStatic
- * object Hello {
- *   def sayHello(): String
- * }
- * }}}
+ * Before @reallyStatic, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:
+ *   load singleton-module
+ *   invokevirtual(arg1 ... argN)
+ * After JIT-compilation, performance is great because there's a single method method implementation to dispatch.
+ *
+ * However that could have been conveyed more directly by emitting "really static" methods, correspondinlgy invoked via invokestatic.
+ * This is what the @reallyStatic annotation allows, for a static module (ie an object definitions that lacks outer instance) or for a value class.
+ * This can happen in two situations:
+ *
+ *   (a) extending another class:
+ *
+ *       {{{
+ *       @reallyStatic
+ *       case class Valued(val repr: Int) extends AnyVal {
+ *         def odd = (repr&1)==1
+ *       }
+ *
+ *       error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
+ *       case class Valued(val repr: Int) extends AnyVal {
+ *                  ^
+ *       }}}
+ *
+ *   (b) extending non-marker interfaces
+ *
+ *       For example, a value-class that "extends AnyVal with Serializable" is ok, but extending an interface that declares one or more members results in an error for an @reallyStatic-tagged class.
+ *
  *
  *  @author  Miguel Garcia, http://lampwww.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @since   2.11
