@@ -737,7 +737,7 @@ abstract class GenBCode extends BCodeOptInter {
       val closuresForDelegates = mutable.Map.empty[MethodSymbol, DClosureEndpoint]
 
       private var claszSymbol: Symbol        = null
-      private var thisBT: BType              = null
+      private var thisBT: BType              = BT_ZERO
       private var statifyThisClass           = false
       private var isCZParcelable             = false
       private var isCZStaticModule           = false
@@ -747,7 +747,7 @@ abstract class GenBCode extends BCodeOptInter {
       private var jMethodName: String        = null
       private var isMethSymStaticCtor        = false
       private var isMethSymBridge            = false
-      private var returnType: BType          = null
+      private var returnType: BType          = BT_ZERO
       private var methSymbol: Symbol         = null
       private var cgn: CallGraphNode         = null
       // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
@@ -1877,7 +1877,7 @@ abstract class GenBCode extends BCodeOptInter {
           // (2.a) emit case clause proper
           val startHandler = currProgramPoint()
           var endHandler: asm.Label = null
-          var excType: BType = null
+          var excType: BType = BT_ZERO
           registerCleanup(finCleanup)
           ch match {
             case NamelessEH(typeToDrop, caseBody) =>
@@ -1917,7 +1917,7 @@ abstract class GenBCode extends BCodeOptInter {
         if(hasFinally) {
           nopIfNeeded(startTryBody)
           val finalHandler = currProgramPoint() // version of the finally-clause reached via unhandled exception.
-          protect(startTryBody, finalHandler, finalHandler, null)
+          protect(startTryBody, finalHandler, finalHandler, BT_ZERO)
           val Local(eTK, _, eIdx, _) = locals(makeLocal(ThrowableReference, "exc"))
           bc.store(eIdx, eTK)
           emitFinalizer(finalizer, null, true)
@@ -1986,7 +1986,7 @@ abstract class GenBCode extends BCodeOptInter {
 
       private def protect(start: asm.Label, end: asm.Label, handler: asm.Label, excType: BType) {
         val excInternalName: String =
-          if (excType == null) null
+          if (excType == BT_ZERO) null
           else excType.getInternalName
         assert(start != end, "protecting a range of zero instructions leads to illegal class format. Solution: add a NOP to that range.")
         mnode.visitTryCatchBlock(start, end, handler, excInternalName)
@@ -2520,7 +2520,7 @@ abstract class GenBCode extends BCodeOptInter {
 
                     // In "a couple cases", squirrel away a extra information (hostClass, targetTypeKind). TODO Document what "in a couple cases" refers to.
                     var hostClass:      Symbol = null
-                    var targetTypeKind: BType  = null
+                    var targetTypeKind: BType  = BT_ZERO
                     fun match {
                       case Select(qual, _) =>
                         val qualSym = findHostClass(qual.tpe, sym)
@@ -2537,7 +2537,7 @@ abstract class GenBCode extends BCodeOptInter {
 
                       case _ =>
                     }
-                    if((targetTypeKind != null) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
+                    if((targetTypeKind != BT_ZERO) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
                       val target: String = targetTypeKind.getInternalName
                       bc.invokevirtual(target, "clone", "()Ljava/lang/Object;")
                     }
