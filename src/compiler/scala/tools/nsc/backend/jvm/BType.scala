@@ -19,12 +19,14 @@ import collection.convert.Wrappers.JListWrapper
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded
  */
-final class BType(sort0: Int, val off: Int, len0: Int) {
+class BType(val bits: Long) extends AnyVal {
 
-  private val hiPart: Int = ((sort0 << 24) | len0)
+  @inline private def hi: Int = (bits >> 32).asInstanceOf[Int]
+  @inline private def lo: Int = bits.asInstanceOf[Int]
 
-  @inline def len:  Int = (hiPart & 0x00FFFFFF)
-  @inline def sort: Int = (hiPart >> 24)
+  @inline final def off:  Int = lo
+  @inline final def len:  Int = (hi & 0x00FFFFFF)
+  @inline final def sort: Int = (hi >> 24)
 
   /*
    * can-multi-thread
@@ -388,35 +390,6 @@ final class BType(sort0: Int, val off: Int, len0: Int) {
       // primitive types (buf == null)
       opcode + (if (isPrimitiveOrVoid) (off & 0xFF0000) >> 16 else 4)
     }
-  }
-
-  // ------------------------------------------------------------------------
-  // Equals, hashCode and toString
-  // ------------------------------------------------------------------------
-
-  /*
-   * Tests if the given object is equal to this type.
-   *
-   * @param o the object to be compared to this type.
-   * @return <tt>true</tt> if the given object is equal to this type.
-   *
-   * can-multi-thread
-   */
-  override def equals(o: Any): Boolean = {
-    if (!(o.isInstanceOf[BType])) {
-      return false
-    }
-    val t = o.asInstanceOf[BType]
-    (hiPart == t.hiPart) && (off == t.off)
-  }
-
-  /*
-   * @return a hash code value for this type.
-   *
-   * can-multi-thread
-   */
-  override def hashCode(): Int = {
-    13 * hiPart + 17 * off
   }
 
   override def toString: String = { throw new RuntimeException("Use BType.getDescriptor instead.") }
