@@ -1543,7 +1543,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         assert(args.length <= 1, "Too many arguments for primitive function: " + fun.symbol)
         assert(resKind.isNumericType || (resKind == BOOL),
-               resKind.toString + " is not a numeric or boolean type " + "[operation: " + fun.symbol + "]")
+               resKind.getDescriptor + " is not a numeric or boolean type " + "[operation: " + fun.symbol + "]")
 
         args match {
           // unary operation
@@ -1561,7 +1561,7 @@ abstract class GenBCode extends BCodeOptInter {
             resKind = maxType(tpeTK(larg), tpeTK(rarg))
             if (scalaPrimitives.isShiftOp(code) || scalaPrimitives.isBitwiseOp(code)) {
               assert(resKind.isIntegralType || (resKind == BOOL),
-                     resKind.toString + " incompatible with arithmetic modulo operation.")
+                     resKind.getDescriptor + " incompatible with arithmetic modulo operation.")
             }
 
             genLoad(larg, resKind)
