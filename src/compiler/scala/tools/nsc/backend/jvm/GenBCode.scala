@@ -13,7 +13,7 @@ import scala.tools.nsc.symtab._
 import scala.annotation.switch
 
 import scala.tools.asm
-import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
+import scala.tools.asm.tree.{FieldInsnNode, FieldNode, MethodInsnNode, MethodNode}
 import scala.collection.convert.Wrappers.JListWrapper
 
 /*
@@ -740,6 +740,8 @@ abstract class GenBCode extends BCodeOptInter {
       val closuresForDelegates = mutable.Map.empty[MethodSymbol, DClosureEndpoint]
 
       private var claszSymbol: Symbol        = null
+      private var thisBT: BType              = null
+      private var statifyThisClass           = false
       private var isCZParcelable             = false
       private var isCZStaticModule           = false
       private var isCZRemote                 = false
@@ -973,7 +975,7 @@ abstract class GenBCode extends BCodeOptInter {
       /*  If the selector type has a member with the right name,
        *  it is the host class; otherwise the symbol's owner.
        */
-      def findHostClass(selector: Type, sym: Symbol) = selector member sym.name match {
+      def findHostClass(selector: Type, sym: Symbol): Symbol = selector member sym.name match {
         case NoSymbol   => log(s"Rejecting $selector as host class for $sym") ; sym.owner
         case _          => selector.typeSymbol
       }
@@ -1012,6 +1014,31 @@ abstract class GenBCode extends BCodeOptInter {
         cnode.isStaticModule = isCZStaticModule
 
         initJClass(cnode)
+        thisBT = exemplar(claszSymbol).c
+        statifyThisClass = shouldStatifyClass(thisBT)
+
+        /*
+         * In case GenBCode can't honor a request for really-static-ness, a descriptive error is emitted.
+         */
+        if(statifyThisClass) {
+          log(s"Will statify ${thisBT.getInternalName}")
+        } else {
+          if(claszSymbol hasAnnotation definitions.ReallyStaticClass) {
+            if(claszSymbol.isImplClass)      { cunit.error(cd.pos, "The @reallyStatic annotation isn't applicable to implementation-classes") }
+            else if(claszSymbol.isInterface) { cunit.error(cd.pos, "The @reallyStatic annotation isn't applicable to interfaces") }
+            else {
+              val toTest: Symbol = if(claszSymbol.isModuleClass) { claszSymbol } else { claszSymbol.linkedClassOfClass }
+              if(toTest == NoSymbol) {
+                cunit.error(cd.pos, "Not amenable to statification: " + claszSymbol.fullName)
+              } else {
+                val msg = impedimentsToStatifiabilityOfModuleClass(toTest)
+                if(msg != null) {
+                  cunit.error(cd.pos, msg)
+                }
+              }
+            }
+          }
+        }
 
         val hasStaticCtor = methodSymbols(cd) exists (_.isStaticConstructor)
         if(!hasStaticCtor) {
@@ -1129,7 +1156,9 @@ abstract class GenBCode extends BCodeOptInter {
        */
       def initJMethod(flags: Int, paramAnnotations: List[List[AnnotationInfo]]) {
 
-        val jgensig = getGenericSignature(methSymbol, claszSymbol)
+        // a java-signature computed for an instance field can't in general be used for a field statified after-the-fact.
+        val jgensig = if(statifyThisClass) null else getGenericSignature(methSymbol, claszSymbol)
+
         addRemoteExceptionAnnot(isCZRemote, hasPublicBitSet(flags), methSymbol)
         val (excs, others) = methSymbol.annotations partition (_.symbol == definitions.ThrowsClass)
         val thrownExceptions: List[String] = getExceptions(excs)
@@ -1192,9 +1221,13 @@ abstract class GenBCode extends BCodeOptInter {
          *  No code is needed for this module symbol.
          */
         for (f <- fieldSymbols(claszSymbol)) {
-          val javagensig = getGenericSignature(f, claszSymbol)
+
+          // a java-signature computed for an instance field can't in general be used for a field statified after-the-fact.
+          val javagensig = if(statifyThisClass) null else getGenericSignature(f, claszSymbol)
+
           val flags = mkFlags(
             javaFieldFlags(f),
+            if(statifyThisClass) asm.Opcodes.ACC_STATIC     else 0,
             if(isDeprecated(f)) asm.Opcodes.ACC_DEPRECATED else 0 // ASM pseudo access flag
           )
 
@@ -1232,6 +1265,35 @@ abstract class GenBCode extends BCodeOptInter {
         }
       }
 
+      /* Usages sites of fields and methods that are "statified after-the-fact" by GenBCode
+       * result in bytecode being emitted to load the receiver. Usually GETSTATIC C.MODULE$ , othertimes ALOAD 0,
+       * but also a method invocation. Due to statification, the receiver should be removed from the operand stack.
+       * */
+      private def adaptReceiverDueToStatification(modClassBT: BType) {
+        val stream = mnode.instructions
+        val last = stream.getLast
+        last.getOpcode match {
+
+          case asm.Opcodes.GETSTATIC =>
+            val fi = last.asInstanceOf[FieldInsnNode]
+            assert(fi.owner == modClassBT.getInternalName)
+            stream.remove(fi)
+
+          case _ =>
+            if(asm.optimiz.Util.isLOAD(last)) {
+              val load = last.asInstanceOf[asm.tree.VarInsnNode]
+              assert(
+                if(load.`var` == 0) { thisBT == modClassBT } else true,
+                "Found ALOAD_0 in a context where adaptReceiverDueToStatification() expected to " +
+                s"load a $modClassBT instance, but instead $thisBT was loaded."
+              )
+              stream.remove(last)
+            } else {
+              stream.add(new asm.tree.InsnNode(asm.Opcodes.POP))
+            }
+        }
+      }
+
       def genDefDef(dd: DefDef) {
         // the only method whose implementation is not emitted: getClass()
         if(definitions.isGetClass(dd.symbol)) { return }
@@ -1243,7 +1305,15 @@ abstract class GenBCode extends BCodeOptInter {
 
         methSymbol  = dd.symbol
         jMethodName = methSymbol.javaSimpleName.toString
-        returnType  = asmMethodType(dd.symbol).getReturnType
+
+        val mTypeBT = asmMethodType(dd.symbol)
+
+        val statifyAfterTheFact = {
+          !dd.symbol.isStaticMember &&
+          shouldStatifyMethod(dd.symbol, thisBT, jMethodName)
+        }
+
+        returnType  = mTypeBT.getReturnType
         isMethSymStaticCtor = methSymbol.isStaticConstructor
         isMethSymBridge     = methSymbol.isBridge
 
@@ -1257,7 +1327,7 @@ abstract class GenBCode extends BCodeOptInter {
         val DefDef(_, _, _, vparamss, _, rhs) = dd
         assert(vparamss.isEmpty || vparamss.tail.isEmpty, "Malformed parameter list: " + vparamss)
         val params = if(vparamss.isEmpty) Nil else vparamss.head
-        nxtIdx = if (methSymbol.isStaticMember) 0 else 1;
+        nxtIdx = if (methSymbol.isStaticMember || statifyAfterTheFact) 0 else 1;
         for (p <- params) { makeLocal(p.symbol) }
         // debug assert((params.map(p => locals(p.symbol).tk)) == asmMethodType(methSymbol).getArgumentTypes.toList, "debug")
 
@@ -1265,6 +1335,7 @@ abstract class GenBCode extends BCodeOptInter {
         val isAbstractMethod = (methSymbol.isDeferred || methSymbol.owner.isInterface)
         val flags = mkFlags(
           javaFlags(methSymbol),
+          if(statifyAfterTheFact)      asm.Opcodes.ACC_STATIC     else 0,
           if (claszSymbol.isInterface) asm.Opcodes.ACC_ABSTRACT   else 0,
           if (methSymbol.isStrictFP)   asm.Opcodes.ACC_STRICT     else 0,
           if (isNative)                asm.Opcodes.ACC_NATIVE     else 0, // native methods of objects are generated in mirror classes
@@ -1426,9 +1497,22 @@ abstract class GenBCode extends BCodeOptInter {
           case Assign(lhs @ Select(_, _), rhs) =>
             val isStatic = lhs.symbol.isStaticMember
             if (!isStatic) { genLoadQualifier(lhs) }
-            genLoad(rhs, symInfoTK(lhs.symbol))
+            val fieldTK  = symInfoTK(lhs.symbol)
             lineNumber(tree)
-            fieldStore(lhs.symbol)
+            val hostClassBT = exemplar(lhs.symbol.owner).c
+            if(!isStatic && shouldStatifyClass(hostClassBT)) {
+              adaptReceiverDueToStatification(hostClassBT)
+              genLoad(rhs, fieldTK)
+              val field      = lhs.symbol
+              val owner      = hostClassBT.getInternalName
+              val fieldJName = field.javaSimpleName.toString
+              val fieldDescr = fieldTK.getDescriptor
+              val opc        = asm.Opcodes.PUTSTATIC
+              mnode.visitFieldInsn(opc, owner, fieldJName, fieldDescr)
+            } else {
+              genLoad(rhs, fieldTK)
+              fieldStore(lhs.symbol)
+            }
 
           case Assign(lhs, rhs) =>
             val s = lhs.symbol
@@ -2015,7 +2099,9 @@ abstract class GenBCode extends BCodeOptInter {
             assert(tree.symbol == claszSymbol || symIsModuleClass,
                    "Trying to access the this of another class: " +
                    "tree.symbol = " + tree.symbol + ", class symbol = " + claszSymbol + " compilation unit:"+ cunit)
-            if (symIsModuleClass && tree.symbol != claszSymbol) {
+            if (symIsModuleClass &&
+               (tree.symbol != claszSymbol || statifyThisClass)
+            ) {
               generatedType = genLoadModule(tree)
             }
             else {
@@ -2042,13 +2128,25 @@ abstract class GenBCode extends BCodeOptInter {
               genLoadQualUnlessElidable()
               genLoadModule(tree)
             }
-            else if (sym.isStaticMember) {
-              genLoadQualUnlessElidable()
-              fieldLoad(sym, hostClass)
-            }
             else {
-              genLoadQualifier(tree)
-              fieldLoad(sym, hostClass)
+              if (sym.isStaticMember) {
+                genLoadQualUnlessElidable()
+                fieldLoad(sym, hostClass)
+              }
+              else {
+                genLoadQualifier(tree)
+                val hostClassBT = exemplar(hostClass).c // hostClass shouldn't be null, but in that case field.owner will do.
+                if(shouldStatifyClass(hostClassBT)) {
+                  adaptReceiverDueToStatification(hostClassBT)
+                  val field      = sym
+                  val owner      = hostClassBT.getInternalName
+                  val fieldJName = field.javaSimpleName.toString
+                  val fieldDescr = symInfoTK(field).getDescriptor
+                  mnode.visitFieldInsn(asm.Opcodes.GETSTATIC, owner, fieldJName, fieldDescr)
+                } else {
+                 fieldLoad(sym, hostClass)
+                }
+              }
             }
 
           case Ident(name) =>
@@ -2446,7 +2544,27 @@ abstract class GenBCode extends BCodeOptInter {
 
                   } // end of genNormalMethodCall()
 
-              genNormalMethodCall()
+              val symOwnerBT = exemplar(sym.owner).c
+              val jname      = sym.javaSimpleName.toString
+              if(!sym.isStaticMember && shouldStatifyMethod(sym, symOwnerBT, jname)) {
+                genLoadQualifier(fun)
+                adaptReceiverDueToStatification(symOwnerBT)
+                genLoadArguments(args, paramTKs(app))
+                val jowner = symOwnerBT.getInternalName
+                val bmType = asmMethodType(sym)
+                val mdescr = bmType.getDescriptor
+                val callsite = new MethodInsnNode(asm.Opcodes.INVOKESTATIC, jowner, jname, mdescr)
+                mnode.instructions.add(callsite)
+                val knockOuts = (isMethSymBridge || (sym == methSymbol))
+                if(!knockOuts && hasInline(sym)) {
+                  val isHiO = isHigherOrderMethod(bmType)
+                  val inlnTarget = new InlineTarget(callsite, cunit, app.pos)
+                  if(isHiO) { cgn.hiOs  ::= inlnTarget }
+                  else      { cgn.procs ::= inlnTarget }
+                }
+              } else {
+                genNormalMethodCall()
+              }
 
               generatedType = asmMethodType(sym).getReturnType
         }
@@ -2505,9 +2623,12 @@ abstract class GenBCode extends BCodeOptInter {
         val arity = abstractFunctionArity(castToBT)
 
         val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
-        val hasStaticModuleOwner = isStaticModule(delegateSym.owner)
+        val delegateOwner = delegateSym.owner
+        val hasStaticModuleOwner = {
+          isStaticModule(delegateOwner) || shouldStatifyClass(delegateOwner)
+        }
         val hasOuter = !delegateSym.isStaticMember && !hasStaticModuleOwner
-        val isStaticImplMethod = delegateSym.owner.isImplClass
+        val isStaticImplMethod = delegateOwner.isImplClass
 
         assert(
           uncurry.closureDelegates.contains(delegateSym),
@@ -2527,7 +2648,7 @@ abstract class GenBCode extends BCodeOptInter {
         // checking working assumptions
 
         // outerTK is a poor name choice because sometimes there's no outer instance yet there's always a delegateOwnerTK
-        val outerTK     = brefType(internalName(delegateSym.owner))
+        val outerTK     = exemplar(delegateOwner).c
         val enclClassBT = brefType(cnode.name)
         assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
         assert(
@@ -2936,7 +3057,11 @@ abstract class GenBCode extends BCodeOptInter {
               val ultimateMT = BT.getMethodType(ultimate.desc)
 
               // in order to invoke the delegate, load the receiver if any
-              if(hasStaticModuleOwner) {
+              val statifyOuter = shouldStatifyClass(outerTK)
+              if(statifyOuter) {
+                ()
+              }
+              else if(hasStaticModuleOwner) {
                 // GETSTATIC the/module/Class$.MODULE$ : Lthe/module/Class;
                 ultimate.visitFieldInsn(
                   asm.Opcodes.GETSTATIC,
@@ -2975,7 +3100,8 @@ abstract class GenBCode extends BCodeOptInter {
               }
 
               val callOpc =
-                if(hasOuter || hasStaticModuleOwner) asm.Opcodes.INVOKEVIRTUAL
+                if(statifyOuter) asm.Opcodes.INVOKESTATIC
+                else if(hasOuter || hasStaticModuleOwner) asm.Opcodes.INVOKEVIRTUAL
                 else asm.Opcodes.INVOKESTATIC
               ultimate.visitMethodInsn(
                 callOpc,
@@ -3240,7 +3366,7 @@ abstract class GenBCode extends BCodeOptInter {
       }
 
       def genLoadModule(module: Symbol) {
-        if (claszSymbol == module.moduleClass && jMethodName != "readResolve") {
+        if (claszSymbol == module.moduleClass && jMethodName != "readResolve" && !statifyThisClass) {
           mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
         } else {
           val mbt  = asmClassType(module)
