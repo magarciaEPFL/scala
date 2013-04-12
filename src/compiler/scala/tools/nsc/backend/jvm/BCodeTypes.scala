@@ -1212,17 +1212,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
         def checkSuperIfaces() {
 
-              def prettyPrint(syms: List[Symbol]): String = {
-                val lst = mapWithIndex(syms)({ case (sym, idx) => s"( $idx : ${sym.fullName})" })
-                lst.mkString
-              }
-
-          assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${prettyPrint(superInterfaces)}")
+          assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${prettyPrintFullnames(superInterfaces)}")
 
           val nonIfaces = superInterfaces.filter(s => !s.isInterface && !s.isTrait)
           assert(
             nonIfaces.isEmpty,
-            s"found non-interfaces ${prettyPrint(nonIfaces)} among: ${prettyPrint(superInterfaces)}"
+            s"found non-interfaces ${prettyPrintFullnames(nonIfaces)} among: ${prettyPrintFullnames(superInterfaces)}"
           )
 
         }
@@ -1230,6 +1225,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     checkSuperIfaces()
 
     minimizeInterfaces(superInterfaces)
+  }
+
+  def prettyPrintFullnames(syms: List[Symbol]): String = {
+    val lst = mapWithIndex(syms)({ case (sym, idx) => s"( $idx : ${sym.fullName})" })
+    lst.mkString
   }
 
   final def exemplarIfExisting(iname: String): Tracked = {
