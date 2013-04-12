@@ -50,7 +50,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   /*
    * "Statification" is a GenBCode-level transform that turns into static the members of those module classes
-   * that fulfill the conditions checked in `isStatifiableModuleClass()`. Usage sites are also adapted.
+   * that fulfill the conditions checked in `isStatifiableModuleClass()` EXCEPT those members overriding methods in the Object API.
+   * Usage sites are also adapted.
    */
   def shouldStatifyClass(bt: BType): Boolean = { knownModClassStatification(bt) }
 
@@ -1428,19 +1429,26 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    */
   private def isStatifiableModuleClass(modClass: Symbol): Boolean = {
+    val msg = impedimentsToStatifiabilityOfModuleClass(modClass)
+    if(msg == null) true
+    else { log(msg); false }
+  }
 
+  /*
+   * @return null iff the modClass is statifiable (please notice no check for @reallyStatic is performed here).
+   *                  Otherwise returns a String listing restrictions not fulfilled by modClass and that prevent statifiability.
+   */
+  def impedimentsToStatifiabilityOfModuleClass(modClass: Symbol): String = {
     assert(modClass != NoSymbol)
 
-    if(modClass.isJavaDefined || !isStaticModule(modClass)) {
-      return false
-    }
+    var result: List[String] = Nil
 
-        def msg = { s"Won't statify the static module class of ${modClass.fullName} because it " }
+    if(modClass.isJavaDefined)    { result ::= "is a Java-defined class" }
+    if(!isStaticModule(modClass)) { result ::= "isn't a static module (ie has an outer-instance" }
 
     val scSym = modClass.superClass
     if(scSym != definitions.ObjectClass && scSym != NoSymbol) {
-      log(msg + s"has a superClass other than AnyRef: ${scSym.fullName}")
-      return false
+      result ::= s"has a superClass other than AnyRef: ${scSym.fullName}"
     }
 
         def isMarkerInterface(isym: Symbol): Boolean = {
@@ -1450,12 +1458,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     val nonMarkerIfaces = modClass.mixinClasses filter { iface => !isMarkerInterface(iface) }
     if(!nonMarkerIfaces.isEmpty) {
-      log(msg + s"extends non-marker interfaces ${prettyPrintFullnames(nonMarkerIfaces)}")
-      return false
+      result ::= s"extends non-marker interfaces ${prettyPrintFullnames(nonMarkerIfaces)}"
     }
 
-    true
-  } // end of method isStatifiableModuleClass()
+    if(result.isEmpty) null
+    else {
+      s"Won't statify the static module class of ${modClass.fullName} because it " + result.mkString(". Moreover, it ")
+    }
+  }
 
   // ---------------- utilities around interfaces represented by Tracked instances. ----------------
 
