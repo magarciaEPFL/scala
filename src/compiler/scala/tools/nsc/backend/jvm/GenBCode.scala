@@ -427,19 +427,24 @@ abstract class GenBCode extends BCodeOptInter {
 
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode, isIntraProgramOpt)
+          ifDebug { cleanser.runTypeFlowAnalysis() }
           cleanser.codeFixupDCE()
+          ifDebug { cleanser.runTypeFlowAnalysis() }
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
           // under -o2 `squashOuter()` runs before inlining, ie in `Worker1.visit()`
           // under -o3 or higher, rather than `squashOuter()`, the more powerful `minimizeDClosureFields()` is run instead
           cleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          ifDebug { cleanser.runTypeFlowAnalysis() }
           cleanser.cleanseClass()
+          ifDebug { cleanser.runTypeFlowAnalysis() }
         }
         else {
           // the minimal fixups needed, even for unoptimized runs.
           val essential = new EssentialCleanser(cnode)
           essential.codeFixupDCE()
           essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          ifDebug { essential.runTypeFlowAnalysis() }
         }
 
         refreshInnerClasses(cnode)
@@ -967,7 +972,7 @@ abstract class GenBCode extends BCodeOptInter {
       /*  If the selector type has a member with the right name,
        *  it is the host class; otherwise the symbol's owner.
        */
-      def findHostClass(selector: Type, sym: Symbol) = selector member sym.name match {
+      def findHostClass(selector: Type, sym: Symbol): Symbol = selector member sym.name match {
         case NoSymbol   => log(s"Rejecting $selector as host class for $sym") ; sym.owner
         case _          => selector.typeSymbol
       }

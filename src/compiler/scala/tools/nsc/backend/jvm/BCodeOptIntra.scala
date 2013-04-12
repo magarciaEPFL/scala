@@ -1118,6 +1118,12 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     // Type-flow analysis
     //--------------------------------------------------------------------
 
+    final def runTypeFlowAnalysis() {
+      for(m <- JListWrapper(cnode.methods); if asm.optimiz.Util.hasBytecodeInstructions(m)) {
+        runTypeFlowAnalysis(m)
+      }
+    }
+
     final def runTypeFlowAnalysis(mnode: MethodNode) {
 
       import asm.tree.analysis.{ Analyzer, Frame }
