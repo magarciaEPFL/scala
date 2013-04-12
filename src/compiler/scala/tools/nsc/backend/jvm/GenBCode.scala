@@ -428,24 +428,24 @@ abstract class GenBCode extends BCodeOptInter {
 
         if(isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode, isIntraProgramOpt)
+          ifDebug { cleanser.runTypeFlowAnalysis() }
           cleanser.codeFixupDCE()
+          ifDebug { cleanser.runTypeFlowAnalysis() }
           // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
           // under -o0 `squashOuter()` is invoked in the else-branch below
           // under -o2 `squashOuter()` runs before inlining, ie in `Worker1.visit()`
           // under -o3 or higher, rather than `squashOuter()`, the more powerful `minimizeDClosureFields()` is run instead
           cleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          ifDebug { cleanser.runTypeFlowAnalysis() }
           cleanser.cleanseClass()
+          ifDebug { cleanser.runTypeFlowAnalysis() }
         }
         else {
           // the minimal fixups needed, even for unoptimized runs.
           val essential = new EssentialCleanser(cnode)
           essential.codeFixupDCE()
           essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
-          ifDebug {
-            for(m <- JListWrapper(cnode.methods); if asm.optimiz.Util.hasBytecodeInstructions(m)) {
-              essential.runTypeFlowAnalysis(m)
-            }
-          }
+          ifDebug { essential.runTypeFlowAnalysis() }
         }
 
         refreshInnerClasses(cnode)
@@ -740,7 +740,7 @@ abstract class GenBCode extends BCodeOptInter {
       val closuresForDelegates = mutable.Map.empty[MethodSymbol, DClosureEndpoint]
 
       private var claszSymbol: Symbol        = null
-      private var thisBT: BType              = null
+      private var thisBT: BType              = BT_ZERO
       private var statifyThisClass           = false
       private var isCZParcelable             = false
       private var isCZStaticModule           = false
@@ -750,7 +750,7 @@ abstract class GenBCode extends BCodeOptInter {
       private var jMethodName: String        = null
       private var isMethSymStaticCtor        = false
       private var isMethSymBridge            = false
-      private var returnType: BType          = null
+      private var returnType: BType          = BT_ZERO
       private var methSymbol: Symbol         = null
       private var cgn: CallGraphNode         = null
       // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
@@ -1285,7 +1285,7 @@ abstract class GenBCode extends BCodeOptInter {
               assert(
                 if(load.`var` == 0) { thisBT == modClassBT } else true,
                 "Found ALOAD_0 in a context where adaptReceiverDueToStatification() expected to " +
-                s"load a $modClassBT instance, but instead $thisBT was loaded."
+                s"load a ${modClassBT.getInternalName}} instance, but instead ${thisBT.getInternalName}} was loaded."
               )
               stream.remove(last)
             } else {
@@ -1874,7 +1874,7 @@ abstract class GenBCode extends BCodeOptInter {
           // (2.a) emit case clause proper
           val startHandler = currProgramPoint()
           var endHandler: asm.Label = null
-          var excType: BType = null
+          var excType: BType = BT_ZERO
           registerCleanup(finCleanup)
           ch match {
             case NamelessEH(typeToDrop, caseBody) =>
@@ -1914,7 +1914,7 @@ abstract class GenBCode extends BCodeOptInter {
         if(hasFinally) {
           nopIfNeeded(startTryBody)
           val finalHandler = currProgramPoint() // version of the finally-clause reached via unhandled exception.
-          protect(startTryBody, finalHandler, finalHandler, null)
+          protect(startTryBody, finalHandler, finalHandler, BT_ZERO)
           val Local(eTK, _, eIdx, _) = locals(makeLocal(ThrowableReference, "exc"))
           bc.store(eIdx, eTK)
           emitFinalizer(finalizer, null, true)
@@ -1983,7 +1983,7 @@ abstract class GenBCode extends BCodeOptInter {
 
       private def protect(start: asm.Label, end: asm.Label, handler: asm.Label, excType: BType) {
         val excInternalName: String =
-          if (excType == null) null
+          if (excType == BT_ZERO) null
           else excType.getInternalName
         assert(start != end, "protecting a range of zero instructions leads to illegal class format. Solution: add a NOP to that range.")
         mnode.visitTryCatchBlock(start, end, handler, excInternalName)
@@ -2517,13 +2517,13 @@ abstract class GenBCode extends BCodeOptInter {
 
                     // In "a couple cases", squirrel away a extra information (hostClass, targetTypeKind). TODO Document what "in a couple cases" refers to.
                     var hostClass:      Symbol = null
-                    var targetTypeKind: BType  = null
+                    var targetTypeKind: BType  = BT_ZERO
                     fun match {
                       case Select(qual, _) =>
                         val qualSym = findHostClass(qual.tpe, sym)
                         if (qualSym == ArrayClass) {
                           targetTypeKind = tpeTK(qual)
-                          log(s"Stored target type kind for {$sym.fullName} as $targetTypeKind")
+                          log(s"Stored target type kind for ${sym.fullName} as ${targetTypeKind.getDescriptor}")
                         }
                         else {
                           hostClass = qualSym
@@ -2534,7 +2534,7 @@ abstract class GenBCode extends BCodeOptInter {
 
                       case _ =>
                     }
-                    if((targetTypeKind != null) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
+                    if((targetTypeKind != BT_ZERO) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
                       val target: String = targetTypeKind.getInternalName
                       bc.invokevirtual(target, "clone", "()Ljava/lang/Object;")
                     }
@@ -2650,11 +2650,11 @@ abstract class GenBCode extends BCodeOptInter {
         // outerTK is a poor name choice because sometimes there's no outer instance yet there's always a delegateOwnerTK
         val outerTK     = exemplar(delegateOwner).c
         val enclClassBT = brefType(cnode.name)
-        assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
+        assert(outerTK.hasObjectSort, s"Not of object sort: ${outerTK.getDescriptor}")
         assert(
           outerTK == enclClassBT,
            "Probable cause: a regression in the way DelayedInit is lowered. " +
-          s"outerTK != enclClassBT , where outerTK is $outerTK and enclClassBT is $enclClassBT"
+          s"outerTK != enclClassBT , where outerTK is ${outerTK.getDescriptor} and enclClassBT is ${enclClassBT.getDescriptor}"
         )
 
         /*
@@ -3169,7 +3169,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         log(
           s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
-          s"for endpoint ${delegateJavaName}${delegateMT} " +
+          s"for endpoint ${delegateJavaName}${delegateMT.getDescriptor} " +
           s"in class ${outerTK.getInternalName}. Enclosing method ${methodSignature(cnode, mnode)} , " +
           s"position in source file: ${fakeCallsite.pos}"
         )

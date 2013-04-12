@@ -1094,7 +1094,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             def survivors1(): collection.Set[Int] = {
 
               var idx = 0
-              var survivors = mutable.LinkedHashSet[Int]()
+              val survivors = mutable.LinkedHashSet[Int]()
               while(idx < actualsTypeFlow.length) {
                 val tf = actualsTypeFlow(idx)
                 if(tf.lca.isClosureClass) {
