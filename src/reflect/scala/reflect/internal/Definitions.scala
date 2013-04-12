@@ -900,6 +900,7 @@ trait Definitions extends api.StandardDefinitions {
     lazy val UncheckedClass             = requiredClass[scala.unchecked]
     lazy val UnspecializedClass         = requiredClass[scala.annotation.unspecialized]
     lazy val VolatileAttr               = requiredClass[scala.volatile]
+    lazy val ReallyStaticClass          = requiredClass[scala.reallyStatic]
 
     // Meta-annotations
     lazy val BeanGetterTargetClass      = requiredClass[meta.beanGetter]
