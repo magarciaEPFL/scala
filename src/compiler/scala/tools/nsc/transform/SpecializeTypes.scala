@@ -81,6 +81,16 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
   /** For a given class and concrete type arguments, give its specialized class */
   val specializedClass = perRunCaches.newMap[(Symbol, TypeEnv), Symbol]
 
+  /* By virtue of specializedClass being perRunCaches,
+   * entries go missing by the time GenBCode tries to look up an AbstractFunctionClass
+   * (in order to emit Late-Closure-Classes).
+   * Thus those pairs (AbstractFunctionClass, env) are tracked in this dedicated map
+   * (in addition to specializedFunctionX).
+   * The difference is that this map isn't cleared at all (not even by the time GenBCode exits,
+   * otherwise ReflectionToolBoxTest fails, among others).
+   */
+  val specializedFunctionX = mutable.Map.empty[(Symbol, TypeEnv), Symbol]
+
   /** Map a method symbol to a list of its specialized overloads in the same class. */
   private val overloads = perRunCaches.newMap[Symbol, List[Overload]]() withDefaultValue Nil
 
@@ -543,6 +553,9 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
       val env = mapAnyRefsInSpecSym(env0, clazz, sClass)
       typeEnv(sClass) = env
       this.specializedClass((clazz, env0)) = sClass
+      if(definitions.AbstractFunctionClass contains clazz) {
+        this.specializedFunctionX((clazz, env0)) = sClass
+      }
 
       val decls1                        = newScope  // declarations of the newly specialized class 'sClass'
       var oldClassTParams: List[Symbol] = Nil       // original unspecialized type parameters
