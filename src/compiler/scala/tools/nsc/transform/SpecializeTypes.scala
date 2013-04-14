@@ -79,7 +79,7 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
    */
 
   /** For a given class and concrete type arguments, give its specialized class */
-  val specializedClass = perRunCaches.newMap[(Symbol, TypeEnv), Symbol]
+  val specializedClass : mutable.Map[(Symbol, TypeEnv), Symbol] = new mutable.LinkedHashMap
 
   /** Map a method symbol to a list of its specialized overloads in the same class. */
   private val overloads = perRunCaches.newMap[Symbol, List[Overload]]() withDefaultValue Nil

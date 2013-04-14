@@ -19,6 +19,7 @@ import collection.convert.Wrappers.JListWrapper
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded
  */
+@reallyStatic
 class BType(val bits: Long) extends AnyVal {
 
   @inline private def hi: Int = (bits >> 32).asInstanceOf[Int]
