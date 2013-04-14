@@ -73,6 +73,7 @@ final class Variance private (val flags: Int) extends AnyVal {
   )
 }
 
+@reallyStatic
 object Variance {
   implicit class SbtCompat(val v: Variance) {
     def < (other: Int) = v.flags < other

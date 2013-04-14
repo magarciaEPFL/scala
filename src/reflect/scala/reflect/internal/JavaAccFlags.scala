@@ -57,6 +57,7 @@ final class JavaAccFlags private (val coded: Int) extends AnyVal {
   }
 }
 
+@reallyStatic
 object JavaAccFlags {
   private val Unknown     = 0
   private val Class       = 1
