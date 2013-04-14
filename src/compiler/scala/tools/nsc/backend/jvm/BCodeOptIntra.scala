@@ -1118,11 +1118,18 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     // Type-flow analysis
     //--------------------------------------------------------------------
 
+    final def runTypeFlowAnalysis() {
+      for(m <- JListWrapper(cnode.methods); if asm.optimiz.Util.hasBytecodeInstructions(m)) {
+        runTypeFlowAnalysis(m)
+      }
+    }
+
     final def runTypeFlowAnalysis(mnode: MethodNode) {
 
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
 
+      Util.computeMaxLocalsMaxStack(mnode)
       val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
       tfa.analyze(cnode.name, mnode)
       val frames: Array[Frame[TFValue]]   = tfa.getFrames()
