@@ -6,6 +6,7 @@
 package scala.reflect
 package internal
 
+@reallyStatic
 object Mode {
   private implicit def liftIntBitsToMode(bits: Int): Mode = apply(bits)
   def apply(bits: Int): Mode = new Mode(bits)
