@@ -984,8 +984,18 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    * Track the module-classes of static-modules that fulfill the criteria for "statification".
    */
   private def trackModuleClass(modClass: Symbol, modClassBT: BType) {
+
+        def isReallyStatic(s: Symbol) = {
+          s hasAnnotation definitions.ReallyStaticClass
+        }
+
     if(knownModClassStatification(modClassBT)) { return }
-    val isAnnotated = (modClass hasAnnotation definitions.ReallyStaticClass)
+    val isAnnotated = {
+      isReallyStatic(modClass) || {
+        val plain = modClass.linkedClassOfClass
+        (plain != NoSymbol) && isReallyStatic(plain)
+      }
+    }
     if(!isAnnotated || !isStatifiableModuleClass(modClass)) { return }
     knownModClassStatification += modClassBT
   }
