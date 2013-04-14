@@ -1129,6 +1129,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       import asm.tree.analysis.{ Analyzer, Frame }
       import asm.tree.AbstractInsnNode
 
+      Util.computeMaxLocalsMaxStack(mnode)
       val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
       tfa.analyze(cnode.name, mnode)
       val frames: Array[Frame[TFValue]]   = tfa.getFrames()
