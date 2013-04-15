@@ -33,12 +33,12 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored14</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored25</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored14">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored14</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored25">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored25</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
@@ -281,11 +281,11 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>4 Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored14</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored25</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored14
-cd GenRefactored14
-git checkout -b GenRefactored14 origin/GenRefactored14
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored25
+cd GenRefactored25
+git checkout -b GenRefactored25 origin/GenRefactored25
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -337,9 +337,9 @@ Allows all optimization levels, -target must be jvm-1.7 or higher, and the backe
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>4.4 Pro tip: Optimizing the compiler and standard library themselves</h1>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored14/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored25/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored14</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored25</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
