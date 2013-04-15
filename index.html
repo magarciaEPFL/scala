@@ -72,7 +72,41 @@
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
-</ul><h2>1.4 Method handles</h2>
+</ul><h2>1.4 "really static" value classes and static modules</h2>
+
+<p>Before <code>@reallyStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
+
+<pre><code>  load singleton-module
+  invokevirtual(arg1 ... argN)
+</code></pre>
+
+<p>After JIT-compilation, performance is great because there's a single method method implementation to dispatch.</p>
+
+<p>However the above can be expressed more succinctly with "really static" methods, with corresponding invokestatic callistes. This is what the @reallyStatic annotation allows, when applied to: </p>
+
+<ul>
+<li>static module (ie an object definition that lacks outer instance) </li>
+<li>value class.</li>
+</ul><p>In case the compiler can't honor the request for really-static-ness, a descriptive error message is shown. This can happen in two situations:</p>
+
+<p>First, upon extending another class:</p>
+
+<pre><code>      @reallyStatic
+      case class Valued(val repr: Int) extends AnyVal {
+        def odd = (repr&amp;1)==1
+      }
+
+      error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
+      case class Valued(val repr: Int) extends AnyVal {
+                 ^
+</code></pre>
+
+<p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @reallyStatic-tagged class.</p>
+
+<p>More defails (and examples) in the documentation of <code>scala.reallyStatic</code>
+<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored25/src/library/scala/reallyStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored25/src/library/scala/reallyStatic.scala</a></p>
+
+<h2>1.5 Method handles</h2>
 
 <p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
 
@@ -322,7 +356,7 @@ ant all.clean &amp;&amp; ant
 <td><code>-closurify:MH</code></td>       <td>A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
 is given as constructor-argument to a *standard* closure-class
 (thus doing away with the need for as many individual classes as closure definitions).
-Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode. Further details in Sec. 1.4</td> </tr>
+Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode. Further details in Sec. 1.5</td> </tr>
 </table><h2>4.3 Diagnostics</h2>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
@@ -369,7 +403,7 @@ Allows all optimization levels, -target must be jvm-1.7 or higher, and the backe
 
 <ul>
 <li><strong>If MethodHandles are slow on JDK7, how come other programming languages are happily using them?</strong></li>
-</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 1.4 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 1.4.</p>
+</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 1.5 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 1.5.</p>
 
 <ul>
 <li><strong>What about tests?</strong></li>
