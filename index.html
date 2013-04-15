@@ -91,14 +91,14 @@
 
 <p>First, upon extending another class:</p>
 
-<pre><code>      @reallyStatic
-      case class Valued(val repr: Int) extends AnyVal {
-        def odd = (repr&amp;1)==1
-      }
+<pre><code>  @reallyStatic
+  case class Valued(val repr: Int) extends AnyVal {
+    def odd = (repr&amp;1)==1
+  }
 
-      error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
-      case class Valued(val repr: Int) extends AnyVal {
-                 ^
+   error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
+  case class Valued(val repr: Int) extends AnyVal {
+             ^
 </code></pre>
 
 <p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @reallyStatic-tagged class.</p>
