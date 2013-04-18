@@ -427,7 +427,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
           proc.callsite,
           frame,
           proc.callee, proc.owner,
-          doTrackClosureUsage = true,
           isDefinitelyNonNull = isRcvNonNull
         )
         inlineMethodOutcome foreach proc.warn
@@ -593,7 +592,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                      frame:         asm.tree.analysis.Frame[TFValue],
                      callee:        MethodNode,
                      calleeOwner:   ClassNode,
-                     doTrackClosureUsage: Boolean,
                      isDefinitelyNonNull: Boolean): Option[String] = {
 
       assert(callee != null)
@@ -775,9 +773,7 @@ abstract class BCodeOptInter extends BCodeOptIntra {
 
       replaceRETURNs()
 
-      if(doTrackClosureUsage) {
-        checkTransplantedAccesses(body, hostOwnerBT)
-      }
+      checkTransplantedAccesses(body, hostOwnerBT)
 
       host.instructions.insert(callsite, body) // after this point, body.isEmpty (an ASM instruction can be owned by a single InsnList)
       host.instructions.remove(callsite)
@@ -1122,7 +1118,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
             hostOwner.name, host,
             callsite, callsiteTypeFlow,
             hiO, hiOOwner,
-            doTrackClosureUsage = true,
             isDefinitelyNonNull = false
           )
 
@@ -1671,7 +1666,6 @@ abstract class BCodeOptInter extends BCodeOptIntra {
                           clonedForwarder,
                           frame,
                           rewritten, closureUsages.closureClass,
-                          doTrackClosureUsage = true,
                           isDefinitelyNonNull = true
                         )
                         return inlineMethodOutcome match {
