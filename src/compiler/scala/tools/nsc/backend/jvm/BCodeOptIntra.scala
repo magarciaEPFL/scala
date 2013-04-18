@@ -729,7 +729,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
 
       /*
        *  Elides redundant outer references for all dclosures that cnode is responsible for
-       *  (catch: if eliding didn't happen is because the outer-pointer wasn't redundant after all).
+       *  (catch: if eliding didn't happen it's because the outer-pointer wasn't redundant after all).
        *
        *  This method manages to stay brief by delegating work:
        *
