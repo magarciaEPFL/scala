@@ -40,6 +40,9 @@ abstract class BCodeOptCommon extends BCodeTypes {
   val elidedClasses: java.util.Set[BType] = java.util.Collections.newSetFromMap(
     new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
   )
+  final def wasElided(bt:    BType)    : Boolean = elidedClasses.contains(bt)
+  final def wasElided(iname: String)   : Boolean = wasElided(lookupRefBType(iname))
+  final def wasElided(cnode: ClassNode): Boolean = wasElided(cnode.name)
 
   def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
 
@@ -551,7 +554,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
       assert(isMasterClass(masterBT), "Not a master class for any dclosure: " + masterBT.getInternalName)
       for(
         d <- exclusiveDClosures(masterBT);
-        if !elidedClasses.contains(d);
+        if !wasElided(d);
         dep = endpoint.get(d).mnode;
         // looking ahead, it's possible for the static endpoint of a dclosure to be inlined into the dclosure's apply().
         if masterCNode.methods.contains(dep)
