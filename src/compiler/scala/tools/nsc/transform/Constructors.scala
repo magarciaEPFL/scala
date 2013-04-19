@@ -52,7 +52,142 @@ abstract class Constructors extends Transform with ast.TreeDSL {
 
   } // ConstructorTransformer
 
-  class TemplateTransformer(unit: CompilationUnit, impl: Template) extends Transformer {
+  /*
+   *  Translation scheme for DelayedInit
+   *  ----------------------------------
+   *
+   *  The list of statements that will end up in the primary constructor can be split into:
+   *
+   *    (a) up to and including the super-constructor call.
+   *        These statements can occur only in the (bytecode-level) primary constructor.
+   *
+   *    (b) remaining statements
+   *
+   *  The purpose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
+   *
+   *  The rewriting to achieve "delayed initialization" involves:
+   *    (c) an additional, synthetic, public method encapsulating (b)
+   *    (d) an additional, synthetic closure whose argless apply() just invokes (c)
+   *    (e) after executing the statements in (a),
+   *        the primary constructor instantiates (d) and passes it as argument
+   *        to a `delayedInit()` invocation on the current instance.
+   *        In turn, `delayedInit()` is a method defined as abstract in the `DelayedInit` trait
+   *        so that it can be overridden (for an example see `scala.App`)
+   *
+   *  The following helper methods prepare Trees as part of this rewriting:
+   *
+   *    (f) `delayedEndpointDef()` prepares (c).
+   *        A transformer, `constrStatTransformer`, is used to re-locate statements (b) from template-level
+   *        to become statements in method (c). The main task here is re-formulating accesses to params
+   *        of the primary constructors (to recap, (c) has zero-params) in terms of param-accessor fields.
+   *        In a Delayed-Init subclass, each class-constructor gets a param-accessor field because `mustbeKept()` forces it.
+   *
+   *    (g) `delayedInitClosure()` prepares (d)
+   *
+   *    (h) `delayedInitCall()`    prepares the `delayedInit()` invocation referred to in (e)
+   *
+   *  Both (c) and (d) are added to the Template returned by `transformClassTemplate()`
+   *
+   *  A note of historic interest: Previously the rewriting for DelayedInit would include in the closure body
+   *  all of the delayed initialization sequence, which in turn required:
+   *    - reformulating "accesses-on-this" into "accesses-on-outer", and
+   *    - adding public getters and setters.
+   *
+   */
+  trait DelayedInitHelper { self: TemplateTransformer =>
+
+    /*
+     *  `delayedEndpointDef()` is a helper method that prepares a synthetic public method
+     *  (that encapsulates the delayed-init statements) to be added to the class extending DelayedInit.
+     *
+     *  @param stats the statements from the original constructor coming after the super-constructor call
+     *
+     */
+    def delayedEndpointDef(stats: List[Tree]): DefDef = {
+
+      val methodName = currentUnit.freshTermName(
+        "delayedEndpoint$" + currentClass.name     + "$" +
+        currentClass.fullName.hashCode.toHexString + "$" +
+        currentSource.file.toString().hashCode.toHexString
+      )
+      val methodSym  = clazz.newMethod(methodName, impl.pos, SYNTHETIC | FINAL)
+      methodSym setInfoAndEnter MethodType(Nil, UnitClass.tpe)
+
+      // changeOwner needed because the `stats` contained in the DefDef were owned by the template, not long ago.
+      val blk       = Block(stats, gen.mkZero(UnitClass.tpe)).changeOwner(impl.symbol -> methodSym)
+      val delayedDD = localTyper typed { DefDef(methodSym, Nil, blk) }
+
+      delayedDD.asInstanceOf[DefDef]
+    }
+
+    /*
+     *  `delayedInitClosure()` is a helper method that prepares a synthetic closure whose argless apply() just invokes
+     *  the method prepared by `delayedEndpointDef()`
+     *
+     */
+    def delayedInitClosure(delayedEndPointSym: MethodSymbol): ClassDef = {
+      val dicl = localTyper.typed {
+        atPos(impl.pos) {
+          val closureClass   = clazz.newClass(nme.delayedInitArg.toTypeName, impl.pos, SYNTHETIC | FINAL)
+          val closureParents = List(AbstractFunctionClass(0).tpe)
+
+          closureClass setInfoAndEnter new ClassInfoType(closureParents, newScope, closureClass)
+
+          val outerField: TermSymbol = (
+            closureClass
+              newValue(nme.OUTER, impl.pos, PrivateLocal | PARAMACCESSOR)
+              setInfoAndEnter clazz.tpe
+          )
+          val applyMethod: MethodSymbol = (
+            closureClass
+              newMethod(nme.apply, impl.pos, FINAL)
+              setInfoAndEnter MethodType(Nil, ObjectClass.tpe)
+          )
+          val outerFieldDef     = ValDef(outerField)
+          val closureClassTyper = localTyper.atOwner(closureClass)
+          val applyMethodTyper  = closureClassTyper.atOwner(applyMethod)
+
+          def applyMethodStat =
+            applyMethodTyper.typed {
+              atPos(impl.pos) {
+                val receiver = Select(This(closureClass), outerField)
+                Apply(Select(receiver, delayedEndPointSym), Nil)
+              }
+            }
+
+          val applyMethodDef = DefDef(
+            sym = applyMethod,
+            vparamss = ListOfNil,
+            rhs = Block(applyMethodStat, gen.mkAttributedRef(BoxedUnit_UNIT)))
+
+          ClassDef(
+            sym = closureClass,
+            constrMods = Modifiers(0),
+            vparamss = List(List(outerFieldDef)),
+            body = applyMethodDef :: Nil,
+            superPos = impl.pos)
+        }
+      }
+
+      dicl.asInstanceOf[ClassDef]
+    }
+
+    /*
+     *  `delayedInitCall()` is a helper method that prepares a callsite
+     *  (for inclusion in the primary constructor, right after the super-constructor call)
+     *  to invoke the `delayedInit()` override passing an instance of the closure created to that effect
+     *  by `delayedInitClosure()`.
+     *
+     *  @param closure   the closure created by `delayedInitClosure()`
+     *
+     */
+    def delayedInitCall(closure: Tree) = localTyper.typedPos(impl.pos) {
+      gen.mkMethodCall(This(clazz), delayedInitMethod, Nil, List(New(closure.symbol.tpe, This(clazz))))
+    }
+
+  } // DelayedInitHelper
+
+  class TemplateTransformer(unit: CompilationUnit, val impl: Template) extends Transformer with DelayedInitHelper {
 
     val clazz = impl.symbol.owner  // the transformed class
     val stats = impl.body          // the transformed template body
@@ -446,122 +581,6 @@ abstract class Constructors extends Transform with ast.TreeDSL {
     //   case _ => false
     // }
 
-
-    /*
-     *  Translation scheme for DelayedInit
-     *  ----------------------------------
-     *
-     *  The list of statements that will end up in the primary constructor can be split into:
-     *
-     *    (a) up to and including the super-constructor call.
-     *        These statements can occur only in the (bytecode-level) primary constructor.
-     *
-     *    (b) remaining statements
-     *
-     *  The purpose of DelayedInit is leaving (b) out of the primary constructor and have their execution "delayed".
-     *
-     *  The rewriting to achieve "delayed initialization" involves:
-     *    (c) an additional, synthetic, public method encapsulating (b)
-     *    (d) an additional, synthetic closure whose argless apply() just invokes (c)
-     *    (e) after executing the statements in (a),
-     *        the primary constructor instantiates (d) and passes it as argument
-     *        to a `delayedInit()` invocation on the current instance.
-     *        In turn, `delayedInit()` is a method defined as abstract in the `DelayedInit` trait
-     *        so that it can be overridden (for an example see `scala.App`)
-     *
-     *  The following helper methods prepare Trees as part of this rewriting:
-     *
-     *    (f) `delayedEndpointDef()` prepares (c).
-     *        A transformer, `constrStatTransformer`, is used to re-locate statements (b) from template-level
-     *        to become statements in method (c). The main task here is re-formulating accesses to params
-     *        of the primary constructors (to recap, (c) has zero-params) in terms of param-accessor fields.
-     *        In a Delayed-Init subclass, each class-constructor gets a param-accessor field because `mustbeKept()` forces it.
-     *
-     *    (g) `delayedInitClosure()` prepares (d)
-     *
-     *    (h) `delayedInitCall()`    prepares the `delayedInit()` invocation referred to in (e)
-     *
-     *  Both (c) and (d) are added to the Template returned by `transformClassTemplate()`
-     *
-     *  A note of historic interest: Previously the rewriting for DelayedInit would include in the closure body
-     *  all of the delayed initialization sequence, which in turn required:
-     *    - reformulating "accesses-on-this" into "accesses-on-outer", and
-     *    - adding public getters and setters.
-     *
-     *  @param stats the statements in (b) above
-     *
-     *  @return the DefDef for (c) above
-     *
-     * */
-    def delayedEndpointDef(stats: List[Tree]): DefDef = {
-
-      val methodName = currentUnit.freshTermName(
-        "delayedEndpoint$" + currentClass.name     + "$" +
-        currentClass.fullName.hashCode.toHexString + "$" +
-        currentSource.file.toString().hashCode.toHexString
-      )
-      val methodSym  = clazz.newMethod(methodName, impl.pos, SYNTHETIC | FINAL)
-      methodSym setInfoAndEnter MethodType(Nil, UnitClass.tpe)
-
-      // changeOwner needed because the `stats` contained in the DefDef were owned by the template, not long ago.
-      val blk       = Block(stats, gen.mkZero(UnitClass.tpe)).changeOwner(impl.symbol -> methodSym)
-      val delayedDD = localTyper typed { DefDef(methodSym, Nil, blk) }
-
-      delayedDD.asInstanceOf[DefDef]
-    }
-
-    /* @see overview at `delayedEndpointDef()` of the translation scheme for DelayedInit */
-    def delayedInitClosure(delayedEndPointSym: MethodSymbol): ClassDef = {
-      val dicl = localTyper.typed {
-        atPos(impl.pos) {
-          val closureClass   = clazz.newClass(nme.delayedInitArg.toTypeName, impl.pos, SYNTHETIC | FINAL)
-          val closureParents = List(AbstractFunctionClass(0).tpe)
-
-          closureClass setInfoAndEnter new ClassInfoType(closureParents, newScope, closureClass)
-
-          val outerField: TermSymbol = (
-            closureClass
-              newValue(nme.OUTER, impl.pos, PrivateLocal | PARAMACCESSOR)
-              setInfoAndEnter clazz.tpe
-          )
-          val applyMethod: MethodSymbol = (
-            closureClass
-              newMethod(nme.apply, impl.pos, FINAL)
-              setInfoAndEnter MethodType(Nil, ObjectClass.tpe)
-          )
-          val outerFieldDef     = ValDef(outerField)
-          val closureClassTyper = localTyper.atOwner(closureClass)
-          val applyMethodTyper  = closureClassTyper.atOwner(applyMethod)
-
-          def applyMethodStat =
-            applyMethodTyper.typed {
-              atPos(impl.pos) {
-                val receiver = Select(This(closureClass), outerField)
-                Apply(Select(receiver, delayedEndPointSym), Nil)
-              }
-            }
-
-          val applyMethodDef = DefDef(
-            sym = applyMethod,
-            vparamss = ListOfNil,
-            rhs = Block(applyMethodStat, gen.mkAttributedRef(BoxedUnit_UNIT)))
-
-          ClassDef(
-            sym = closureClass,
-            constrMods = Modifiers(0),
-            vparamss = List(List(outerFieldDef)),
-            body = applyMethodDef :: Nil,
-            superPos = impl.pos)
-        }
-      }
-
-      dicl.asInstanceOf[ClassDef]
-    }
-
-    /* @see overview at `delayedEndpointDef()` of the translation scheme for DelayedInit */
-    def delayedInitCall(closure: Tree) = localTyper.typedPos(impl.pos) {
-      gen.mkMethodCall(This(clazz), delayedInitMethod, Nil, List(New(closure.symbol.tpe, This(clazz))))
-    }
 
     /* Return a pair consisting of (all statements up to and including superclass and trait constr calls, rest) */
     def splitAtSuper(stats: List[Tree]) = {
