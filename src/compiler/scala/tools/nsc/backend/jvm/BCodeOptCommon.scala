@@ -642,7 +642,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
     private def getSingletonDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getOpcode == Opcodes.GETSTATIC) {
         val fi  = insn.asInstanceOf[FieldInsnNode]
-        if(fi.name == "$single") {
+        if(fi.name == nme.LCC_SINGLE_NAME.toString) {
           val dbt = lookupRefBType(fi.owner)
           if(isDelegatingClosure(dbt)) {
             return dbt
@@ -1204,7 +1204,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
             new FieldNode(
               Opcodes.ASM4,
               Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-              "$single",
+              nme.LCC_SINGLE_NAME.toString,
               dClassDescriptor,
               null, null
             )

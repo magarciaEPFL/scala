@@ -97,6 +97,7 @@ trait StdNames {
     val ANON_CLASS_NAME: NameType    = "$anon"
     val ANON_FUN_NAME: NameType      = "$anonfun"
     val LCC_FUN_NAME: NameType       = "$LCC" + ANON_FUN_NAME.toString
+    val LCC_SINGLE_NAME: NameType    = "$single" // "singletonized" late-closure-classes hold the singleton in a field
     val EMPTY: NameType              = ""
     val EMPTY_PACKAGE_NAME: NameType = "<empty>"
     val IMPL_CLASS_SUFFIX            = "$class"
