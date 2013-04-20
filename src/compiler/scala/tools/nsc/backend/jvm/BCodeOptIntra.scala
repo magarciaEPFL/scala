@@ -1119,10 +1119,6 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       true
     }
 
-    //--------------------------------------------------------------------
-    // Type-flow analysis
-    //--------------------------------------------------------------------
-
     final def runTypeFlowAnalysis() {
       for(m <- JListWrapper(cnode.methods); if asm.optimiz.Util.hasBytecodeInstructions(m)) {
         runTypeFlowAnalysis(m)
@@ -1146,6 +1142,68 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         }
         i += 1
       }
+    }
+
+    private def addBoostrapMethod(cnode: ClassNode, cnodeBT: BType, dc: BType) {
+      // MethodHandle to dc's constructor or single$ field
+      val dCNode = codeRepo.classes.get(dc)
+      val dCtors = (dCNode.toMethodList.filter(mn => mn.name == nme.CONSTRUCTOR.toString))
+      assert(dCtors.nonEmpty && dCtors.tail.isEmpty)
+      val dCtor  = dCtors.head
+      val isSingletonized = Util.isPrivateMethod(dCtor)
+      // MethodHandle pointing to the closure's constructor or singleton-field
+      val h =
+        if(isSingletonized) {
+          new asm.Handle(
+            Opcodes.H_INVOKESTATIC,
+            dCNode.name,
+            nme.LCC_SINGLE_NAME.toString,
+            cnodeBT.getDescriptor
+          )
+        }
+        else {
+          new asm.Handle(
+            Opcodes.H_NEWINVOKESPECIAL,
+            dCNode.name,
+            nme.CONSTRUCTOR.toString,
+            dCtor.desc
+          )
+        }
+      // body of the bootstrap method
+      val bsm =
+        new asm.tree.MethodNode(
+          Opcodes.ASM4,
+          Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
+          "bootstrap$" + closuRepo.endpoint.get(dc).mnode.name,
+          invokeDynamicBoostrapArgless.getDescriptor,
+          null, null
+        )
+      bsm.visitTypeInsn(Opcodes.NEW, jliConstantCallSiteReference.getInternalName)
+      bsm.visitInsn(Opcodes.DUP)
+      bsm.visitLdcInsn(h)
+      bsm.visitMethodInsn(
+        asm.Opcodes.INVOKESPECIAL,
+        jliConstantCallSiteReference.getInternalName,
+        nme.CONSTRUCTOR.toString,
+        jliConstantCallSiteCtor.getDescriptor
+      )
+      bsm.visitInsn(Opcodes.ARETURN)
+      Util.computeMaxLocalsMaxStack(bsm)
+      cnode.methods.add(bsm)
+    }
+
+    /*
+     *  Replace the instruction that loads an instance of an anon-closure with an invokedynamic.
+     */
+    final def codeFixupDynClosures(cnode: ClassNode, cnodeBT: BType) {
+
+      // Step 1: add bootstrap methods, one per dclosure that cnode is responsible for
+      for(dc <- closuRepo.dclosures.get(cnodeBT); if !wasElided(dc)) {
+        addBoostrapMethod(cnode, cnodeBT, dc)
+      }
+
+      // Step 2: replace dclosure-instantiations and dclosure-singleton-reads
+
     }
 
   } // end of class EssentialCleanser
