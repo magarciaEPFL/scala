@@ -1178,7 +1178,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       bsm.visitInsn(Opcodes.ARETURN)
       Util.computeMaxLocalsMaxStack(bsm)
       cnode.methods.add(bsm)
-    }
+    } // end method method addBoostrapMethod()
 
     /*
      *  Replace the instruction that loads an instance of an anon-closure with an invokedynamic.
@@ -1190,9 +1190,52 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
         addBoostrapMethod(cnode, cnodeBT, dc)
       }
 
-      // Step 2: replace dclosure-instantiations and dclosure-singleton-reads
+          /*
+           * Instructions that signal an anon-closure-instance has been loaded onto the stack:
+           *   - calling <init> for a dclosure
+           *   - GETSTATIC of dclosure's singleton
+           */
+          def indifyableDClosureUsage(insn: AbstractInsnNode): BType = {
+            var id = closuRepo.getSingletonDClosure(insn)
+            if(id == BT_ZERO) {
+              insn match {
+                case mi: MethodInsnNode if mi.name == nme.CONSTRUCTOR.toString =>
+                  val b = lookupRefBType(mi.owner)
+                  if(closuRepo.isDelegatingClosure(b)) {
+                    id = b
+                  }
+                case _ => ()
+              }
+            }
 
-    }
+            id
+          }
+
+      // Step 2: replace dclosure-instantiations and dclosure-singleton-reads
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+        // using iterator so as to remove the most recent element
+        val iter = mnode.instructions.iterator()
+        while(iter.hasNext) {
+          val insn = iter.next()
+          var d = closuRepo.instantiatedDClosure(insn)
+          if(d != BT_ZERO) {
+            iter.remove()
+            val dup = iter.next()
+            assert(dup.getOpcode == Opcodes.DUP)
+            iter.remove()
+          }
+          else {
+            d = indifyableDClosureUsage(insn)
+            if(d != BT_ZERO) {
+              val ici = new IndyClosuInfo(d)
+              // todo
+            }
+          }
+
+        }
+      }
+
+    } // end method method codeFixupDynClosures()
 
   } // end of class EssentialCleanser
 

@@ -603,7 +603,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
     /*
      * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
      */
-    private def instantiatedDClosure(insn: AbstractInsnNode): BType = {
+    def instantiatedDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getOpcode == Opcodes.NEW) {
         val ti  = insn.asInstanceOf[TypeInsnNode]
         val dbt = lookupRefBType(ti.desc)
@@ -639,7 +639,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
     /*
      * Matches a "GETSTATIC singleton-dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
      */
-    private def getSingletonDClosure(insn: AbstractInsnNode): BType = {
+    def getSingletonDClosure(insn: AbstractInsnNode): BType = {
       if(insn.getOpcode == Opcodes.GETSTATIC) {
         val fi  = insn.asInstanceOf[FieldInsnNode]
         if(fi.name == nme.LCC_SINGLE_NAME.toString) {
@@ -657,7 +657,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
      * Matches a dclosure instantiation, singleton access, or endpoint invocation,
      * returning the dclosure's BType in that case. Otherwise null.
      */
-    private def accessedDClosure(insn: AbstractInsnNode): BType = {
+    def accessedDClosure(insn: AbstractInsnNode): BType = {
       var res = instantiatedDClosure(insn)
       if(res == BT_ZERO) {
         res = invokedDClosure(insn)
