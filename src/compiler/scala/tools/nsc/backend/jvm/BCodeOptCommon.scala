@@ -856,7 +856,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
     /* a pointer to the boostrap method */
     def bootstrapMH: asm.Handle = {
       new asm.Handle(
-        Opcodes.INVOKESTATIC,
+        Opcodes.H_INVOKESTATIC,
         masterBT.getInternalName,
         bootstrapName,
         bootstrapDesc

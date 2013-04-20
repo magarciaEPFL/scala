@@ -1186,8 +1186,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     final def codeFixupDynClosures(cnode: ClassNode, cnodeBT: BType) {
 
       // Step 1: add bootstrap methods, one per dclosure that cnode is responsible for
-      for(dc <- closuRepo.dclosures.get(cnodeBT); if !wasElided(dc)) {
-        addBoostrapMethod(cnode, cnodeBT, dc)
+      if(isMasterClass(cnodeBT)) {
+        for(dc <- closuRepo.dclosures.get(cnodeBT); if !wasElided(dc)) {
+          addBoostrapMethod(cnode, cnodeBT, dc)
+        }
       }
 
           /*
@@ -1229,7 +1231,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           d = indifyableDClosureUsage(insn)
           if(d != BT_ZERO) {
             val ici  = new IndyClosuInfo(d)
-            val indy = new asm.tree.InvokeDynamicInsnNode(null, ici.indyMT.getDescriptor, ici.bootstrapMH)
+            val indy = new asm.tree.InvokeDynamicInsnNode("dummy", ici.indyMT.getDescriptor, ici.bootstrapMH)
             stream.set(insn, indy)
           }
         }

@@ -209,7 +209,7 @@ abstract class GenBCode extends BCodeOptInter {
     class Worker1(needsOutFolder: Boolean) extends _root_.java.lang.Runnable {
 
       val isDebugRun            = settings.debug.value
-      val mustPopulateCodeRepo  = isIntraProgramOpt || isDebugRun
+      val mustPopulateCodeRepo  = isIntraProgramOpt || isDynClosuresOn || isDebugRun
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0

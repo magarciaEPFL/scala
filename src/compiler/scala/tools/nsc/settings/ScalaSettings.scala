@@ -207,7 +207,7 @@ trait ScalaSettings extends AbsScalaSettings
                                    "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
                                    List("traditional", "delegating", "dynamic"),
-                                   "delegating") // TODO once merged into trunk "traditional" should be the default
+                                   "dynamic") // TODO once merged into trunk "traditional" should be the default
 
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
@@ -285,5 +285,14 @@ trait ScalaSettings extends AbsScalaSettings
   def isClosureConvTraditional = (closureConv.value == "traditional") || !isBCodeActive
   def isClosureConvDelegating  = (closureConv.value == "delegating")  &&  isBCodeActive
   def isClosureConvDynamic     = (closureConv.value == "dynamic")     &&  isBCodeActive
+
+  def isTargetAtLeastJDK(level: Int): Boolean = {
+    assert(level >= 5)
+    target.value match {
+      case "jvm-1.5" => (5 >= level)
+      case "jvm-1.6" => (6 >= level)
+      case "jvm-1.7" => (7 >= level)
+    }
+  }
 
 }

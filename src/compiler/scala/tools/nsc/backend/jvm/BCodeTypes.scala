@@ -536,12 +536,12 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       jliMethodHandleReference     = regExemplar("java.lang.invoke.MethodHandle")
       jliMethodTypeReference       = regExemplar("java.lang.invoke.MethodType")
-      jliMHsLookupReference        = regExemplar("java.lang.invoke.MethodHandles.Lookup")
+      jliMHsLookupReference        = regExemplar("java.lang.invoke.MethodHandles$Lookup")
       jliCallSiteReference         = regExemplar("java.lang.invoke.CallSite")
       jliConstantCallSiteReference = regExemplar("java.lang.invoke.ConstantCallSite")
 
       jliConstantCallSiteCtor =
-        BT.getMethodType(jliConstantCallSiteReference, Array(jliMethodHandleReference)) // ctor of ConstantCallSite
+        BT.getMethodType(BT.VOID_TYPE, Array(jliMethodHandleReference)) // ctor of ConstantCallSite
 
       invokeDynamicBoostrapArgless =
         BT.getMethodType(jliCallSiteReference, Array(jliMHsLookupReference, StringReference, jliMethodTypeReference))

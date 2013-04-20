@@ -1390,7 +1390,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       }
     }
     private def checkConflictingSettings(unit: CompilationUnit) {
-      // TODO
+      if(settings.isClosureConvDynamic && !settings.isTargetAtLeastJDK(7)) {
+        unit.error(NoPosition, "Anon-closures that use JSR-292 require -target:jvm-1.7 or above.")
+      }
     } // end of method checkConflictingSettings()
 
     /* An iterator returning all the units being compiled in this run */
