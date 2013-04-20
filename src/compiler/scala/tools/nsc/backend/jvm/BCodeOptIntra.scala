@@ -1163,7 +1163,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           Opcodes.ASM4,
           Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
           ici.bootstrapName,
-          invokeDynamicBoostrapArgless.getDescriptor,
+          ici.bootstrapDesc,
           null, null
         )
       bsm.visitTypeInsn(Opcodes.NEW, jliConstantCallSiteReference.getInternalName)
@@ -1212,26 +1212,26 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           }
 
       // Step 2: replace dclosure-instantiations and dclosure-singleton-reads
-      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
-        // using iterator so as to remove the most recent element
-        val iter = mnode.instructions.iterator()
-        while(iter.hasNext) {
-          val insn = iter.next()
-          var d = closuRepo.instantiatedDClosure(insn)
+      for(
+        mnode <- cnode.toMethodList;
+        if Util.hasBytecodeInstructions(mnode);
+        stream = mnode.instructions;
+        insn  <- mnode.toList
+      ) {
+        var d = closuRepo.instantiatedDClosure(insn)
+        if(d != BT_ZERO) {
+          val dup = insn.getNext
+          assert(dup.getOpcode == Opcodes.DUP)
+          stream.remove(insn)
+          stream.remove(dup)
+        }
+        else {
+          d = indifyableDClosureUsage(insn)
           if(d != BT_ZERO) {
-            iter.remove()
-            val dup = iter.next()
-            assert(dup.getOpcode == Opcodes.DUP)
-            iter.remove()
+            val ici  = new IndyClosuInfo(d)
+            val indy = new asm.tree.InvokeDynamicInsnNode(null, ici.indyMT.getDescriptor, ici.bootstrapMH)
+            stream.set(insn, indy)
           }
-          else {
-            d = indifyableDClosureUsage(insn)
-            if(d != BT_ZERO) {
-              val ici = new IndyClosuInfo(d)
-              // todo
-            }
-          }
-
         }
       }
 

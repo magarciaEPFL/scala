@@ -809,7 +809,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
   } // end of object closuRepo
 
   /*
-   * Utility functions that simplify emitting invokedynamic and bootstrap methods
+   * Utilities that simplify emitting invokedynamic and bootstrap methods
    * that in turn generate anon-closure-classes at runtime.
    */
   class IndyClosuInfo(dc: BType) {
@@ -846,6 +846,30 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
     /* name of the boostrap method */
     def bootstrapName = { "bootstrap$" + closuRepo.endpoint.get(dc).mnode.name }
+
+    /* method descriptor of the boostrap method */
+    def bootstrapDesc = { invokeDynamicBoostrapArgless.getDescriptor }
+
+    /* the class that's responsible for the dclosure */
+    val masterBT = closuRepo.masterClass(dc)
+
+    /* a pointer to the boostrap method */
+    def bootstrapMH: asm.Handle = {
+      new asm.Handle(
+        Opcodes.INVOKESTATIC,
+        masterBT.getInternalName,
+        bootstrapName,
+        bootstrapDesc
+      )
+    }
+
+    /* the MethodType argument (represented as BType of method-type variety)
+     * that the invokedynamic instruction requires. The argument in question
+     * describes what the dynamic callsite consumes and produces. */
+    def indyMT: BType = {
+      val argTs = BT.getMethodType(dCtor.desc).getArgumentTypes
+      BT.getMethodType(dc, argTs)
+    }
 
   }
 
