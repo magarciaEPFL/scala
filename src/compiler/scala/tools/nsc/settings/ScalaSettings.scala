@@ -206,7 +206,7 @@ trait ScalaSettings extends AbsScalaSettings
                                    List("GenASM", "GenBCode", "o1", "o2", "o3"),
                                    "GenBCode") // TODO once merged into trunk "GenASM" should be the default
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
-                                   List("traditional", "delegating"),
+                                   List("traditional", "delegating", "dynamic"),
                                    "delegating") // TODO once merged into trunk "traditional" should be the default
 
   // Feature extensions
@@ -272,14 +272,18 @@ trait ScalaSettings extends AbsScalaSettings
    *                           thus lowering the working set during compilation.
    *                           Allows closure-related optimizations (actually all optimization levels are supported).
    *
-   *    case "MH" => A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
-   *                 is given as constructor-argument to a *standard* closure-class
-   *                 (thus doing away with the need for as many individual classes as closure definitions).
-   *                 Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode.
+   *    case "dynamic" => A JSR 292 invokedynamic appears where an anon-closure-instantiation used to.
+   *                      The arguments at that callsite (that used to be consumed by the anon-closure's <init>)
+   *                      are now consumed by a ConstantCallsite returned by that invokedynamic,
+   *                      a ConstantCallsite whose target MethodHandle points to either:
+   *                        - the anon-closure-class' <init>       , for a non-singletonized delegating-closure
+   *                        - the anon-closure-class' single$ field, for a     singletonized delegating-closure
+   *                      If this option is chosen for -closurify, all optimization levels are allowed,
+   *                      but -target is restricted to be jvm-1.7 or higher, and the backend must be GenBCode.
    *
    */
   def isClosureConvTraditional = (closureConv.value == "traditional") || !isBCodeActive
   def isClosureConvDelegating  = (closureConv.value == "delegating")  &&  isBCodeActive
-  def isClosureConvMH          = (closureConv.value == "MH")          &&  isBCodeActive
+  def isClosureConvDynamic     = (closureConv.value == "dynamic")     &&  isBCodeActive
 
 }

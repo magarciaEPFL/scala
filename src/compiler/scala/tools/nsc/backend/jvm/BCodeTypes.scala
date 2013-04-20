@@ -33,7 +33,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     new BType(hiPart | loPart)
   }
 
-  val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
+  val isDynClosuresOn  = settings.isClosureConvDynamic
+  val isLateClosuresOn = (settings.isClosureConvDelegating || isDynClosuresOn)
 
   def isCustomValueClass(csym: Symbol): Boolean = enteringErasure(csym.isDerivedValueClass)
 
@@ -398,14 +399,22 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val AnyRefReference   = ObjectReference
   val objArrayReference = arrayOf(ObjectReference)
   // special names
-  var StringReference          : BType = BT_ZERO
-  var ThrowableReference       : BType = BT_ZERO
-  var jlCloneableReference     : BType = BT_ZERO // java/lang/Cloneable
-  var jlNPEReference           : BType = BT_ZERO // java/lang/NullPointerException
-  var jioSerializableReference : BType = BT_ZERO // java/io/Serializable
-  var scalaSerializableReference  : BType = BT_ZERO // scala/Serializable
-  var classCastExceptionReference : BType = BT_ZERO // java/lang/ClassCastException
+  var StringReference              : BType = BT_ZERO // java/lang/String
+  var ThrowableReference           : BType = BT_ZERO // java/lang/Throwable
+  var jlCloneableReference         : BType = BT_ZERO // java/lang/Cloneable
+  var jlNPEReference               : BType = BT_ZERO // java/lang/NullPointerException
+  var jioSerializableReference     : BType = BT_ZERO // java/io/Serializable
+  var scalaSerializableReference   : BType = BT_ZERO // scala/Serializable
+  var classCastExceptionReference  : BType = BT_ZERO // java/lang/ClassCastException
   val StringBuilderClassName   = "scala/collection/mutable/StringBuilder"
+
+  var jliMethodHandleReference     : BType = BT_ZERO // java/lang/invoke/MethodHandle
+  var jliMethodTypeReference       : BType = BT_ZERO // java/lang/invoke/MethodType
+  var jliMHsLookupReference        : BType = BT_ZERO // java/lang/invoke/MethodHandles.Lookup
+  var jliCallSiteReference         : BType = BT_ZERO // java/lang/invoke/CallSite
+  var jliConstantCallSiteReference : BType = BT_ZERO // java/lang/invoke/ConstantCallSite
+  var jliConstantCallSiteCtor      : BType = BT_ZERO // method type of the public ctor of java/lang/invoke/ConstantCallSite
+  var invokeDynamicBoostrapArgless : BType = BT_ZERO // method type of a boostrap method taking no user-provided args
 
   var lateClosureInterfaces: Array[Tracked] = null // the only interface a Late-Closure-Class implements is scala.Serializable
 
@@ -520,6 +529,23 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     jioSerializableReference    = exemplar(JavaSerializableClass).c
     scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
+
+    if(settings.isClosureConvDynamic) {
+
+          def regExemplar(iname: String): BType = { exemplar(rootMirror.getClassByName(global.newTypeName(iname))).c }
+
+      jliMethodHandleReference     = regExemplar("java.lang.invoke.MethodHandle")
+      jliMethodTypeReference       = regExemplar("java.lang.invoke.MethodType")
+      jliMHsLookupReference        = regExemplar("java.lang.invoke.MethodHandles.Lookup")
+      jliCallSiteReference         = regExemplar("java.lang.invoke.CallSite")
+      jliConstantCallSiteReference = regExemplar("java.lang.invoke.ConstantCallSite")
+
+      jliConstantCallSiteCtor =
+        BT.getMethodType(jliConstantCallSiteReference, Array(jliMethodHandleReference)) // ctor of ConstantCallSite
+
+      invokeDynamicBoostrapArgless =
+        BT.getMethodType(jliCallSiteReference, Array(jliMHsLookupReference, StringReference, jliMethodTypeReference))
+    }
 
     lateClosureInterfaces = Array(exemplar(SerializableClass))
 
