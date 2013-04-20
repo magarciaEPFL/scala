@@ -1487,7 +1487,10 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           case ti: TypeInsnNode   => visitInternalName(ti.desc) // an intenal name, actually
           case fi: FieldInsnNode  => visitInternalName(fi.owner); visitDescr(fi.desc)
           case mi: MethodInsnNode => visitInternalName(mi.owner); visitDescr(mi.desc)
-          case ivd: InvokeDynamicInsnNode => () // TODO
+          case ivd: InvokeDynamicInsnNode =>
+            visitDescr(ivd.desc)
+            visitInternalName(ivd.bsm.getOwner)
+            visitDescr(ivd.bsm.getDesc)
           case ci: LdcInsnNode    =>
             ci.cst match {
               case t: asm.Type => visitDescr(t.getDescriptor)
