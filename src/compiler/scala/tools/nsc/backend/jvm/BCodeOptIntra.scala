@@ -1144,43 +1144,31 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
       }
     }
 
+    /*
+     * Adds a bootstrap method for the dclosure `dc`.
+     * That bootstrap returns a j.l.i.ConstantCallsite which upon invocation loads an instance of `dc` onto the operand stack.
+     *
+     * The bootstrap contains:
+     *   NEW java/lang/invoke/ConstantCallSite
+     *   DUP
+     *   LDC constant-MH denoting either the dclosure ctor, or the dclosure singleton
+     *   INVOKESPECIAL <init>
+     *   ARETURN
+     */
     private def addBoostrapMethod(cnode: ClassNode, cnodeBT: BType, dc: BType) {
-      // MethodHandle to dc's constructor or single$ field
-      val dCNode = codeRepo.classes.get(dc)
-      val dCtors = (dCNode.toMethodList.filter(mn => mn.name == nme.CONSTRUCTOR.toString))
-      assert(dCtors.nonEmpty && dCtors.tail.isEmpty)
-      val dCtor  = dCtors.head
-      val isSingletonized = Util.isPrivateMethod(dCtor)
-      // MethodHandle pointing to the closure's constructor or singleton-field
-      val h =
-        if(isSingletonized) {
-          new asm.Handle(
-            Opcodes.H_INVOKESTATIC,
-            dCNode.name,
-            nme.LCC_SINGLE_NAME.toString,
-            cnodeBT.getDescriptor
-          )
-        }
-        else {
-          new asm.Handle(
-            Opcodes.H_NEWINVOKESPECIAL,
-            dCNode.name,
-            nme.CONSTRUCTOR.toString,
-            dCtor.desc
-          )
-        }
-      // body of the bootstrap method
+      val ici = new IndyClosuInfo(dc)
+      // bootstrap method
       val bsm =
         new asm.tree.MethodNode(
           Opcodes.ASM4,
           Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
-          "bootstrap$" + closuRepo.endpoint.get(dc).mnode.name,
+          ici.bootstrapName,
           invokeDynamicBoostrapArgless.getDescriptor,
           null, null
         )
       bsm.visitTypeInsn(Opcodes.NEW, jliConstantCallSiteReference.getInternalName)
       bsm.visitInsn(Opcodes.DUP)
-      bsm.visitLdcInsn(h)
+      bsm.visitLdcInsn(ici.stackLoaderMH)
       bsm.visitMethodInsn(
         asm.Opcodes.INVOKESPECIAL,
         jliConstantCallSiteReference.getInternalName,

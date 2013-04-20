@@ -808,6 +808,47 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
   } // end of object closuRepo
 
+  /*
+   * Utility functions that simplify emitting invokedynamic and bootstrap methods
+   * that in turn generate anon-closure-classes at runtime.
+   */
+  class IndyClosuInfo(dc: BType) {
+
+    private val dCNode : ClassNode  = codeRepo.classes.get(dc)
+
+    private val dCtor  : MethodNode = {
+      val dCtors = (dCNode.toMethodList.filter(mn => mn.name == nme.CONSTRUCTOR.toString))
+      assert(dCtors.nonEmpty && dCtors.tail.isEmpty)
+      dCtors.head
+    }
+
+    private val isSingletonized = Util.isPrivateMethod(dCtor)
+
+    /* MethodHandle denoting the LCC's constructor or singleton-field */
+    val stackLoaderMH = {
+      if(isSingletonized) {
+        new asm.Handle(
+          Opcodes.H_GETSTATIC,
+          dCNode.name,
+          nme.LCC_SINGLE_NAME.toString,
+          dc.getDescriptor
+        )
+      }
+      else {
+        new asm.Handle(
+          Opcodes.H_NEWINVOKESPECIAL,
+          dCNode.name,
+          nme.CONSTRUCTOR.toString,
+          dCtor.desc
+        )
+      }
+    }
+
+    /* name of the boostrap method */
+    def bootstrapName = { "bootstrap$" + closuRepo.endpoint.get(dc).mnode.name }
+
+  }
+
   //---------------------------------------------------------------------------
   // Optimization pack: closures (located here due to proximity with closuRepo)
   //---------------------------------------------------------------------------
