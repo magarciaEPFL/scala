@@ -824,8 +824,8 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
     private val isSingletonized = Util.isPrivateMethod(dCtor)
 
-    /* MethodHandle denoting the LCC's constructor or singleton-field */
-    val stackLoaderMH = {
+    /* Constant MethodHandle denoting the LCC's constructor or singleton-field */
+    val lambdaLoader: asm.Handle = {
       if(isSingletonized) {
         new asm.Handle(
           Opcodes.H_GETSTATIC,
@@ -842,25 +842,6 @@ abstract class BCodeOptCommon extends BCodeTypes {
           dCtor.desc
         )
       }
-    }
-
-    /* name of the boostrap method */
-    def bootstrapName = { "bootstrap$" + closuRepo.endpoint.get(dc).mnode.name }
-
-    /* method descriptor of the boostrap method */
-    def bootstrapDesc = { invokeDynamicBoostrapArgless.getDescriptor }
-
-    /* the class that's responsible for the dclosure */
-    val masterBT = closuRepo.masterClass(dc)
-
-    /* a pointer to the boostrap method */
-    def bootstrapMH: asm.Handle = {
-      new asm.Handle(
-        Opcodes.H_INVOKESTATIC,
-        masterBT.getInternalName,
-        bootstrapName,
-        bootstrapDesc
-      )
     }
 
     /* the MethodType argument (represented as BType of method-type variety)

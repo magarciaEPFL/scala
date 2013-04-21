@@ -1145,52 +1145,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
     }
 
     /*
-     * Adds a bootstrap method for the dclosure `dc`.
-     * That bootstrap returns a j.l.i.ConstantCallsite which upon invocation loads an instance of `dc` onto the operand stack.
-     *
-     * The bootstrap contains:
-     *   NEW java/lang/invoke/ConstantCallSite
-     *   DUP
-     *   LDC constant-MH denoting either the dclosure ctor, or the dclosure singleton
-     *   INVOKESPECIAL <init>
-     *   ARETURN
-     */
-    private def addBoostrapMethod(cnode: ClassNode, cnodeBT: BType, dc: BType) {
-      val ici = new IndyClosuInfo(dc)
-      // bootstrap method
-      val bsm =
-        new asm.tree.MethodNode(
-          Opcodes.ASM4,
-          Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
-          ici.bootstrapName,
-          ici.bootstrapDesc,
-          null, null
-        )
-      bsm.visitTypeInsn(Opcodes.NEW, jliConstantCallSiteReference.getInternalName)
-      bsm.visitInsn(Opcodes.DUP)
-      bsm.visitLdcInsn(ici.stackLoaderMH)
-      bsm.visitMethodInsn(
-        asm.Opcodes.INVOKESPECIAL,
-        jliConstantCallSiteReference.getInternalName,
-        nme.CONSTRUCTOR.toString,
-        jliConstantCallSiteCtor.getDescriptor
-      )
-      bsm.visitInsn(Opcodes.ARETURN)
-      Util.computeMaxLocalsMaxStack(bsm)
-      cnode.methods.add(bsm)
-    } // end method method addBoostrapMethod()
-
-    /*
      *  Replace the instruction that loads an instance of an anon-closure with an invokedynamic.
      */
     final def codeFixupDynClosures(cnode: ClassNode, cnodeBT: BType) {
-
-      // Step 1: add bootstrap methods, one per dclosure that cnode is responsible for
-      if(isMasterClass(cnodeBT)) {
-        for(dc <- closuRepo.dclosures.get(cnodeBT); if !wasElided(dc)) {
-          addBoostrapMethod(cnode, cnodeBT, dc)
-        }
-      }
 
           /*
            * Instructions that signal an anon-closure-instance has been loaded onto the stack:
@@ -1213,7 +1170,7 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             id
           }
 
-      // Step 2: replace dclosure-instantiations and dclosure-singleton-reads
+      // replace dclosure-instantiations and dclosure-singleton-reads
       for(
         mnode <- cnode.toMethodList;
         if Util.hasBytecodeInstructions(mnode);
@@ -1231,7 +1188,24 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
           d = indifyableDClosureUsage(insn)
           if(d != BT_ZERO) {
             val ici  = new IndyClosuInfo(d)
-            val indy = new asm.tree.InvokeDynamicInsnNode("dummy", ici.indyMT.getDescriptor, ici.bootstrapMH)
+
+            /* a pointer to the boostrap method in scala.runtime.IndyUtil */
+            val bootstrapMH: asm.Handle =
+              new asm.Handle(
+                Opcodes.H_INVOKESTATIC,
+                indyUtilReference.getInternalName,
+                "bootstrapLCC",
+                indyUtilBoostrapMT.getDescriptor
+              )
+
+            val indy =
+              new asm.tree.InvokeDynamicInsnNode(
+                "dummy",
+                ici.indyMT.getDescriptor,
+                bootstrapMH,
+                ici.lambdaLoader
+              )
+
             stream.set(insn, indy)
           }
         }
