@@ -866,9 +866,12 @@ abstract class BCodeOptCommon extends BCodeTypes {
     /* the MethodType argument (represented as BType of method-type variety)
      * that the invokedynamic instruction requires. The argument in question
      * describes what the dynamic callsite consumes and produces. */
-    def indyMT: BType = {
-      val argTs = BT.getMethodType(dCtor.desc).getArgumentTypes
-      BT.getMethodType(dc, argTs)
+    def indyMT: asm.Type = {
+      // TODO can be turned into BType in a way Worker2 can call this method (multi-thread)
+      val argTs   = asm.Type.getMethodType(dCtor.desc).getArgumentTypes
+      val aDescrs = argTs map { argT => argT.getDescriptor }
+      val descr   = aDescrs.mkString("(", "", ")") + dc.toASMType.getDescriptor
+      asm.Type.getMethodType(descr)
     }
 
   }

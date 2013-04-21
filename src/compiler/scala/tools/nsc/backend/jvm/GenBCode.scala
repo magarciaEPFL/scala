@@ -437,12 +437,12 @@ abstract class GenBCode extends BCodeOptInter {
           fixer.asInstanceOf[BCodeCleanser].cleanseClass()
         }
 
-        if(isDynClosuresOn) {
-          fixer.codeFixupDynClosures(cnode, cnodeBT)
-        }
-
         refreshInnerClasses(cnode)
         item.lateClosures foreach refreshInnerClasses
+
+        if(isDynClosuresOn) { // TODO run this right before refreshInnerClasses, after TODO for jliMHsLookupReference
+          fixer.codeFixupDynClosures(cnode, cnodeBT)
+        }
 
         addToQ3(item)
 

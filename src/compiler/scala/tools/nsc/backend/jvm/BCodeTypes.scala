@@ -532,11 +532,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     if(settings.isClosureConvDynamic) {
 
-          def regExemplar(iname: String): BType = { exemplar(rootMirror.getClassByName(global.newTypeName(iname))).c }
+          def regExemplar(iname: String): BType = { exemplar(rootMirror.getRequiredClass(iname)).c }
 
       jliMethodHandleReference     = regExemplar("java.lang.invoke.MethodHandle")
       jliMethodTypeReference       = regExemplar("java.lang.invoke.MethodType")
-      jliMHsLookupReference        = regExemplar("java.lang.invoke.MethodHandles$Lookup")
+      jliMHsLookupReference        = brefType("java/lang/invoke/MethodHandles$Lookup") // TODO SI-7378 , SI-7072
       jliCallSiteReference         = regExemplar("java.lang.invoke.CallSite")
       jliConstantCallSiteReference = regExemplar("java.lang.invoke.ConstantCallSite")
 
