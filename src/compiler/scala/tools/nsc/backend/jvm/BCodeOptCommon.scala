@@ -814,6 +814,8 @@ abstract class BCodeOptCommon extends BCodeTypes {
    */
   class IndyClosuInfo(dc: BType) {
 
+    private val superClass = exemplars.get(dc).sc.c
+
     private val dCNode : ClassNode  = codeRepo.classes.get(dc)
 
     private val dCtor  : MethodNode = {
@@ -822,36 +824,18 @@ abstract class BCodeOptCommon extends BCodeTypes {
       dCtors.head
     }
 
-    private val isSingletonized = Util.isPrivateMethod(dCtor)
+    val isSingletonized = Util.isPrivateMethod(dCtor)
 
-    /* Constant MethodHandle denoting the LCC's constructor or singleton-field */
-    val lambdaLoader: asm.Handle = {
-      if(isSingletonized) {
-        new asm.Handle(
-          Opcodes.H_GETSTATIC,
-          dCNode.name,
-          nme.LCC_SINGLE_NAME.toString,
-          dc.getDescriptor
-        )
-      }
-      else {
-        new asm.Handle(
-          Opcodes.H_NEWINVOKESPECIAL,
-          dCNode.name,
-          nme.CONSTRUCTOR.toString,
-          dCtor.desc
-        )
-      }
-    }
-
-    /* the MethodType argument (represented as BType of method-type variety)
+    /* the MethodType argument (represented as asm.Type of method-type variety)
      * that the invokedynamic instruction requires. The argument in question
      * describes what the dynamic callsite consumes and produces. */
     def indyMT: asm.Type = {
       // TODO can be turned into BType in a way Worker2 can call this method (multi-thread)
       val argTs   = asm.Type.getMethodType(dCtor.desc).getArgumentTypes
       val aDescrs = argTs map { argT => argT.getDescriptor }
-      val descr   = aDescrs.mkString("(", "", ")") + dc.toASMType.getDescriptor
+      // actually descr below would be more by stating dc as return type
+      // but when dc is emitted at runtime, now may be still too early to mention it.
+      val descr   = aDescrs.mkString("(", "", ")") + superClass.getDescriptor
       asm.Type.getMethodType(descr)
     }
 

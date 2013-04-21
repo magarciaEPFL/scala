@@ -1170,6 +1170,14 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
             id
           }
 
+          def serializeToString(cn: asm.tree.ClassNode): String = {
+            val cw = new CClassWriter(extraProc)
+            cn.accept(cw)
+            val bytes = cw.toByteArray
+            javax.xml.bind.DatatypeConverter.printHexBinary(bytes) // to be converted back via parseHexBinary()
+          }
+
+
       // replace dclosure-instantiations and dclosure-singleton-reads
       for(
         mnode <- cnode.toMethodList;
@@ -1203,7 +1211,9 @@ abstract class BCodeOptIntra extends BCodeOptCommon {
                 "dummy",
                 ici.indyMT.getDescriptor,
                 bootstrapMH,
-                ici.lambdaLoader
+                serializeToString(codeRepo.classes.get(d)),
+                if(ici.isSingletonized) null else "",
+                cnodeBT.toASMType
               )
 
             stream.set(insn, indy)

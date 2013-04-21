@@ -479,7 +479,9 @@ abstract class GenBCode extends BCodeOptInter {
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
-          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
+          val skipLCC = { isDynClosuresOn || wasElided(lateC.name) }
+          val s3 = if(skipLCC) null else SubItem3(lateC.name, getByteArray(lateC))
+          q3 put Item3(arrivalPos + lateClosuresCount, null, s3, null, outFolder)
         }
 
       }

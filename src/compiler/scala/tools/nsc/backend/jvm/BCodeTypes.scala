@@ -417,6 +417,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   var invokeDynamicBoostrapArgless : BType = BT_ZERO // method type of a boostrap method taking no user-provided args
 
   var indyUtilReference            : BType = BT_ZERO // scala/runtime/IndyUtil
+  var jlClassReference             : BType = BT_ZERO // java/lang/Class
   var indyUtilBoostrapMT           : BType = BT_ZERO // method type of scala.runtime.IndyUtil.boostrapLCC
 
   var lateClosureInterfaces: Array[Tracked] = null // the only interface a Late-Closure-Class implements is scala.Serializable
@@ -551,6 +552,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       indyUtilReference = regExemplar("scala.runtime.IndyUtil")
 
+      jlClassReference  = regExemplar("java.lang.Class")
+
       indyUtilBoostrapMT =
         BT.getMethodType(
           jliCallSiteReference,
@@ -558,7 +561,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
             jliMHsLookupReference,
             StringReference,
             jliMethodTypeReference,
-            jliMethodHandleReference
+            StringReference,
+            StringReference,
+            jlClassReference
           )
         )
     }

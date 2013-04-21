@@ -27,9 +27,24 @@ public class IndyUtil {
         final java.lang.invoke.MethodHandles.Lookup lookup,
         final java.lang.String                      name,
         final java.lang.invoke.MethodType           type,
-        final java.lang.invoke.MethodHandle         lambdaLoader
-    ) {
-      return new java.lang.invoke.ConstantCallSite(lambdaLoader);
+        final String                                serializedLCC,
+        final String                                isSingletonized,
+        final Class                                 hostClass
+    ) throws NoSuchFieldException, NoSuchMethodException, IllegalAccessException, SecurityException
+    {
+        final byte[] bytes = javax.xml.bind.DatatypeConverter.parseHexBinary(serializedLCC);
+        final Class<?> clazz = (new DynamicLoader(hostClass)).loadFromBytes(bytes);
+        java.lang.invoke.MethodHandle lambdaLoader = null;
+        if(isSingletonized == null) {
+            lambdaLoader = lookup.findStaticGetter(clazz, "$single", clazz);
+        }
+        else {
+            final java.lang.reflect.Constructor ctor = clazz.getDeclaredConstructors()[0];
+            lambdaLoader = lookup.unreflectConstructor(ctor);
+        }
+        java.lang.invoke.MethodHandle upcasted =
+                lambdaLoader.asType(lambdaLoader.type().changeReturnType(clazz.getSuperclass()));
+        return new java.lang.invoke.ConstantCallSite(upcasted);
     }
 
 }
