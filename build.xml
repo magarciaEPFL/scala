@@ -767,8 +767,8 @@ TODO:
           classpath="${@{project}-classes}"
           debug="true" debuglevel="lines,vars,source"
           includes="**/*.java"
-          target="1.6" source="1.5"
-          compiler="javac1.6">
+          target="1.7" source="1.7"
+          compiler="javac1.7">
             <compilerarg line="${javac.args} @{args}"/>
         </javac>
         <if><equals arg1="@{jar}" arg2="yes"/><then>
@@ -797,9 +797,10 @@ TODO:
       <javac
         srcdir="${src.dir}/@{project}"
         destdir="${build-@{stage}.dir}/classes/@{destproject}"
+        debug="true" debuglevel="lines,vars,source"
         includes="**/*.java"
         excludes="@{excludes}"
-        target="1.6" source="1.5">
+        target="1.7" source="1.7">
           <compilerarg line="${javac.args} @{args}"/>
           <classpath refid="@{stage}.@{destproject}.build.path"/>
       </javac>

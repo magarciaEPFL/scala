@@ -33,7 +33,12 @@ public class IndyUtil {
     ) throws NoSuchFieldException, NoSuchMethodException, IllegalAccessException, SecurityException
     {
         final byte[] bytes = javax.xml.bind.DatatypeConverter.parseHexBinary(serializedLCC);
-        final Class<?> clazz = (new DynamicLoader(hostClass)).loadFromBytes(bytes);
+        Class<?> clazz = null;
+        try {
+            clazz = (new DynamicLoader(hostClass)).loadFromBytes(bytes);
+        } catch(Error err) {
+            throw err;
+        }
         java.lang.invoke.MethodHandle lambdaLoader = null;
         if(isSingletonized == null) {
             lambdaLoader = lookup.findStaticGetter(clazz, "$single", clazz);
