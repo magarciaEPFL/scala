@@ -25,6 +25,46 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
 
+  def isCustomValueClass(csym: Symbol): Boolean = enteringErasure(csym.isDerivedValueClass)
+
+  /*
+   * The set `knownModClassStatification` contains
+   * those module-classes of static-modules as well as those module-classes of custom-value-classes
+   * that fulfill the conditions for `statification` checked by `isStatifiableModuleClass()`
+   *
+   * The module-class of a custom-value-class may have a side-effecting class-initializer, as the following examples show.
+   *
+   * Example 1:
+   *     class A { println("A") }
+   *     object B extends A { }
+   *     class B(val underlying: Int) extends AnyVal { }
+   *
+   * Example 2:
+   *     object C {
+   *       val singleton1 = ...
+   *     }
+   *     class C(val underlying: Int) extends AnyVal { }
+   *
+   */
+  val knownModClassStatification = mutable.Set.empty[BType]
+
+  /*
+   * "Statification" is a GenBCode-level transform that turns into static the members of those module classes
+   * that fulfill the conditions checked in `isStatifiableModuleClass()` EXCEPT those members overriding methods in the Object API.
+   * Usage sites are also adapted.
+   */
+  def shouldStatifyClass(bt: BType): Boolean = { knownModClassStatification(bt) }
+
+  def shouldStatifyClass(csym: Symbol): Boolean = {
+    shouldStatifyClass(exemplar(csym).c)
+  }
+
+  def shouldStatifyMethod(msym: Symbol, owner: BType, methodName: String): Boolean = {
+    (methodName != nme.CONSTRUCTOR.toString) &&
+    shouldStatifyClass(owner) &&
+    (msym.overriddenSymbol(definitions.ObjectClass) == NoSymbol)
+  }
+
   object BT {
 
     import global.chrs
@@ -965,6 +1005,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
+    knownModClassStatification.clear()
     clearBCodeOpt()
   }
 
@@ -1293,15 +1334,20 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   /*
    * must-single-thread
+   *
+   * @param csym denotes either a "plain class" or a "module class", see `exemplar()`
+   * @param key  the BType for csym's javaBinaryName
    */
   private def buildExemplar(key: BType, csym: Symbol): Tracked = {
+    val isImplClass = csym.isImplClass
     val sc =
-     if(csym.isImplClass) definitions.ObjectClass
+     if(isImplClass) definitions.ObjectClass
      else csym.superClass
+    val isInterface = csym.isInterface
     assert(
       if(csym == definitions.ObjectClass)
         sc == NoSymbol
-      else if(csym.isInterface)
+      else if(isInterface)
         sc == definitions.ObjectClass
       else
         ((sc != NoSymbol) && !sc.isInterface) || isCompilingStdLib,
@@ -1325,7 +1371,112 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     val innersChain = saveInnerClassesFor(csym, key)
 
+    if(!isImplClass && !isInterface) {
+      // collect info needed later about custom value classes
+      if(csym.isModuleClass) {
+        trackModuleClass(csym, key)
+      } else if(isCustomValueClass(csym)) {
+        val mcBT = brefType(key.getInternalName + "$")
+        val modCSym = enteringErasure{ csym.linkedClassOfClass }
+        trackCustomValueClass(csym, modCSym, mcBT)
+        // notice we're not adding exemplar for the module-class --- someone else will do that
+      }
+    }
+
     Tracked(key, flags, tsc, ifacesArr, innersChain)
+  }
+
+  /*
+   * Track the module class of a custom value class that fulfills the criteria for "statification".
+   */
+  private def trackCustomValueClass(plainClass: Symbol, modClass: Symbol, modClassBT: BType) {
+
+    assert(modClass != NoSymbol)
+
+    if(knownModClassStatification(modClassBT)) { return }
+
+    val isAnnotated = (modClass hasAnnotation definitions.EnforceStaticClass) || (
+      (plainClass != NoSymbol) && (plainClass hasAnnotation definitions.EnforceStaticClass)
+    )
+
+    if(!isAnnotated || !isStatifiableModuleClass(modClass)) { return }
+    knownModClassStatification += modClassBT
+
+    // // collect syms of extension methods
+    // val extMSyms = enteringErasure {
+    //   plainClass.info.members.collect{ case m if m.isMethodWithExtension => extensionMethods.extensionMethod(m) }
+    // }
+
+  }
+
+  /*
+   * Track the module-classes of static-modules that fulfill the criteria for "statification".
+   */
+  private def trackModuleClass(modClass: Symbol, modClassBT: BType) {
+
+        def isEnforceStatic(s: Symbol) = {
+          s hasAnnotation definitions.EnforceStaticClass
+        }
+
+    if(knownModClassStatification(modClassBT)) { return }
+    val isAnnotated = {
+      isEnforceStatic(modClass) || {
+        val plain = modClass.linkedClassOfClass
+        (plain != NoSymbol) && isEnforceStatic(plain)
+      }
+    }
+    if(!isAnnotated || !isStatifiableModuleClass(modClass)) { return }
+    knownModClassStatification += modClassBT
+  }
+
+  /*
+   * @return true iff all of the conditions below hold:
+   *   (1) modClass is a static module
+   *   (2) modClass is direct subclass of AnyRef
+   *   (3) modClass doesn't extend any non-marker interfaces (thus, the members of the mod-class can be made static).
+   *
+   * Please notice the invoker has to test for the presence of @enforceStatic.
+   *
+   *  must-single-thread
+   *
+   */
+  private def isStatifiableModuleClass(modClass: Symbol): Boolean = {
+    val msg = impedimentsToStatifiabilityOfModuleClass(modClass)
+    if(msg == null) true
+    else { log(msg); false }
+  }
+
+  /*
+   * @return null iff the modClass is statifiable (please notice no check for @enforceStatic is performed here).
+   *                  Otherwise returns a String listing restrictions not fulfilled by modClass and that prevent statifiability.
+   */
+  def impedimentsToStatifiabilityOfModuleClass(modClass: Symbol): String = {
+    assert(modClass != NoSymbol)
+
+    var result: List[String] = Nil
+
+    if(modClass.isJavaDefined)    { result ::= "is a Java-defined class" }
+    if(!isStaticModule(modClass)) { result ::= "isn't a static module (ie has an outer-instance" }
+
+    val scSym = modClass.superClass
+    if(scSym != definitions.ObjectClass && scSym != NoSymbol) {
+      result ::= s"has a superClass other than AnyRef: ${scSym.fullName}"
+    }
+
+        def isMarkerInterface(isym: Symbol): Boolean = {
+          isym.info.declarations.isEmpty &&
+          (isym.mixinClasses forall isMarkerInterface)
+        }
+
+    val nonMarkerIfaces = modClass.mixinClasses filter { iface => !isMarkerInterface(iface) }
+    if(!nonMarkerIfaces.isEmpty) {
+      result ::= s"extends non-marker interfaces ${prettyPrintFullnames(nonMarkerIfaces)}"
+    }
+
+    if(result.isEmpty) null
+    else {
+      s"Won't statify the static module class of ${modClass.fullName} because it " + result.mkString(". Moreover, it ")
+    }
   }
 
   // ---------------- utilities around interfaces represented by Tracked instances. ----------------
