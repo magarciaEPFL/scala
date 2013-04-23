@@ -3585,7 +3585,13 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       mirrorMethod.visitCode()
 
-      mirrorMethod.visitFieldInsn(asm.Opcodes.GETSTATIC, moduleName, strMODULE_INSTANCE_FIELD, descriptor(module))
+      val isTargetStatified = !m.isStaticMember && {
+        val modBT = brefType(moduleName)
+        shouldStatifyMethod(m, modBT, mirrorMethodName)
+      }
+      if(!isTargetStatified) {
+        mirrorMethod.visitFieldInsn(asm.Opcodes.GETSTATIC, moduleName, strMODULE_INSTANCE_FIELD, descriptor(module))
+      }
 
       var index = 0
       for(jparamType <- paramJavaTypes) {
@@ -3594,7 +3600,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         index += jparamType.getSize
       }
 
-      mirrorMethod.visitMethodInsn(asm.Opcodes.INVOKEVIRTUAL, moduleName, mirrorMethodName, asmMethodType(m).getDescriptor)
+      val opc = if(isTargetStatified) asm.Opcodes.INVOKESTATIC else asm.Opcodes.INVOKEVIRTUAL
+      mirrorMethod.visitMethodInsn(opc, moduleName, mirrorMethodName, asmMethodType(m).getDescriptor)
       mirrorMethod.visitInsn(jReturnType.getOpcode(asm.Opcodes.IRETURN))
 
       mirrorMethod.visitMaxs(0, 0) // just to follow protocol, dummy arguments
