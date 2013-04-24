@@ -94,7 +94,7 @@ public class LabelsCleanup {
             AbstractInsnNode insnNode = insnIter.next();
             if(insnNode instanceof LineNumberNode) {
                 if(isPointless((LineNumberNode)insnNode)) {
-                    insns.remove(insnNode);
+                    insnIter.remove();
                     changed = true;
                 }
             }
@@ -112,7 +112,7 @@ public class LabelsCleanup {
         while (insnIter.hasNext()) {
             AbstractInsnNode insnNode = insnIter.next();
             if(insnNode.getType() == AbstractInsnNode.LABEL && canRemove(insnNode)) {
-                insns.remove(insnNode);
+                insnIter.remove();
                 changed = true;
             }
         }

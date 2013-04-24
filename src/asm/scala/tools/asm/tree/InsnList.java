@@ -244,6 +244,9 @@ public class InsnList {
      *            {@link InsnList}</i>.
      */
     public void add(final AbstractInsnNode insn) {
+        if(insn.prev != null || insn.next != null) {
+            throw new RuntimeException("Instruction " + insn + " already belongs to some InsnList.");
+        }
         ++size;
         if (last == null) {
             first = insn;
