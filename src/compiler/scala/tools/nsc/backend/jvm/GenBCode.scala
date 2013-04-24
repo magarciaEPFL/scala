@@ -1748,7 +1748,7 @@ abstract class GenBCode extends BCodeOptInter {
        *
        *        First, the value to return (if any) is evaluated.
        *        Afterwards, all enclosing finally-blocks are run, from innermost to outermost.
-       *        Only then the return value (if any) is returned.
+       *        Only then is the return value (if any) returned.
        *
        *        Some terminology:
        *          (a.1) Executing a return statement that is protected
@@ -1822,6 +1822,8 @@ abstract class GenBCode extends BCodeOptInter {
          *         (in case a finally-block is present); or
          *     (b) the program point right after the try-catch
          *         (in case there's no finally-block).
+         * The name choice emphasizes that the code section lies "after all exception handlers",
+         * where "all exception handlers" includes those derived from catch-clauses as well as from finally-blocks.
          */
         val postHandlers = new asm.Label
 
@@ -1915,7 +1917,7 @@ abstract class GenBCode extends BCodeOptInter {
           protect(startTryBody, finalHandler, finalHandler, BT_ZERO)
           val Local(eTK, _, eIdx, _) = locals(makeLocal(ThrowableReference, "exc"))
           bc.store(eIdx, eTK)
-          emitFinalizer(finalizer, null, true)
+          emitFinalizer(finalizer, null, isDuplicate = true)
           bc.load(eIdx, eTK)
           emit(asm.Opcodes.ATHROW)
         }
@@ -1942,7 +1944,7 @@ abstract class GenBCode extends BCodeOptInter {
           insideCleanupBlock = true
           markProgramPoint(finCleanup)
           // regarding return value, the protocol is: in place of a `return-stmt`, a sequence of `adapt, store, jump` are inserted.
-          emitFinalizer(finalizer, null, false)
+          emitFinalizer(finalizer, null, isDuplicate = true)
           pendingCleanups()
           insideCleanupBlock = savedInsideCleanup
         }
@@ -1956,7 +1958,7 @@ abstract class GenBCode extends BCodeOptInter {
 
         markProgramPoint(postHandlers)
         if(hasFinally) {
-          emitFinalizer(finalizer, tmp, false) // the only invocation of emitFinalizer with `isDuplicate == false`
+          emitFinalizer(finalizer, tmp, isDuplicate = false) // the only invocation of emitFinalizer with `isDuplicate == false`
         }
 
         kind
