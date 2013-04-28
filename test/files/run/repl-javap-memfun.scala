@@ -1,6 +1,13 @@
 import scala.tools.partest.JavapTest
+import scala.tools.nsc.Settings
 
 object Test extends JavapTest {
+
+  override def transformSettings(s: Settings): Settings = {
+    s.closureConv.value = "traditional"
+    s
+  }
+
   def code = """
     |object Betty {
     | List(1,2,3) count (_ % 2 != 0)
