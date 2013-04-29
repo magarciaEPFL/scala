@@ -375,11 +375,7 @@ trait Definitions extends api.StandardDefinitions {
      */
     lazy val lccDisguiserMethod = {
       val flags = (FINAL | SYNTHETIC | ARTIFACT)
-      newPolyMethod(
-        1, ScalaRunTimeModule, newTermName("lccDisguiserMethod"), flags
-      )(
-        tparams => (Some(List(AnyClass.tpe)), tparams.head.typeConstructor)
-      )
+      enterNewMethod(ScalaRunTimeModule, newTermName("lccDisguiserMethod"), anyparam, ObjectClass.tpe, flags)
     }
 
 

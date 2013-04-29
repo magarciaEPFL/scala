@@ -1954,10 +1954,10 @@ abstract class GenBCode extends BCodeOptIntra {
 
       } // end of GenBCode.genLoad()
 
-      def fakeCallsiteExtractor(obj: Tree): Apply = {
+      def fakeCallsiteExtractor(fakeCallsiteWrapper: Tree): Apply = {
 
         val preScreened =
-          obj match {
+          fakeCallsiteWrapper match {
             case Block(List(found), expr) =>
               // this case results for example from scala.runtime.AbstractFunction1[Int,Unit]
               // TODO assert expr is scala.runtime.BoxedUnit.UNIT . Somewhat weaker: l == Lscala/runtime/BoxedUnit;
@@ -1973,7 +1973,7 @@ abstract class GenBCode extends BCodeOptIntra {
           }
 
         val fakeApp = preScreened.asInstanceOf[Apply]
-        // assert(isClosureDelegate(fakeApp.fun.symbol), "Don't understand Tree built by closureConversionModern: " + preScreened)
+        // TODO re-establish assert(isClosureDelegate(fakeApp.fun.symbol), "Don't understand Tree built by closureConversionModern: " + preScreened)
 
         fakeApp
       }
@@ -2121,6 +2121,8 @@ abstract class GenBCode extends BCodeOptIntra {
             val l = tpeTK(obj)
             val r = tpeTK(targs.head)
 
+            val lccDisguised = (cast && obj.symbol == definitions.lccDisguiserMethod)
+
                 def genTypeApply(): BType = {
                   genLoadQualifier(fun)
 
@@ -2150,7 +2152,12 @@ abstract class GenBCode extends BCodeOptIntra {
                 } // end of genTypeApply()
 
 
-            generatedType = genTypeApply()
+            generatedType =
+              if(lccDisguised) {
+                val Apply(_, fakeCallsiteWrapper :: Nil) = obj
+                val fakeCallsite = fakeCallsiteExtractor(fakeCallsiteWrapper)
+                genLateClosure(fakeCallsite, tpeTK(app))
+              } else genTypeApply()
 
           // 'super' call: Note: since constructors are supposed to
           // return an instance of what they construct, we have to take
@@ -2348,10 +2355,10 @@ abstract class GenBCode extends BCodeOptIntra {
         val hasOuter = !delegateSym.isStaticMember && !hasStaticModuleOwner
         val isStaticImplMethod = delegateSym.owner.isImplClass
 
-        // assert(
-        //   uncurry.closureDelegates.contains(delegateSym),
-        //   s"Not a dclosure-endpoint: ${delegateSym.fullLocationString}"
-        // )
+        // TODO re-establish assert(
+        // TODO re-establish   uncurry.closureDelegates.contains(delegateSym),
+        // TODO re-establish   s"Not a dclosure-endpoint: ${delegateSym.fullLocationString}"
+        // TODO re-establish )
         assert(
           if(isStaticImplMethod) !hasOuter else true,
            "How come a delegate-method (for a Late-Closure-Class) is static yet the dclosure is supposed to have an outer-instance. " +
