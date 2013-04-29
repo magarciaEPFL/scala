@@ -1948,26 +1948,15 @@ abstract class GenBCode extends BCodeOptIntra {
 
       def fakeCallsiteExtractor(fakeCallsiteWrapper: Tree): Apply = {
 
-        val preScreened =
-          fakeCallsiteWrapper match {
-            case Block(List(found), expr) =>
-              // this case results for example from scala.runtime.AbstractFunction1[Int,Unit]
-              // TODO assert expr is scala.runtime.BoxedUnit.UNIT . Somewhat weaker: l == Lscala/runtime/BoxedUnit;
-              found
-            case Apply(boxOp, List(found)) if definitions.isBox(boxOp.symbol) =>
-              // this case results for example from scala.runtime.AbstractFunction1[Int,Int]
-              // TODO assert boxOp is boxing (e.g. "scala.Int.box"). Somewhat weaker: l == Ljava/lang/Object;
-              found
-            case found =>
-              // this case results for example from scala.runtime.AbstractFunction1[Int,String]
-              // TODO assert l == delegate.resultType
-              found
-          }
-
-        val fakeApp = preScreened.asInstanceOf[Apply]
+        val ft = new FindTreeTraverser( {
+          case app: Apply => app.symbol.name.startsWith("dlgt") // TODO find where in Specialize, overloads for delegates are created, add them to uncurry.closureDelegates
+          case _          => false
+        } )
+        ft.traverse(fakeCallsiteWrapper)
+        val fakeApp = ft.result.get
         // TODO re-establish assert(isClosureDelegate(fakeApp.fun.symbol), "Don't understand Tree built by closureConversionModern: " + preScreened)
 
-        fakeApp
+        fakeApp.asInstanceOf[Apply]
       }
 
       // ---------------- field load and store ----------------
