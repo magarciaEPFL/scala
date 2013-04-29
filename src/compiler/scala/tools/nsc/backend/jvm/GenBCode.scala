@@ -1922,15 +1922,7 @@ abstract class GenBCode extends BCodeOptIntra {
           case Typed(Super(_, _), _) => genLoad(This(claszSymbol), expectedType)
 
           case Typed(expr, _) =>
-            expr match {
-              case Apply(TypeApply(Select(Apply(app, fakeCallsiteWrapper :: Nil), _), _), Nil)
-              if isLateClosuresOn && (app.symbol == definitions.lccDisguiserMethod)
-              =>
-                val fakeCallsite = fakeCallsiteExtractor(fakeCallsiteWrapper)
-                genLateClosure(fakeCallsite, tpeTK(tree))
-              case _ =>
-                genLoad(expr, expectedType)
-            }
+            genLoad(expr, expectedType)
 
           case Assign(_, _) =>
             generatedType = UNIT
