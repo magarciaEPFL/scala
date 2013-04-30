@@ -518,7 +518,6 @@ abstract class GenBCode extends BCodeOptInter {
 
       // closing output files.
       bytecodeWriter.close()
-      uncurry.closureDelegates.clear()
 
       /* TODO Bytecode can be verified (now that all classfiles have been written to disk)
        *
@@ -1291,10 +1290,6 @@ abstract class GenBCode extends BCodeOptInter {
         // the only method whose implementation is not emitted: getClass()
         if(definitions.isGetClass(dd.symbol)) { return }
         assert(mnode == null, "GenBCode detected nested method.")
-
-        if(isClosureDelegate(dd.symbol)) {
-          dd.symbol.makePublic
-        }
 
         methSymbol  = dd.symbol
         jMethodName = methSymbol.javaSimpleName.toString
@@ -3160,6 +3155,12 @@ abstract class GenBCode extends BCodeOptInter {
 
         lateClosures ::= closuCNode
 
+        /*
+         * `delegateSym` may be either:
+         *   - a dclosure-endpoint created by `closureConversionModern()` in UnCurry;
+         *     or
+         *   - a specialized overload (created by, guess who, "specialize") for the above
+         */
         closuresForDelegates.put(
           delegateSym,
           DClosureEndpoint(delegateJavaName, delegateMT, closuBT, ctor)
@@ -3376,9 +3377,6 @@ abstract class GenBCode extends BCodeOptInter {
 
       /* Is the given symbol a primitive operation? */
       def isPrimitive(fun: Symbol): Boolean = scalaPrimitives.isPrimitive(fun)
-
-      /* Is the given symbol a MethodSymbol that was created by UnCurry's closureConversionModern() ? */
-      def isClosureDelegate(msym: Symbol): Boolean = { uncurry.closureDelegates(msym) }
 
       /* Generate coercion denoted by "code" */
       def genCoercion(code: Int) = {
@@ -3848,10 +3846,8 @@ abstract class GenBCode extends BCodeOptInter {
         assert(candidates.nonEmpty && candidates.tail.isEmpty)
         val delegateMethodNode = candidates.head
 
-        assert(
-          asm.optimiz.Util.isPublicMethod(delegateMethodNode),
-          "PlainClassBuilder.genDefDef() forgot to make public: " + methodSignature(masterBT, delegateMethodNode)
-        )
+        // so that it can be invoked from another class (its Late-Closure-Class)
+        asm.optimiz.Util.makePublicMethod(delegateMethodNode)
 
         val delegateMethodRef = MethodRef(masterBT, delegateMethodNode)
         closuRepo.endpoint.put(dClosureEndpoint.closuBT, delegateMethodRef)

@@ -800,7 +800,6 @@ abstract class BCodeOptCommon extends BCodeTypes {
     }
 
     def clear() {
-      uncurry.closureDelegates.clear()
       endpoint.clear()
       dclosures.clear()
       nonMasterUsers.clear()
