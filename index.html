@@ -33,12 +33,12 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored25</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored31</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored25">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored25</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored31">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored31</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
@@ -74,7 +74,7 @@
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
 </ul><h2>1.4 "really static" value classes and static modules</h2>
 
-<p>Before <code>@reallyStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
+<p>Before <code>@enforceStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
 
 <pre><code>  load singleton-module
   invokevirtual(arg1 ... argN)
@@ -82,7 +82,7 @@
 
 <p>After JIT-compilation, performance is great because there's a single method method implementation to dispatch.</p>
 
-<p>However the above can be expressed more succinctly with "really static" methods, with corresponding invokestatic callistes. This is what the @reallyStatic annotation allows, when applied to: </p>
+<p>However the above can be expressed more succinctly with "really static" methods, with corresponding invokestatic callistes. This is what the @enforceStatic annotation allows, when applied to: </p>
 
 <ul>
 <li>static module (ie an object definition that lacks outer instance) </li>
@@ -91,7 +91,7 @@
 
 <p>First, upon extending another class:</p>
 
-<pre><code>  @reallyStatic
+<pre><code>  @enforceStatic
   case class Valued(val repr: Int) extends AnyVal {
     def odd = (repr&amp;1)==1
   }
@@ -101,10 +101,10 @@
              ^
 </code></pre>
 
-<p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @reallyStatic-tagged class.</p>
+<p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @enforceStatic-tagged class.</p>
 
 <p>More defails (and examples) in the documentation of <code>scala.reallyStatic</code>
-<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored25/src/library/scala/reallyStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored25/src/library/scala/reallyStatic.scala</a></p>
+<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored31/src/library/scala/reallyStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored31/src/library/scala/reallyStatic.scala</a></p>
 
 <h2>1.5 Method handles</h2>
 
@@ -312,14 +312,16 @@ the producer has its value consumed only by the DROP in question.</li>
 <a href="https://issues.scala-lang.org/browse/SI-6720">SI-6720</a> Uninitialized object exists on backward branch</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6759">SI-6759</a> Seek clarification about necessary and sufficient conditions for inclusion in InnerClasses JVM attribute </li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-7407">SI-7407</a> return inside try + pattern-match inside finally causes VerifyError</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>4 Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored25</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored31</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored25
-cd GenRefactored25
-git checkout -b GenRefactored25 origin/GenRefactored25
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored31
+cd GenRefactored31
+git checkout -b GenRefactored31 origin/GenRefactored31
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -352,11 +354,6 @@ ant all.clean &amp;&amp; ant
 <td><code>-closurify:traditional</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to -neo:o1</td> </tr>
 <tr>
 <td><code>-closurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
-<tr>
-<td><code>-closurify:MH</code></td>       <td>A JSR 292 MethodHandle instance with bound arguments for captured environment (aka "partial application")
-is given as constructor-argument to a *standard* closure-class
-(thus doing away with the need for as many individual classes as closure definitions).
-Allows all optimization levels, -target must be jvm-1.7 or higher, and the backend must be GenBCode. Further details in Sec. 1.5</td> </tr>
 </table><h2>4.3 Diagnostics</h2>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
@@ -371,9 +368,9 @@ Allows all optimization levels, -target must be jvm-1.7 or higher, and the backe
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>4.4 Pro tip: Optimizing the compiler and standard library themselves</h1>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored25/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored31/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored25</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored31</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
