@@ -725,7 +725,7 @@ abstract class GenBCode extends BCodeOptInter {
        *  `closuresForDelegates` serves two purposes:
        *
        *    (1) allows detecting which LCCs have been already emitted (a "second" instantiation of "the same"
-       *  anon-closure-class is possible, in the instructions resulting from duplicating a finalizer).
+       *        anon-closure-class is possible, in the instructions resulting from duplicating a finalizer).
        *
        *    (2) allows a hand-off from UnCurry's "set of endpoints as methodsymbols" ie `uncurry.closureDelegates`
        *        to closuRepo.endpoint which maps dclosure to endpoint.
@@ -3180,7 +3180,7 @@ abstract class GenBCode extends BCodeOptInter {
         val ArrayValue(tpt @ TypeTree(), elems) = av
 
         val elmKind       = tpeTK(tpt)
-        var generatedType = arrayOf(elmKind)
+        val generatedType = arrayOf(elmKind)
 
         lineNumber(av)
         bc iconst   elems.length
