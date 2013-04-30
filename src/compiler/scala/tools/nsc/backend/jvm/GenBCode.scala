@@ -2199,7 +2199,6 @@ abstract class GenBCode extends BCodeOptInter {
         } )
         ft.traverse(fakeCallsiteWrapper)
         val fakeApp = ft.result.get
-        // TODO re-establish assert(isClosureDelegate(fakeApp.fun.symbol), "Don't understand Tree built by closureConversionModern: " + preScreened)
 
         fakeApp.asInstanceOf[Apply]
       }
@@ -2607,10 +2606,6 @@ abstract class GenBCode extends BCodeOptInter {
         val hasOuter = !delegateSym.isStaticMember && !hasStaticModuleOwner
         val isStaticImplMethod = delegateOwner.isImplClass
 
-        // TODO re-establish assert(
-        // TODO re-establish   uncurry.closureDelegates.contains(delegateSym),
-        // TODO re-establish   s"Not a dclosure-endpoint: ${delegateSym.fullLocationString}"
-        // TODO re-establish )
         assert(
           if(isStaticImplMethod) !hasOuter else true,
            "How come a delegate-method (for a Late-Closure-Class) is static yet the dclosure is supposed to have an outer-instance. " +
