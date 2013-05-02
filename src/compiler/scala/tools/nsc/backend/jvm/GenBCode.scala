@@ -301,14 +301,14 @@ abstract class GenBCode extends BCodeOptIntra {
 
         val cnode   = item.plain
 
-        val cleanser = new QuickCleanser(cnode)
-        cleanser.codeFixupDCE()       // the minimal fixups needed, even for unoptimized runs.
         if (isOptimizRun) {
-          import asm.optimiz.Util
-          for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
-            Util.computeMaxLocalsMaxStack(mnode)
-            cleanser.basicIntraMethodOpt(mnode)   // intra-method optimizations performed until a fixpoint is reached
-          }
+          val cleanser = new BCodeCleanser(cnode)
+          cleanser.codeFixupDCE()
+          cleanser.cleanseClass()
+        }
+        else {
+          val essential = new EssentialCleanser(cnode)
+          essential.codeFixupDCE()    // the minimal fixups needed, even for unoptimized runs.
         }
 
         refreshInnerClasses(cnode)
@@ -454,7 +454,7 @@ abstract class GenBCode extends BCodeOptIntra {
             error("GenBCode found class files waiting in queues to be written but an error prevented doing so.")
           }
         }
-        while(!followers.isEmpty && followers.peek.arrivalPos == expected) {
+        while (!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
           val outFolder = item.outFolder
           sendToDisk(item.mirror, outFolder)
