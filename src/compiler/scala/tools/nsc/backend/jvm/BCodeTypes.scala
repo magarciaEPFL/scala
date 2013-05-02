@@ -3824,72 +3824,14 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     }
   }
 
-  var TF_NULL   : TFValue = null
-  var TF_STRING : TFValue = null
   var BoxesRunTime: BType = null
 
   def initBCodeOpt() {
-
-    TF_NULL = TFValue(RT_NULL, 0)
-    val trString = exemplar(global.definitions.StringClass)
-    TF_STRING = TFValue(StringReference, TypeFlowConstants.EXACT_MASK)
-
     // later a few analyses (e.g. refreshInnerClasses) will look up BTypes based on descriptors in instructions
     // we make sure those BTypes can be found via lookup as opposed to creating them on the fly.
     BoxesRunTime = brefType("scala/runtime/BoxesRunTime")
     asmBoxTo.values   foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
     asmUnboxTo.values foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
-  }
-
-  /*
-   *  Represents a lattice element in the type-flow lattice.
-   *  For reference-values two additional information items are also tracked:
-   *     - their non-nullness status
-   *     - whether the runtime value has `btype` as exact type
-   *       (useful in determining method implementations targeted by callsites)
-   */
-  case class TFValue(lca: BType, bits: Int) extends asm.tree.analysis.Value {
-
-    val tr: Tracked = {
-      if (lca.isPhantomType || lca.isValueType) { null }
-      else if (lca.isArray)  {
-        val et = lca.getElementType
-        if (et.hasObjectSort) exemplars.get(et) else null
-      }
-      else {
-        assert(lca.isNonSpecial, "Some case was overlooked for: " + lca)
-        exemplars.get(lca)
-      }
-    }
-
-    // check (when possible) cross-consistency with isExact and isNonNull
-    assert(if (lca.isNullType) !isNonNull else true, "Contradiction: NullType reported as isNonNull." + lca)
-    assert(if (tr != null && tr.isFinal)      isExact    else true, "Contradiction: isFinal  reported as !isExact."  + lca)
-    assert(if (tr != null && tr.isInterface)  !isExact   else true, "Contradiction: interface reported as isExact."  + lca)
-
-    override def getSize: Int = {
-      assert(lca.sort != BType.METHOD, "Method types don't have size: " + lca)
-      lca.getSize
-    }
-
-    def isRefOrArray: Boolean = { lca.isRefOrArrayType }
-
-    def isNonNull:  Boolean = { assert(isRefOrArray); (bits & TypeFlowConstants.NON_NULL_MASK) != 0 }
-    def isExact:    Boolean = { assert(isRefOrArray); (bits & TypeFlowConstants.EXACT_MASK   ) != 0 }
-
-    def conformsTo(b: TFValue): Boolean = { conforms(this.lca, b.lca) }
-
-  }
-
-  val TF_INT     = TFValue(BType.INT_TYPE,    0)
-  val TF_FLOAT   = TFValue(BType.FLOAT_TYPE,  0)
-  val TF_LONG    = TFValue(BType.LONG_TYPE,   0)
-  val TF_DOUBLE  = TFValue(BType.DOUBLE_TYPE, 0)
-  val TF_VOID    = TFValue(BType.VOID_TYPE,   0)
-
-  object TypeFlowConstants {
-    val NON_NULL_MASK = 1
-    val EXACT_MASK    = 2
   }
 
   /*

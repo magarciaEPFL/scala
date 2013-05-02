@@ -111,6 +111,8 @@ abstract class GenBCode extends BCodeOptIntra {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
+    val isOptimizRun  = settings.isIntraMethodOptimizOn
+
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
       4,
@@ -266,6 +268,8 @@ abstract class GenBCode extends BCodeOptIntra {
      */
     class Worker2 extends _root_.java.lang.Runnable {
 
+      val isIntraMethodOptimizOn = settings.isIntraMethodOptimizOn
+
       def run() {
         val id = java.lang.Thread.currentThread.getId
         woStarted.put(id, id)
@@ -297,8 +301,15 @@ abstract class GenBCode extends BCodeOptIntra {
 
         val cnode   = item.plain
 
-        val essential = new EssentialCleanser(cnode)
-        essential.codeFixupDCE()    // the very least fixups that must be done, even for unoptimized runs.
+        val cleanser = new QuickCleanser(cnode)
+        cleanser.codeFixupDCE()       // the minimal fixups needed, even for unoptimized runs.
+        if(isOptimizRun) {
+          import asm.optimiz.Util
+          for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+            Util.computeMaxLocalsMaxStack(mnode)
+            cleanser.basicIntraMethodOpt(mnode)   // intra-method optimizations performed until a fixpoint is reached
+          }
+        }
 
         refreshInnerClasses(cnode)
 
@@ -751,7 +762,7 @@ abstract class GenBCode extends BCodeOptIntra {
       /*  If the selector type has a member with the right name,
        *  it is the host class; otherwise the symbol's owner.
        */
-      def findHostClass(selector: Type, sym: Symbol) = selector member sym.name match {
+      def findHostClass(selector: Type, sym: Symbol): Symbol = selector member sym.name match {
         case NoSymbol   => log(s"Rejecting $selector as host class for $sym") ; sym.owner
         case _          => selector.typeSymbol
       }
