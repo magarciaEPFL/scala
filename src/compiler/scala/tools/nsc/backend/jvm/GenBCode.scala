@@ -461,7 +461,7 @@ abstract class GenBCode extends BCodeOptIntra {
         }
         if (!moreComing) {
           val queuesOK = (q3.isEmpty && followers.isEmpty)
-          if(!queuesOK) {
+          if (!queuesOK) {
             error("GenBCode found class files waiting in queues to be written but an error prevented doing so.")
           }
         }
