@@ -179,7 +179,7 @@ abstract class GenBCode extends BCodeOptIntra {
       def run() {
         while (true) {
           val item = q1.take
-          if(item.isPoison) {
+          if (item.isPoison) {
             for(i <- 1 to MAX_THREADS) { q2 put poison2 } // explanation in Worker2.run() as to why MAX_THREADS poison pills are needed on queue-2.
             return
           }
@@ -450,7 +450,7 @@ abstract class GenBCode extends BCodeOptIntra {
         }
         if (!moreComing) {
           val queuesOK = (q3.isEmpty && followers.isEmpty)
-          if(!queuesOK) {
+          if (!queuesOK) {
             error("GenBCode found class files waiting in queues to be written but an error prevented doing so.")
           }
         }
