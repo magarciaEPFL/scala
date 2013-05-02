@@ -77,6 +77,22 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
   /** For a given class and concrete type arguments, give its specialized class */
   val specializedClass = perRunCaches.newMap[(Symbol, TypeEnv), Symbol]
 
+  /* By virtue of specializedClass being perRunCaches,
+   * entries go missing by the time GenBCode tries to look up an AbstractFunctionClass
+   * (in order to emit Late-Closure-Classes).
+   *
+   * There's only one way out: those pairs (AbstractFunctionClass, env) are tracked
+   * in a dedicated map: `specializedFunctionX` (and only those pairs).
+   *
+   * Another difference is that `specializedFunctionX` isn't cleared at all, not even at the end of `BCodePhase.run()`.
+   * Otherwise `test/osgi/src/ReflectionToolBoxTest.scala` fails, among others.
+   *
+   * The memory leak is benign because there aren't that many specialized AbstractFunctionX.
+   * To clarify further, `specializedFunctionX` doesn't track every subclass of AbstractFunctionX (as for example, anon-closure-classes)
+   * Instead, it tracks only the specialized direct subclasses of AbstractFunctionX created by `specialize`.
+   */
+  val specializedFunctionX = mutable.Map.empty[(Symbol, TypeEnv), Symbol]
+
   /** Map a method symbol to a list of its specialized overloads in the same class. */
   private val overloads = perRunCaches.newMap[Symbol, List[Overload]]() withDefaultValue Nil
 
@@ -539,6 +555,9 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
       val env = mapAnyRefsInSpecSym(env0, clazz, sClass)
       typeEnv(sClass) = env
       this.specializedClass((clazz, env0)) = sClass
+      if (definitions.AbstractFunctionClass contains clazz) {
+        this.specializedFunctionX((clazz, env0)) = sClass
+      }
 
       val decls1                        = newScope  // declarations of the newly specialized class 'sClass'
       var oldClassTParams: List[Symbol] = Nil       // original unspecialized type parameters
