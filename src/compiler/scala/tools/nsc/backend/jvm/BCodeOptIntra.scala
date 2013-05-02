@@ -29,7 +29,7 @@ import collection.convert.Wrappers.JListWrapper
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
  */
-abstract class BCodeOptIntra extends BCodeTypes {
+abstract class BCodeOptIntra extends BCodeOptCommon {
 
   import global._
 
