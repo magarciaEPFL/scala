@@ -54,6 +54,19 @@ abstract class GenBCode extends BCodeTypes {
 
     private var needsOutFolder  = false // whether getOutFolder(claszSymbol) should be invoked for each claszSymbol
 
+    /* ---------------- q2 ---------------- */
+
+    case class Item2(arrivalPos:   Int,
+                     mirror:       asm.tree.ClassNode,
+                     plain:        asm.tree.ClassNode,
+                     bean:         asm.tree.ClassNode,
+                     outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
+      def isPoison = { arrivalPos == Int.MaxValue }
+    }
+
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null)
+    private val q2 = new _root_.java.util.LinkedList[Item2]
+
     /* ---------------- q3 ---------------- */
 
     case class Item3(arrivalPos: Int,
@@ -127,31 +140,61 @@ abstract class GenBCode extends BCodeTypes {
 
       // ----------- hand over to pipeline-2
 
-      addToQ3(arrivalPos,
+      val item2 =
+        Item2(arrivalPos,
               mirrorC, plainC, beanC,
               outF)
 
+      q2 add item2 // at the very end of this method so that no Worker2 thread starts mutating before we're done.
+
     } // end of method visit()
 
-    private def addToQ3(arrivalPos:   Int,
-                        mirror:       asm.tree.ClassNode,
-                        plain:        asm.tree.ClassNode,
-                        bean:         asm.tree.ClassNode,
-                        outFolder:    _root_.scala.tools.nsc.io.AbstractFile) {
+    /*
+     *  Pipeline that takes ClassNodes from queue-2. The unit of work depends on the optimization level:
+     *
+     *    (a) no optimization involves:
+     *          - converting the plain ClassNode to byte array and placing it on queue-3
+     */
+    class Worker2 {
 
-          def getByteArray(cn: asm.tree.ClassNode): Array[Byte] = {
-            val cw = new CClassWriter(extraProc)
-            cn.accept(cw)
-            cw.toByteArray
+      def run() {
+
+        while (true) {
+          val item = q2.poll
+          if (item.isPoison) {
+            q3 add poison3
+            return
           }
+          else {
+            try   { addToQ3(item) }
+            catch {
+              case ex: Throwable =>
+                ex.printStackTrace()
+                error("Error while emitting " + item.plain.name +  "\n"  + ex.getMessage)
+            }
+          }
+        }
+      }
 
-      val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
-      val plainC  = SubItem3(plain.name, getByteArray(plain))
-      val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
+      private def addToQ3(item: Item2) {
 
-      q3 add Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+            def getByteArray(cn: asm.tree.ClassNode): Array[Byte] = {
+              val cw = new CClassWriter(extraProc)
+              cn.accept(cw)
+              cw.toByteArray
+            }
 
-    }
+        val Item2(arrivalPos, mirror, plain, bean, outFolder) = item
+
+        val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
+        val plainC  = SubItem3(plain.name, getByteArray(plain))
+        val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
+
+        q3 add Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+
+      }
+
+    } // end of class BCodePhase.Worker2
 
     var arrivalPos = 0
 
@@ -180,7 +223,8 @@ abstract class GenBCode extends BCodeTypes {
       needsOutFolder = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
 
       super.run()
-      q3 add poison3
+      q2 add poison2
+      (new Worker2).run()
       drainQ3()
 
       // closing output files.
@@ -242,6 +286,7 @@ abstract class GenBCode extends BCodeTypes {
       }
 
       // we're done
+      assert(q2.isEmpty, "Some classfiles remained in the second queue: " + q2.toString)
       assert(q3.isEmpty, "Some classfiles weren't written to disk: "      + q3.toString)
 
     }
