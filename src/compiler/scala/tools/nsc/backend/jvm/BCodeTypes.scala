@@ -23,6 +23,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   import global._
 
+  val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
+
   object BType {
 
     import global.chrs
@@ -776,7 +778,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   val srFloatRef   = brefType("scala/runtime/FloatRef")
   val srDoubleRef  = brefType("scala/runtime/DoubleRef")
 
-  val srBoxedUnit  = brefType("scala/runtime/BoxedUnit")
+  var srBoxedUnit : BType = null // scala/runtime/BoxedUnit
 
   val ObjectReference   = brefType("java/lang/Object")
   val AnyRefReference   = ObjectReference
@@ -896,6 +898,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
     ArrayInterfaces = Set(JavaCloneableClass, JavaSerializableClass) map exemplar
 
+    srBoxedUnit = exemplar(BoxedUnitClass).c
+
     StringReference             = exemplar(StringClass).c
     StringBuilderReference      = exemplar(StringBuilderClass).c
     ThrowableReference          = exemplar(ThrowableClass).c
@@ -923,6 +927,32 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       AbstractFunctionReference(idx)   = exemplar(AbstractFunctionClass(idx))
       abstractFunctionArityMap        += (AbstractFunctionReference(idx).c -> idx)
       AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
+
+      if (isLateClosuresOn) {
+        /*
+         * When isLaterClosuresOn, GenBCode emits bytecode binary compatible with anonymous closure classes.
+         * As part of that, GenBCode enters those classes into exemplars, which in turn requires
+         * entries for the parents of those (potentially specialized) closures
+         * to be already available in `exemplars`.
+         * That's why we enter those parents in advance here.
+         */
+        val abstractFnXClazz: ClassSymbol = AbstractFunctionClass(idx)
+        val subclasses =
+          enteringErasure {
+            val environs = specializeTypes.specializations(abstractFnXClazz.info.typeParams) filter specializeTypes.satisfiable
+
+            for(env <- environs)
+            yield specializeTypes.specializedFunctionX(abstractFnXClazz, env)
+          }
+        for(spcClazz <- subclasses) {
+          /*
+           * Example: spcClazz.javaBinaryName == scala/runtime/AbstractFunction2$mcJJI$sp
+           * buildExemplar() also tracks the implemented interfaces, things like scala/Function0$mcB$sp
+           */
+          exemplar(spcClazz)
+        }
+      }
+
     }
 
     initBCodeOpt()
