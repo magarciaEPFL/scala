@@ -976,6 +976,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def clearBCodeTypes() {
     symExemplars.clear()
     exemplars.clear()
+    clearBCodeOpt()
   }
 
   val BOXED_UNIT    = brefType("java/lang/Void")
@@ -1108,6 +1109,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isInnerClass = { innersChain != null }
     def isTraditionalClosureClass = {
       isInnerClass && isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
+    }
+    def isLCC = {
+      isFinal && (c.getSimpleName.contains(tpnme.LCC_FUN_NAME.toString)) && isFunctionType(c)
     }
     def isLambda = {
       // ie isLCC || isTraditionalClosureClass
@@ -3870,6 +3874,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     asmBoxTo.values   foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
     asmUnboxTo.values foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
   }
+
+  def clearBCodeOpt()
 
   /*
    *  Represents a lattice element in the type-flow lattice.
