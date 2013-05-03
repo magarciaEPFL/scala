@@ -339,13 +339,13 @@ abstract class BCodeOptCommon extends BCodeTypes {
               val iname = desc.substring(1, desc.length() - 1)
               enterInternalName(iname)
             case '(' =>
-              val mt = BType.getMethodType(desc)
+              val mt = BT.getMethodType(desc)
               enterDescr(mt.getReturnType.getDescriptor)
               for(argt <- mt.getArgumentTypes) {
                 enterDescr(argt.getDescriptor)
               }
             case '[' =>
-              val arrt = BType.getType(desc)
+              val arrt = BT.getType(desc)
               enterDescr(arrt.getComponentType.getDescriptor)
           }
         }
@@ -937,7 +937,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
             if (!elidedParams.isEmpty) {
               changed = true
               global synchronized {
-                BType.getMethodType(endpoint.desc)
+                BT.getMethodType(endpoint.desc)
               }
               log(
                s"In order to minimize closure-fields, one or more params were elided from endpoint ${methodSignature(masterCNode, endpoint)} " +
@@ -1055,7 +1055,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
       // redundant-closure-field-name -> zero-based position the constructor param providing the value for it.
       val posOfRedundantCtorParam = mutable.Map.empty[String, Int]
       val ctor = (JListWrapper(dCNode.methods) find { caller => caller.name == "<init>" }).get
-      val ctorBT = BType.getMethodType(ctor.desc)
+      val ctorBT = BT.getMethodType(ctor.desc)
       Util.computeMaxLocalsMaxStack(ctor)
       cp.analyze(dCNode.name, ctor)
       for(
@@ -1122,7 +1122,7 @@ abstract class BCodeOptCommon extends BCodeTypes {
       val elideCtorParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(dCNode, ctor)
       Util.makePublicMethod(ctor)
       global synchronized {
-        BType.getMethodType(ctor.desc)
+        BT.getMethodType(ctor.desc)
       }
       assert(!elideCtorParams.isEmpty)
       for(callerInMaster <- JListWrapper(masterCNode.methods)) {
