@@ -25,7 +25,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   val isLateClosuresOn = (settings.isClosureConvDelegating || settings.isClosureConvMH)
 
-  object BType {
+  object BT {
 
     import global.chrs
 
@@ -148,7 +148,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * can-multi-thread
      */
-    private def getArgumentTypes(idx0: Int): Array[BType] = {
+    def getArgumentTypes(idx0: Int): Array[BType] = {
       assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
       val args = new Array[BType](getArgumentCount(idx0))
       var off = idx0
@@ -186,7 +186,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * can-multi-thread
      */
-    private def getArgumentCount(idx0: Int): Int = {
+    def getArgumentCount(idx0: Int): Int = {
       assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
       var off  = idx0
       var size = 0
@@ -341,7 +341,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      */
     def getElementType: BType = {
       assert(isArray, "Asked for the element type of a non-array type: " + this)
-      BType.getType(off + getDimensions)
+      BT.getType(off + getDimensions)
     }
 
     /*
@@ -393,7 +393,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * can-multi-thread
      */
     def getArgumentTypes: Array[BType] = {
-      BType.getArgumentTypes(off + 1)
+      BT.getArgumentTypes(off + 1)
     }
 
     /*
@@ -405,7 +405,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      * can-multi-thread
      */
     def getArgumentCount: Int = {
-      BType.getArgumentCount(off + 1)
+      BT.getArgumentCount(off + 1)
     }
 
     /*
@@ -420,7 +420,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       assert(chrs(off) == '(', "doesn't look like a method descriptor: " + toString)
       var resPos = off + 1
       while (chrs(resPos) != ')') { resPos += 1 }
-      BType.getType(resPos + 1)
+      BT.getType(resPos + 1)
     }
 
     /*
@@ -563,7 +563,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      */
     def getComponentType: BType = {
       assert(isArray, "Asked for the component type of a non-array type: " + this)
-      BType.getType(off + 1)
+      BT.getType(off + 1)
     }
 
     // ------------------------------------------------------------------------
@@ -588,7 +588,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *
      * can-multi-thread
      */
-    private def getDescriptor(buf: StringBuffer) {
+    def getDescriptor(buf: StringBuffer) {
       if (isPrimitiveOrVoid) {
         // descriptor is in byte 3 of 'off' for primitive types (buf == null)
         buf.append(((off & 0xFF000000) >>> 24).asInstanceOf[Char])
@@ -730,18 +730,18 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    *
    *  can-multi-thread
    */
-  def brefType(iname: TypeName): BType = { BType.getObjectType(iname.start, iname.length) }
+  def brefType(iname: TypeName): BType = { BT.getObjectType(iname.start, iname.length) }
 
   // due to keyboard economy only
-  val UNIT   = BType.VOID_TYPE
-  val BOOL   = BType.BOOLEAN_TYPE
-  val CHAR   = BType.CHAR_TYPE
-  val BYTE   = BType.BYTE_TYPE
-  val SHORT  = BType.SHORT_TYPE
-  val INT    = BType.INT_TYPE
-  val LONG   = BType.LONG_TYPE
-  val FLOAT  = BType.FLOAT_TYPE
-  val DOUBLE = BType.DOUBLE_TYPE
+  val UNIT   = BT.VOID_TYPE
+  val BOOL   = BT.BOOLEAN_TYPE
+  val CHAR   = BT.CHAR_TYPE
+  val BYTE   = BT.BYTE_TYPE
+  val SHORT  = BT.SHORT_TYPE
+  val INT    = BT.INT_TYPE
+  val LONG   = BT.LONG_TYPE
+  val FLOAT  = BT.FLOAT_TYPE
+  val DOUBLE = BT.DOUBLE_TYPE
 
   /*
    * RT_NOTHING and RT_NULL exist at run-time only.
@@ -902,8 +902,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
      *  but directly emit callsites on StringBuilder using literal constant for method descriptors.
      *  In order to make sure those method descriptors are available as BTypes, they are initialized here.
      */
-    BType.getMethodType("()V")                   // necessary for JCodeMethodN.genStartConcat
-    BType.getMethodType("()Ljava/lang/String;")  // necessary for JCodeMethodN.genEndConcat
+    BT.getMethodType("()V")                   // necessary for JCodeMethodN.genStartConcat
+    BT.getMethodType("()Ljava/lang/String;")  // necessary for JCodeMethodN.genEndConcat
 
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 to definitions.MaxFunctionArity) {
@@ -1813,7 +1813,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
         if (el.isArray || el.hasObjectSort) JAVA_LANG_OBJECT
         else el;
 
-      val bt = BType.getMethodType(StringBuilderReference, Array(jtype))
+      val bt = BT.getMethodType(StringBuilderReference, Array(jtype))
 
       invokevirtual(StringBuilderClassName, "append", bt.getDescriptor)
     }
@@ -3006,9 +3006,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def asmMethodType(msym: Symbol): BType = {
       assert(msym.isMethod, "not a method-symbol: " + msym)
       val resT: BType =
-        if (msym.isClassConstructor || msym.isConstructor) BType.VOID_TYPE
+        if (msym.isClassConstructor || msym.isConstructor) BT.VOID_TYPE
         else toTypeKind(msym.tpe.resultType);
-      BType.getMethodType( resT, mkArray(msym.tpe.paramTypes map toTypeKind) )
+      BT.getMethodType( resT, mkArray(msym.tpe.paramTypes map toTypeKind) )
     }
 
     /*
@@ -3388,7 +3388,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       val thrownExceptions: List[String] = getExceptions(throws)
 
       val jReturnType = toTypeKind(methodInfo.resultType)
-      val mdesc = BType.getMethodType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
+      val mdesc = BT.getMethodType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
       val mirrorMethodName = m.javaSimpleName.toString
       val mirrorMethod: asm.MethodVisitor = jclass.visitMethod(
         flags,
@@ -3679,8 +3679,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
       val stringArrayJType: BType = arrayOf(JAVA_LANG_STRING)
       val conJType: BType =
-        BType.getMethodType(
-          BType.VOID_TYPE,
+        BT.getMethodType(
+          BT.VOID_TYPE,
           Array(exemplar(definitions.ClassClass).c, stringArrayJType, stringArrayJType)
         )
 
@@ -3774,7 +3774,7 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
       )
 
       // INVOKEVIRTUAL `moduleName`.CREATOR() : android.os.Parcelable$Creator;
-      val bt = BType.getMethodType(androidCreatorType, Array.empty[BType])
+      val bt = BT.getMethodType(androidCreatorType, Array.empty[BType])
       clinit.visitMethodInsn(
         asm.Opcodes.INVOKEVIRTUAL,
         moduleName,
@@ -3839,8 +3839,8 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     // later a few analyses (e.g. refreshInnerClasses) will look up BTypes based on descriptors in instructions
     // we make sure those BTypes can be found via lookup as opposed to creating them on the fly.
     BoxesRunTime = brefType("scala/runtime/BoxesRunTime")
-    asmBoxTo.values   foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
-    asmUnboxTo.values foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
+    asmBoxTo.values   foreach { mnat: MethodNameAndType => BT.getMethodType(mnat.mdesc) }
+    asmUnboxTo.values foreach { mnat: MethodNameAndType => BT.getMethodType(mnat.mdesc) }
   }
 
   def clearBCodeOpt()
@@ -3885,11 +3885,11 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
 
   }
 
-  val TF_INT     = TFValue(BType.INT_TYPE,    0)
-  val TF_FLOAT   = TFValue(BType.FLOAT_TYPE,  0)
-  val TF_LONG    = TFValue(BType.LONG_TYPE,   0)
-  val TF_DOUBLE  = TFValue(BType.DOUBLE_TYPE, 0)
-  val TF_VOID    = TFValue(BType.VOID_TYPE,   0)
+  val TF_INT     = TFValue(BT.INT_TYPE,    0)
+  val TF_FLOAT   = TFValue(BT.FLOAT_TYPE,  0)
+  val TF_LONG    = TFValue(BT.LONG_TYPE,   0)
+  val TF_DOUBLE  = TFValue(BT.DOUBLE_TYPE, 0)
+  val TF_VOID    = TFValue(BT.VOID_TYPE,   0)
 
   object TypeFlowConstants {
     val NON_NULL_MASK = 1
@@ -3901,15 +3901,15 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
    */
   def toBType(t: asm.Type): BType = {
     (t.getSort: @switch) match {
-      case asm.Type.VOID    => BType.VOID_TYPE
-      case asm.Type.BOOLEAN => BType.BOOLEAN_TYPE
-      case asm.Type.CHAR    => BType.CHAR_TYPE
-      case asm.Type.BYTE    => BType.BYTE_TYPE
-      case asm.Type.SHORT   => BType.SHORT_TYPE
-      case asm.Type.INT     => BType.INT_TYPE
-      case asm.Type.FLOAT   => BType.FLOAT_TYPE
-      case asm.Type.LONG    => BType.LONG_TYPE
-      case asm.Type.DOUBLE  => BType.DOUBLE_TYPE
+      case asm.Type.VOID    => BT.VOID_TYPE
+      case asm.Type.BOOLEAN => BT.BOOLEAN_TYPE
+      case asm.Type.CHAR    => BT.CHAR_TYPE
+      case asm.Type.BYTE    => BT.BYTE_TYPE
+      case asm.Type.SHORT   => BT.SHORT_TYPE
+      case asm.Type.INT     => BT.INT_TYPE
+      case asm.Type.FLOAT   => BT.FLOAT_TYPE
+      case asm.Type.LONG    => BT.LONG_TYPE
+      case asm.Type.DOUBLE  => BT.DOUBLE_TYPE
       case asm.Type.ARRAY   |
            asm.Type.OBJECT  |
            asm.Type.METHOD  =>
@@ -3932,22 +3932,22 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
   def descrToBType(typeDescriptor: String): BType = {
     val c: Char = typeDescriptor(0)
     c match {
-      case 'V' => BType.VOID_TYPE
-      case 'Z' => BType.BOOLEAN_TYPE
-      case 'C' => BType.CHAR_TYPE
-      case 'B' => BType.BYTE_TYPE
-      case 'S' => BType.SHORT_TYPE
-      case 'I' => BType.INT_TYPE
-      case 'F' => BType.FLOAT_TYPE
-      case 'J' => BType.LONG_TYPE
-      case 'D' => BType.DOUBLE_TYPE
+      case 'V' => BT.VOID_TYPE
+      case 'Z' => BT.BOOLEAN_TYPE
+      case 'C' => BT.CHAR_TYPE
+      case 'B' => BT.BYTE_TYPE
+      case 'S' => BT.SHORT_TYPE
+      case 'I' => BT.INT_TYPE
+      case 'F' => BT.FLOAT_TYPE
+      case 'J' => BT.LONG_TYPE
+      case 'D' => BT.DOUBLE_TYPE
       case 'L' =>
         val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
         val n = global.lookupTypeName(iname.toCharArray)
         new BType(asm.Type.OBJECT, n.start, n.length)
       case _   =>
         val n = global.lookupTypeName(typeDescriptor.toCharArray)
-        BType.getType(n.start)
+        BT.getType(n.start)
     }
   }
 
