@@ -318,6 +318,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
   class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
 
+    val copyPropagator      = new asm.optimiz.CopyPropagator
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
 
@@ -335,6 +336,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
         keepGoing = false
 
         keepGoing |= cleanseMethod(cName, mnode)
+        keepGoing |= elimRedundantCode(cName, mnode)
 
         nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
         keepGoing |= nullnessPropagator.changed
@@ -343,6 +345,37 @@ abstract class BCodeOptIntra extends BCodeTypes {
         keepGoing |= constantFolder.changed
 
       } while (keepGoing)
+    }
+
+    //--------------------------------------------------------------------
+    // Second optimization pack
+    //--------------------------------------------------------------------
+
+    /*
+     *  This method performs a few intra-method optimizations,
+     *  aimed at reverting the extra copying introduced by inlining:
+     *    - replace the last link in a chain of data accesses by a direct access to the chain-start.
+     *    - dead-store elimination
+     *    - remove those (producer, consumer) pairs where the consumer is a DROP and
+     *      the producer has its value consumed only by the DROP in question.
+     *
+     */
+    final def elimRedundantCode(cName: String, mnode: asm.tree.MethodNode): Boolean = {
+      var changed   = false
+      var keepGoing = false
+
+      do {
+
+        keepGoing = false
+
+        copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
+        keepGoing |= copyPropagator.changed
+
+        changed = (changed || keepGoing)
+
+      } while (keepGoing)
+
+      changed
     }
 
   } // end of class QuickCleanser
