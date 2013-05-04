@@ -5,7 +5,6 @@ askTypeCompletion at ImplicitMember.scala(7,7)
 [response] askCompletionAt (7,7)
 retrieved 38 members
 def +(other: String): String
-def ->[B](y: B): (Implicit.type, B)
 def ensuring(cond: Boolean): Implicit.type
 def ensuring(cond: Boolean,msg: => Any): Implicit.type
 def ensuring(cond: Implicit.type => Boolean): Implicit.type
@@ -19,6 +18,7 @@ final class AppliedImplicit[A <: <?>] extends AnyRef
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Implicit.type, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
