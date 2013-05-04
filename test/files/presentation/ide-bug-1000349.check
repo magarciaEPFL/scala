@@ -5,7 +5,6 @@ askTypeCompletion at CompletionOnEmptyArgMethod.scala(2,17)
 [response] askTypeCompletion at (2,17)
 retrieved 30 members
 def +(other: String): String
-def ->[B](y: B): (Foo, B)
 def ensuring(cond: Boolean): Foo
 def ensuring(cond: Boolean,msg: => Any): Foo
 def ensuring(cond: Foo => Boolean): Foo
@@ -18,6 +17,7 @@ def toString(): String
 def →[B](y: B): (Foo, B)
 final def !=(x$1: Any): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Foo, B)
 final def ==(x$1: Any): Boolean
 final def asInstanceOf[T0]: T0
 final def eq(x$1: AnyRef): Boolean
