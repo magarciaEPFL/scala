@@ -303,7 +303,7 @@ trait MatchApproximation extends TreeAndTypeAnalysis with ScalaLogic with MatchT
       val fullRewrite      = (irrefutableExtractor orElse rewriteListPattern)
       val refutableRewrite = irrefutableExtractor
 
-      @inline def onUnknown(handler: TreeMaker => Prop) = new TreeMakerToProp {
+      @inline final def onUnknown(handler: TreeMaker => Prop) = new TreeMakerToProp {
         def handleUnknown(tm: TreeMaker) = handler(tm)
       }
 
