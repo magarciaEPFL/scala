@@ -7,7 +7,6 @@ retrieved 31 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (Object, B)
 def ensuring(cond: Boolean): Object
 def ensuring(cond: Boolean,msg: => Any): Object
 def ensuring(cond: Object => Boolean): Object
@@ -20,6 +19,7 @@ def →[B](y: B): (Object, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Object, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
@@ -41,7 +41,6 @@ retrieved 31 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (Object, B)
 def ensuring(cond: Boolean): Object
 def ensuring(cond: Boolean,msg: => Any): Object
 def ensuring(cond: Object => Boolean): Object
@@ -54,6 +53,7 @@ def →[B](y: B): (Object, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Object, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
@@ -75,7 +75,6 @@ retrieved 31 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (Object, B)
 def ensuring(cond: Boolean): Object
 def ensuring(cond: Boolean,msg: => Any): Object
 def ensuring(cond: Object => Boolean): Object
@@ -88,6 +87,7 @@ def →[B](y: B): (Object, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Object, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
