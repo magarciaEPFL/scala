@@ -8,7 +8,6 @@ retrieved 33 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (Pong, B)
 def ensuring(cond: Boolean): Pong
 def ensuring(cond: Boolean,msg: => Any): Pong
 def ensuring(cond: Pong => Boolean): Pong
@@ -20,6 +19,7 @@ def poke(): Unit
 def →[B](y: B): (Pong, B)
 final def !=(x$1: Any): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Pong, B)
 final def ==(x$1: Any): Boolean
 final def asInstanceOf[T0]: T0
 final def eq(x$1: AnyRef): Boolean
@@ -42,7 +42,6 @@ retrieved 33 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (Ping, B)
 def ensuring(cond: Boolean): Ping
 def ensuring(cond: Boolean,msg: => Any): Ping
 def ensuring(cond: Ping => Boolean): Ping
@@ -56,6 +55,7 @@ def poke: Unit
 def →[B](y: B): (Ping, B)
 final def !=(x$1: Any): Boolean
 final def ##(): Int
+final def ->[B](y: B): (Ping, B)
 final def ==(x$1: Any): Boolean
 final def asInstanceOf[T0]: T0
 final def eq(x$1: AnyRef): Boolean
