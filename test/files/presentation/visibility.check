@@ -6,7 +6,6 @@ askTypeCompletion at Completions.scala(14,12)
 retrieved 41 members
 [inaccessible] private[this] def secretPrivateThis(): Unit
 def +(other: String): String
-def ->[B](y: B): (accessibility.Foo, B)
 def ensuring(cond: Boolean): accessibility.Foo
 def ensuring(cond: Boolean,msg: => Any): accessibility.Foo
 def ensuring(cond: accessibility.Foo => Boolean): accessibility.Foo
@@ -21,6 +20,7 @@ def →[B](y: B): (accessibility.Foo, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (accessibility.Foo, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
@@ -49,7 +49,6 @@ askTypeCompletion at Completions.scala(16,11)
 [response] askCompletionAt (16,11)
 retrieved 41 members
 def +(other: String): String
-def ->[B](y: B): (accessibility.Foo, B)
 def ensuring(cond: Boolean): accessibility.Foo
 def ensuring(cond: Boolean,msg: => Any): accessibility.Foo
 def ensuring(cond: accessibility.Foo => Boolean): accessibility.Foo
@@ -64,6 +63,7 @@ def →[B](y: B): (accessibility.Foo, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (accessibility.Foo, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
@@ -94,7 +94,6 @@ askTypeCompletion at Completions.scala(22,11)
 retrieved 41 members
 [inaccessible] private def secretPrivate(): Unit
 def +(other: String): String
-def ->[B](y: B): (accessibility.AccessibilityChecks, B)
 def ensuring(cond: Boolean): accessibility.AccessibilityChecks
 def ensuring(cond: Boolean,msg: => Any): accessibility.AccessibilityChecks
 def ensuring(cond: accessibility.AccessibilityChecks => Boolean): accessibility.AccessibilityChecks
@@ -110,6 +109,7 @@ def →[B](y: B): (accessibility.AccessibilityChecks, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (accessibility.AccessibilityChecks, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
@@ -142,7 +142,6 @@ retrieved 41 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (accessibility.Foo, B)
 def ensuring(cond: Boolean): accessibility.Foo
 def ensuring(cond: Boolean,msg: => Any): accessibility.Foo
 def ensuring(cond: accessibility.Foo => Boolean): accessibility.Foo
@@ -157,6 +156,7 @@ def →[B](y: B): (accessibility.Foo, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (accessibility.Foo, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
@@ -187,7 +187,6 @@ retrieved 41 members
 [inaccessible] protected[package lang] def clone(): Object
 [inaccessible] protected[package lang] def finalize(): Unit
 def +(other: String): String
-def ->[B](y: B): (accessibility.Foo, B)
 def ensuring(cond: Boolean): accessibility.Foo
 def ensuring(cond: Boolean,msg: => Any): accessibility.Foo
 def ensuring(cond: accessibility.Foo => Boolean): accessibility.Foo
@@ -202,6 +201,7 @@ def →[B](y: B): (accessibility.Foo, B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (accessibility.Foo, B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
