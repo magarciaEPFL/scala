@@ -184,7 +184,7 @@ object ScalaRunTime {
 
   /** Fast path equality method for inlining; used when -optimise is set.
    */
-  @inline def inlinedEquals(x: Object, y: Object): Boolean =
+  @inline final def inlinedEquals(x: Object, y: Object): Boolean =
     if (x eq y) true
     else if (x eq null) false
     else if (x.isInstanceOf[java.lang.Number]) BoxesRunTime.equalsNumObject(x.asInstanceOf[java.lang.Number], y)

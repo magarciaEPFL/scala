@@ -10,7 +10,6 @@ retrieved 124 members
 class GroupedIterator[B >: A] extends AbstractIterator[Seq[B]] with Iterator[Seq[B]]
 def +(other: String): String
 def ++[B >: B](that: => scala.collection.GenTraversableOnce[B]): Iterator[B]
-def ->[B](y: B): (java.util.Iterator[B], B)
 def /:[B](z: B)(op: (B, B) => B): B
 def :\[B](z: B)(op: (B, B) => B): B
 def addString(b: StringBuilder): StringBuilder
@@ -109,6 +108,7 @@ def →[B](y: B): (java.util.Iterator[B], B)
 final def !=(x$1: Any): Boolean
 final def !=(x$1: AnyRef): Boolean
 final def ##(): Int
+final def ->[B](y: B): (java.util.Iterator[B], B)
 final def ==(x$1: Any): Boolean
 final def ==(x$1: AnyRef): Boolean
 final def asInstanceOf[T0]: T0
