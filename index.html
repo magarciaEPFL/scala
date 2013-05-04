@@ -33,12 +33,12 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored31</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored39</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored31">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored31</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored39">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored39</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
@@ -104,7 +104,7 @@
 <p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @enforceStatic-tagged class.</p>
 
 <p>More defails (and examples) in the documentation of <code>scala.reallyStatic</code>
-<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored31/src/library/scala/reallyStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored31/src/library/scala/reallyStatic.scala</a></p>
+<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/reallyStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/reallyStatic.scala</a></p>
 
 <h2>1.5 Method handles</h2>
 
@@ -317,11 +317,11 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>4 Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored31</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored39</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored31
-cd GenRefactored31
-git checkout -b GenRefactored31 origin/GenRefactored31
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored39
+cd GenRefactored39
+git checkout -b GenRefactored39 origin/GenRefactored39
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -368,9 +368,9 @@ ant all.clean &amp;&amp; ant
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>4.4 Pro tip: Optimizing the compiler and standard library themselves</h1>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored31/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L207">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored31</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored39</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
