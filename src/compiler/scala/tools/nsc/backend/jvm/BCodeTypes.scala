@@ -1098,6 +1098,9 @@ abstract class BCodeTypes extends SubComponent with BytecodeWriters {
     def isTraditionalClosureClass = {
       isInnerClass && isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
     }
+    def isLCC = {
+      isFinal && (c.getSimpleName.contains(tpnme.LCC_FUN_NAME.toString)) && isFunctionType(c)
+    }
     def isLambda = {
       // ie isLCC || isTraditionalClosureClass
       isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)

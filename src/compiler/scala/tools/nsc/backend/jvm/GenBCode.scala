@@ -97,7 +97,7 @@ import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
  *  @version 1.0
  *
  */
-abstract class GenBCode extends BCodeOptIntra {
+abstract class GenBCode extends BCodeOptInter {
   import global._
   import definitions._
 
@@ -111,7 +111,8 @@ abstract class GenBCode extends BCodeOptIntra {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isOptimizRun  = settings.isIntraMethodOptimizOn
+    val isOptimizRun      = settings.isIntraMethodOptimizOn
+    val isIntraProgramOpt = settings.isIntraProgramOpt
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -166,7 +167,7 @@ abstract class GenBCode extends BCodeOptIntra {
 
         result.toMap
       }
-    }
+    } // end of case class Item2
 
     private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
     private val q2 = new _root_.java.util.concurrent.LinkedBlockingQueue[Item2]
@@ -192,6 +193,7 @@ abstract class GenBCode extends BCodeOptIntra {
                      outFolder:  _root_.scala.tools.nsc.io.AbstractFile) {
 
       def isPoison  = { arrivalPos == Int.MaxValue }
+
     }
     private val i3comparator = new _root_.java.util.Comparator[Item3] {
       override def compare(a: Item3, b: Item3) = {
@@ -210,6 +212,9 @@ abstract class GenBCode extends BCodeOptIntra {
      */
     class Worker1(needsOutFolder: Boolean) extends _root_.java.lang.Runnable {
 
+      val isDebugRun            = settings.debug.value
+      val mustPopulateCodeRepo  = isIntraProgramOpt || isDebugRun
+
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
 
@@ -217,6 +222,7 @@ abstract class GenBCode extends BCodeOptIntra {
         while (true) {
           val item = q1.take
           if (item.isPoison) {
+            isClassNodeBuildingDone = true
             for(i <- 1 to MAX_THREADS) { q2 put poison2 } // explanation in Worker2.run() as to why MAX_THREADS poison pills are needed on queue-2.
             return
           }
@@ -234,7 +240,8 @@ abstract class GenBCode extends BCodeOptIntra {
       /*
        *  Checks for duplicate internal names case-insensitively,
        *  builds ASM ClassNodes for mirror, plain, bean, and late-closure classes;
-       *  enqueues them in queue-2.
+       *  enqueues them in queue-2, and
+       *  incrementally populates dclosure-maps for the Late-Closure-Classes just built.
        *
        */
       def visit(item: Item1) {
@@ -285,6 +292,20 @@ abstract class GenBCode extends BCodeOptIntra {
 
         assert(lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
 
+        // ----------- all classes compiled in this run land in codeRepo.classes
+
+            def trackInCodeRepo(compiled: asm.tree.ClassNode) {
+              val bt = lookupRefBType(compiled.name)
+              assert(!codeRepo.containsKey(bt))
+              codeRepo.classes.put(bt, compiled)
+            }
+
+        if (mustPopulateCodeRepo) {
+          trackInCodeRepo(plainC)
+          lateClosures foreach trackInCodeRepo
+          // mirror and bean classes need not be tracked in codeRepo.
+        }
+
         // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
 
         for(lateC <- lateClosures) {
@@ -292,6 +313,8 @@ abstract class GenBCode extends BCodeOptIntra {
           val trackedClosu = buildExemplarForLCC(lateC)
           exemplars.put(trackedClosu.c, trackedClosu)
         }
+
+        // ----------- maps for dclosures (needed for optimizations, even inlining, and also for `squashOuterForLCC()`)
 
         var dClosureEndpoints: Iterable[DClosureEndpoint] = null
         if (lateClosures.nonEmpty) {
@@ -301,13 +324,21 @@ abstract class GenBCode extends BCodeOptIntra {
           populateDClosureMaps(plainC, masterBT, dClosureEndpoints)
         }
 
-        // ----------- hand over to pipeline-2
-
         val item2 =
           Item2(arrivalPos + lateClosuresCount,
                 mirrorC, plainC, beanC,
                 lateClosures, dClosureEndpoints,
                 outF)
+
+        // ----------- dead-code is removed before the inliner can see it.
+        if (isIntraProgramOpt) {
+          val essential = new EssentialCleanser(plainC)
+          essential.codeFixupDCE()
+          essential.codeFixupSquashLCC(lateClosures, item2.epByDCName)
+        }
+
+        // ----------- hand over to pipeline-2
+
         lateClosuresCount += lateClosures.size
 
         q2 put item2 // at the very end of this method so that no Worker2 thread starts mutating before we're done.
@@ -348,11 +379,16 @@ abstract class GenBCode extends BCodeOptIntra {
      *          - cleanseClass() is invoked on the plain class, and then
      *          - the plain class is serialized as above (ending up in queue-3)
      *
+     *    (c) with inter-procedural optimization on,
+     *          - cleanseClass() runs first.
+     *            The difference with (b) however has to do with master-classes and their dclosures.
+     *            In the inter-procedural case, they are processed as a single (larger) unit of work by cleanseClass.
+     *            That's why in this case "large classes" (see `i2LargeClassesFirst`) bubble up to queue-2's head.
+     *          - once that (larger) unit of work is complete, all of its constituent classes are placed on queue-3.
+     *
      *  can-multi-thread
      */
     class Worker2 extends _root_.java.lang.Runnable {
-
-      val isIntraMethodOptimizOn = settings.isIntraMethodOptimizOn
 
       def run() {
         val id = java.lang.Thread.currentThread.getId
@@ -385,7 +421,10 @@ abstract class GenBCode extends BCodeOptIntra {
        */
       def visit(item: Item2) {
 
+        assert(isInliningDone == isIntraProgramOpt)
+
         val cnode   = item.plain
+        val cnodeBT = lookupRefBType(cnode.name)
 
         if (isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode)
@@ -465,7 +504,11 @@ abstract class GenBCode extends BCodeOptIntra {
       beanInfoCodeGen = new JBeanInfoBuilder
 
       val needsOutfileForSymbol = bytecodeWriter.isInstanceOf[ClassBytecodeWriter]
-      buildAndSendToDiskInParallel(needsOutfileForSymbol)
+      if (isIntraProgramOpt) {
+        wholeProgramThenWriteToDisk(needsOutfileForSymbol)
+      } else {
+        buildAndSendToDiskInParallel(needsOutfileForSymbol)
+      }
 
       // closing output files.
       bytecodeWriter.close()
@@ -488,11 +531,52 @@ abstract class GenBCode extends BCodeOptIntra {
     }
 
     /*
+     *  The workflow where inter-procedural optimizations is ENABLED comprises:
+     *    (a) sequentially build all ClassNodes (Worker1 takes care of this)
+     *    (b) sequentially perform whole-program analysis on them
+     *    (c) run in parallel:
+     *          - intra-class (including intra-method) optimizations
+     *          - a limited form of inter-class optimizations
+     *            (those affecting a master-class and the delegating-closures it's responsible for, details below)
+     *    (d) overlapping with (c), write non-elided classes to disk.
+     *
+     *  A useful distinction of inter-class optimizations involves:
+     *    (e) method-inlining and closure-inlining, ie what `BCodeOptInter.WholeProgramAnalysis`  does
+     *    (f) the "limited form" referred to above, ie what `BCodeOptInter.DClosureOptimizerImpl` does
+     *        Unlike (e), different groups of ClassNodes in (f) can be optimized in parallel,
+     *        where a "group" comprises a master-class and the dclosures the master-class is responsible for.
+     *
+     *  The distinction is useful because it explains why Item2 has a fields for Late-Closure-Classes:
+     *  that way, LCCs are added to queue-3 only after all optimizations
+     *  triggered by the master class have been completed, including (f).
+     *  Otherwise the ClassNode for a delegating-closure could be written to disk too early.
+     *
+     */
+    private def wholeProgramThenWriteToDisk(needsOutFolder: Boolean) {
+      assert(isIntraProgramOpt)
+
+      // sequentially
+      feedPipeline1()
+      (new Worker1(needsOutFolder)).run()
+      (new WholeProgramAnalysis).optimize()
+
+      // optimize different groups of ClassNodes in parallel, once done with each group queue its ClassNodes for disk serialization.
+      spawnPipeline2()
+      // overlapping with pipeline-2, serialize to disk.
+      drainQ3()
+
+    }
+
+    /*
+     *  The workflow where inter-procedural optimizations is DISABLED boils down to:
      *  As soon as each individual ClassNode is ready
+     *     (if needed intra-class optimized,
+     *     moreover optimized with the Late-Closure-Classes it's responsible for)
      *  it's also ready for disk serialization, ie it's ready to be added to queue-3.
      *
      */
     private def buildAndSendToDiskInParallel(needsOutFolder: Boolean) {
+      assert(!isIntraProgramOpt)
 
       new _root_.java.lang.Thread(new Worker1(needsOutFolder), "bcode-typer").start()
       spawnPipeline2()
@@ -648,8 +732,8 @@ abstract class GenBCode extends BCodeOptIntra {
       var lateClosures: List[asm.tree.ClassNode] = Nil
 
       /*
-       *  Allows detecting which LCCs have been already emitted (a "second" instantiation of "the same"
-       *  anon-closure-class is possible, in the instructions resulting from duplicating a finalizer).
+       *  `closuresForDelegates` allows detecting which LCCs have been already emitted (a "second" instantiation of
+       *  "the same" anon-closure-class is possible, in the instructions resulting from duplicating a finalizer).
        */
       val closuresForDelegates = mutable.Map.empty[MethodSymbol, DClosureEndpoint]
 
@@ -664,6 +748,7 @@ abstract class GenBCode extends BCodeOptIntra {
       private var isMethSymBridge            = false
       private var returnType: BType          = null
       private var methSymbol: Symbol         = null
+      private var cgn: CallGraphNode         = null
       // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
       private var isModuleInitialized        = false
       // used by genLoadTry() and genSynchronized()
@@ -1239,7 +1324,11 @@ abstract class GenBCode extends BCodeOptIntra {
               } // end of emitNormalMethodBody()
 
           lineNumber(rhs)
+          cgn = new CallGraphNode(cnode, mnode)
           emitNormalMethodBody()
+          if (!cgn.isEmpty) {
+            cgns += cgn
+          }
 
           // Note we don't invoke visitMax, thus there are no FrameNode among mnode.instructions.
           // The only non-instruction nodes to be found are LabelNode and LineNumberNode.
@@ -2763,6 +2852,7 @@ abstract class GenBCode extends BCodeOptIntra {
 
         // registers the closure's internal name in Names.chrs, and let populateDClosureMaps() know about closure endpoint
         val closuBT = brefType(closuCNode.name)
+        assert(!codeRepo.containsKey(closuBT))
 
         val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
@@ -3255,6 +3345,59 @@ abstract class GenBCode extends BCodeOptIntra {
           bc.invokespecial(jowner, jname, mdescr)
           initModule()
         }
+
+        if (isIntraProgramOpt) {
+
+          /*
+           * Gather data for "method inlining".
+           *
+           * Conditions on the target method:
+           *
+           *   (a.1) must be marked @inline AND one of:
+           *         - called via INVOKESTATIC, INVOKESPECIAL, or INVOKEVIRTUAL
+           *         - method.isEffectivelyFinal (in particular, method.isFinal)
+           *         The above amounts to "cannot be overridden"
+           *         Therefore, the actual (runtime) method to dispatch can be determined statically,
+           *         moreover without type-flow analysis. Instead, walking up the superclass-hierarchy is enough.
+           *
+           *   (a.2) not a self-recursive call
+           *
+           *   (a.3) not a super-call
+           *
+           * Conditions on the host method (ie the method being emitted, which hosts the callsite candidate for inlining):
+           *   (b.1) not a bridge method
+           * Therefore, marking a method @inline does not preclude inlining inside it.
+           *
+           * The callsite thus tracked may be amenable to
+           *   - "closure inlining" (in case it takes one ore more closures as arguments)
+           *   - or "method inlining".
+           * The former will be tried first.
+           */
+          val knockOuts = (isMethSymBridge || (method == methSymbol) || style.isSuper)
+          if (!knockOuts && hasInline(method)) {
+            val callsite = mnode.instructions.getLast.asInstanceOf[MethodInsnNode]
+            val opc = callsite.getOpcode
+            val cannotBeOverridden = (
+              opc == asm.Opcodes.INVOKESTATIC  ||
+              opc == asm.Opcodes.INVOKESPECIAL ||
+              method.isFinal ||
+              method.isEffectivelyFinal
+            ) && (
+              opc != asm.Opcodes.INVOKEDYNAMIC   &&
+              opc != asm.Opcodes.INVOKEINTERFACE &&
+              callsite.name != "<init>"          &&
+              callsite.name != "<clinit>"
+            )
+            if (cannotBeOverridden) {
+              val isHiO = isHigherOrderMethod(bmType)
+              // the callsite may be INVOKEVIRTUAL (but not INVOKEINTERFACE) in addition to INVOKESTATIC or INVOKESPECIAL.
+              val inlnTarget = new InlineTarget(callsite, cunit, pos)
+              if (isHiO) { cgn.hiOs  ::= inlnTarget }
+              else       { cgn.procs ::= inlnTarget }
+            }
+          }
+
+        } // inter-procedural optimizations
 
       } // end of genCallMethod()
 
