@@ -329,6 +329,69 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
   } // end of class QuickCleanser
 
   /*
+   *  Intra-method optimizations. Upon visiting each method in an asm.tree.ClassNode,
+   *  optimizations are applied iteratively until a fixpoint is reached.
+   *
+   *  All optimizations implemented here can do based solely on information local to the method
+   *  (in particular, no lookups on `exemplars` are performed).
+   *  That way, intra-method optimizations can be performed in parallel (in pipeline-2)
+   *  while GenBCode's pipeline-1 keeps building more `asm.tree.ClassNode`s.
+   *  Moreover, pipeline-2 is realized by a thread-pool.
+   *
+   *  The entry point is `cleanseClass()`.
+   */
+  final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
+
+    val unboxElider           = new asm.optimiz.UnBoxElider
+
+    /*
+     *  The intra-method optimizations below are performed until a fixpoint is reached.
+     *  They are grouped somewhat arbitrarily into:
+     *    - those performed by `cleanseMethod()`
+     *    - those performed by `elimRedundandtCode()`
+     *    - nullness propagation
+     *    - constant folding
+     *
+     *  After the fixpoint has been reached, three more intra-method optimizations are performed just once
+     *  (further applications wouldn't reduce any further):
+     *    - eliding box/unbox pairs
+     *    - eliding redundant local vars
+     *
+     *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
+     *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
+     *
+     */
+    def cleanseClass() {
+
+      // (1) intra-method
+      intraMethodFixpoints(full = true)
+
+    } // end of method cleanseClass()
+
+    /*
+     *  intra-method optimizations
+     */
+    def intraMethodFixpoints(full: Boolean) {
+
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+
+        Util.computeMaxLocalsMaxStack(mnode)
+
+        basicIntraMethodOpt(mnode)                 // intra-method optimizations performed until a fixpoint is reached
+
+        if (full) {
+          unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
+        }
+
+        ifDebug { runTypeFlowAnalysis(mnode) }
+
+      }
+
+    }
+
+  } // end of class BCodeCleanser
+
+  /*
    * One of the intra-method optimizations (dead-code elimination)
    * and a few of the inter-procedural ones (inlining)
    * may have caused the InnerClasses JVM attribute to become stale
