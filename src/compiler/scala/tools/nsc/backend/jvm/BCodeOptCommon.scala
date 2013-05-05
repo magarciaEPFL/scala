@@ -10,8 +10,7 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.{ProdConsAnalyzer, UnBoxAnalyzer, Util}
-import asm.tree.analysis.SourceValue
+import asm.optimiz.{ProdConsAnalyzer, Util}
 import asm.tree._
 
 import scala.collection.{ mutable, immutable }
@@ -37,6 +36,10 @@ abstract class BCodeOptCommon extends BCodeTypes {
   final def assertPipeline1Done(msg: String) {
     assert(isClassNodeBuildingDone, msg)
   }
+
+  val elidedClasses: java.util.Set[BType] = java.util.Collections.newSetFromMap(
+    new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
+  )
 
   trait BCodeCleanserIface {
     def intraMethodFixpoints(full: Boolean)
@@ -378,6 +381,8 @@ abstract class BCodeOptCommon extends BCodeTypes {
 
   final def isDClosure(iname: String) = closuRepo.isDelegatingClosure(iname)
 
+  final def isMasterClass(bt: BType)  = closuRepo.isMasterClass(bt)
+
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
 
   /*
@@ -477,14 +482,321 @@ abstract class BCodeOptCommon extends BCodeTypes {
      */
     val dclosures = new java.util.concurrent.ConcurrentHashMap[BType, List[BType]]
 
+    /*
+     *  dclosure-class -> "classes other than its master-class referring to it, via NEW dclosure or INVOKE endpoint"
+     *
+     *  @see populateNonMasterUsers() Before that method runs, this map is empty.
+     */
+    val nonMasterUsers = mutable.Map.empty[BType, mutable.Set[BType]]
+
+    def hasMultipleUsers(closuBT: BType): Boolean = {
+      val others = nonMasterUsers.getOrElse(closuBT, null)
+
+      (others != null) && others.nonEmpty
+    }
+
+    def isNonMasterUser(closuBT: BType, enclClass: BType): Boolean = {
+      val others = nonMasterUsers.getOrElse(closuBT, null)
+
+      (others != null) && others.contains(enclClass)
+    }
+
+    def addAnotherUser(closuBT: BType, enclClass: BType) {
+      val others = nonMasterUsers.getOrElse(closuBT, mutable.Set.empty)
+      nonMasterUsers.put(closuBT, others += enclClass)
+    }
+
     // --------------------- query methods ---------------------
 
     def isDelegatingClosure( c:    BType):     Boolean = { endpoint.containsKey(c) }
     def isDelegatingClosure(iname: String):    Boolean = { isDelegatingClosure(lookupRefBType(iname)) }
+    def isDelegatingClosure(cnode: ClassNode): Boolean = { isDelegatingClosure(cnode.name) }
+
+    def isTraditionalClosure(c: BType): Boolean = { c.isClosureClass && !isDelegatingClosure(c) }
+
+    def masterClass(dclosure: BType): BType = { endpoint.get(dclosure).ownerClass }
+
+    def isMasterClass(c:     BType ):    Boolean = { dclosures.containsKey(c) }
+    def isMasterClass(iname: String):    Boolean = { isMasterClass(lookupRefBType(iname)) }
+    def isMasterClass(cnode: ClassNode): Boolean = { isMasterClass(cnode.name) }
+
+    /*
+     * The set of delegating-closures created during UnCurry, represented as BTypes.
+     * Some of these might not be emitted, e.g. as a result of dead-code elimination or closure inlining.
+     */
+    def allDClosures:     collection.Set[BType] = { JSetWrapper(endpoint.keySet)  }
+    def allMasterClasses: collection.Set[BType] = { JSetWrapper(dclosures.keySet) }
+
+    /*
+     * The set of delegating-closures used by no other class than the argument
+     * (besides the trivial usage of each dclosure by itself).
+     */
+    def exclusiveDClosures(master: BType): List[BType] = {
+      dclosures.get(master) filter { dc => !hasMultipleUsers(dc) }
+    }
+
+    def isDClosureExclusiveTo(d: BType, master: BType): Boolean = {
+      exclusiveDClosures(master) contains d
+    }
+
+    /*
+     * The set of delegating-closures used by no other class than the argument
+     * (besides the trivial usage of each dclosure by itself)
+     * and moreover not elided (as a consequence, endpoint is public).
+     */
+    def liveDClosures(masterCNode: ClassNode): List[BType] = {
+      val masterBT = lookupRefBType(masterCNode.name)
+      assert(isMasterClass(masterBT), "Not a master class for any dclosure: " + masterBT.getInternalName)
+      for(
+        d <- exclusiveDClosures(masterBT);
+        if !elidedClasses.contains(d);
+        dep = endpoint.get(d).mnode;
+        // looking ahead, it's possible for the static endpoint of a dclosure to be inlined into the dclosure's apply().
+        if masterCNode.methods.contains(dep)
+      ) yield d
+    }
+
+    def closureInstantiations(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
+      assert(dclosure != null)
+      mnode.instructions.toList filter { insn => instantiatedDClosure(insn) == dclosure }
+    }
+
+    def closureInvocations(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
+      assert(dclosure != null)
+      mnode.instructions.toList filter { insn => invokedDClosure(insn) == dclosure }
+    }
+
+    def closureAccesses(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
+      assert(dclosure != null)
+      mnode.instructions.toList filter { insn => accessedDClosure(insn) == dclosure }
+    }
+
+    // ------------------------------- yes/no inspectors and asserts ------------------------------
+
+    /*
+     *  A master-class of a non-elided dclosure contains:
+     *    - a single instantiation of it, and
+     *    - no invocations to the dclosure's endpoint.
+     *  (the "non-elided" part is responsible for that property: a dclosure that was inlined
+     *   has a callsite to the endpoint in the shio method that replaces the higher-order method invocation).
+     */
+    def assertEndpointInvocationsIsEmpty(masterCNode: ClassNode, dclosure: BType) {
+      for( /*debug*/
+        masterMethod <- JListWrapper(masterCNode.methods);
+        if !Util.isAbstractMethod(masterMethod)
+      ) {
+        assert(
+          closuRepo.closureInvocations(masterMethod, dclosure).isEmpty,
+          "A master class of a non-elided dclosure is supposed to contain a single instantiation of it, however " +
+         s"${methodSignature(masterCNode, masterMethod)} invokes the endpoint of ${dclosure.getInternalName}"
+        )
+      }
+    }
+
+    // -------------- utilities to track dclosure usages in classes other than master --------------
+
+    /*
+     * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
+     */
+    private def instantiatedDClosure(insn: AbstractInsnNode): BType = {
+      if (insn.getOpcode == Opcodes.NEW) {
+        val ti  = insn.asInstanceOf[TypeInsnNode]
+        val dbt = lookupRefBType(ti.desc)
+        if (isDelegatingClosure(dbt)) {
+          return dbt
+        }
+      }
+
+      null
+    }
+
+    /*
+     * Matches a "INVOKE dclosure-endpoint" instruction returning the dclosure's BType in that case. Otherwise null.
+     */
+    def invokedDClosure(insn: AbstractInsnNode): BType = {
+      if (insn.getType == AbstractInsnNode.METHOD_INSN) {
+        val mi     = insn.asInstanceOf[MethodInsnNode]
+        val master = lookupRefBType(mi.owner)
+        if (isMasterClass(master)) {
+          for(
+            dclosure <- dclosures.get(master);
+            mnode: MethodNode = endpoint.get(dclosure).mnode;
+            if (mnode.name == mi.name) && (mnode.desc == mi.desc)
+          ) {
+            return dclosure
+          }
+        }
+      }
+
+      null
+    }
+
+    /*
+     * Matches a "GETSTATIC singleton-dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
+     */
+    private def getSingletonDClosure(insn: AbstractInsnNode): BType = {
+      if (insn.getOpcode == Opcodes.GETSTATIC) {
+        val fi  = insn.asInstanceOf[FieldInsnNode]
+        if (fi.name == "$single") {
+          val dbt = lookupRefBType(fi.owner)
+          if (isDelegatingClosure(dbt)) {
+            return dbt
+          }
+        }
+      }
+
+      null
+    }
+
+    /*
+     * Matches a dclosure instantiation or endpoint invocation, returning the dclosure's BType in that case. Otherwise null.
+     */
+    private def accessedDClosure(insn: AbstractInsnNode): BType = {
+      var res = instantiatedDClosure(insn)
+      if (res == null) {
+        res = invokedDClosure(insn)
+        if (res == null) {
+          res = getSingletonDClosure(insn)
+        }
+      }
+      res
+    }
+
+    /*
+     *  In case `insn` denotes a dclosure instantiation or endpoint invocation lexically enclosed in `enclClass`
+     *  and `enclClass` isn't the master class of that closure, note this fact `nonMasterUsers`.
+     *
+     *  Motivation
+     *  ----------
+     *
+     *  Right after GenBCode, each "NEW dclosure" instruction is enclosed by masterClass(dclosure).
+     *
+     *      Sidenote of historic interest: in the past, the rewriting for DelayedInit
+     *      resulted in exceptions to the above, but currently
+     *      (see `delayedEndpointDef()` in `ConstructorTransformer`)
+     *      that's not the case anymore.
+     *
+     *  However, non-master-class usages of dclosures may result from inlining.
+     *  Given that this method takes note of those usages, after `WholeProgramAnalysis.optimize()` has run
+     *  we know where to look for usages of a given dclosure.
+     *
+     *  Knowing "all classes enclosing usages of a dclosure" is needed to partition the set of dclosures
+     *  so that different Worker2 threads have exclusive access to different partitions.
+     *  Why? Because when performing dclosure optimizations, a limited form of inter-class mutations are done
+     *  (for example, to minimize closure state).
+     *
+     *  @param insn      bytecode instruction that may access a dclosure
+     *  @param enclClass enclosing class where the usage of the dclosure appears
+     *
+     */
+    def trackClosureUsageIfAny(insn: AbstractInsnNode, enclClass: BType) {
+      val dc = accessedDClosure(insn)
+      if (dc == null || enclClass == dc || !isDelegatingClosure(dc)) { return }
+      assert(
+        !isDelegatingClosure(enclClass),
+         "A dclosure D is used by a class C other than its master class, but C is a dclosure itself. " +
+        s"Who plays each role: D by ${dc.getInternalName} , C by ${enclClass.getInternalName} "
+      )
+      if (enclClass != masterClass(dc)) {
+        addAnotherUser(dc, enclClass)
+      }
+    }
+
+    // --------------------- closuRepo initializers ---------------------
+
+    /*
+     *  Checks about usages of dclosures.
+     *
+     *  Before the Inliner has run, a dclosure:
+     *
+     *    (a) may be instantiated only in its master class (if at all).
+     *        In case dead-code elimination has run, a dclosure might not be instantiated at all,
+     *        not even in its master class.
+     *
+     *    (b) may have its endpoint invoked only in the dclosure class itself.
+     *
+     *  In addition to the above, after the Inliner has run, a dclosure may also
+     *
+     *    (c) be instantiated in a nonMasterUser,
+     *    (d) have its endpoint invoked by its masterClass or a nonMasterUser.
+     *
+     */
+    def checkDClosureUsages(enclClassCN: ClassNode) {
+
+      val enclClassBT = lookupRefBType(enclClassCN.name)
+      for(
+        mnode <- JListWrapper(enclClassCN.methods);
+        if !Util.isAbstractMethod(mnode)
+      ) {
+        mnode foreachInsn { insn =>
+
+          // properties (a) , (c)
+          var dc: BType = instantiatedDClosure(insn)
+          assert(
+            dc == null ||
+            enclClassBT == masterClass(dc) ||
+            (isInliningDone && isNonMasterUser(dc, enclClassBT)),
+             "A dclosure D is instantiated by a class C other than its master class, and " +
+             "inlining + nonMasterUsers doesn't explain it either. " +
+            s"Who plays each role: D by ${dc.getInternalName} , its master class is ${masterClass(dc).getInternalName} , " +
+            s"and the enclosing class is ${enclClassBT.getInternalName} "
+          )
+
+          // properties (b) , (d)
+          dc = invokedDClosure(insn)
+          assert(
+            dc == null ||
+            enclClassBT == dc ||
+            (isInliningDone && (enclClassBT == masterClass(dc) || isNonMasterUser(dc, enclClassBT))),
+            "A dclosure D is has its endpoint invoked by a class C other than D itself, and " +
+            "inlining + nonMasterUsers doesn't explain it either. " +
+           s"Who plays each role: D by ${dc.getInternalName} , and the enclosing class is ${enclClassBT.getInternalName} "
+          )
+
+        }
+      }
+    }
+
+    /*
+     *  @see checkDClosureUsages(enclClassCN: ClassNode)
+     */
+    def checkDClosureUsages() {
+
+      assert(if(!isInliningDone) nonMasterUsers.isEmpty else true)
+
+      val iterCompiledEntries = codeRepo.classes.entrySet().iterator()
+      while(iterCompiledEntries.hasNext) {
+        val e = iterCompiledEntries.next()
+        val enclClassCN: ClassNode = e.getValue
+        checkDClosureUsages(enclClassCN)
+      }
+
+    }
+
+    // --------------------- closuRepo post-initialization utilities ---------------------
+
+    /*
+     *  TODO Confirm no unwanted interaction when multiple usages are present in master class (due to duplication of catch and finally clauses)
+     *       Eliding only possible when no instantiation-usages present.
+     */
+    def retractAsDClosure(dc: BType) {
+      assert(
+        !hasMultipleUsers(dc),
+        s"A dclosure can't be retracted unless used only by its master class, but ${dc.getInternalName} in use by ${nonMasterUsers(dc).mkString}"
+      )
+      val exMaster = masterClass(dc)
+      endpoint.remove(dc)
+      if (dclosures.containsKey(exMaster)) {
+        val other = dclosures.get(exMaster) filterNot { _ == dc }
+        if (other.isEmpty) { dclosures.remove(exMaster)     }
+        else               { dclosures.put(exMaster, other) }
+      }
+    }
 
     def clear() {
       endpoint.clear()
       dclosures.clear()
+      nonMasterUsers.clear()
     }
 
   } // end of object closuRepo

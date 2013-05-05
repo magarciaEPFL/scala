@@ -194,6 +194,16 @@ abstract class GenBCode extends BCodeOptInter {
 
       def isPoison  = { arrivalPos == Int.MaxValue }
 
+      /*
+       * The first condition below (plain == null) implies WholeProgramAnalysis did the eliding,
+       * the second condition holds when an intra-class optimization did the eliding
+       * (during BCodeCleanser.cleanseClass(), running after whole-program).
+       */
+      def wasElided = {
+        (plain == null) ||
+        elidedClasses.contains(lookupRefBType(plain.jclassName))
+      }
+
     }
     private val i3comparator = new _root_.java.util.Comparator[Item3] {
       override def compare(a: Item3, b: Item3) = {
@@ -643,10 +653,12 @@ abstract class GenBCode extends BCodeOptInter {
         }
         while (!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
-          val outFolder = item.outFolder
-          sendToDisk(item.mirror, outFolder)
-          sendToDisk(item.plain,  outFolder)
-          sendToDisk(item.bean,   outFolder)
+          if (!item.wasElided) {
+            val outFolder = item.outFolder
+            sendToDisk(item.mirror, outFolder)
+            sendToDisk(item.plain,  outFolder)
+            sendToDisk(item.bean,   outFolder)
+          }
           expected += 1
         }
       }
