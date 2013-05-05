@@ -438,6 +438,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
   final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
 
     val unboxElider           = new asm.optimiz.UnBoxElider
+    val lvCompacter           = new asm.optimiz.LocalVarCompact
 
     /*
      *  The intra-method optimizations below are performed until a fixpoint is reached.
@@ -476,6 +477,7 @@ abstract class BCodeOptIntra extends BCodeTypes {
 
         if (full) {
           unboxElider.transform(cnode.name, mnode) // remove box/unbox pairs (this transformer is more expensive than most)
+          lvCompacter.transform(mnode)             // compact local vars, remove dangling LocalVariableNodes.
         }
 
         ifDebug { runTypeFlowAnalysis(mnode) }
