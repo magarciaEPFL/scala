@@ -74,6 +74,12 @@
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
 </ul><h2>1.4 "really static" value classes and static modules</h2>
 
+<blockquote>
+<p>Given there's some overlap in functionality with another proposal,
+<a href="https://github.com/scala/scala/pull/2416">https://github.com/scala/scala/pull/2416</a>
+each with pros and cons, for now "really static" lives in an older branch, <code>GenRefactored39</code></p>
+</blockquote>
+
 <p>Before <code>@enforceStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
 
 <pre><code>  load singleton-module
@@ -103,8 +109,8 @@
 
 <p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @enforceStatic-tagged class.</p>
 
-<p>More defails (and examples) in the documentation of <code>scala.reallyStatic</code>
-<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored42/src/library/scala/reallyStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored42/src/library/scala/reallyStatic.scala</a></p>
+<p>More defails (and examples) in the documentation of <code>scala.enforceStatic</code>
+<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala</a></p>
 
 <h2>1.5 Method handles</h2>
 
