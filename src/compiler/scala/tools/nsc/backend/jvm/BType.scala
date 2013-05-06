@@ -392,6 +392,22 @@ class BType(val bits: Long) extends AnyVal {
     }
   }
 
-  override def toString: String = { throw new RuntimeException("Use BType.getDescriptor instead.") }
+  override def toString: String = {
+    import scala.tools.asm
+    (sort: @switch) match {
+      case asm.Type.VOID    => "void"
+      case asm.Type.BOOLEAN => "boolean"
+      case asm.Type.CHAR    => "char"
+      case asm.Type.BYTE    => "byte"
+      case asm.Type.SHORT   => "short"
+      case asm.Type.INT     => "int"
+      case asm.Type.FLOAT   => "float"
+      case asm.Type.LONG    => "long"
+      case asm.Type.DOUBLE  => "double"
+      case asm.Type.ARRAY   => "[..."
+      case asm.Type.OBJECT  => "L...;"
+      case asm.Type.METHOD  => "(...)..."
+    }
+  }
 
 }
