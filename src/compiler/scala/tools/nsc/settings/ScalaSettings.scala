@@ -206,7 +206,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val neo         = ChoiceSetting ("-neo", "choice of bytecode emitter", "Choice of bytecode emitter.",
                                    List("GenASM", "GenBCode"),
-                                   "GenASM")
+                                   "GenBCode")
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
 
