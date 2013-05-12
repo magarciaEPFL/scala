@@ -318,6 +318,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
   class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
 
+    val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
 
     //--------------------------------------------------------------------
@@ -334,6 +335,9 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
         keepGoing = false
 
         keepGoing |= cleanseMethod(cName, mnode)
+
+        nullnessPropagator.transform(cName, mnode);   // infers null resp. non-null reaching certain program points, simplifying control-flow based on that.
+        keepGoing |= nullnessPropagator.changed
 
         constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
         keepGoing |= constantFolder.changed
