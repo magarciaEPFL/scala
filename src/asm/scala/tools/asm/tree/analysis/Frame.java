@@ -34,6 +34,7 @@ import java.util.List;
 
 import scala.tools.asm.Opcodes;
 import scala.tools.asm.Type;
+import scala.tools.asm.optimiz.*;
 import scala.tools.asm.tree.AbstractInsnNode;
 import scala.tools.asm.tree.IincInsnNode;
 import scala.tools.asm.tree.InvokeDynamicInsnNode;
@@ -227,6 +228,44 @@ public class Frame<V extends Value> {
     public V peekDown(int n) {
         int idxTop = getStackSize() - 1;
         return getStack(idxTop - n);
+    }
+
+    /**
+     *  For a callsite expecting a receiver (ie one of INVOKEVIRTUAL, INVOKESPECIAL, or INVOKEINTERFACE)
+     *  returns the content of the stack slot that provides such receiver.
+     *
+     *  To recap, a Frame reserves two slots for a local-var of category-2 size,
+     *  but all stack values take just one slot, irrespective of their size.
+     *
+     * */
+    public V getReceiver(MethodInsnNode callsite) {
+        assert Util.isInstanceCallsite(callsite);
+        int args = Type.getArgumentTypes(callsite.desc).length;
+        return peekDown(args);
+    }
+
+    /**
+     *  The returned array contains as first value that for the first formal param, and so on.
+     *  This method works for all calling conventions.
+     *
+     *  A callsite for an instance-level method expects the receiver instance as "extra argument",
+     *  that value is not included among those returned. For that, use getReceiver().
+     *
+     *  To recap, a Frame reserves two slots for a local-var of category-2 size,
+     *  but all stack values take just one slot, irrespective of their size.
+     *
+     * */
+    public V[] getActualArguments(MethodInsnNode callsite) {
+        int args = Type.getArgumentTypes(callsite.desc).length;
+        int onePastLast = getLocals() + getStackSize();
+        V[] result = java.util.Arrays.copyOfRange(values, onePastLast - args, onePastLast);
+        assert result.length == args;
+        return result;
+    }
+
+    public V[] getArgumentsInclReceiver(MethodInsnNode callsite) {
+        int args = Util.expectedArgs(callsite);
+        return java.util.Arrays.copyOfRange(values, getStackSize() - args, getStackSize());
     }
 
     /**
