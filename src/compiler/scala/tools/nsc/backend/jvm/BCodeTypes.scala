@@ -574,9 +574,9 @@ abstract class BCodeTypes extends BCodeIdiomatic {
   def maxValueType(a: BType, other: BType): BType = {
     assert(a.isValueType, "maxValueType() is defined only for 1st arg valuetypes (2nd arg doesn't matter).")
 
-        def uncomparable: Nothing = {
-          abort(s"Uncomparable BTypes: $a with $other")
-        }
+    def uncomparable: Nothing = {
+      abort(s"Uncomparable BTypes: $a with $other")
+    }
 
     if (a.isNothingType)      return other;
     if (other.isNothingType)  return a;
@@ -863,7 +863,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
         null
       else {
         val outerName = innerSym.rawowner.javaBinaryName
-        if (isTopLevelModule(innerSym.rawowner)) nme.stripModuleSuffix(outerName)
+        if (isTopLevelModule(innerSym.rawowner)) outerName.dropModule
         else outerName
       }
     }
