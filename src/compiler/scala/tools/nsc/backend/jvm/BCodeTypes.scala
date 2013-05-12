@@ -863,7 +863,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
             null
           else {
             val outerName = innerSym.rawowner.javaBinaryName
-            if (isTopLevelModule(innerSym.rawowner)) nme.stripModuleSuffix(outerName)
+            if (isTopLevelModule(innerSym.rawowner)) outerName.dropModule
             else outerName
           }
         }
