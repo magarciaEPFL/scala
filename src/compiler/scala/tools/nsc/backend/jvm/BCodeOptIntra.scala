@@ -321,6 +321,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
     val ppCollapser         = new asm.optimiz.PushPopCollapser
+    val jumpReducer         = new asm.optimiz.JumpReducer
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
 
@@ -378,6 +379,9 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
         ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         keepGoing |= ppCollapser.changed
+
+        jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
+        keepGoing |= jumpReducer.changed
 
         changed = (changed || keepGoing)
 
