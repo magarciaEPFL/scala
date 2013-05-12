@@ -320,6 +320,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
     val copyPropagator      = new asm.optimiz.CopyPropagator
     val deadStoreElim       = new asm.optimiz.DeadStoreElim
+    val ppCollapser         = new asm.optimiz.PushPopCollapser
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
 
@@ -374,6 +375,9 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
         deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
         keepGoing |= deadStoreElim.changed
+
+        ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
+        keepGoing |= ppCollapser.changed
 
         changed = (changed || keepGoing)
 
