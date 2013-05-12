@@ -304,6 +304,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
      *
      */
     final def codeFixupDCE() {
+      ifDebug { runTypeFlowAnalysis() }
       val iter = cnode.methods.iterator()
       while (iter.hasNext) {
         val mnode = iter.next()
@@ -311,6 +312,36 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
           Util.computeMaxLocalsMaxStack(mnode)
           cleanseMethod(cnode.name, mnode) // remove unreachable code
         }
+      }
+      ifDebug { runTypeFlowAnalysis() }
+    }
+
+    //--------------------------------------------------------------------
+    // Type-flow analysis
+    //--------------------------------------------------------------------
+
+    final def runTypeFlowAnalysis() {
+      for(m <- JListWrapper(cnode.methods); if asm.optimiz.Util.hasBytecodeInstructions(m)) {
+        runTypeFlowAnalysis(m)
+      }
+    }
+
+    final def runTypeFlowAnalysis(mnode: MethodNode) {
+
+      import asm.tree.analysis.{ Analyzer, Frame }
+      import asm.tree.AbstractInsnNode
+
+      Util.computeMaxLocalsMaxStack(mnode)
+      val tfa = new Analyzer[TFValue](new TypeFlowInterpreter)
+      tfa.analyze(cnode.name, mnode)
+      val frames: Array[Frame[TFValue]]   = tfa.getFrames()
+      val insns:  Array[AbstractInsnNode] = mnode.instructions.toArray()
+      var i = 0
+      while (i < insns.length) {
+        if (frames(i) == null && insns(i) != null) {
+          // TODO abort("There should be no unreachable code left by now.")
+        }
+        i += 1
       }
     }
 

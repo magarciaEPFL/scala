@@ -21,7 +21,7 @@ import scala.tools.asm
  *  @version 1.0
  *
  */
-abstract class BCodeSkelBuilder extends BCodeHelpers {
+abstract class BCodeSkelBuilder extends BCodeTFA {
   import global._
   import definitions._
 
