@@ -306,6 +306,24 @@ public class Util {
         return (m.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0;
     }
 
+    public static boolean isInstanceField(final FieldNode f) {
+        return (f.access & Opcodes.ACC_STATIC) == 0;
+    }
+
+    /**
+     *  INVOKEDYNAMIC and INVOKESTATIC don't qualify as `isInstanceCallsite()`
+     * */
+    public static boolean isInstanceCallsite(final MethodInsnNode callsite) {
+        switch (callsite.getOpcode()) {
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKEINTERFACE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public static boolean isJavaBox(final AbstractInsnNode insn) {
         return (insn.getType() == AbstractInsnNode.METHOD_INSN) && isJavaBoxCall((MethodInsnNode) insn);
     }
@@ -353,6 +371,40 @@ public class Util {
             default: return false;
         }
 
+    }
+
+    // ------------------------------------------------------------------------
+    // method descriptors and their formal params
+    // ------------------------------------------------------------------------
+
+    /**
+     *  @return the number of arguments the callsite expects on the operand stack,
+     *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
+     */
+    public static int expectedArgs(final MethodInsnNode callsite) {
+        int result = Type.getArgumentTypes(callsite.desc).length;
+        switch (callsite.getOpcode()) {
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKEINTERFACE:
+                result++;
+                break;
+            case Opcodes.INVOKEDYNAMIC:
+                result++;
+                break;
+            case Opcodes.INVOKESTATIC:
+                break;
+        }
+        return result;
+    }
+
+    /**
+     *  @return the number of arguments the callsite expects on the operand stack,
+     *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
+     */
+    public static int expectedArgs(final MethodNode mnode) {
+        int formals = Type.getArgumentTypes(mnode.desc).length;
+        return (isInstanceMethod(mnode) ? 1 : 0) + formals;
     }
 
     // ------------------------------------------------------------------------
