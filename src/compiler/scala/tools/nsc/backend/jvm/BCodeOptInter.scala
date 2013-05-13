@@ -55,6 +55,7 @@ abstract class BCodeOptInter extends BCodeTFA {
     closuRepo.clear()
     knownLacksInline.clear()
     knownHasInline.clear()
+    elidedClasses.clear()
     clearBCodeTypes()
   }
 
@@ -173,11 +174,34 @@ abstract class BCodeOptInter extends BCodeTFA {
     }
   }
 
-  class WholeProgramAnalysis {
+  abstract class WholeProgramOptMethodInlining {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
     val unreachCodeRemover = new asm.optimiz.UnreachableCode
+
+    def inlineClosures(hostOwner:          ClassNode,
+                       host:               MethodNode,
+                       callsiteTypeFlow:   asm.tree.analysis.Frame[TFValue],
+                       inlineTarget:       InlineTarget,
+                       hasNonNullReceiver: Boolean): Option[String]
+
+    /*
+     * Usually, after a hi-O method has been inlined, the dclosures it used to receive as arguments can be elided right away.
+     * (After all, no method-inlining can possibly have copied usages of those dclosures to another class,
+     * at least not before the closure-inlining has been performed, because method-inlining only inlines the bodies of
+     * methods that have stabilized, ie methods for which all inlinings have been performed in their body).
+     *
+     * Still, the same dclosure may be instantiated at more than one place in the same `host` method
+     * as a result of "finalizer duplication", see `genLoadTry()`. In these cases, all replicas of the same hi-O callsite
+     * are going to have the same closures-inlined, because the CFG has the same shape for all finalizer-Block replicas,
+     * ie the type-flow frame and the consumers-producers frame at each such callsite leads to making the same
+     * closure-inlining decisions.
+     *
+     * Rather than eliding a dclosure as soon as it has been inlined, we keep it in `lccElisionCandidates`
+     * until an inlining round is over (which guarantees all hi-O callsite replicas have been processed), and only then elide them.
+     * */
+    val lccElisionCandidates = mutable.Set.empty[BType]
 
     /*
      *  TODO documentation
@@ -190,10 +214,24 @@ abstract class BCodeOptInter extends BCodeTFA {
         "Before Inlining starts, all ClassNodes being compiled should be available to detect and break inlining cycles, " +
         "ie pipeline-1 should be finished."
       )
+      ifDebug { closuRepo.checkDClosureUsages() }
+      privatizables.clear()
       inlining()
+      for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+      privatizables.clear()
     }
 
-    private class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
+    /*
+     * shio methods are collected as they are built in the `privatizables` map, grouped by their ownning class.
+     * (That class also owns what used to be the endpoint of the delegating-closure that was inlined).
+     *
+     * shio methods spend most of their time as public methods, so as not to block method-inlining
+     * (they're synthetically generated, thus it would come as a surprise if they required attention from the developer).
+     * However, in case no method-inlining transplanted them to another class, they are made private as initially intended.
+     */
+    val privatizables = new MethodsPerClass
+
+    class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
 
       def track(k: ClassNode, v: MethodNode) { track(lookupRefBType(k.name), v) }
       def track(k: BType,     v: MethodNode) { put(k, v :: getOrElse(k, Nil)) }
@@ -409,9 +447,55 @@ abstract class BCodeOptInter extends BCodeTFA {
       // Part 4 of 4: closure-inlining
       //------------------------------
 
-      // TODO
+      lccElisionCandidates.clear()
+
+      leaf.hiOs foreach { hiO =>
+
+        val callsiteTypeFlow = tfaFrameAt(hiO.callsite)
+        assert(callsiteTypeFlow != null,
+          s"Most likely dead-code found in method ${methodSignature(leaf.hostOwner, leaf.host)} " +
+          s"because at instruction ${Util.textify(hiO.callsite)} (at index ${leaf.host.instructions.indexOf(hiO.callsite)}}) " +
+           "no frame is computed by type-flow analysis. Here's the complete bytecode of that method " + Util.textify(leaf.host)
+        )
+
+        val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
+
+        val outecome = inlineClosures(
+          leaf.hostOwner,
+          leaf.host,
+          callsiteTypeFlow,
+          hiO,
+          hasNonNullReceiver
+        )
+        val success = outecome.nonEmpty
+
+        logInlining(
+          success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true,
+          hasNonNullReceiver,
+          hiO.callee, hiO.owner
+        )
+        if (success) {
+          log(outecome.get)
+        }
+
+      }
 
       leaf.hiOs = Nil
+
+      /* Elision of not-in-use-anymore Late-Closure-Classes. Further details in the docu for `lccElisionCandidates` */
+      for(dclosure <- lccElisionCandidates) {
+        // once inlined, a dclosure used only by its master class loses its "dclosure" status
+        if (closuRepo.hasMultipleUsers(dclosure)) {
+          log(s"Delegating-closure ${dclosure.getInternalName} wasn't elided after all. Reason: also in use from ${closuRepo.nonMasterUsers(dclosure)}")
+        }
+        else {
+          Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
+          closuRepo.retractAsDClosure(dclosure)
+          elidedClasses.add(dclosure)
+        }
+      }
+
+      lccElisionCandidates.clear()
 
       ifDebug {
         val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
@@ -656,6 +740,8 @@ abstract class BCodeOptInter extends BCodeTFA {
 
       replaceRETURNs()
 
+      checkTransplantedAccesses(body, hostOwnerBT)
+
       host.instructions.insert(callsite, body) // after this point, body.isEmpty (an ASM instruction can be owned by a single InsnList)
       host.instructions.remove(callsite)
 
@@ -835,6 +921,32 @@ abstract class BCodeOptInter extends BCodeTFA {
         assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
         (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
       }
+    }
+
+    def checkTransplantedAccesses(body: InsnList, enclClass: BType) {
+
+      /*
+       * An invocation to a shio method declared in a class other than the new home of the callsite (enclClass)
+       * forces the shio method in question to remain public.
+       */
+      body foreachInsn { insn =>
+        insn match {
+          case mi: MethodInsnNode =>
+            val calleeOwnerBT = lookupRefBType(mi.owner)
+            if (calleeOwnerBT != enclClass) {
+              // it's ok to try to untrack a method that's not being tracked
+              privatizables.untrack(calleeOwnerBT, mi.name, mi.desc)
+            }
+          case _ => ()
+        }
+      }
+
+      /*
+       * In case `insn` denotes a dclosure instantiation or endpoint invocation
+       * and `enclClass` isn't the master class of that dclosure, note this fact `nonMasterUsers`.
+       */
+      body foreachInsn { insn => closuRepo.trackClosureUsageIfAny(insn, enclClass) }
+
     }
 
   } // end of class WholeProgramAnalysis

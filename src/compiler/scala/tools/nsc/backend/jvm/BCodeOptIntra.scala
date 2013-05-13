@@ -471,6 +471,9 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
       // a dclosure is optimized together with its master class by `DClosureOptimizer`
       assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
 
+      val bt = lookupRefBType(cnode.name)
+      if (elidedClasses.contains(bt)) { return }
+
       // (1) intra-method
       intraMethodFixpoints(full = true)
 
@@ -581,7 +584,7 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
           if (bt.isArray) {
             bt = bt.getElementType
           }
-          if (bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime)) {
+          if (bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !elidedClasses.contains(bt)) {
             if (exemplars.get(bt).isInnerClass) {
               refedInnerClasses += bt
             }
