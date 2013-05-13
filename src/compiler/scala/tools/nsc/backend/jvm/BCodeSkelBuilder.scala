@@ -559,6 +559,10 @@ abstract class BCodeSkelBuilder extends BCodeOptInter {
       isMethSymStaticCtor = methSymbol.isStaticConstructor
       isMethSymBridge     = methSymbol.isBridge
 
+      if (hasInline(methSymbol) && !(methSymbol.isFinal || methSymbol.isEffectivelyFinal)) {
+        warnInliningWontHappen(claszSymbol, dd.pos)
+      }
+
       resetMethodBookkeeping(dd)
 
       // add method-local vars for params
@@ -652,6 +656,14 @@ abstract class BCodeSkelBuilder extends BCodeOptInter {
       }
       mnode = null
     } // end of method genDefDef()
+
+    def warnInliningWontHappen(receiverClazz: Symbol, pos: Position, callsite: asm.tree.MethodInsnNode = null) {
+      val callDescr = "Won't inline callsite " + (if (callsite == null) "" else asm.optimiz.Util.textify(callsite))
+      val msg =
+        if (receiverClazz.isTrait) " to method declared in trait (SI-4767)"
+        else " to non-final method: @inline doesn't imply final."
+      cunit.inlinerWarning(pos, callDescr + msg)
+    }
 
     /*
      *  must-single-thread
