@@ -23,6 +23,52 @@ import scala.collection.{ mutable, immutable }
  */
 abstract class BCodeOptCommon extends BCodeHelpers {
 
+  case class MethodRef(ownerClass: BType, mnode: MethodNode)
+
+  /*
+   * Repository for Late-Closure-Classes.
+   */
+  object closuRepo extends BCInnerClassGen {
+
+    /*
+     *  dclosure-class -> endpoint-as-methodRef-in-master-class
+     *
+     *  @see populateDClosureMaps() Before that method runs, this map is empty.
+     */
+    val endpoint = new java.util.concurrent.ConcurrentHashMap[BType, MethodRef]
+
+    /*
+     *  master-class -> dclosure-classes-it's-responsible-for
+     *
+     *  @see populateDClosureMaps() Before that method runs, this map is empty.
+     */
+    val dclosures = new java.util.concurrent.ConcurrentHashMap[BType, List[BType]]
+
+    // --------------------- query methods ---------------------
+
+    def isDelegatingClosure( c:    BType):     Boolean = { endpoint.containsKey(c) }
+    def isDelegatingClosure(iname: String):    Boolean = { isDelegatingClosure(lookupRefBType(iname)) }
+
+    def clear() {
+      endpoint.clear()
+      dclosures.clear()
+    }
+
+  } // end of object closuRepo
+
+  def clearBCodeOpt() {
+    closuRepo.clear()
+    clearBCodeTypes()
+  }
+
+  /*
+   * @param mnode a MethodNode, usually found via codeRepo.getMethod(bt: BType, name: String, desc: String)
+   * @param owner ClassNode declaring mnode
+   */
+  case class MethodNodeAndOwner(mnode: MethodNode, owner: ClassNode) {
+    assert(owner.methods.contains(mnode))
+  }
+
   //--------------------------------------------------------
   // helpers to produce logging messages
   //--------------------------------------------------------
