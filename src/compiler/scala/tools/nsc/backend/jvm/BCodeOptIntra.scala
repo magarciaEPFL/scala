@@ -474,7 +474,51 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
       // (1) intra-method
       intraMethodFixpoints(full = true)
 
+      for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+        rephraseBackedgesSlow(mnode)
+      }
+
     } // end of method cleanseClass()
+
+    /*
+     *  This version can cope with <init> super-calls (which are valid only in ctors) as well as
+     *  with all code reductions the optimizer performs. This flexibility requires a producers-consumers analysis,
+     *  which makes the rewriting slower than its counterpart in GenBCode.
+     *
+     *  @see long description at `rephraseBackedgesInCtorArg()`
+     *
+     *  @return true iff the method body was mutated
+     */
+    def rephraseBackedgesSlow(mnode: MethodNode): Boolean = {
+
+      val inits =
+        for(
+          i <- mnode.instructions.toList;
+          if i.getType == AbstractInsnNode.METHOD_INSN;
+          mi = i.asInstanceOf[MethodInsnNode];
+          if (mi.name == "<init>") && (mi.desc != "()V")
+        ) yield mi;
+      if (inits.isEmpty) { return false }
+
+      val cp = ProdConsAnalyzer.create()
+      cp.analyze(cnode.name , mnode)
+
+      for(init <- inits) {
+        val receiverSV: SourceValue = cp.frameAt(init).getReceiver(init)
+        assert(
+          receiverSV.insns.size == 1,
+          s"A unique NEW instruction cannot be determined for ${insnPosInMethodSignature(init, mnode, cnode)}"
+        )
+        val dupInsn = receiverSV.insns.iterator().next()
+        val bes: java.util.Map[JumpInsnNode, LabelNode] = Util.backedges(dupInsn, init)
+        if (!bes.isEmpty) {
+          val newInsn = dupInsn.getPrevious.asInstanceOf[TypeInsnNode]
+          mnode.maxLocals = rephraseBackedgesInCtorArg(mnode.maxLocals, bes, cnode, mnode, newInsn, init)
+        }
+      }
+
+      true
+    } // end of method rephraseBackedgesSlow()
 
     /*
      *  intra-method optimizations
