@@ -205,8 +205,9 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode and the ASM-based optimizer
    */
   val neo         = ChoiceSetting ("-neo", "choice of bytecode emitter", "Choice of bytecode emitter.",
-                                   List("GenASM", "GenBCode", "o1"),
+                                   List("GenASM", "GenBCode", "o1", "o2", "o3"),
                                    "o1")
+
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
                                    List("traditional", "delegating"),
                                    "delegating") // TODO once merged into trunk "traditional" should be the default
@@ -250,9 +251,19 @@ trait ScalaSettings extends AbsScalaSettings
    *    case 1 => Intra-method optimizations only, ie no inlining, no closure optimizations.
    *              Implies GenBCode code emitter. For details on individual transforms see `BCodeCleanser.cleanseClass()`
    *
+   *    case 2 => Intra-program optimizations, comprising two areas:
+   *                (a) Closure optimizations: minimization of closure state, of closure allocation, closure caching.
+   *                (b) method and closure inlining, provided the callee is part of the program being compiled.
+   *              In other words, no bytecode is inlined from libraries we're compiling against.
+   *
+   *    case 3 => Cross-libraries optimizations. As the item above, lifting the prohibition to inline callees
+   *              located in libraries we're compiling against (therefore, those libraries should be the same at runtime).
+   *
    */
   def neoLevel: Int           = { if (neo.value.startsWith("o") && isBCodeActive) neo.value.substring(1).toInt else 0 }
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
+  def isIntraProgramOpt       = (neoLevel >= 2)
+  def isCrossLibOpt           = (neoLevel >= 3)
 
   /*
    *  Approaches to lower anonymous closures:
