@@ -10,8 +10,6 @@ package backend
 package jvm
 
 import scala.collection.{ mutable, immutable }
-import scala.tools.nsc.symtab._
-import scala.annotation.switch
 
 import scala.tools.asm
 
@@ -23,7 +21,6 @@ import scala.tools.asm
  */
 abstract class BCodeSyncAndTry extends BCodeBodyBuilder {
   import global._
-  import definitions._
 
 
   /*
