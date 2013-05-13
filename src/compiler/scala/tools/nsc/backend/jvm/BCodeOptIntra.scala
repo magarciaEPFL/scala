@@ -10,7 +10,8 @@ package jvm
 
 import scala.tools.asm
 import asm.Opcodes
-import asm.optimiz.Util
+import asm.optimiz.{ProdConsAnalyzer, Util}
+import asm.tree.analysis.SourceValue
 import asm.tree._
 
 import scala.collection.{ mutable, immutable }
@@ -29,7 +30,7 @@ import collection.convert.Wrappers.JListWrapper
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
  */
-abstract class BCodeOptIntra extends BCodeSyncAndTry {
+abstract class BCodeOptIntra extends BCodeOuterSquash {
 
   import global._
 
@@ -314,6 +315,21 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
         }
       }
       ifDebug { runTypeFlowAnalysis() }
+    }
+
+    /*
+     *  Elide redundant outer-fields for Late-Closure-Classes.
+     *
+     *  @param lccsToSquashOuterPointer in this case, what the name implies.
+     *  @param dClosureEndpoint         a map with entries (LCC-internal-name -> endpoint-as-MethodNode)
+     *
+     */
+    final def codeFixupSquashLCC(lccsToSquashOuterPointer: List[ClassNode],
+                                 dClosureEndpoint: Map[String, MethodNode]) {
+      if (!cnode.isStaticModule && lccsToSquashOuterPointer.nonEmpty) {
+        val sq = new LCCOuterSquasher(cnode, lccsToSquashOuterPointer, dClosureEndpoint)
+        sq.squashOuterForLCC()
+      }
     }
 
     //--------------------------------------------------------------------

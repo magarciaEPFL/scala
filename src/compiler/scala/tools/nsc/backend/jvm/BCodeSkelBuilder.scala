@@ -98,6 +98,7 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
       thisName          = internalName(claszSymbol)
 
       cnode = new asm.tree.ClassNode()
+      cnode.isStaticModule = isCZStaticModule
 
       initJClass(cnode)
 
@@ -510,6 +511,8 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
         jgensig,
         mkArray(thrownExceptions)
       ).asInstanceOf[asm.tree.MethodNode]
+
+      mnode.isLiftedMethod = methSymbol.isLiftedMethod
 
       // TODO param names: (m.params map (p => javaName(p.sym)))
 
