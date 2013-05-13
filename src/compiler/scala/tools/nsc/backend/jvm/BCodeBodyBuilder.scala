@@ -1063,6 +1063,8 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
             val inlnTarget = new InlineTarget(callsite, cunit, pos)
             if (isHiO) { cgn.hiOs  ::= inlnTarget }
             else       { cgn.procs ::= inlnTarget }
+          } else {
+            warnInliningWontHappen(receiver, pos, callsite)
           }
         }
 
