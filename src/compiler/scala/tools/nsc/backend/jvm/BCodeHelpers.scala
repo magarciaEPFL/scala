@@ -539,9 +539,9 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
     def asmMethodType(msym: Symbol): BType = {
       assert(msym.isMethod, "not a method-symbol: " + msym)
       val resT: BType =
-        if (msym.isClassConstructor || msym.isConstructor) BType.VOID_TYPE
+        if (msym.isClassConstructor || msym.isConstructor) BT.VOID_TYPE
         else toTypeKind(msym.tpe.resultType);
-      BType.getMethodType( resT, mkArray(msym.tpe.paramTypes map toTypeKind) )
+      BT.getMethodType( resT, mkArray(msym.tpe.paramTypes map toTypeKind) )
     }
 
     /*
@@ -921,7 +921,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       val thrownExceptions: List[String] = getExceptions(throws)
 
       val jReturnType = toTypeKind(methodInfo.resultType)
-      val mdesc = BType.getMethodType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
+      val mdesc = BT.getMethodType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
       val mirrorMethodName = m.javaSimpleName.toString
       val mirrorMethod: asm.MethodVisitor = jclass.visitMethod(
         flags,
@@ -1212,8 +1212,8 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
 
       val stringArrayJType: BType = arrayOf(JAVA_LANG_STRING)
       val conJType: BType =
-        BType.getMethodType(
-          BType.VOID_TYPE,
+        BT.getMethodType(
+          BT.VOID_TYPE,
           Array(exemplar(definitions.ClassClass).c, stringArrayJType, stringArrayJType)
         )
 
@@ -1307,7 +1307,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       )
 
       // INVOKEVIRTUAL `moduleName`.CREATOR() : android.os.Parcelable$Creator;
-      val bt = BType.getMethodType(androidCreatorType, Array.empty[BType])
+      val bt = BT.getMethodType(androidCreatorType, Array.empty[BType])
       clinit.visitMethodInsn(
         asm.Opcodes.INVOKEVIRTUAL,
         moduleName,
