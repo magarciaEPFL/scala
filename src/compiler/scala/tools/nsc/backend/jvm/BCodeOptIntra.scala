@@ -517,7 +517,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
       assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
 
       val bt = lookupRefBType(cnode.name)
-      if (elidedClasses.contains(bt)) { return }
+      if (wasElided(bt)) { return }
 
       // (1) intra-method
       intraMethodFixpoints(full = true)
@@ -698,7 +698,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
           if (bt.isArray) {
             bt = bt.getElementType
           }
-          if (bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !elidedClasses.contains(bt)) {
+          if (bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime) && !wasElided(bt)) {
             if (exemplars.get(bt).isInnerClass) {
               refedInnerClasses += bt
             }
