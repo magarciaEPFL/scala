@@ -417,7 +417,7 @@ abstract class BCodeOuterSquash extends BCodeSyncAndTry {
 
         if (lateClosures.isEmpty || isEP.isEmpty) { return }
 
-        while(toVisit.nonEmpty) {
+        while (toVisit.nonEmpty) {
           val current = toVisit.head
           toVisit = toVisit.tail
           val a = new asm.tree.analysis.Analyzer[TV](new ThisFlowInterpreter(current))
@@ -647,7 +647,7 @@ abstract class BCodeOuterSquash extends BCodeSyncAndTry {
 
         private def dropAtSource(producers: _root_.java.util.Set[_ <: AbstractInsnNode]) {
           val iter = producers.iterator()
-          while(iter.hasNext) {
+          while (iter.hasNext) {
             val prod = iter.next
             if (Util.isLOAD(prod)) {
               mnode.instructions.remove(prod)
