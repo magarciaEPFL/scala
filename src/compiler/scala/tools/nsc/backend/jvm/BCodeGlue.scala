@@ -24,21 +24,29 @@ abstract class BCodeGlue extends SubComponent {
 
   implicit val bct = this
 
+  val BT_ZERO = newBType(0, 0, 0)
+
+  final def newBType(sort: Int, off: Int, len: Int): BType = {
+    val hiPart = (((sort << 24) | len).asInstanceOf[Long] << 32)
+    val loPart = off.asInstanceOf[Long]
+    new BType(hiPart | loPart)
+  }
+
   object BT {
 
     import global.chrs
 
     // ------------- primitive types -------------
 
-    val VOID_TYPE    = new BType(asm.Type.VOID,    ('V' << 24) | (5 << 16) | (0 << 8) | 0, 1)
-    val BOOLEAN_TYPE = new BType(asm.Type.BOOLEAN, ('Z' << 24) | (0 << 16) | (5 << 8) | 1, 1)
-    val CHAR_TYPE    = new BType(asm.Type.CHAR,    ('C' << 24) | (0 << 16) | (6 << 8) | 1, 1)
-    val BYTE_TYPE    = new BType(asm.Type.BYTE,    ('B' << 24) | (0 << 16) | (5 << 8) | 1, 1)
-    val SHORT_TYPE   = new BType(asm.Type.SHORT,   ('S' << 24) | (0 << 16) | (7 << 8) | 1, 1)
-    val INT_TYPE     = new BType(asm.Type.INT,     ('I' << 24) | (0 << 16) | (0 << 8) | 1, 1)
-    val FLOAT_TYPE   = new BType(asm.Type.FLOAT,   ('F' << 24) | (2 << 16) | (2 << 8) | 1, 1)
-    val LONG_TYPE    = new BType(asm.Type.LONG,    ('J' << 24) | (1 << 16) | (1 << 8) | 2, 1)
-    val DOUBLE_TYPE  = new BType(asm.Type.DOUBLE,  ('D' << 24) | (3 << 16) | (3 << 8) | 2, 1)
+    val VOID_TYPE    = newBType(asm.Type.VOID,    ('V' << 24) | (5 << 16) | (0 << 8) | 0, 1)
+    val BOOLEAN_TYPE = newBType(asm.Type.BOOLEAN, ('Z' << 24) | (0 << 16) | (5 << 8) | 1, 1)
+    val CHAR_TYPE    = newBType(asm.Type.CHAR,    ('C' << 24) | (0 << 16) | (6 << 8) | 1, 1)
+    val BYTE_TYPE    = newBType(asm.Type.BYTE,    ('B' << 24) | (0 << 16) | (5 << 8) | 1, 1)
+    val SHORT_TYPE   = newBType(asm.Type.SHORT,   ('S' << 24) | (0 << 16) | (7 << 8) | 1, 1)
+    val INT_TYPE     = newBType(asm.Type.INT,     ('I' << 24) | (0 << 16) | (0 << 8) | 1, 1)
+    val FLOAT_TYPE   = newBType(asm.Type.FLOAT,   ('F' << 24) | (2 << 16) | (2 << 8) | 1, 1)
+    val LONG_TYPE    = newBType(asm.Type.LONG,    ('J' << 24) | (1 << 16) | (1 << 8) | 2, 1)
+    val DOUBLE_TYPE  = newBType(asm.Type.DOUBLE,  ('D' << 24) | (3 << 16) | (3 << 8) | 2, 1)
 
     /*
      * Returns the Java type corresponding to the given type descriptor.
@@ -102,7 +110,7 @@ abstract class BCodeGlue extends SubComponent {
       assert(new String(chrs, off, len) == new String(ca))  // TODO debug
       val n = global.newTypeName(ca)
       // this time we've fielded on the canonical offset.
-      new BType(sort, n.start, n.length)
+      newBType(sort, n.start, n.length)
     }
 
     /* Params denote an internal name.
@@ -110,7 +118,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getObjectType(index: Int, length: Int): BType = {
       val sort = if (chrs(index) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
-      new BType(sort, index, length)
+      newBType(sort, index, length)
     }
 
     /*
@@ -130,7 +138,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getMethodType(methodDescriptor: String): BType = {
       val n = global.newTypeName(methodDescriptor)
-      new BType(asm.Type.METHOD, n.start, n.length) // TODO assert isValidMethodDescriptor
+      newBType(asm.Type.METHOD, n.start, n.length) // TODO assert isValidMethodDescriptor
     }
 
     /*
@@ -144,7 +152,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getMethodType(returnType: BType, argumentTypes: Array[BType]): BType = {
       val n = global.newTypeName(getMethodDescriptor(returnType, argumentTypes))
-      new BType(asm.Type.METHOD, n.start, n.length)
+      newBType(asm.Type.METHOD, n.start, n.length)
     }
 
     /*
@@ -384,7 +392,7 @@ abstract class BCodeGlue extends SubComponent {
           else t.getInternalName
 
         val n = global.lookupTypeName(key.toCharArray)
-        new BType(t.getSort, n.start, n.length)
+        newBType(t.getSort, n.start, n.length)
     }
   }
 
@@ -409,7 +417,7 @@ abstract class BCodeGlue extends SubComponent {
       case 'L' =>
         val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
         val n = global.lookupTypeName(iname.toCharArray)
-        new BType(asm.Type.OBJECT, n.start, n.length)
+        newBType(asm.Type.OBJECT, n.start, n.length)
       case _   =>
         val n = global.lookupTypeName(typeDescriptor.toCharArray)
         BT.getType(n.start)
@@ -424,14 +432,14 @@ abstract class BCodeGlue extends SubComponent {
   def lookupRefBType(iname: String): BType = {
     val n    = global.lookupTypeName(iname.toCharArray)
     val sort = if (chrs(n.start) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
-    new BType(sort, n.start, n.length)
+    newBType(sort, n.start, n.length)
   }
 
   def lookupRefBTypeIfExisting(iname: String): BType = {
     val n    = global.lookupTypeNameIfExisting(iname.toCharArray, false)
-    if (n == null) { return null }
+    if (n == null) { return BT_ZERO }
     val sort = if (chrs(n.start) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
-    new BType(sort, n.start, n.length)
+    newBType(sort, n.start, n.length)
   }
 
 }
