@@ -40,6 +40,130 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
   final class WholeProgramAnalysis extends WholeProgramOptMethodInlining {
 
     /*
+     * Usually, after a hi-O method has been inlined, the dclosures it used to receive as arguments can be elided right away.
+     * (After all, no method-inlining can possibly have copied usages of those dclosures to another class,
+     * at least not before the closure-inlining has been performed, because method-inlining only inlines the bodies of
+     * methods that have stabilized, ie methods for which all inlinings have been performed in their body).
+     *
+     * Still, the same dclosure may be instantiated at more than one place in the same `host` method
+     * as a result of "finalizer duplication", see `genLoadTry()`. In these cases, all replicas of the same hi-O callsite
+     * are going to have the same closures-inlined, because the CFG has the same shape for all finalizer-Block replicas,
+     * ie the type-flow frame and the consumers-producers frame at each such callsite leads to making the same
+     * closure-inlining decisions.
+     *
+     * Rather than eliding a dclosure as soon as it has been inlined, we keep it in `lccElisionCandidates`
+     * until an inlining round is over (which guarantees all hi-O callsite replicas have been processed), and only then elide them.
+     * */
+    private val lccElisionCandidates = mutable.Set.empty[BType]
+
+    /*
+     *  Records static-HiO methods already emitted, along with the utility used to manipulate each such static-HiO.
+     *
+     *  This information is useful to:
+     *
+     *   (a) reuse if possible an already emitted static-HiO method;
+     *
+     *   (b) minimize the arguments a static-HiO method takes. In particular, for a module-based hi-O method,
+     *       the module is usually not used at all in the static-HiO method. Not having it passed as argument
+     *       enables other optimizations to kick in.
+     *
+     */
+    private val seenSHiOUtils = mutable.Map.empty[String, EmittedSHiO]
+
+    private case class EmittedSHiO(shioUtil: StaticHiOUtil, shio: MethodNode)
+
+    def severalClosureInlinings(leaf:       CallGraphNode,
+                                tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]]) {
+
+      lccElisionCandidates.clear()
+      seenSHiOUtils.clear()
+
+      leaf.hiOs foreach { hiO =>
+
+        val callsiteTypeFlow = tfaFrameAt(hiO.callsite)
+        assert(callsiteTypeFlow != null,
+          s"Most likely dead-code found in method ${methodSignature(leaf.hostOwner, leaf.host)} " +
+          s"because at instruction ${Util.textify(hiO.callsite)} (at index ${leaf.host.instructions.indexOf(hiO.callsite)}}) " +
+           "no frame is computed by type-flow analysis. Here's the complete bytecode of that method " + Util.textify(leaf.host)
+        )
+
+        val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
+
+        val outecome = inlineClosures(
+          leaf.hostOwner,
+          leaf.host,
+          callsiteTypeFlow,
+          hiO,
+          hasNonNullReceiver
+        )
+        val success = outecome.nonEmpty
+
+        logInlining(
+          success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true,
+          hasNonNullReceiver,
+          hiO.callee, hiO.owner
+        )
+        if (success) {
+          log(outecome.get)
+        }
+
+      }
+
+      leaf.hiOs = Nil
+
+      /* Elision of not-in-use-anymore Late-Closure-Classes. Further details in the docu for `lccElisionCandidates` */
+      for(dclosure <- lccElisionCandidates) {
+        // once inlined, a dclosure used only by its master class loses its "dclosure" status
+        if (closuRepo.hasMultipleUsers(dclosure)) {
+          log(s"Delegating-closure ${dclosure.getInternalName} wasn't elided after all. Reason: also in use from ${closuRepo.nonMasterUsers(dclosure)}")
+        }
+        else {
+          Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
+          closuRepo.retractAsDClosure(dclosure)
+          elidedClasses.add(dclosure)
+        }
+      }
+
+      /*
+       * Don't pass unneeded arguments when invoking the static-HiO methods added for the current host method.
+       * Further details in the docu for `seenSHiOUtils`
+       */
+      val emittedSHiOs: Iterable[MethodNode] = seenSHiOUtils.values map { case EmittedSHiO(_, shio) => shio }
+      emittedSHiOs foreach { shio => pruneUnneededParams(leaf.hostOwner, leaf.host, shio) }
+
+      /*
+       * Get ready for next "leaf"
+       */
+      lccElisionCandidates.clear()
+      seenSHiOUtils.clear()
+
+    }
+
+    /*
+     * When inlining a method invocation, those values formerly passed as arguments that go unused
+     * are amenable to optimization (eg, push-pop collapsing).
+     *
+     * Upon creating a shio-method and passing arguments to it (ie, upon closure-inlining)
+     * those arguments that go unsed won't be detected inter-procedurally,
+     * unless they are pruned explicitly (as done below).
+     *
+     * To recap, a shio-method at this point is invoked from hostOwner, and only from there.
+     *
+     * must-single-thread
+     */
+    private def pruneUnneededParams(hostOwner: ClassNode, host: MethodNode, shio: MethodNode) {
+      import asm.optimiz.UnusedParamsElider
+      Util.makePrivateMethod(shio)
+      val oldDescr = shio.desc
+      val elidedParams = UnusedParamsElider.elideUnusedParams(hostOwner, shio)
+      if (!elidedParams.isEmpty()) {
+        UnusedParamsElider.elideArguments(hostOwner, host, hostOwner, shio, oldDescr, elidedParams)
+        BType.getMethodType(shio.desc) // must-single-thread, register the new method descriptor in Names
+      }
+      Util.makePublicMethod(shio)
+    }
+
+    /*
      * This method inlines the invocation of a "higher-order method" and
      * stack-allocates the anonymous closures received as arguments.
      *
@@ -146,6 +270,8 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
         return None
       }
 
+      val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
+
             /*
              *  Which params of the hiO method receive closure-typed arguments?
              *
@@ -158,10 +284,9 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
              */
             def survivors1(): collection.Set[Int] = {
 
-              val actualsTypeFlow: Array[TFValue] = callsiteTypeFlow.getActualArguments(callsite) map (_.asInstanceOf[TFValue])
               var idx = 0
               var survivors = mutable.LinkedHashSet[Int]()
-              while(idx < actualsTypeFlow.length) {
+              while (idx < actualsTypeFlow.length) {
                 val tf = actualsTypeFlow(idx)
                 if (isClosureClass(tf.lca)) {
                   survivors += idx
@@ -257,6 +382,35 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
           s"Can't perform closure-inlining because in ${methodSignature(hostOwner, host)} different closures may arrive at the same argument position."
         )
         return None
+      }
+
+      /*
+       * Reuse if possible an already emitted static-HiO method.
+       *
+       * This is possible when the hi-O callsite was enclosed (in terms of Scala source) inside the finally-clause
+       * of a try-expr with one or more catch-clauses. In this case, the finalizer has two versions:
+       *   - one reachable via exceptional control flow;
+       *   - the other via normal control flow.
+       */
+      val hiOKey = ("" + hasNonNullReceiver + ";" + Util.textify(callsite) + actualsTypeFlow.mkString("[", ";", "]"))
+
+      seenSHiOUtils.get(hiOKey) match {
+
+        case Some(EmittedSHiO(prevSHiOUtil, prevSHiO)) =>
+          val isOKCallsiteRewiring = prevSHiOUtil.rewriteHost(hostOwner, host, callsite, prevSHiO, inlineTarget)
+          if (isOKCallsiteRewiring) {
+            return Some(
+              "Rewiring callsite " + Util.textify(callsite) +
+              " (amenable to closure inlining) to target already-built (due to finalizer-duplication) static-HiO method " +
+              methodSignature(hostOwner, prevSHiO)
+            )
+          } else {
+            inlineTarget.warn(
+              "Couldn't reuse the already-built (due to finalizer-duplication) static-HiO method " + methodSignature(hostOwner, prevSHiO)
+            )
+          }
+
+        case None => ()
       }
 
           /*
@@ -407,6 +561,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
       if (!shioUtil.rewriteHost(hostOwner, host, callsite, staticHiO, inlineTarget)) {
         return None
       }
+      seenSHiOUtils.put(hiOKey, EmittedSHiO(shioUtil, staticHiO))
 
       val enclClass = lookupRefBType(hostOwner.name)
       checkTransplantedAccesses(staticHiO.instructions, enclClass)

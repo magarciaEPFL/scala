@@ -187,23 +187,6 @@ abstract class BCodeOptInter extends BCodeTFA {
                        hasNonNullReceiver: Boolean): Option[String]
 
     /*
-     * Usually, after a hi-O method has been inlined, the dclosures it used to receive as arguments can be elided right away.
-     * (After all, no method-inlining can possibly have copied usages of those dclosures to another class,
-     * at least not before the closure-inlining has been performed, because method-inlining only inlines the bodies of
-     * methods that have stabilized, ie methods for which all inlinings have been performed in their body).
-     *
-     * Still, the same dclosure may be instantiated at more than one place in the same `host` method
-     * as a result of "finalizer duplication", see `genLoadTry()`. In these cases, all replicas of the same hi-O callsite
-     * are going to have the same closures-inlined, because the CFG has the same shape for all finalizer-Block replicas,
-     * ie the type-flow frame and the consumers-producers frame at each such callsite leads to making the same
-     * closure-inlining decisions.
-     *
-     * Rather than eliding a dclosure as soon as it has been inlined, we keep it in `lccElisionCandidates`
-     * until an inlining round is over (which guarantees all hi-O callsite replicas have been processed), and only then elide them.
-     * */
-    val lccElisionCandidates = mutable.Set.empty[BType]
-
-    /*
      *  TODO documentation
      *
      *  must-single-thread due to `inlining()`
@@ -417,6 +400,24 @@ abstract class BCodeOptInter extends BCodeTFA {
       // Part 3 of 4: method-inlining
       //-----------------------------
 
+      severalMethodInlinings(leaf, tfaFrameAt)
+
+      //------------------------------
+      // Part 4 of 4: closure-inlining
+      //------------------------------
+
+      severalClosureInlinings(leaf, tfaFrameAt)
+
+      ifDebug {
+        val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
+        da.analyze(leaf.hostOwner.name, leaf.host)
+      }
+
+    } // end of method inlineCallees()
+
+    private def severalMethodInlinings(leaf:       CallGraphNode,
+                                       tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]]) {
+
       leaf.procs foreach { proc =>
 
         val hostOwner    = leaf.hostOwner.name
@@ -443,71 +444,15 @@ abstract class BCodeOptInter extends BCodeTFA {
       }
       leaf.procs = Nil
 
-      //------------------------------
-      // Part 4 of 4: closure-inlining
-      //------------------------------
+    }
 
-      lccElisionCandidates.clear()
-
-      leaf.hiOs foreach { hiO =>
-
-        val callsiteTypeFlow = tfaFrameAt(hiO.callsite)
-        assert(callsiteTypeFlow != null,
-          s"Most likely dead-code found in method ${methodSignature(leaf.hostOwner, leaf.host)} " +
-          s"because at instruction ${Util.textify(hiO.callsite)} (at index ${leaf.host.instructions.indexOf(hiO.callsite)}}) " +
-           "no frame is computed by type-flow analysis. Here's the complete bytecode of that method " + Util.textify(leaf.host)
-        )
-
-        val hasNonNullReceiver = isReceiverKnownNonNull(callsiteTypeFlow, hiO.callsite)
-
-        val outecome = inlineClosures(
-          leaf.hostOwner,
-          leaf.host,
-          callsiteTypeFlow,
-          hiO,
-          hasNonNullReceiver
-        )
-        val success = outecome.nonEmpty
-
-        logInlining(
-          success, leaf.hostOwner.name, leaf.host, hiO.callsite, isHiO = true,
-          hasNonNullReceiver,
-          hiO.callee, hiO.owner
-        )
-        if (success) {
-          log(outecome.get)
-        }
-
-      }
-
-      leaf.hiOs = Nil
-
-      /* Elision of not-in-use-anymore Late-Closure-Classes. Further details in the docu for `lccElisionCandidates` */
-      for(dclosure <- lccElisionCandidates) {
-        // once inlined, a dclosure used only by its master class loses its "dclosure" status
-        if (closuRepo.hasMultipleUsers(dclosure)) {
-          log(s"Delegating-closure ${dclosure.getInternalName} wasn't elided after all. Reason: also in use from ${closuRepo.nonMasterUsers(dclosure)}")
-        }
-        else {
-          Util.makePrivateMethod(closuRepo.endpoint.get(dclosure).mnode)
-          closuRepo.retractAsDClosure(dclosure)
-          elidedClasses.add(dclosure)
-        }
-      }
-
-      lccElisionCandidates.clear()
-
-      ifDebug {
-        val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
-        da.analyze(leaf.hostOwner.name, leaf.host)
-      }
-
-    } // end of method inlineCallees()
+    def severalClosureInlinings(leaf:       CallGraphNode,
+                                tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]])
 
     /*
      * SI-5850: Inlined code shouldn't forget null-check on the original receiver
      */
-    private def isReceiverKnownNonNull(frame: asm.tree.analysis.Frame[TFValue], callsite: MethodInsnNode): Boolean = {
+    def isReceiverKnownNonNull(frame: asm.tree.analysis.Frame[TFValue], callsite: MethodInsnNode): Boolean = {
       callsite.getOpcode match {
         case Opcodes.INVOKEDYNAMIC => false // TODO
         case Opcodes.INVOKESTATIC  => true
@@ -757,14 +702,14 @@ abstract class BCodeOptInter extends BCodeTFA {
 
     } // end of method inlineMethod()
 
-    private def logInlining(success:   Boolean,
-                            hostOwner: String,
-                            host:      MethodNode,
-                            callsite:  MethodInsnNode,
-                            isHiO:     Boolean,
-                            isReceiverKnownNonNull: Boolean,
-                            hiO:       MethodNode,
-                            hiOOwner:  ClassNode) {
+    def logInlining(success:   Boolean,
+                    hostOwner: String,
+                    host:      MethodNode,
+                    callsite:  MethodInsnNode,
+                    isHiO:     Boolean,
+                    isReceiverKnownNonNull: Boolean,
+                    hiO:       MethodNode,
+                    hiOOwner:  ClassNode) {
 
       val kind    = if (isHiO)   "closure-inlining "  else "method-inlining "
       val leading = if (success) "Successful " + kind else "Failed " + kind
