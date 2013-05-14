@@ -61,7 +61,7 @@ abstract class BCodeTFA extends BCodeOptCommon {
     assert(if (tr != null && tr.isInterface)  !isExact   else true, s"Contradiction: interface reported as isExact: $lca")
 
     override def getSize: Int = {
-      assert(lca.sort != BType.METHOD, "Method types don't have size: " + lca)
+      assert(lca.sort != asm.Type.METHOD, "Method types don't have size: " + lca)
       lca.getSize
     }
 
