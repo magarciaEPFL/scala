@@ -613,7 +613,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
               }
               if (argsSize < dims) {
                 /* In one step:
-                 *   elemKind = new BType(asm.Type.ARRAY, arr.off + argsSize, arr.len - argsSize)
+                 *   elemKind = newBType(asm.Type.ARRAY, arr.off + argsSize, arr.len - argsSize)
                  * however the above does not enter a TypeName for each nested arrays in chrs.
                  */
                 for (i <- args.length until dims) elemKind = arrayOf(elemKind)
@@ -682,7 +682,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
 
                   // In "a couple cases", squirrel away a extra information (hostClass, targetTypeKind). TODO Document what "in a couple cases" refers to.
                   var hostClass:      Symbol = null
-                  var targetTypeKind: BType  = null
+                  var targetTypeKind: BType  = BT_ZERO
                   fun match {
                     case Select(qual, _) =>
                       val qualSym = findHostClass(qual.tpe, sym)
@@ -699,7 +699,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
 
                     case _ =>
                   }
-                  if ((targetTypeKind != null) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
+                  if ((targetTypeKind != BT_ZERO) && (sym == definitions.Array_clone) && invokeStyle.isDynamic) {
                     val target: String = targetTypeKind.getInternalName
                     bc.invokevirtual(target, "clone", "()Ljava/lang/Object;")
                   }
