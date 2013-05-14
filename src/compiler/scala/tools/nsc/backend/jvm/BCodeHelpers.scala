@@ -941,7 +941,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       var index = 0
       for(jparamType <- paramJavaTypes) {
         mirrorMethod.visitVarInsn(jparamType.getOpcode(asm.Opcodes.ILOAD), index)
-        assert(jparamType.sort != BType.METHOD, jparamType)
+        assert(jparamType.sort != asm.Type.METHOD, jparamType)
         index += jparamType.getSize
       }
 
