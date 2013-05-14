@@ -72,6 +72,8 @@ abstract class BCodeTFA extends BCodeOptCommon {
 
     def conformsTo(b: TFValue): Boolean = { conforms(this.lca, b.lca) }
 
+    override def toString = { s"TFValue(${lca.getDescriptor}, isNonNull:$isNonNull, isExact:$isExact)" }
+
   }
 
   val TF_INT     = TFValue(BT.INT_TYPE,    0)
