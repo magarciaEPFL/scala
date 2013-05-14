@@ -433,21 +433,16 @@ abstract class GenBCode extends BCodeOptClosu {
         val cnode   = item.plain
         val cnodeBT = lookupRefBType(cnode.name)
 
+        val fixer =
+          if(isOptimizRun) { new BCodeCleanser(cnode, isIntraProgramOpt) }
+          else             { new EssentialCleanser(cnode) }
+
+        // the minimal fixups needed, even for unoptimized runs.
+        fixer.codeFixupDCE()
+        fixer.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+
         if (isOptimizRun) {
-          val cleanser = new BCodeCleanser(cnode, isIntraProgramOpt)
-          cleanser.codeFixupDCE()
-          // outer-elimination shouldn't be skipped under -o1 , ie it's squashOuter() we're after.
-          // under -o0 `squashOuter()` is invoked in the else-branch below
-          // under -o2 `squashOuter()` runs before inlining, ie in `Worker1.visit()`
-          // under -o3 or higher, rather than `squashOuter()`, the more powerful `minimizeDClosureFields()` is run instead
-          cleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
-          cleanser.cleanseClass()
-        }
-        else {
-          // the minimal fixups needed, even for unoptimized runs.
-          val essential = new EssentialCleanser(cnode)
-          essential.codeFixupDCE()
-          essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          fixer.asInstanceOf[BCodeCleanser].cleanseClass()
         }
 
         refreshInnerClasses(cnode)
