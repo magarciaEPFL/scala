@@ -255,9 +255,14 @@ abstract class BCodeGlue extends SubComponent {
    *
    * All methods of this classs can-multi-thread
    */
-  final class BType(val sort: Int, val off: Int, val len: Int) {
+  final class BType(sort0: Int, val off: Int, len0: Int) {
 
     import global.chrs
+
+    private val hiPart: Int = ((sort0 << 24) | len0)
+
+    @inline def len:  Int = (hiPart & 0x00FFFFFF)
+    @inline def sort: Int = (hiPart >> 24)
 
     /*
      * can-multi-thread
