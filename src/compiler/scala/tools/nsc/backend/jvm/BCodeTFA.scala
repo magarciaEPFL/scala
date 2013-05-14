@@ -74,11 +74,11 @@ abstract class BCodeTFA extends BCodeOptCommon {
 
   }
 
-  val TF_INT     = TFValue(BType.INT_TYPE,    0)
-  val TF_FLOAT   = TFValue(BType.FLOAT_TYPE,  0)
-  val TF_LONG    = TFValue(BType.LONG_TYPE,   0)
-  val TF_DOUBLE  = TFValue(BType.DOUBLE_TYPE, 0)
-  val TF_VOID    = TFValue(BType.VOID_TYPE,   0)
+  val TF_INT     = TFValue(BT.INT_TYPE,    0)
+  val TF_FLOAT   = TFValue(BT.FLOAT_TYPE,  0)
+  val TF_LONG    = TFValue(BT.LONG_TYPE,   0)
+  val TF_DOUBLE  = TFValue(BT.DOUBLE_TYPE, 0)
+  val TF_VOID    = TFValue(BT.VOID_TYPE,   0)
 
   object TypeFlowConstants {
     val NON_NULL_MASK = 1

@@ -337,13 +337,13 @@ abstract class BCodeOptCommon extends BCodeHelpers {
               val iname = desc.substring(1, desc.length() - 1)
               enterInternalName(iname)
             case '(' =>
-              val mt = BType.getMethodType(desc)
+              val mt = BT.getMethodType(desc)
               enterDescr(mt.getReturnType.getDescriptor)
               for(argt <- mt.getArgumentTypes) {
                 enterDescr(argt.getDescriptor)
               }
             case '[' =>
-              val arrt = BType.getType(desc)
+              val arrt = BT.getType(desc)
               enterDescr(arrt.getComponentType.getDescriptor)
           }
         }

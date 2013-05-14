@@ -1397,7 +1397,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
 
       assert(newInsn.getOpcode == asm.Opcodes.NEW)
       val dupInsn = newInsn.getNext
-      val paramTypes = BType.getMethodType(initInsn.desc).getArgumentTypes
+      val paramTypes = BT.getMethodType(initInsn.desc).getArgumentTypes
 
       val stream = mnode.instructions
       stream.remove(newInsn)
