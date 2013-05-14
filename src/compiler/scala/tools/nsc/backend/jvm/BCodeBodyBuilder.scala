@@ -615,7 +615,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
               }
               if (argsSize < dims) {
                 /* In one step:
-                 *   elemKind = new BType(BType.ARRAY, arr.off + argsSize, arr.len - argsSize)
+                 *   elemKind = new BType(asm.Type.ARRAY, arr.off + argsSize, arr.len - argsSize)
                  * however the above does not enter a TypeName for each nested arrays in chrs.
                  */
                 for (i <- args.length until dims) elemKind = arrayOf(elemKind)
