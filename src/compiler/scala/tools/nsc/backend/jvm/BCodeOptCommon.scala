@@ -39,6 +39,8 @@ abstract class BCodeOptCommon extends BCodeHelpers {
     new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
   )
 
+  def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
+
   trait BCodeCleanserIface {
     def intraMethodFixpoints(full: Boolean)
   }
