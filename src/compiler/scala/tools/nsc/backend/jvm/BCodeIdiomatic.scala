@@ -345,8 +345,6 @@ abstract class BCodeIdiomatic extends BCodeGlue {
       // We're done with BOOL already
       (from.sort: @switch) match {
 
-        // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
-
         case asm.Type.BYTE  => pickOne(JCodeMethodN.fromByteT2T)
         case asm.Type.SHORT => pickOne(JCodeMethodN.fromShortT2T)
         case asm.Type.CHAR  => pickOne(JCodeMethodN.fromCharT2T)
@@ -436,7 +434,6 @@ abstract class BCodeIdiomatic extends BCodeGlue {
         jmethod.visitTypeInsn(Opcodes.ANEWARRAY, elem.getInternalName)
       } else {
         val rand = {
-          // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
           (elem.sort: @switch) match {
             case asm.Type.BOOLEAN => Opcodes.T_BOOLEAN
             case asm.Type.BYTE    => Opcodes.T_BYTE
@@ -621,7 +618,6 @@ abstract class BCodeIdiomatic extends BCodeGlue {
      // can-multi-thread
     final def emitPrimitive(opcs: Array[Int], tk: BType) {
       val opc = {
-        // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
         (tk.sort: @switch) match {
           case asm.Type.LONG   => opcs(1)
           case asm.Type.FLOAT  => opcs(2)
