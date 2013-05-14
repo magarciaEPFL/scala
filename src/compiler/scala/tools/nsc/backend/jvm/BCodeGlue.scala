@@ -26,32 +26,17 @@ abstract class BCodeGlue extends SubComponent {
 
     import global.chrs
 
-    // ------------- sorts -------------
-
-    val VOID   : Int =  0
-    val BOOLEAN: Int =  1
-    val CHAR   : Int =  2
-    val BYTE   : Int =  3
-    val SHORT  : Int =  4
-    val INT    : Int =  5
-    val FLOAT  : Int =  6
-    val LONG   : Int =  7
-    val DOUBLE : Int =  8
-    val ARRAY  : Int =  9
-    val OBJECT : Int = 10
-    val METHOD : Int = 11
-
     // ------------- primitive types -------------
 
-    val VOID_TYPE    = new BType(VOID,    ('V' << 24) | (5 << 16) | (0 << 8) | 0, 1)
-    val BOOLEAN_TYPE = new BType(BOOLEAN, ('Z' << 24) | (0 << 16) | (5 << 8) | 1, 1)
-    val CHAR_TYPE    = new BType(CHAR,    ('C' << 24) | (0 << 16) | (6 << 8) | 1, 1)
-    val BYTE_TYPE    = new BType(BYTE,    ('B' << 24) | (0 << 16) | (5 << 8) | 1, 1)
-    val SHORT_TYPE   = new BType(SHORT,   ('S' << 24) | (0 << 16) | (7 << 8) | 1, 1)
-    val INT_TYPE     = new BType(INT,     ('I' << 24) | (0 << 16) | (0 << 8) | 1, 1)
-    val FLOAT_TYPE   = new BType(FLOAT,   ('F' << 24) | (2 << 16) | (2 << 8) | 1, 1)
-    val LONG_TYPE    = new BType(LONG,    ('J' << 24) | (1 << 16) | (1 << 8) | 2, 1)
-    val DOUBLE_TYPE  = new BType(DOUBLE,  ('D' << 24) | (3 << 16) | (3 << 8) | 2, 1)
+    val VOID_TYPE    = new BType(asm.Type.VOID,    ('V' << 24) | (5 << 16) | (0 << 8) | 0, 1)
+    val BOOLEAN_TYPE = new BType(asm.Type.BOOLEAN, ('Z' << 24) | (0 << 16) | (5 << 8) | 1, 1)
+    val CHAR_TYPE    = new BType(asm.Type.CHAR,    ('C' << 24) | (0 << 16) | (6 << 8) | 1, 1)
+    val BYTE_TYPE    = new BType(asm.Type.BYTE,    ('B' << 24) | (0 << 16) | (5 << 8) | 1, 1)
+    val SHORT_TYPE   = new BType(asm.Type.SHORT,   ('S' << 24) | (0 << 16) | (7 << 8) | 1, 1)
+    val INT_TYPE     = new BType(asm.Type.INT,     ('I' << 24) | (0 << 16) | (0 << 8) | 1, 1)
+    val FLOAT_TYPE   = new BType(asm.Type.FLOAT,   ('F' << 24) | (2 << 16) | (2 << 8) | 1, 1)
+    val LONG_TYPE    = new BType(asm.Type.LONG,    ('J' << 24) | (1 << 16) | (1 << 8) | 2, 1)
+    val DOUBLE_TYPE  = new BType(asm.Type.DOUBLE,  ('D' << 24) | (3 << 16) | (3 << 8) | 2, 1)
 
     /*
      * Returns the Java type corresponding to the given type descriptor.
@@ -84,13 +69,13 @@ abstract class BCodeGlue extends SubComponent {
               len += 1
             }
           }
-          new BType(ARRAY, off, len + 1)
+          new BType(asm.Type.ARRAY, off, len + 1)
         case 'L' =>
           len = 1
           while (chrs(off + len) != ';') {
             len += 1
           }
-          new BType(OBJECT, off + 1, len - 1)
+          new BType(asm.Type.OBJECT, off + 1, len - 1)
         // case '(':
         case _ =>
           assert(chrs(off) == '(')
@@ -99,7 +84,7 @@ abstract class BCodeGlue extends SubComponent {
           val resType = getType(resPos + 1)
           val len = resPos - off + 1 + resType.len;
           new BType(
-            METHOD,
+            asm.Type.METHOD,
             off,
             if (resType.hasObjectSort) {
               len + 2 // "+ 2" accounts for the "L ... ;" in a descriptor for a non-array reference.
@@ -114,7 +99,7 @@ abstract class BCodeGlue extends SubComponent {
      *  can-multi-thread
      */
     def getObjectType(index: Int, length: Int): BType = {
-      val sort = if (chrs(index) == '[') ARRAY else OBJECT;
+      val sort = if (chrs(index) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
       new BType(sort, index, length)
     }
 
@@ -135,7 +120,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getMethodType(methodDescriptor: String): BType = {
       val n = global.newTypeName(methodDescriptor)
-      new BType(BType.METHOD, n.start, n.length) // TODO assert isValidMethodDescriptor
+      new BType(asm.Type.METHOD, n.start, n.length) // TODO assert isValidMethodDescriptor
     }
 
     /*
@@ -149,7 +134,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getMethodType(returnType: BType, argumentTypes: Array[BType]): BType = {
       val n = global.newTypeName(getMethodDescriptor(returnType, argumentTypes))
-      new BType(BType.METHOD, n.start, n.length)
+      new BType(asm.Type.METHOD, n.start, n.length)
     }
 
     /*
@@ -168,7 +153,7 @@ abstract class BCodeGlue extends SubComponent {
       while (chrs(off) != ')') {
         args(size) = getType(off)
         off += args(size).len
-        if (args(size).sort == OBJECT) { off += 2 }
+        if (args(size).sort == asm.Type.OBJECT) { off += 2 }
         // debug: assert("LVZBSCIJFD[)".contains(chrs(off)))
         size += 1
       }
@@ -279,7 +264,6 @@ abstract class BCodeGlue extends SubComponent {
      */
     def toASMType: scala.tools.asm.Type = {
       import scala.tools.asm
-      // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
       (sort: @switch) match {
         case asm.Type.VOID    => asm.Type.VOID_TYPE
         case asm.Type.BOOLEAN => asm.Type.BOOLEAN_TYPE
@@ -303,7 +287,7 @@ abstract class BCodeGlue extends SubComponent {
      *
      * can-multi-thread
      */
-    def hasObjectSort = (sort == BType.OBJECT)
+    def hasObjectSort = (sort == asm.Type.OBJECT)
 
     /*
      * Returns the number of dimensions of this array type. This method should
@@ -449,10 +433,10 @@ abstract class BCodeGlue extends SubComponent {
     // Inspector methods
     // ------------------------------------------------------------------------
 
-    def isPrimitiveOrVoid = (sort <  BType.ARRAY) // can-multi-thread
-    def isValueType       = (sort <  BType.ARRAY) // can-multi-thread
-    def isArray           = (sort == BType.ARRAY) // can-multi-thread
-    def isUnitType        = (sort == BType.VOID)  // can-multi-thread
+    def isPrimitiveOrVoid = (sort <  asm.Type.ARRAY) // can-multi-thread
+    def isValueType       = (sort <  asm.Type.ARRAY) // can-multi-thread
+    def isArray           = (sort == asm.Type.ARRAY) // can-multi-thread
+    def isUnitType        = (sort == asm.Type.VOID)  // can-multi-thread
 
     def isRefOrArrayType   = { hasObjectSort ||  isArray    } // can-multi-thread
     def isNonUnitValueType = { isValueType   && !isUnitType } // can-multi-thread
@@ -484,8 +468,8 @@ abstract class BCodeGlue extends SubComponent {
      */
     def isIntSizedType = {
       (sort : @switch) match {
-        case BType.BOOLEAN | BType.CHAR  |
-             BType.BYTE    | BType.SHORT | BType.INT
+        case asm.Type.BOOLEAN | asm.Type.CHAR  |
+             asm.Type.BYTE    | asm.Type.SHORT | asm.Type.INT
           => true
         case _
           => false
@@ -498,9 +482,9 @@ abstract class BCodeGlue extends SubComponent {
      */
     def isIntegralType = {
       (sort : @switch) match {
-        case BType.CHAR  |
-             BType.BYTE  | BType.SHORT | BType.INT |
-             BType.LONG
+        case asm.Type.CHAR  |
+             asm.Type.BYTE  | asm.Type.SHORT | asm.Type.INT |
+             asm.Type.LONG
           => true
         case _
           => false
@@ -511,7 +495,7 @@ abstract class BCodeGlue extends SubComponent {
      *
      * can-multi-thread
      */
-    def isRealType = { (sort == BType.FLOAT ) || (sort == BType.DOUBLE) }
+    def isRealType = { (sort == asm.Type.FLOAT ) || (sort == asm.Type.DOUBLE) }
 
     def isNumericType = (isIntegralType || isRealType) // can-multi-thread
 
@@ -578,7 +562,7 @@ abstract class BCodeGlue extends SubComponent {
       if (isPrimitiveOrVoid) {
         // descriptor is in byte 3 of 'off' for primitive types (buf == null)
         buf.append(((off & 0xFF000000) >>> 24).asInstanceOf[Char])
-      } else if (sort == BType.OBJECT) {
+      } else if (sort == asm.Type.OBJECT) {
         buf.append('L')
         buf.append(chrs, off, len)
         buf.append(';')
@@ -654,7 +638,7 @@ abstract class BCodeGlue extends SubComponent {
       if (sort != t.sort) {
         return false
       }
-      if (sort >= BType.ARRAY) {
+      if (sort >= asm.Type.ARRAY) {
         if (len != t.len) {
           return false
         }
@@ -682,7 +666,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     override def hashCode(): Int = {
       var hc = 13 * sort;
-      if (sort >= BType.ARRAY) {
+      if (sort >= asm.Type.ARRAY) {
         var i = off
         val end = i + len
         while (i < end) {
@@ -866,7 +850,7 @@ abstract class BCodeGlue extends SubComponent {
   def lookupRefBType(iname: String): BType = {
     import global.chrs
     val n    = global.lookupTypeName(iname.toCharArray)
-    val sort = if (chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+    val sort = if (chrs(n.start) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
     new BType(sort, n.start, n.length)
   }
 
@@ -874,7 +858,7 @@ abstract class BCodeGlue extends SubComponent {
     import global.chrs
     val n    = global.lookupTypeNameIfExisting(iname.toCharArray, false)
     if (n == null) { return null }
-    val sort = if (chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+    val sort = if (chrs(n.start) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
     new BType(sort, n.start, n.length)
   }
 
