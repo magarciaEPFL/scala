@@ -128,11 +128,11 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
       // outerTK is a poor name choice because sometimes there's no outer instance yet there's always a delegateOwnerTK
       val outerTK     = brefType(internalName(delegateSym.owner))
       val enclClassBT = brefType(cnode.name)
-      assert(outerTK.hasObjectSort, s"Not of object sort: $outerTK")
+      assert(outerTK.hasObjectSort, s"Not of object sort: ${outerTK.getDescriptor}")
       assert(
         outerTK == enclClassBT,
          "Probable cause: a regression in the way DelayedInit is lowered. " +
-        s"outerTK != enclClassBT , where outerTK is $outerTK and enclClassBT is $enclClassBT"
+        s"outerTK != enclClassBT , where outerTK is ${outerTK.getDescriptor} and enclClassBT is ${enclClassBT.getDescriptor}"
       )
 
       /*
@@ -641,7 +641,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
       log(
         s"genLateClosure: added Late-Closure-Class ${closuCNode.name} " +
-        s"for endpoint ${delegateJavaName}${delegateMT} " +
+        s"for endpoint ${delegateJavaName}${delegateMT.getDescriptor} " +
         s"in class ${outerTK.getInternalName}. Enclosing method ${methodSignature(cnode, mnode)} , " +
         s"position in source file: ${fakeCallsite.pos}"
       )
