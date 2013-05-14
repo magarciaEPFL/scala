@@ -198,10 +198,7 @@ abstract class GenBCode extends BCodeOptClosu {
        * the second condition holds when an intra-class optimization did the eliding
        * (during BCodeCleanser.cleanseClass(), running after whole-program).
        */
-      def wasElided = {
-        (plain == null) ||
-        elidedClasses.contains(lookupRefBType(plain.jclassName))
-      }
+      def forgetIt = { (plain == null) || wasElided(plain.jclassName) }
 
     }
     private val i3comparator = new _root_.java.util.Comparator[Item3] {
@@ -653,7 +650,7 @@ abstract class GenBCode extends BCodeOptClosu {
         }
         while (!followers.isEmpty && followers.peek.arrivalPos == expected) {
           val item = followers.poll
-          if (!item.wasElided) {
+          if (!item.forgetIt) {
             val outFolder = item.outFolder
             sendToDisk(item.mirror, outFolder)
             sendToDisk(item.plain,  outFolder)
