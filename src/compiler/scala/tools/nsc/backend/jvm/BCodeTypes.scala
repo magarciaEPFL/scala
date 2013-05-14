@@ -688,7 +688,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
    * can-multi-thread
    */
   final def isHigherOrderMethod(mtype: BType): Boolean = {
-    assert(mtype.sort == BType.METHOD)
+    assert(mtype.sort == asm.Type.METHOD)
 
     val ats = mtype.getArgumentTypes
     var idx = 0
