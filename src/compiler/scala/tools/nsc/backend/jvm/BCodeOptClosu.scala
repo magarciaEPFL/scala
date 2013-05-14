@@ -392,7 +392,10 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
        *   - one reachable via exceptional control flow;
        *   - the other via normal control flow.
        */
-      val hiOKey = ("" + hasNonNullReceiver + ";" + Util.textify(callsite) + actualsTypeFlow.mkString("[", ";", "]"))
+      val hiOKey = "" + hasNonNullReceiver + ";" + Util.textify(callsite) + {
+        val strs = (actualsTypeFlow map { atf => atf.lca.getDescriptor })
+        strs.mkString("[", ";", "]")
+      }
 
       seenSHiOUtils.get(hiOKey) match {
 
