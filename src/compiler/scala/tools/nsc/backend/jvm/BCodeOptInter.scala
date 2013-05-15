@@ -55,6 +55,7 @@ abstract class BCodeOptInter extends BCodeTFA {
     closuRepo.clear()
     knownLacksInline.clear()
     knownHasInline.clear()
+    elidedClasses.clear()
     clearBCodeTypes()
   }
 
@@ -173,11 +174,17 @@ abstract class BCodeOptInter extends BCodeTFA {
     }
   }
 
-  class WholeProgramAnalysis {
+  abstract class WholeProgramOptMethodInlining {
 
     import asm.tree.analysis.{Analyzer, BasicValue, BasicInterpreter}
 
     val unreachCodeRemover = new asm.optimiz.UnreachableCode
+
+    def inlineClosures(hostOwner:          ClassNode,
+                       host:               MethodNode,
+                       callsiteTypeFlow:   asm.tree.analysis.Frame[TFValue],
+                       inlineTarget:       InlineTarget,
+                       hasNonNullReceiver: Boolean): Option[String]
 
     /*
      *  TODO documentation
@@ -190,10 +197,24 @@ abstract class BCodeOptInter extends BCodeTFA {
         "Before Inlining starts, all ClassNodes being compiled should be available to detect and break inlining cycles, " +
         "ie pipeline-1 should be finished."
       )
+      ifDebug { closuRepo.checkDClosureUsages() }
+      privatizables.clear()
       inlining()
+      for(priv <- privatizables; shioMethod <- priv._2) { Util.makePrivateMethod(shioMethod) }
+      privatizables.clear()
     }
 
-    private class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
+    /*
+     * shio methods are collected as they are built in the `privatizables` map, grouped by their ownning class.
+     * (That class also owns what used to be the endpoint of the delegating-closure that was inlined).
+     *
+     * shio methods spend most of their time as public methods, so as not to block method-inlining
+     * (they're synthetically generated, thus it would come as a surprise if they required attention from the developer).
+     * However, in case no method-inlining transplanted them to another class, they are made private as initially intended.
+     */
+    val privatizables = new MethodsPerClass
+
+    class MethodsPerClass extends mutable.HashMap[BType, List[MethodNode]] {
 
       def track(k: ClassNode, v: MethodNode) { track(lookupRefBType(k.name), v) }
       def track(k: BType,     v: MethodNode) { put(k, v :: getOrElse(k, Nil)) }
@@ -379,6 +400,24 @@ abstract class BCodeOptInter extends BCodeTFA {
       // Part 3 of 4: method-inlining
       //-----------------------------
 
+      severalMethodInlinings(leaf, tfaFrameAt)
+
+      //------------------------------
+      // Part 4 of 4: closure-inlining
+      //------------------------------
+
+      severalClosureInlinings(leaf, tfaFrameAt)
+
+      ifDebug {
+        val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
+        da.analyze(leaf.hostOwner.name, leaf.host)
+      }
+
+    } // end of method inlineCallees()
+
+    private def severalMethodInlinings(leaf:       CallGraphNode,
+                                       tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]]) {
+
       leaf.procs foreach { proc =>
 
         val hostOwner    = leaf.hostOwner.name
@@ -405,25 +444,15 @@ abstract class BCodeOptInter extends BCodeTFA {
       }
       leaf.procs = Nil
 
-      //------------------------------
-      // Part 4 of 4: closure-inlining
-      //------------------------------
+    }
 
-      // TODO
-
-      leaf.hiOs = Nil
-
-      ifDebug {
-        val da = new Analyzer[BasicValue](new asm.tree.analysis.BasicVerifier)
-        da.analyze(leaf.hostOwner.name, leaf.host)
-      }
-
-    } // end of method inlineCallees()
+    def severalClosureInlinings(leaf:       CallGraphNode,
+                                tfaFrameAt: Map[MethodInsnNode, asm.tree.analysis.Frame[TFValue]])
 
     /*
      * SI-5850: Inlined code shouldn't forget null-check on the original receiver
      */
-    private def isReceiverKnownNonNull(frame: asm.tree.analysis.Frame[TFValue], callsite: MethodInsnNode): Boolean = {
+    def isReceiverKnownNonNull(frame: asm.tree.analysis.Frame[TFValue], callsite: MethodInsnNode): Boolean = {
       callsite.getOpcode match {
         case Opcodes.INVOKEDYNAMIC => false // TODO
         case Opcodes.INVOKESTATIC  => true
@@ -656,6 +685,8 @@ abstract class BCodeOptInter extends BCodeTFA {
 
       replaceRETURNs()
 
+      checkTransplantedAccesses(body, hostOwnerBT)
+
       host.instructions.insert(callsite, body) // after this point, body.isEmpty (an ASM instruction can be owned by a single InsnList)
       host.instructions.remove(callsite)
 
@@ -671,14 +702,14 @@ abstract class BCodeOptInter extends BCodeTFA {
 
     } // end of method inlineMethod()
 
-    private def logInlining(success:   Boolean,
-                            hostOwner: String,
-                            host:      MethodNode,
-                            callsite:  MethodInsnNode,
-                            isHiO:     Boolean,
-                            isReceiverKnownNonNull: Boolean,
-                            hiO:       MethodNode,
-                            hiOOwner:  ClassNode) {
+    def logInlining(success:   Boolean,
+                    hostOwner: String,
+                    host:      MethodNode,
+                    callsite:  MethodInsnNode,
+                    isHiO:     Boolean,
+                    isReceiverKnownNonNull: Boolean,
+                    hiO:       MethodNode,
+                    hiOOwner:  ClassNode) {
 
       val kind    = if (isHiO)   "closure-inlining "  else "method-inlining "
       val leading = if (success) "Successful " + kind else "Failed " + kind
@@ -835,6 +866,32 @@ abstract class BCodeOptInter extends BCodeTFA {
         assert(there.hasObjectSort, "not of object sort: " + there.getDescriptor)
         (there.getRuntimePackage == here.getRuntimePackage) || exemplars.get(there).isPublic
       }
+    }
+
+    def checkTransplantedAccesses(body: InsnList, enclClass: BType) {
+
+      /*
+       * An invocation to a shio method declared in a class other than the new home of the callsite (enclClass)
+       * forces the shio method in question to remain public.
+       */
+      body foreachInsn { insn =>
+        insn match {
+          case mi: MethodInsnNode =>
+            val calleeOwnerBT = lookupRefBType(mi.owner)
+            if (calleeOwnerBT != enclClass) {
+              // it's ok to try to untrack a method that's not being tracked
+              privatizables.untrack(calleeOwnerBT, mi.name, mi.desc)
+            }
+          case _ => ()
+        }
+      }
+
+      /*
+       * In case `insn` denotes a dclosure instantiation or endpoint invocation
+       * and `enclClass` isn't the master class of that dclosure, note this fact `nonMasterUsers`.
+       */
+      body foreachInsn { insn => closuRepo.trackClosureUsageIfAny(insn, enclClass) }
+
     }
 
   } // end of class WholeProgramAnalysis
