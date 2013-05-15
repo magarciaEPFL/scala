@@ -21,7 +21,7 @@ import scala.tools.asm
  *  @version 1.0
  *
  */
-abstract class BCodeSkelBuilder extends BCodeTFA {
+abstract class BCodeSkelBuilder extends BCodeOptInter {
   import global._
   import definitions._
 
@@ -274,6 +274,7 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
     var isMethSymBridge            = false
     var returnType: BType          = null
     var methSymbol: Symbol         = null
+    var cgn: CallGraphNode         = null
     // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
     var isModuleInitialized        = false
     // used by genLoadTry() and genSynchronized()
@@ -616,7 +617,11 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
             } // end of emitNormalMethodBody()
 
         lineNumber(rhs)
+        cgn = new CallGraphNode(cnode, mnode)
         emitNormalMethodBody()
+        if (!cgn.isEmpty) {
+          cgns += cgn
+        }
 
         // Note we don't invoke visitMax, thus there are no FrameNode among mnode.instructions.
         // The only non-instruction nodes to be found are LabelNode and LineNumberNode.
