@@ -414,9 +414,9 @@ public class Util {
     public static Map<LabelNode, LabelNode> clonedLabels(final InsnList is) {
         ListIterator<AbstractInsnNode> iter   = is.iterator();
         Map<LabelNode, LabelNode>      result = new HashMap<LabelNode, LabelNode>();
-        while(iter.hasNext()) {
+        while (iter.hasNext()) {
             AbstractInsnNode insn = iter.next();
-            if(insn.getType() == AbstractInsnNode.LABEL) {
+            if (insn.getType() == AbstractInsnNode.LABEL) {
                 result.put((LabelNode)insn, fabricateLabelNode());
             }
         }
@@ -444,9 +444,9 @@ public class Util {
         assert insnMap.isEmpty();
         ListIterator<AbstractInsnNode> iter = input.iterator();
         InsnList output = new InsnList();
-        while(iter.hasNext()) {
+        while (iter.hasNext()) {
             AbstractInsnNode nxt = iter.next();
-            if(nxt.getType() != AbstractInsnNode.FRAME) {
+            if (nxt.getType() != AbstractInsnNode.FRAME) {
                 // don't clone any frames as they most likely won't make sense at the new usage point
                 AbstractInsnNode cln = nxt.clone(labelMap);
                 output.add(cln);
@@ -463,7 +463,7 @@ public class Util {
     public static List<LocalVariableNode> clonedLocalVariableNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
         Iterator<LocalVariableNode> iter   = mnode.localVariables.iterator();
         List<LocalVariableNode>     output = new LinkedList<LocalVariableNode>();
-        while(iter.hasNext()) {
+        while (iter.hasNext()) {
             LocalVariableNode oldLVN = iter.next();
             LocalVariableNode newLVN = clonedLocalVariableNode(oldLVN, labelMap, prefix);
             output.add(newLVN);
@@ -486,7 +486,7 @@ public class Util {
     public static List<TryCatchBlockNode> clonedTryCatchBlockNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap) {
         Iterator<TryCatchBlockNode> iter    = mnode.tryCatchBlocks.iterator();
         List<TryCatchBlockNode>     output  = new LinkedList<TryCatchBlockNode>();
-        while(iter.hasNext()) {
+        while (iter.hasNext()) {
             TryCatchBlockNode oldTCB = iter.next();
             TryCatchBlockNode newTCB = clonedTryCatchBlockNode(oldTCB, labelMap);
             output.add(newTCB);

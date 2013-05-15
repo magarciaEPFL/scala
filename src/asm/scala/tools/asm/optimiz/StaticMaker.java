@@ -80,15 +80,15 @@ public class StaticMaker {
         assert  Util.isInstanceMethod(m);
 
         Iterator<AbstractInsnNode> iter = m.instructions.iterator();
-        while(iter.hasNext()) {
+        while (iter.hasNext()) {
             AbstractInsnNode insn = iter.next();
-            if(insn.getType() == AbstractInsnNode.VAR_INSN) {
+            if (insn.getType() == AbstractInsnNode.VAR_INSN) {
                 VarInsnNode vi = (VarInsnNode)insn;
-                if(vi.getOpcode() == Opcodes.RET) {
+                if (vi.getOpcode() == Opcodes.RET) {
                     return false; // doing so prevents any modification
                 }
-                if(vi.getOpcode() == Opcodes.ALOAD || vi.getOpcode() == Opcodes.ASTORE) {
-                    if(vi.var == 0) {
+                if (vi.getOpcode() == Opcodes.ALOAD || vi.getOpcode() == Opcodes.ASTORE) {
+                    if (vi.var == 0) {
                         return false;
                     }
                 }
@@ -118,7 +118,7 @@ public class StaticMaker {
         assert callerOwner.methods.contains(caller);
         assert calleeOwner.methods.contains(callee);
 
-        if(Util.isAbstractMethod(caller)) {
+        if (Util.isAbstractMethod(caller)) {
             return false;
         }
 
@@ -126,11 +126,11 @@ public class StaticMaker {
         Set<MethodInsnNode> callsites = new HashSet<MethodInsnNode>();
 
         Iterator<AbstractInsnNode> insnIter = caller.instructions.iterator();
-        while(insnIter.hasNext()) {
+        while (insnIter.hasNext()) {
             AbstractInsnNode insn = insnIter.next();
-            if(insn.getType() == AbstractInsnNode.METHOD_INSN) {
+            if (insn.getType() == AbstractInsnNode.METHOD_INSN) {
                 MethodInsnNode mi = (MethodInsnNode)insn;
-                if((mi.owner.equals(calleeOwner.name)) &&
+                if ((mi.owner.equals(calleeOwner.name)) &&
                    (mi.name.equals(callee.name)) &&
                    (mi.desc.equals(callee.desc))) {
 
@@ -139,7 +139,7 @@ public class StaticMaker {
             }
         }
 
-        if(callsites.isEmpty()) {
+        if (callsites.isEmpty()) {
             return false;
         }
 
@@ -160,17 +160,17 @@ public class StaticMaker {
 
     public static void downShiftLocalVarUsages(MethodNode m) {
         Iterator<AbstractInsnNode> insnIter = m.instructions.iterator();
-        while(insnIter.hasNext()) {
+        while (insnIter.hasNext()) {
             AbstractInsnNode insn = insnIter.next();
-            if(insn.getType() == AbstractInsnNode.VAR_INSN) {
+            if (insn.getType() == AbstractInsnNode.VAR_INSN) {
                 VarInsnNode vi = (VarInsnNode)insn;
                 vi.var -= 1;
             }
         }
         Iterator<LocalVariableNode> lvnIter = m.localVariables.iterator();
-        while(lvnIter.hasNext()) {
+        while (lvnIter.hasNext()) {
             LocalVariableNode lvn = lvnIter.next();
-            if(lvn.index == 0) {
+            if (lvn.index == 0) {
                 lvnIter.remove();
             } else {
                 lvn.index -= 1;

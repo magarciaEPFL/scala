@@ -62,7 +62,7 @@ public class UnusedParamsElider {
             if (Util.isPrivateMethod(m)) {
                 String oldDescr = m.desc;
                 Set<Integer> elidedParams = elideUnusedParams(cnode, m);
-                if(!elidedParams.isEmpty()) {
+                if (!elidedParams.isEmpty()) {
                     changed = true;
                     updatedMethodSignatures.add(m);
                     for (MethodNode caller : cnode.methods) {
@@ -90,11 +90,11 @@ public class UnusedParamsElider {
 
         // indexed by param position (which are zero-based)
         Type[] paramTs = Type.getArgumentTypes(m.desc);
-        if(Util.isAbstractMethod(m) || paramTs.length == 0) {
+        if (Util.isAbstractMethod(m) || paramTs.length == 0) {
             return java.util.Collections.EMPTY_SET;
         }
 
-        if(m.maxLocals == 0) {
+        if (m.maxLocals == 0) {
             Util.computeMaxLocalsMaxStack(m);
         }
 
@@ -107,7 +107,7 @@ public class UnusedParamsElider {
         int[] paramStatus      = new int[m.maxLocals];
 
         final int firstParamLocalVarIdx = (Util.isInstanceMethod(m) ? 1 : 0);
-        if(Util.isInstanceMethod(m)) {
+        if (Util.isInstanceMethod(m)) {
             originalSize[0]       =  1;
             originalParamPos[0]   = -1; // -1 stands for the param position of the receiver for an instance method.
         }
@@ -123,12 +123,12 @@ public class UnusedParamsElider {
 
         // mark with +1 those params in use
         Iterator<AbstractInsnNode> insnIter = m.instructions.iterator();
-        while(insnIter.hasNext()) {
+        while (insnIter.hasNext()) {
             AbstractInsnNode insn = insnIter.next();
-            if(insn.getOpcode() == Opcodes.RET) {
+            if (insn.getOpcode() == Opcodes.RET) {
                 return java.util.Collections.EMPTY_SET; // subroutines not supported
             }
-            if(insn.getType() == AbstractInsnNode.VAR_INSN) {
+            if (insn.getType() == AbstractInsnNode.VAR_INSN) {
                 VarInsnNode vi = (VarInsnNode)insn;
                 paramStatus[vi.var] = 1;
             }
@@ -142,39 +142,39 @@ public class UnusedParamsElider {
          * remove LocalVarNode if any.
          */
         for(idx = paramStatus.length - 1; idx >= firstParamLocalVarIdx; idx--) {
-            if(paramStatus[idx] == -1) {
+            if (paramStatus[idx] == -1) {
 
                 int paramPos = originalParamPos[idx];
                 paramTs[paramPos] = null;
                 elidedParams.add(paramPos);
 
                 insnIter = m.instructions.iterator();
-                while(insnIter.hasNext()) {
+                while (insnIter.hasNext()) {
                     AbstractInsnNode insn = insnIter.next();
-                    if(insn.getType() == AbstractInsnNode.VAR_INSN) {
+                    if (insn.getType() == AbstractInsnNode.VAR_INSN) {
                         VarInsnNode vi = (VarInsnNode)insn;
                         assert(vi.var != idx); // we're assuming the param in question is NOT in use.
-                        if(vi.var > idx) {
+                        if (vi.var > idx) {
                             vi.var -= originalSize[idx];
                         }
                     }
                 }
 
                 Iterator<LocalVariableNode> lvnIter = m.localVariables.iterator();
-                while(lvnIter.hasNext()) {
-                    if(lvnIter.next().index == idx) {
+                while (lvnIter.hasNext()) {
+                    if (lvnIter.next().index == idx) {
                         lvnIter.remove();
                     }
                 }
             }
         }
 
-        if(!elidedParams.isEmpty()) {
+        if (!elidedParams.isEmpty()) {
             // gathering the types of non-elided params
             Type[] updatedParamTs = new Type[paramTs.length - elidedParams.size()];
             int updatedParamPos = 0;
             for(int oldParamPos = 0; oldParamPos < paramTs.length; oldParamPos++) {
-                if(paramTs[oldParamPos] != null) {
+                if (paramTs[oldParamPos] != null) {
                     updatedParamTs[updatedParamPos] = paramTs[oldParamPos];
                     updatedParamPos++;
                 }
@@ -211,7 +211,7 @@ public class UnusedParamsElider {
         assert callerOwner.methods.contains(caller);
         assert calleeOwner.methods.contains(callee);
 
-        if(elidedParams.isEmpty() || Util.isAbstractMethod(caller)) {
+        if (elidedParams.isEmpty() || Util.isAbstractMethod(caller)) {
             return;
         }
 
@@ -219,11 +219,11 @@ public class UnusedParamsElider {
         Set<MethodInsnNode> callsites = new HashSet<MethodInsnNode>();
 
         Iterator<AbstractInsnNode> insnIter = caller.instructions.iterator();
-        while(insnIter.hasNext()) {
+        while (insnIter.hasNext()) {
             AbstractInsnNode insn = insnIter.next();
-            if(insn.getType() == AbstractInsnNode.METHOD_INSN) {
+            if (insn.getType() == AbstractInsnNode.METHOD_INSN) {
                 MethodInsnNode mi = (MethodInsnNode)insn;
-                if((mi.owner.equals(calleeOwner.name)) &&
+                if ((mi.owner.equals(calleeOwner.name)) &&
                    (mi.name.equals(callee.name)) &&
                    (mi.desc.equals(oldDescr))) {
 
@@ -232,7 +232,7 @@ public class UnusedParamsElider {
             }
         }
 
-        if(callsites.isEmpty()) {
+        if (callsites.isEmpty()) {
             return;
         }
 
@@ -295,7 +295,7 @@ public class UnusedParamsElider {
 
         assert cnode.methods.contains(caller);
 
-        if(caller.maxLocals == 0) {
+        if (caller.maxLocals == 0) {
             Util.computeMaxLocalsMaxStack(caller);
         }
 
@@ -314,9 +314,9 @@ public class UnusedParamsElider {
             callsiteFrame.put(callsite, frame);
 
             boolean doneWithCallsite = false;
-            if(dropReceiver) {
+            if (dropReceiver) {
                 SourceValue rcvProd = frame.getReceiver(callsite);
-                if(consumersExistOtherThanCallsite(cp, rcvProd, callsite)) {
+                if (consumersExistOtherThanCallsite(cp, rcvProd, callsite)) {
                     // drop unneeded value at the point of consumption
                     toSpill.put(callsite, -1);
                     doneWithCallsite = true;
@@ -328,15 +328,15 @@ public class UnusedParamsElider {
 
             Value[] argProducerss = frame.getActualArguments(callsite);
             for(int paramPos = 0; paramPos < argProducerss.length; paramPos++) {
-                if(!doneWithCallsite && elidedParams.contains(paramPos)) {
+                if (!doneWithCallsite && elidedParams.contains(paramPos)) {
                     SourceValue argProducers = (SourceValue)argProducerss[paramPos];
-                    if(consumersExistOtherThanCallsite(cp, argProducers, callsite)) {
+                    if (consumersExistOtherThanCallsite(cp, argProducers, callsite)) {
                         // drop unneeded value at the point of consumption
                         toSpill.put(callsite, paramPos);
                         doneWithCallsite = true;
                     } else {
                         // drop unneeded value at the source
-                        if(argProducers.getSize() == 1) {
+                        if (argProducers.getSize() == 1) {
                             toPOP1.addAll(argProducers.insns);
                         } else {
                             toPOP2.addAll(argProducers.insns);
@@ -358,7 +358,7 @@ public class UnusedParamsElider {
             Type[] argTs = Type.getArgumentTypes(oldDescr);
             boolean spillReceiver = false;
             int firstParamToDrop = toSpill.get(callsite);
-            if(firstParamToDrop == -1) {
+            if (firstParamToDrop == -1) {
                 spillReceiver = true;
                 firstParamToDrop = 0;
             }
@@ -371,11 +371,11 @@ public class UnusedParamsElider {
                 VarInsnNode storeInsn = new VarInsnNode(argTs[paramPos].getOpcode(Opcodes.ISTORE), idx);
                 caller.instructions.insertBefore(callsite, storeInsn);
             }
-            if(spillReceiver) {
+            if (spillReceiver) {
                 caller.instructions.insertBefore(callsite, Util.getDrop(1));
             }
             for(int paramPos = firstParamToDrop; paramPos < argTs.length; paramPos++) {
-                if(!elidedParams.contains(paramPos)) {
+                if (!elidedParams.contains(paramPos)) {
                     int idx = idxOfAddedLocalVars[paramPos];
                     VarInsnNode loadInsn = new VarInsnNode(argTs[paramPos].getOpcode(Opcodes.ILOAD), idx);
                     caller.instructions.insertBefore(callsite, loadInsn);
@@ -387,7 +387,7 @@ public class UnusedParamsElider {
 
     private static boolean consumersExistOtherThanCallsite(ProdConsAnalyzer cp, SourceValue argProducers, MethodInsnNode callsite) {
         for(AbstractInsnNode prod : argProducers.insns) {
-            if(!cp.hasUniqueImage(prod, callsite)) {
+            if (!cp.hasUniqueImage(prod, callsite)) {
                 return true;
             }
         }
