@@ -14,7 +14,6 @@ import asm.optimiz.Util
 import asm.tree._
 
 import scala.collection.{ mutable, immutable }
-import collection.convert.Wrappers.JListWrapper
 
 /*
  *  Optimize and tidy-up bytecode before it's serialized for good.
@@ -190,6 +189,8 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
      */
     final def removeUnreachableCode(mnode: MethodNode): Boolean = {
 
+      import collection.JavaConverters._
+
       val landing  = mutable.Set.empty[AbstractInsnNode]
       val suspect  = mutable.Set.empty[AbstractInsnNode]
       val worklist = new mutable.Stack[AbstractInsnNode]
@@ -206,7 +207,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
       }
 
       def transfers(labels: _root_.java.util.List[LabelNode]) {
-        for(lbl <- JListWrapper(labels)) { transfer(lbl) }
+        for(lbl <- labels.asScala) { transfer(lbl) }
       }
 
       def makeSuspect(s: AbstractInsnNode) {
@@ -218,7 +219,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
       val stream = mnode.instructions
       transfer(stream.getFirst)
-      for(tcb <- JListWrapper(mnode.tryCatchBlocks)) { transfer(tcb.handler) }
+      for(tcb <- mnode.tryCatchBlocks.asScala) { transfer(tcb.handler) }
 
       while (worklist.nonEmpty) {
         var reach = worklist.pop()
@@ -315,5 +316,105 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
     }
 
   } // end of class EssentialCleanser
+
+  /*
+   * One of the intra-method optimizations (dead-code elimination)
+   * and a few of the inter-procedural ones (inlining)
+   * may have caused the InnerClasses JVM attribute to become stale
+   * (e.g. some inner classes that were mentioned aren't anymore,
+   * or inlining added instructions referring to inner classes not yet accounted for)
+   *
+   * This method takes care of SI-6546 "Optimizer leaves references to classes that have been eliminated by inlining"
+   *
+   * TODO SI-6759 Seek clarification about necessary and sufficient conditions to be listed in InnerClasses JVM attribute (GenASM).
+   * The JVM spec states in Sec. 4.7.6 that
+   *   for each CONSTANT_Class_info (constant-pool entry) which represents a class or interface that is not a member of a package
+   * an entry should be made in the class' InnerClasses JVM attribute.
+   * According to the above, the mere fact an inner class is mentioned in, for example, an annotation
+   * wouldn't be reason enough for adding it to the InnerClasses JVM attribute.
+   * However that's what GenASM does. Instead, this method scans only those internal names that will make it to a CONSTANT_Class_info.
+   *
+   * `refreshInnerClasses()` requires that `exemplars` already tracks
+   * each BType of hasObjectSort variety that is mentioned in the ClassNode.
+   *
+   * can-multi-thread
+   */
+  final def refreshInnerClasses(cnode: ClassNode) {
+
+    import collection.JavaConverters._
+
+    val refedInnerClasses = mutable.Set.empty[BType]
+    cnode.innerClasses.clear()
+
+    def visitInternalName(value: String) {
+      if (value == null) {
+        return
+      }
+      var bt = lookupRefBType(value)
+      if (bt.isArray) {
+        bt = bt.getElementType
+      }
+      if (bt.hasObjectSort && !bt.isPhantomType && (bt != BoxesRunTime)) {
+        if (exemplars.get(bt).isInnerClass) {
+          refedInnerClasses += bt
+        }
+      }
+    }
+
+    def visitDescr(desc: String) {
+      val bt = descrToBType(desc)
+      if (bt.isArray) { visitDescr(bt.getElementType.getDescriptor) }
+      else if (bt.sort == BType.METHOD) {
+        visitDescr(bt.getReturnType.getDescriptor)
+        bt.getArgumentTypes foreach { at => visitDescr(at.getDescriptor) }
+      } else if (bt.hasObjectSort) {
+        visitInternalName(bt.getInternalName)
+      }
+    }
+
+    visitInternalName(cnode.name)
+    visitInternalName(cnode.superName)
+    cnode.interfaces.asScala foreach visitInternalName
+    visitInternalName(cnode.outerClass)
+    cnode.fields.asScala  foreach { fn: FieldNode  => visitDescr(fn.desc) }
+    cnode.methods.asScala foreach { mn: MethodNode => visitDescr(mn.desc) }
+
+    // annotations not visited because they store class names in CONSTANT_Utf8_info as opposed to the CONSTANT_Class_info that matter for InnerClasses.
+
+    // TODO JDK8 the BootstrapMethodsAttribute may point via bootstrap_arguments to one or more CONSTANT_Class_info entries
+
+    for(m <- cnode.methods.asScala) {
+
+      m.exceptions.asScala foreach visitInternalName
+
+      m.tryCatchBlocks.asScala foreach { tcb => visitInternalName(tcb.`type`) }
+
+      val iter = m.instructions.iterator()
+      while (iter.hasNext) {
+        val insn = iter.next()
+        insn match {
+          case ti: TypeInsnNode   => visitInternalName(ti.desc) // an intenal name, actually
+          case fi: FieldInsnNode  => visitInternalName(fi.owner); visitDescr(fi.desc)
+          case mi: MethodInsnNode => visitInternalName(mi.owner); visitDescr(mi.desc)
+          case ivd: InvokeDynamicInsnNode => () // TODO
+          case ci: LdcInsnNode    =>
+            ci.cst match {
+              case t: asm.Type => visitDescr(t.getDescriptor)
+              case _           => ()
+            }
+          case ma: MultiANewArrayInsnNode => visitDescr(ma.desc)
+          case _ => ()
+        }
+      }
+
+    }
+
+    // cnode is a class being compiled, thus its Tracked.directMemberClasses should be defined
+    // TODO check whether any member class has been elided? (but only anon-closure-classes can be elided)
+    refedInnerClasses ++= exemplars.get(lookupRefBType(cnode.name)).directMemberClasses
+
+    addInnerClassesASM(cnode, refedInnerClasses)
+
+  } // end of method refreshInnerClasses()
 
 } // end of class BCodeOptIntra
