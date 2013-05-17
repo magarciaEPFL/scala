@@ -147,7 +147,11 @@ object PathResolver {
 import PathResolver.{ Defaults, Environment, ppcp }
 
 class PathResolver(settings: Settings, context: JavaContext) {
-  def this(settings: Settings) = this(settings, if (settings.inline) new JavaContext else DefaultJavaContext)
+  def this(settings: Settings) =
+    this(
+      settings,
+      if (settings.inline || settings.isIntraProgramOpt) new JavaContext else DefaultJavaContext
+    )
 
   private def cmdLineOrElse(name: String, alt: String) = {
     (commandLineFor(name) match {
