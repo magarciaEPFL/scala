@@ -307,6 +307,36 @@ public class Util {
     }
 
     // ------------------------------------------------------------------------
+    // jumps, backedges
+    // ------------------------------------------------------------------------
+
+    /**
+     *  @return all the backedges bracketed between instructions `start` and `end`
+     * */
+    public static Map<JumpInsnNode, LabelNode> backedges(final AbstractInsnNode start, final AbstractInsnNode end) {
+        Map<JumpInsnNode, LabelNode> result = new HashMap<JumpInsnNode, LabelNode>();
+        Set<LabelNode> seen = new HashSet<LabelNode>();
+        AbstractInsnNode current = start;
+        boolean stop = false;
+        do {
+            if (current.getType() == AbstractInsnNode.LABEL) {
+                seen.add((LabelNode)current);
+            } else if (current.getType() == AbstractInsnNode.JUMP_INSN) {
+                JumpInsnNode j = (JumpInsnNode)current;
+                if (seen.contains(j.label)) {
+                    result.put(j, j.label);
+                }
+            }
+            if (current == end) {
+                stop = true;
+            } else {
+                current = current.getNext();
+            }
+        } while (!stop);
+        return result;
+    }
+
+    // ------------------------------------------------------------------------
     // maxLocals and maxStack
     // ------------------------------------------------------------------------
 
