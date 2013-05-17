@@ -20,14 +20,15 @@ import scala.tools.asm
  *  @version 1.0
  *
  */
-abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
+abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
   import global._
   import definitions._
+  import asm.tree.{MethodNode, FieldNode}
 
   /*
    * Functionality to build the body of ASM MethodNode, except for `synchronized` and `try` expressions.
    */
-  abstract class PlainBodyBuilder(cunit: CompilationUnit) extends PlainSkelBuilder(cunit) {
+  abstract class PlainBodyBuilder(cunit: CompilationUnit) extends LateClosureBuilder(cunit) {
 
     import icodes.TestOp
     import icodes.opcodes.InvokeStyle
@@ -35,9 +36,11 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
     /*  If the selector type has a member with the right name,
      *  it is the host class; otherwise the symbol's owner.
      */
-    def findHostClass(selector: Type, sym: Symbol) = selector member sym.name match {
-      case NoSymbol   => log(s"Rejecting $selector as host class for $sym") ; sym.owner
-      case _          => selector.typeSymbol
+    def findHostClass(selector: Type, sym: Symbol): Symbol = {
+      selector member sym.name match {
+        case NoSymbol   => log(s"Rejecting $selector as host class for $sym") ; sym.owner
+        case _          => selector.typeSymbol
+      }
     }
 
     /* ---------------- helper utils for generating methods and code ---------------- */
@@ -536,6 +539,8 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
           val l = tpeTK(obj)
           val r = tpeTK(targs.head)
 
+          val lccDisguised = (cast && obj.symbol == definitions.lccDisguiserMethod)
+
           def genTypeApply(): BType = {
             genLoadQualifier(fun)
 
@@ -564,7 +569,13 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
             if (cast) r else BOOL
           } // end of genTypeApply()
 
-          generatedType = genTypeApply()
+
+            generatedType =
+              if (lccDisguised) {
+                val Apply(_, fakeCallsiteWrapper :: Nil) = obj
+                val fakeCallsite = fakeCallsiteExtractor(fakeCallsiteWrapper)
+                genLateClosure(fakeCallsite, tpeTK(app))
+              } else genTypeApply()
 
         // 'super' call: Note: since constructors are supposed to
         // return an instance of what they construct, we have to take
