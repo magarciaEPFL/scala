@@ -4,7 +4,8 @@
  */
 
 
-package scala.tools.nsc
+package scala
+package tools.nsc
 package backend
 package jvm
 
@@ -36,6 +37,8 @@ abstract class BCodeOptCommon extends BCodeHelpers {
   val elidedClasses: java.util.Set[BType] = java.util.Collections.newSetFromMap(
     new java.util.concurrent.ConcurrentHashMap[BType, java.lang.Boolean]
   )
+
+  def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
 
   trait BCodeCleanserIface {
     def intraMethodFixpoints(full: Boolean)
