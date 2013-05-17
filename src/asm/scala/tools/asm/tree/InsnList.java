@@ -244,7 +244,7 @@ public class InsnList {
      *            {@link InsnList}</i>.
      */
     public void add(final AbstractInsnNode insn) {
-        if(insn.prev != null || insn.next != null) {
+        if (insn.prev != null || insn.next != null) {
             // Adding an instruction that still refers to others (in the same or another InsnList) leads to hard to debug bugs.
             // Initially everything may look ok (e.g. iteration follows `next` thus a stale `prev` isn't noticed).
             // However, a stale link brings the doubly-linked into disarray e.g. upon removing an element,
