@@ -11,7 +11,6 @@ package jvm
 import scala.tools.asm
 import asm.Opcodes
 import asm.optimiz.{ProdConsAnalyzer, Util}
-import asm.tree.analysis.SourceValue
 import asm.tree._
 
 import scala.collection.{ mutable, immutable }
@@ -29,9 +28,13 @@ import scala.collection.{ mutable, immutable }
  *  TODO Improving the Precision and Correctness of Exception Analysis in Soot, http://www.sable.mcgill.ca/publications/techreports/#report2003-3
  *
  */
-abstract class BCodeOptIntra extends BCodeOuterSquash {
+abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
 
   import global._
+
+  final override def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean) = {
+    new BCodeCleanser(cnode, isIntraProgramOpt)
+  }
 
   /*
    *  All methods in this class can-multi-thread
@@ -360,12 +363,16 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
    *
    *  The entry point is `cleanseClass()`.
    */
-  final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) {
+  final class BCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean) extends QuickCleanser(cnode) with BCodeCleanserIface {
 
     val unboxElider           = new asm.optimiz.UnBoxElider
     val lvCompacter           = new asm.optimiz.LocalVarCompact
+    val unusedPrivateDetector = new asm.optimiz.UnusedPrivateDetector()
 
     /*
+     *  Laundry-list of all optimizations that might possibly be applied
+     *  ----------------------------------------------------------------
+     *
      *  The intra-method optimizations below are performed until a fixpoint is reached.
      *  They are grouped somewhat arbitrarily into:
      *    - those performed by `cleanseMethod()`
@@ -377,6 +384,42 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
      *  (further applications wouldn't reduce any further):
      *    - eliding box/unbox pairs
      *    - eliding redundant local vars
+     *
+     *  Afterwards, some intra-class optimizations are performed repeatedly:
+     *    - those private members of a class which see no use are elided
+     *    - tree-shake unused closures, minimize the fields of those remaining
+     *
+     *  While other intra-class optimizations are performed just once:
+     *    - minimization of closure-allocations
+     *    - add caching for closure recycling
+     *    - refresh the InnerClasses JVM attribute
+     *
+     *
+     *  Fine print: Which optimizations are actually applied to which classes
+     *  ---------------------------------------------------------------------
+     *
+     *  The above describes the common case, glossing over dclosure-specific optimizations.
+     *  In fact, not all optimizations are applicable to any given ASM ClassNode, as described below.
+     *
+     *  The ClassNodes that reach `cleanseClass()` can be partitioned into:
+     *    (1) master classes;
+     *    (2) dclosures;
+     *    (3) elided classes; and
+     *    (4) none of the previous ones. Examples of (4) are:
+     *        (4.a) a traditional closure lacking any dclosures, or
+     *        (4.b) a plain class without dclosures.
+     *
+     *  The categories above make clear why:
+     *    (a) an elided class need not be optimized (nobody will notice the difference)
+     *        that's why `cleanseClass()` just returns on seeing one.
+     *    (b) only master classes (and their dclosures) go through the following optimizations:
+     *          - shakeAndMinimizeClosures()
+     *          - minimizeDClosureAllocations()
+     *        To recap, `cleanseClass()` executes in a Worker2 thread. The dclosure-specific optimizations are organized
+     *        such that exclusive write access to a dclosure is granted to its master class (there's always one).
+     *
+     *  In summary, (1) and (4) should have the (chosen level of) optimizations applied,
+     *  with (1) also amenable to dclosure-specific optimizations.
      *
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
@@ -393,6 +436,42 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
 
       // (1) intra-method
       intraMethodFixpoints(full = true)
+
+      if (isIntraProgramOpt && isMasterClass(bt)) {
+
+        val dcloptim   = new DClosureOptimizerImpl(cnode)
+        var keepGoing  = false
+        var rounds     = 0
+        val MAX_ROUNDS = 10
+
+        do {
+
+          // (2) intra-class, useful for master classes, but can by applied to any class.
+          keepGoing  = removeUnusedLiftedMethods()
+
+          // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
+          keepGoing |= dcloptim.minimizeDClosureFields()
+
+          if (keepGoing) { intraMethodFixpoints(full = false) }
+
+          rounds += 1
+
+        } while (
+          keepGoing && (rounds < MAX_ROUNDS)
+        )
+
+        dcloptim.minimizeDClosureAllocations()
+
+        if (dcloptim.treeShakeUnusedDClosures()) {
+          rounds = 0
+          do { rounds += 1 }
+          while (
+            removeUnusedLiftedMethods() &&
+            (rounds < MAX_ROUNDS)
+          )
+        }
+
+      }
 
     } // end of method cleanseClass()
 
@@ -416,6 +495,33 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
 
       }
 
+    }
+
+    /**
+     *  Elides unused private lifted methods (ie neither fields nor constructors) be they static or instance.
+     *  How do such methods become "unused"? For example, dead-code-elimination may have removed all invocations to them.
+     *
+     *  Other unused private members could also be elided, but that might come as unexpected,
+     *  ie a situation where (non-lifted) private methods vanish on the way from source code to bytecode.
+     *
+     *  Those bytecode-level private methods that originally were local (in the Scala sense)
+     *  are recognized because isLiftedMethod == true.
+     *  In particular, all methods originally local to a delegating-closure's apply() are private isLiftedMethod.
+     *  (Sidenote: the endpoint of a dclosure is public, yet has isLiftedMethod == true).
+     *
+     * */
+    private def removeUnusedLiftedMethods(): Boolean = {
+      import collection.convert.Wrappers.JSetWrapper
+      var changed = false
+      unusedPrivateDetector.transform(cnode)
+      for(im <- JSetWrapper(unusedPrivateDetector.elidableInstanceMethods)) {
+        if (im.isLiftedMethod && !Util.isConstructor(im)) {
+          changed = true
+          cnode.methods.remove(im)
+        }
+      }
+
+      changed
     }
 
   } // end of class BCodeCleanser
