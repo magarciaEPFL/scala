@@ -26,16 +26,16 @@ abstract class BCodeTypes extends BCodeIdiomatic {
 
   val isLateClosuresOn = settings.isClosureConvDelegating
 
-  var srBoxedUnit : BType = null // scala/runtime/BoxedUnit
+  var srBoxedUnit : BType = BT_ZERO // scala/runtime/BoxedUnit
 
   // special names
-  var StringReference             : BType = null
-  var ThrowableReference          : BType = null
-  var jlCloneableReference        : BType = null // java/lang/Cloneable
-  var jlNPEReference              : BType = null // java/lang/NullPointerException
-  var jioSerializableReference    : BType = null // java/io/Serializable
-  var scalaSerializableReference  : BType = null // scala/Serializable
-  var classCastExceptionReference : BType = null // java/lang/ClassCastException
+  var StringReference             : BType = BT_ZERO
+  var ThrowableReference          : BType = BT_ZERO
+  var jlCloneableReference        : BType = BT_ZERO // java/lang/Cloneable
+  var jlNPEReference              : BType = BT_ZERO // java/lang/NullPointerException
+  var jioSerializableReference    : BType = BT_ZERO // java/io/Serializable
+  var scalaSerializableReference  : BType = BT_ZERO // scala/Serializable
+  var classCastExceptionReference : BType = BT_ZERO // java/lang/ClassCastException
 
   var lateClosureInterfaces: Array[Tracked] = null // the only interface a Late-Closure-Class implements is scala.Serializable
 
@@ -54,7 +54,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
 
   var AndroidParcelableInterface: Symbol = null
   var AndroidCreatorClass       : Symbol = null // this is an inner class, use asmType() to get hold of its BType while tracking in innerClassBufferASM
-  var androidCreatorType        : BType  = null
+  var androidCreatorType        : BType  = BT_ZERO
 
   var BeanInfoAttr: Symbol = null
 
@@ -68,10 +68,10 @@ abstract class BCodeTypes extends BCodeIdiomatic {
   val AbstractFunctionReference         = new Array[Tracked](definitions.MaxFunctionArity + 1)
   val abstractFunctionArityMap = mutable.Map.empty[BType, Int]
 
-  var PartialFunctionReference:         BType = null // scala.PartialFunction
-  var AbstractPartialFunctionReference: BType = null // scala.runtime.AbstractPartialFunction
+  var PartialFunctionReference:         BType = BT_ZERO // scala.PartialFunction
+  var AbstractPartialFunctionReference: BType = BT_ZERO // scala.runtime.AbstractPartialFunction
 
-  var BoxesRunTime: BType = null
+  var BoxesRunTime: BType = BT_ZERO
 
   /*
    * must-single-thread
@@ -424,7 +424,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
 
   final def exemplarIfExisting(iname: String): Tracked = {
     val bt = lookupRefBTypeIfExisting(iname)
-    if (bt != null) exemplars.get(bt)
+    if (bt != BT_ZERO) exemplars.get(bt)
     else null
   }
 
@@ -608,7 +608,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
       assert(a.isNonUnitValueType, s"a isn't a non-Unit value type. $msg")
       assert(b.isValueType, s"b isn't a value type. $msg")
 
-      (a eq b) || (a match {
+      (a == b) || (a match {
         case BOOL | BYTE | SHORT | CHAR => b == INT || b == LONG // TODO Actually, BOOL does NOT conform to LONG. Even with adapt().
         case _                          => a == b
       })
