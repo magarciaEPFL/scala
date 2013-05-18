@@ -274,7 +274,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
         def getUltimateAndPlumbing(key: String, mdescr: String): List[asm.tree.MethodNode] = {
           val closuIName       = castToBT.getInternalName
-          val fullyErasedBT    = BType.getMethodType(ObjectReference, Array.fill(arity){ ObjectReference })
+          val fullyErasedBT    = BT.getMethodType(ObjectReference, Array.fill(arity){ ObjectReference })
           val fullyErasedDescr = fullyErasedBT.getDescriptor
           val fullyErasedMNode = new asm.tree.MethodNode(
             asm.Opcodes.ASM4,
@@ -424,7 +424,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
         def createClosuCtor(): asm.tree.MethodNode = {
 
           // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
-          val ctorDescr = BType.getMethodType(BType.VOID_TYPE, mkArray(closuStateBTs)).getDescriptor
+          val ctorDescr = BT.getMethodType(BT.VOID_TYPE, mkArray(closuStateBTs)).getDescriptor
 
           {
             // also registers "premonitorily" a ctor signature as above except outer is elided,
@@ -432,7 +432,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
             // Better to do it now as this code runs single-threaded, as opposed to `squashOuter()`.
             if (hasOuter) {
               assert(closuStateBTs.nonEmpty)
-              BType.getMethodType(BType.VOID_TYPE, mkArray(closuStateBTs.tail))
+              BT.getMethodType(BT.VOID_TYPE, mkArray(closuStateBTs.tail))
             }
           }
 
@@ -531,7 +531,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           ultimate.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
         }
 
-        val ultimateMT = BType.getMethodType(ultimate.desc)
+        val ultimateMT = BT.getMethodType(ultimate.desc)
 
         // in order to invoke the delegate, load the receiver if any
         if (hasStaticModuleOwner) {
@@ -599,8 +599,8 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
         def loadLocal(idx: Int, tk: BType) { caller.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx) }
 
-        val ultimateMT = BType.getMethodType(ultimate.desc)
-        val callerMT   = BType.getMethodType(caller.desc)
+        val ultimateMT = BT.getMethodType(ultimate.desc)
+        val callerMT   = BT.getMethodType(caller.desc)
 
         // first, load the receiver (THIS)
         caller.visitVarInsn(asm.Opcodes.ALOAD, 0)
