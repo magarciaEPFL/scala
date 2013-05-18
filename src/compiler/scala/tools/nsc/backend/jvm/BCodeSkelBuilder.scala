@@ -272,7 +272,7 @@ abstract class BCodeSkelBuilder extends BCodeOptInter {
     var jMethodName: String        = null
     var isMethSymStaticCtor        = false
     var isMethSymBridge            = false
-    var returnType: BType          = null
+    var returnType: BType          = BT_ZERO
     var methSymbol: Symbol         = null
     var cgn: CallGraphNode         = null
     // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
