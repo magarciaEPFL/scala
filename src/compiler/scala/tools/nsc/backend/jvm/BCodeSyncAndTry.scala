@@ -249,7 +249,7 @@ abstract class BCodeSyncAndTry extends BCodeBodyBuilder {
         // (2.a) emit case clause proper
         val startHandler = currProgramPoint()
         var endHandler: asm.Label = null
-        var excType: BType = null
+        var excType: BType = BT_ZERO
         registerCleanup(finCleanup)
         ch match {
           case NamelessEH(typeToDrop, caseBody) =>
@@ -289,7 +289,7 @@ abstract class BCodeSyncAndTry extends BCodeBodyBuilder {
       if (hasFinally) {
         nopIfNeeded(startTryBody)
         val finalHandler = currProgramPoint() // version of the finally-clause reached via unhandled exception.
-        protect(startTryBody, finalHandler, finalHandler, null)
+        protect(startTryBody, finalHandler, finalHandler, BT_ZERO)
         val Local(eTK, _, eIdx, _) = locals(locals.makeLocal(ThrowableReference, "exc"))
         bc.store(eIdx, eTK)
         emitFinalizer(finalizer, null, isDuplicate = true)
@@ -358,7 +358,7 @@ abstract class BCodeSyncAndTry extends BCodeBodyBuilder {
 
     def protect(start: asm.Label, end: asm.Label, handler: asm.Label, excType: BType) {
       val excInternalName: String =
-        if (excType == null) null
+        if (excType == BT_ZERO) null
         else excType.getInternalName
       assert(start != end, "protecting a range of zero instructions leads to illegal class format. Solution: add a NOP to that range.")
       mnode.visitTryCatchBlock(start, end, handler, excInternalName)
