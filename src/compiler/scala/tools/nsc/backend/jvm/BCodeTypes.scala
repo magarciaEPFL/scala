@@ -396,10 +396,26 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     val superInterfaces0: List[Symbol] = csym.mixinClasses
     val superInterfaces = existingSymbols(superInterfaces0 ++ csym.annotations.map(newParentForAttr)).distinct
 
-    assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${superInterfaces.mkString}")
-    assert(superInterfaces.forall(s => s.isInterface || s.isTrait), s"found non-interface among: ${superInterfaces.mkString}")
+    def checkSuperIfaces() {
+
+      assert(!superInterfaces.contains(NoSymbol), s"found NoSymbol among: ${prettyPrintFullnames(superInterfaces)}")
+
+      val nonIfaces = superInterfaces.filter(s => !s.isInterface && !s.isTrait)
+      assert(
+        nonIfaces.isEmpty,
+        s"found non-interfaces ${prettyPrintFullnames(nonIfaces)} among: ${prettyPrintFullnames(superInterfaces)}"
+      )
+
+    }
+
+    checkSuperIfaces()
 
     minimizeInterfaces(superInterfaces)
+  }
+
+  def prettyPrintFullnames(syms: List[Symbol]): String = {
+    val lst = mapWithIndex(syms)({ case (sym, idx) => s"( $idx : ${sym.fullName})" })
+    lst.mkString
   }
 
   final def exemplarIfExisting(iname: String): Tracked = {
