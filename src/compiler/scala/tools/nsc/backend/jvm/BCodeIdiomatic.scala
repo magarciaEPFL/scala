@@ -51,7 +51,7 @@ abstract class BCodeIdiomatic extends BCodeGlue {
   val JAVA_LANG_OBJECT  = ObjectReference
   val JAVA_LANG_STRING  = brefType("java/lang/String")
 
-  var StringBuilderReference: BType = null
+  var StringBuilderReference: BType = BT_ZERO
 
   val EMPTY_STRING_ARRAY   = Array.empty[String]
   val EMPTY_INT_ARRAY      = Array.empty[Int]
