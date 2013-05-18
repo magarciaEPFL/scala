@@ -592,9 +592,9 @@ abstract class BCodeOuterSquash extends BCodeSyncAndTry {
     }
 
     def descriptorWithoutOuter(desc: String): String = {
-      val mt = BType.getMethodType(desc)
+      val mt = BT.getMethodType(desc)
       val argsExceptHead = mt.getArgumentTypes.drop(1)
-      val updatedDesc    = BType.getMethodDescriptor(mt.getReturnType, argsExceptHead)
+      val updatedDesc    = BT.getMethodDescriptor(mt.getReturnType, argsExceptHead)
 
       updatedDesc
     }
@@ -626,7 +626,7 @@ abstract class BCodeOuterSquash extends BCodeSyncAndTry {
           dropAtSource(outerProds.insns)
         } else {
           // drop at sink
-          val numberOfArgs = BType.getMethodType(init.desc).getArgumentCount
+          val numberOfArgs = BT.getMethodType(init.desc).getArgumentCount
           dropStackElem(init, numberOfArgs - 1, 1)
         }
         val updatedDesc = descriptorWithoutOuter(init.desc)
@@ -640,7 +640,7 @@ abstract class BCodeOuterSquash extends BCodeSyncAndTry {
           dropAtSource(rcvProds.insns)
         } else {
           // drop at sink
-          val numberOfArgs = BType.getMethodType(call.desc).getArgumentCount
+          val numberOfArgs = BT.getMethodType(call.desc).getArgumentCount
           dropStackElem(call, numberOfArgs, 1)
         }
         call.setOpcode(Opcodes.INVOKESTATIC)
@@ -668,7 +668,7 @@ abstract class BCodeOuterSquash extends BCodeSyncAndTry {
        *
        */
       private def dropStackElem(sink: MethodInsnNode, argsToSave: Int, elemSize: Int) {
-        val mt     = BType.getMethodType(sink.desc)
+        val mt     = BT.getMethodType(sink.desc)
         val argTs  = mt.getArgumentTypes
         val stores = new InsnList
         val loads  = new InsnList
