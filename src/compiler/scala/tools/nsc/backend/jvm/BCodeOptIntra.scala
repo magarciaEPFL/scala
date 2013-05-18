@@ -125,6 +125,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
         val sq = new LCCOuterSquasher(cnode, lccsToSquashOuterPointer, dClosureEndpoint)
         sq.squashOuterForLCC()
       }
+      ifDebug { runTypeFlowAnalysis() }
     }
 
     //--------------------------------------------------------------------
@@ -339,6 +340,8 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
           // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
           keepGoing |= dcloptim.minimizeDClosureFields()
 
+          ifDebug { runTypeFlowAnalysis() }
+
           if (keepGoing) { intraMethodFixpoints(full = false) }
 
           rounds += 1
@@ -348,6 +351,8 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
         )
 
         dcloptim.minimizeDClosureAllocations()
+
+        ifDebug { runTypeFlowAnalysis() }
 
         if (dcloptim.treeShakeUnusedDClosures()) {
           rounds = 0
