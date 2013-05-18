@@ -355,7 +355,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
       result
     }
 
-    override def toString = { c.toString }
+    override def toString = { c.getDescriptor }
 
   }
 
@@ -623,7 +623,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     assert(a.isValueType, "maxValueType() is defined only for 1st arg valuetypes (2nd arg doesn't matter).")
 
     def uncomparable: Nothing = {
-      abort(s"Uncomparable BTypes: $a with $other")
+      abort(s"Uncomparable BTypes: ${a.getDescriptor} with ${other.getDescriptor}")
     }
 
     if (a.isNothingType)      return other;
@@ -696,7 +696,7 @@ abstract class BCodeTypes extends BCodeIdiomatic {
       // TODO For some reason, ICode thinks `REFERENCE(...).maxType(BOXED(whatever))` is `uncomparable`. Here, that has maxType AnyRefReference.
       //      BTW, when swapping arguments, ICode says BOXED(whatever).maxType(REFERENCE(...)) == AnyRefReference, so I guess the above was an oversight in REFERENCE.maxType()
       if (other.isRefOrArrayType) { AnyRefReference }
-      else                        { abort(s"Uncomparable BTypes: $a with $other") }
+      else                        { abort(s"Uncomparable BTypes: ${a.getDescriptor} with ${other.getDescriptor}") }
     }
   }
 
