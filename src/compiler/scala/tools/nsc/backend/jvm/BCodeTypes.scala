@@ -162,8 +162,8 @@ abstract class BCodeTypes extends BCodeIdiomatic {
      *  but directly emit callsites on StringBuilder using literal constant for method descriptors.
      *  In order to make sure those method descriptors are available as BTypes, they are initialized here.
      */
-    BType.getMethodType("()V")                   // necessary for JCodeMethodN.genStartConcat
-    BType.getMethodType("()Ljava/lang/String;")  // necessary for JCodeMethodN.genEndConcat
+    BT.getMethodType("()V")                   // necessary for JCodeMethodN.genStartConcat
+    BT.getMethodType("()Ljava/lang/String;")  // necessary for JCodeMethodN.genEndConcat
 
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 to definitions.MaxFunctionArity) {
@@ -201,8 +201,8 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     // later a few analyses (e.g. refreshInnerClasses) will look up BTypes based on descriptors in instructions
     // we make sure those BTypes can be found via lookup as opposed to creating them on the fly.
     BoxesRunTime = brefType("scala/runtime/BoxesRunTime")
-    asmBoxTo.values   foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
-    asmUnboxTo.values foreach { mnat: MethodNameAndType => BType.getMethodType(mnat.mdesc) }
+    asmBoxTo.values   foreach { mnat: MethodNameAndType => BT.getMethodType(mnat.mdesc) }
+    asmUnboxTo.values foreach { mnat: MethodNameAndType => BT.getMethodType(mnat.mdesc) }
 
   } // end of method initBCodeTypes()
 
