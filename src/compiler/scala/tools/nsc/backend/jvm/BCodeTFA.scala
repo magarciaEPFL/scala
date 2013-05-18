@@ -106,7 +106,7 @@ abstract class BCodeTFA extends BCodeOptCommon {
     }
 
     private def newValue(t: BType, isExact: Boolean, isKnownToBeNonNull: Boolean): TFValue = {
-      if (t == null || t.isUnitType) {
+      if (t == BT_ZERO || t.isUnitType) {
         return null
       }
       (t.sort: @switch) match {
