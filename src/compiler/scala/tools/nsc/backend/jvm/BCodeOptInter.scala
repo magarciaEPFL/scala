@@ -590,7 +590,7 @@ abstract class BCodeOptInter extends BCodeTFA {
         )
       }
 
-      val calleeMethodType = BType.getMethodType(callee.desc) // must-single-thread
+      val calleeMethodType = BT.getMethodType(callee.desc) // must-single-thread
 
       /*
        * Situation (a.3) under which method-inlining is unfeasible: callee has Nothing type.
