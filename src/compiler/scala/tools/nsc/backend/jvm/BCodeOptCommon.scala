@@ -142,7 +142,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
 
       var current = bt
 
-      while (current != null) {
+      while (current != BT_ZERO) {
         val cn = getClassNode(current)
         val iter = cn.methods.iterator()
         while (iter.hasNext) {
@@ -151,7 +151,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
             return MethodNodeAndOwner(mn, cn)
           }
         }
-        current = if (cn.superName == null) null else lookupRefBType(cn.superName)
+        current = if (cn.superName == null) BT_ZERO else lookupRefBType(cn.superName)
       }
 
       MissingRequirementError.notFound(s"Could not find MethodNode: ${bt.getInternalName}.${name}${desc}")
@@ -497,17 +497,17 @@ abstract class BCodeOptCommon extends BCodeHelpers {
     }
 
     def closureInstantiations(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
-      assert(dclosure != null)
+      assert(dclosure != BT_ZERO)
       mnode.instructions.toList filter { insn => instantiatedDClosure(insn) == dclosure }
     }
 
     def closureInvocations(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
-      assert(dclosure != null)
+      assert(dclosure != BT_ZERO)
       mnode.instructions.toList filter { insn => invokedDClosure(insn) == dclosure }
     }
 
     def closureAccesses(mnode: MethodNode, dclosure: BType): List[AbstractInsnNode] = {
-      assert(dclosure != null)
+      assert(dclosure != BT_ZERO)
       mnode.instructions.toList filter { insn => accessedDClosure(insn) == dclosure }
     }
 
@@ -547,7 +547,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
         }
       }
 
-      null
+      BT_ZERO
     }
 
     /*
@@ -568,7 +568,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
         }
       }
 
-      null
+      BT_ZERO
     }
 
     /*
@@ -585,7 +585,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
         }
       }
 
-      null
+      BT_ZERO
     }
 
     /*
@@ -593,9 +593,9 @@ abstract class BCodeOptCommon extends BCodeHelpers {
      */
     private def accessedDClosure(insn: AbstractInsnNode): BType = {
       var res = instantiatedDClosure(insn)
-      if (res == null) {
+      if (res == BT_ZERO) {
         res = invokedDClosure(insn)
-        if (res == null) {
+        if (res == BT_ZERO) {
           res = getSingletonDClosure(insn)
         }
       }
@@ -631,7 +631,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
      */
     def trackClosureUsageIfAny(insn: AbstractInsnNode, enclClass: BType) {
       val dc = accessedDClosure(insn)
-      if (dc == null || enclClass == dc || !isDelegatingClosure(dc)) { return }
+      if (dc == BT_ZERO || enclClass == dc || !isDelegatingClosure(dc)) { return }
       assert(
         !isDelegatingClosure(enclClass),
          "A dclosure D is used by a class C other than its master class, but C is a dclosure itself. " +
@@ -673,7 +673,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
           // properties (a) , (c)
           var dc: BType = instantiatedDClosure(insn)
           assert(
-            dc == null ||
+            dc == BT_ZERO ||
             enclClassBT == masterClass(dc) ||
             (isInliningDone && isNonMasterUser(dc, enclClassBT)),
              "A dclosure D is instantiated by a class C other than its master class, and " +
@@ -685,7 +685,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
           // properties (b) , (d)
           dc = invokedDClosure(insn)
           assert(
-            dc == null ||
+            dc == BT_ZERO ||
             enclClassBT == dc ||
             (isInliningDone && (enclClassBT == masterClass(dc) || isNonMasterUser(dc, enclClassBT))),
             "A dclosure D is has its endpoint invoked by a class C other than D itself, and " +
