@@ -109,7 +109,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
       var resKind = tpeTK(larg)
 
       assert(resKind.isNumericType || (resKind == BOOL),
-             s"$resKind is not a numeric or boolean type [operation: ${fun.symbol}]")
+             s"${resKind.getDescriptor} is not a numeric or boolean type [operation: ${fun.symbol}]")
 
       import scalaPrimitives._
 
@@ -129,7 +129,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
           resKind = maxType(tpeTK(larg), tpeTK(rarg))
           if (scalaPrimitives.isShiftOp(code) || scalaPrimitives.isBitwiseOp(code)) {
             assert(resKind.isIntegralType || (resKind == BOOL),
-                   s"$resKind incompatible with arithmetic modulo operation.")
+                   s"${resKind.getDescriptor} incompatible with arithmetic modulo operation.")
           }
 
           genLoad(larg, resKind)
@@ -690,7 +690,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
                   val qualSym = findHostClass(qual.tpe, sym)
                   if (qualSym == ArrayClass) {
                     targetTypeKind = tpeTK(qual)
-                    log(s"Stored target type kind for ${sym.fullName} as $targetTypeKind")
+                    log(s"Stored target type kind for ${sym.fullName} as ${targetTypeKind.getDescriptor}")
                   }
                   else {
                     hostClass = qualSym
