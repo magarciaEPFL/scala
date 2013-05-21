@@ -566,7 +566,7 @@ abstract class BCodeOptInter extends BCodeTFA {
        * TODO why weren't those TypeNames entered as part of parsing callee from bytecode?
        *      After all, we might want to run e.g. Type-Flow Analysis on external methods before inlining them.
        */
-      codeRepo.registerUnseenTypeNames(body) // must-single-thread
+      codeRepo.registerUnseenTypeNames(callee) // must-single-thread
 
       val hostOwnerBT = lookupRefBType(hostOwner)
 

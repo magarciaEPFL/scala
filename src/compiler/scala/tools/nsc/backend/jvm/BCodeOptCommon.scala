@@ -321,7 +321,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
      *
      *  must-single-thread
      */
-    def registerUnseenTypeNames(insns: InsnList) {
+    def registerUnseenTypeNames(mn: MethodNode) {
 
       def enterInternalName(iname: String) {
         var bt = brefType(iname)
@@ -353,7 +353,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
         }
       }
 
-      val iter = insns.iterator()
+      val iter = mn.instructions.iterator()
       while (iter.hasNext) {
         val insn = iter.next()
         insn match {
@@ -368,6 +368,15 @@ abstract class BCodeOptCommon extends BCodeHelpers {
             }
           case ma: MultiANewArrayInsnNode => enterDescr(ma.desc)
           case _ => ()
+        }
+      }
+
+      val tcbIter = mn.tryCatchBlocks.iterator()
+      while(tcbIter.hasNext) {
+        val tcb = tcbIter.next()
+        val exc = tcb.`type`
+        if (exc != null) {
+          enterInternalName(exc)
         }
       }
 

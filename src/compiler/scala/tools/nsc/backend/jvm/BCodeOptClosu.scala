@@ -252,7 +252,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
       // the Classnode where callee is declared.
       val hiOOwner: ClassNode      = inlineTarget.owner
 
-      codeRepo.registerUnseenTypeNames(hiO.instructions) // must-single-thread
+      codeRepo.registerUnseenTypeNames(hiO) // must-single-thread
 
       if (Util.isSynchronizedMethod(hiO)) {
         inlineTarget.warn(s"Closure-inlining failed because ${inlineTarget.calleeId} is synchronized.")
