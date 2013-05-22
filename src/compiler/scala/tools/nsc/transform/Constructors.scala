@@ -9,7 +9,6 @@ package transform
 import scala.collection.{ mutable, immutable }
 import scala.collection.mutable.ListBuffer
 import symtab.Flags._
-import util.TreeSet
 
 /** This phase converts classes with parameters into Java-like classes with
  *  fields, which are assigned to from constructors.
@@ -200,13 +199,12 @@ abstract class Constructors extends Transform with ast.TreeDSL {
           constrStatBuf += intoConstructor(impl.symbol, stat)
       }
 
-      // ----------- avoid making parameter-accessor fields for symbols accessed only within the primary constructor --------------
-
-      // A sorted set of symbols that are known to be accessed outside the primary constructor.
-      val accessedSyms = new TreeSet[Symbol]((x, y) => x isLess y)
-
-      // a list of outer accessor symbols and their bodies
-      var outerAccessors: List[(Symbol, Tree)] = List()
+      /*
+       * Elide:
+       *   (a) parameter-accessor fields for non-val, non-var, constructor-param-symbols, as well as
+       *   (b) outer accessors of a final class which don't override another;
+       * provided they're accessed only within the primary constructor.
+       */
 
       val isDelayedInitSubclass = (clazz isSubClass DelayedInitClass)
 
@@ -214,28 +212,48 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       // This is the case if the symbol is defined in the current class, and
       // ( the symbol is an object private parameter accessor field, or
       //   the symbol is an outer accessor of a final class which does not override another outer accessor. )
-      def maybeOmittable(sym: Symbol) = sym.owner == clazz && (
-        sym.isParamAccessor && sym.isPrivateLocal ||
-        sym.isOuterAccessor && sym.owner.isEffectivelyFinal && !sym.isOverridingSymbol &&
-        !isDelayedInitSubclass
-      )
+      def maybeOmittable(sym: Symbol) = {
+        !isDelayedInitSubclass &&
+        (sym.owner == clazz)   && (
+          sym.isParamAccessor && sym.isPrivateLocal ||
+          sym.isOuterAccessor && sym.owner.isEffectivelyFinal && !sym.isOverridingSymbol
+        )
+      }
+
+      /*
+       * Initially populated with all omittable-candidates.
+       * Afterwards, `accessTraverser` removes from `omittables` those which are accessed outside the primary constructor.
+       * After that, `omittables` doesn't shrink anymore, and each symbol it contains can be unlinked from clazz.info.decls.
+       */
+      val omittables = mutable.Set.empty[Symbol] ++ (clazz.info.decls.toList filter maybeOmittable)
+
+      // a list of outer accessor symbols and their bodies
+      var outerAccessors: List[(Symbol, Tree)] = Nil
 
       // Is symbol known to be accessed outside of the primary constructor,
       // or is it a symbol whose definition cannot be omitted anyway?
-      def mustbeKept(sym: Symbol) = isDelayedInitSubclass || !maybeOmittable(sym) || (accessedSyms contains sym)
+      def mustbeKept(sym: Symbol) = isDelayedInitSubclass || !(omittables contains sym)
+
+      val isClazzInEffectFinal = clazz.isEffectivelyFinal
 
       // A traverser to set accessedSyms and outerAccessors
       val accessTraverser = new Traverser {
-        override def traverse(tree: Tree) = {
+        override def traverse(tree: Tree) {
           tree match {
-            case DefDef(_, _, _, _, _, body)
-            if (tree.symbol.isOuterAccessor && tree.symbol.owner == clazz && clazz.isEffectivelyFinal) =>
-              debuglog("outerAccessors += " + tree.symbol.fullName)
-              outerAccessors ::= ((tree.symbol, body))
+            case DefDef(_, _, _, _, _, body) =>
+              val sym = tree.symbol
+              if (isClazzInEffectFinal && sym.isOuterAccessor && sym.owner == clazz) {
+                debuglog("outerAccessors += " + sym.fullName)
+                outerAccessors ::= ((sym, body))
+              }
+              else if (omittables.nonEmpty) {
+                super.traverse(tree)
+              }
             case Select(_, _) =>
-              if (!mustbeKept(tree.symbol)) {
-                debuglog("accessedSyms += " + tree.symbol.fullName)
-                accessedSyms addEntry tree.symbol
+              val sym = tree.symbol
+              if (omittables contains sym) {
+                debuglog("omittables -= " + sym.fullName)
+                omittables -= sym
               }
               super.traverse(tree)
             case _ =>
@@ -244,16 +262,20 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         }
       }
 
-      // first traverse all definitions except outeraccesors
-      // (outeraccessors are avoided in accessTraverser)
-      for (stat <- defBuf.iterator ++ auxConstructorBuf.iterator)
+      // first traverse all definitions except outeraccesors and the primary constructor
+      // (accessTraverser doesn't drill down into an outeraccessor but records for later the fact it was found)
+      for (stat <- defBuf.iterator ++ auxConstructorBuf.iterator) {
         accessTraverser.traverse(stat)
+      }
 
       // then traverse all bodies of outeraccessors which are accessed themselves
       // note: this relies on the fact that an outer accessor never calls another
       // outer accessor in the same class.
-      for ((accSym, accBody) <- outerAccessors)
-        if (mustbeKept(accSym)) accessTraverser.traverse(accBody)
+      for ((accSym, accBody) <- outerAccessors) {
+        if (mustbeKept(accSym)) {
+          accessTraverser.traverse(accBody)
+        }
+      }
 
       // Initialize all parameters fields that must be kept.
       val paramInits = paramAccessors filter mustbeKept map { acc =>
