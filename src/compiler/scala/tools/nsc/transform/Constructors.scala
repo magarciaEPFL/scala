@@ -44,13 +44,12 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       )
       // decompose primary constructor into the three entities above.
       val constrInfo: ConstrInfo = {
-        stats find (_.symbol.isPrimaryConstructor) match {
+        val ddef = (stats find (_.symbol.isPrimaryConstructor))
+        ddef match {
           case Some(ddef @ DefDef(_, _, _, List(vparams), _, rhs @ Block(_, _))) =>
             ConstrInfo(ddef, vparams map (_.symbol), rhs)
           case x =>
-            // AnyVal constructor is OK
-            assert(clazz eq AnyValClass, "no constructor in template: impl = " + impl)
-            return impl
+            abort("no constructor in template: impl = " + impl)
         }
       }
       import constrInfo._
@@ -592,8 +591,15 @@ abstract class Constructors extends Transform with ast.TreeDSL {
     override def transform(tree: Tree): Tree = {
       tree match {
         case cd : ClassDef if !cd.symbol.isInterface && !isPrimitiveValueClass(cd.symbol) =>
-          checkUninitializedReads(cd)
-          deriveClassDef(cd)(transformClassTemplate)
+          if(cd.symbol eq AnyValClass) {
+            val hasPrimaryCtorDef = (cd.impl.body exists (_.symbol.isPrimaryConstructor))
+            assert(!hasPrimaryCtorDef, "primary constructor in AnyValClass' template: impl = " + cd.impl)
+            cd
+          }
+          else {
+            checkUninitializedReads(cd)
+            deriveClassDef(cd)(transformClassTemplate)
+          }
         case _ =>
           super.transform(tree)
       }
