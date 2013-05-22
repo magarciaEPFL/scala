@@ -280,7 +280,9 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       }
 
       class UsagesDetector extends Traverser {
+        var done = false
         override def traverse(tree: Tree) {
+          if (done) { return }
           tree match {
             case DefDef(_, _, _, _, _, body) if outerCandidatesForElision.contains(tree.symbol) =>
               () // don't mark as "needed" the field supporting this outer-accessor, ie not just yet.
@@ -294,6 +296,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
                   case _        => ()
                 }
                 if (omittables.isEmpty) {
+                  done = true
                   return // no point traversing further, all candidates ruled out already.
                 }
               }
