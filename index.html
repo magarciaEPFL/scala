@@ -278,7 +278,23 @@ ant all.clean &amp;&amp; ant
 <ul>
 <li>fine grained optimization levels (shown below) to progressively move into more advanced optimizations.</li>
 <li>backdoor to use the "old" optimizer and backend, to ease comparison. All options of the "old" optimizer are available in this case ( <code>-optimise</code> <code>-Yinline</code>  <code>-Yinline-handlers</code>  <code>-Yclosure-elim</code>  and <code>-Ydead-code</code> ).</li>
-</ul><h2>4.1 Choosing optimization level via compiler flags</h2>
+</ul><h2>4.0 Using sbt to build your project with new backend / optimizer</h2>
+
+<p>Section "Using Scala from a local directory" at <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html</a> indicates the following changes to Build.scala:</p>
+
+<pre><code>    scalaVersion := "2.11.0-SNAPSHOT",
+
+    scalaHome := Some(file("scala-with-new-backend/build/pack")),
+
+    scalacOptions ++= Seq( . . . your options
+                          "-neo:o3", // this indicates the highest level of the new optimizer
+                           . . . more of your options
+                         ),
+</code></pre>
+
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored58</code>, building the compiler with <code>ant</code>).</p>
+
+<h2>4.1 Choosing optimization level via compiler flags</h2>
 
 <p>Each optimization level includes all optimizations from lower levels, and assume the new bytecode emitter (<code>GenBCode</code>) is active:</p>
 
@@ -316,7 +332,7 @@ ant all.clean &amp;&amp; ant
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>5 Putting the new optimizer through its paces</h1>
 
-<h2>5.1 Pro tip: Optimizing the compiler and standard library themselves</h2>
+<h2>5.1 Pro tip: Optimizing the compiler and the standard library themselves</h2>
 
 <p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored58/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
