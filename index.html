@@ -72,63 +72,7 @@
 <ul>
 <li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
 <li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
-</ul><h2>1.4 "really static" value classes and static modules</h2>
-
-<blockquote>
-<p>Given there's some overlap in functionality with another proposal,
-<a href="https://github.com/scala/scala/pull/2416">https://github.com/scala/scala/pull/2416</a>
-each with pros and cons, for now "really static" lives in an older branch, <code>GenRefactored39</code></p>
-</blockquote>
-
-<p>Before <code>@enforceStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
-
-<pre><code>  load singleton-module
-  invokevirtual(arg1 ... argN)
-</code></pre>
-
-<p>After JIT-compilation, performance is great because there's a single method method implementation to dispatch.</p>
-
-<p>However the above can be expressed more succinctly with "really static" methods, with corresponding invokestatic callistes. This is what the @enforceStatic annotation allows, when applied to: </p>
-
-<ul>
-<li>static module (ie an object definition that lacks outer instance) </li>
-<li>value class.</li>
-</ul><p>In case the compiler can't honor the request for really-static-ness, a descriptive error message is shown. This can happen in two situations:</p>
-
-<p>First, upon extending another class:</p>
-
-<pre><code>  @enforceStatic
-  case class Valued(val repr: Int) extends AnyVal {
-    def odd = (repr&amp;1)==1
-  }
-
-   error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
-  case class Valued(val repr: Int) extends AnyVal {
-             ^
-</code></pre>
-
-<p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @enforceStatic-tagged class.</p>
-
-<p>More defails (and examples) in the documentation of <code>scala.enforceStatic</code>
-<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala</a></p>
-
-<h2>1.5 Method handles</h2>
-
-<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
-
-<p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3</a></p>
-
-<p>Sources can be obtained via:</p>
-
-<pre><code>    git clone git://github.com/magarciaEPFL/scala.git GenMHv3
-    cd GenMHv3
-    git checkout -b GenMHv3 origin/GenMHv3
-    ant all.clean &amp;&amp; ant
-</code></pre>
-
-<p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. A discussion about performance at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
-
-<h1>2 What's new in the new optimizer</h1>
+</ul><h1>2 What's new in the new optimizer</h1>
 
 <h2>2.1 Distinction between intra-program and cross-library optimizations</h2>
 
@@ -370,7 +314,9 @@ ant all.clean &amp;&amp; ant
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
-</ul><h1>4.4 Pro tip: Optimizing the compiler and standard library themselves</h1>
+</ul><h1>4.4 Putting the new optimizer through its paces</h1>
+
+<h2>4.4.1 Pro tip: Optimizing the compiler and standard library themselves</h2>
 
 <p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored58/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
@@ -395,6 +341,64 @@ ant all.clean &amp;&amp; ant
 
 <p>The nightly build takes from 80 minutes to 2 hours, depending on hardware.</p>
 
+<h2>4.4.2 Experimental features</h2>
+
+<h3>4.4.2.1 "really static" value classes and static modules</h3>
+
+<blockquote>
+<p>Given there's some overlap in functionality with another proposal,
+<a href="https://github.com/scala/scala/pull/2416">https://github.com/scala/scala/pull/2416</a>
+each with pros and cons, for now "really static" lives in an older branch, <code>GenRefactored39</code></p>
+</blockquote>
+
+<p>Before <code>@enforceStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
+
+<pre><code>  load singleton-module
+  invokevirtual(arg1 ... argN)
+</code></pre>
+
+<p>After JIT-compilation, performance is great because there's a single method method implementation to dispatch.</p>
+
+<p>However the above can be expressed more succinctly with "really static" methods, with corresponding invokestatic callistes. This is what the @enforceStatic annotation allows, when applied to: </p>
+
+<ul>
+<li>static module (ie an object definition that lacks outer instance) </li>
+<li>value class.</li>
+</ul><p>In case the compiler can't honor the request for really-static-ness, a descriptive error message is shown. This can happen in two situations:</p>
+
+<p>First, upon extending another class:</p>
+
+<pre><code>  @enforceStatic
+  case class Valued(val repr: Int) extends AnyVal {
+    def odd = (repr&amp;1)==1
+  }
+
+   error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
+  case class Valued(val repr: Int) extends AnyVal {
+             ^
+</code></pre>
+
+<p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @enforceStatic-tagged class.</p>
+
+<p>More defails (and examples) in the documentation of <code>scala.enforceStatic</code>
+<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala</a></p>
+
+<h3>4.4.2.2 Method handles</h3>
+
+<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
+
+<p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3</a></p>
+
+<p>Sources can be obtained via:</p>
+
+<pre><code>    git clone git://github.com/magarciaEPFL/scala.git GenMHv3
+    cd GenMHv3
+    git checkout -b GenMHv3 origin/GenMHv3
+    ant all.clean &amp;&amp; ant
+</code></pre>
+
+<p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. A discussion about performance at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
+
 <h1>5 FAQ</h1>
 
 <ul>
@@ -404,7 +408,7 @@ ant all.clean &amp;&amp; ant
 
 <ul>
 <li><strong>If MethodHandles are slow on JDK7, how come other programming languages are happily using them?</strong></li>
-</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 1.5 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 1.5.</p>
+</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 4.4.2.2 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 4.4.2.2.</p>
 
 <ul>
 <li><strong>What about tests?</strong></li>
