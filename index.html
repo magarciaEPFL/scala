@@ -279,14 +279,14 @@ ant all.clean &amp;&amp; ant
 
 <p>Section "Using Scala from a local directory" at <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html</a> indicates the following changes to Build.scala:</p>
 
-<pre><code>    scalaVersion := "2.11.0-SNAPSHOT",
+<pre><code>scalaVersion := "2.11.0-SNAPSHOT",
 
-    scalaHome := Some(file("scala-with-new-backend/build/pack")),
+scalaHome := Some(file("scala-with-new-backend/build/pack")),
 
-    scalacOptions ++= Seq( . . . your options
-                          "-neo:o3", // this indicates the highest level of the new optimizer
-                           . . . more of your options
-                         ),
+scalacOptions ++= Seq( . . . your options
+                      "-neo:o3", // the highest level of the new optimizer
+                       . . . more of your options
+                     ),
 </code></pre>
 
 <p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored58</code>, building the compiler with <code>ant</code>).</p>
