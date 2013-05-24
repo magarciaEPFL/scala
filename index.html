@@ -33,12 +33,12 @@
       <section id="main_content" class="inner">
         <h1>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored56</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored58</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored56">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored56</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored58">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored58</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
@@ -315,19 +315,17 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6546">SI-6546</a> Optimizer leaves references to classes that have been eliminated by inlining </li>
 <li>
-<a href="https://issues.scala-lang.org/browse/SI-6720">SI-6720</a> Uninitialized object exists on backward branch</li>
-<li>
 <a href="https://issues.scala-lang.org/browse/SI-6759">SI-6759</a> Seek clarification about necessary and sufficient conditions for inclusion in InnerClasses JVM attribute </li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-7407">SI-7407</a> return inside try + pattern-match inside finally causes VerifyError</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>4 Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored56</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored58</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored56
-cd GenRefactored56
-git checkout -b GenRefactored56 origin/GenRefactored56
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored58
+cd GenRefactored58
+git checkout -b GenRefactored58 origin/GenRefactored58
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -374,9 +372,9 @@ ant all.clean &amp;&amp; ant
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>4.4 Pro tip: Optimizing the compiler and standard library themselves</h1>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored56/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored58/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored56</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored58</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
