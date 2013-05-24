@@ -274,14 +274,9 @@ git checkout -b GenRefactored58 origin/GenRefactored58
 ant all.clean &amp;&amp; ant
 </code></pre>
 
-<p>After <code>ant all.clean &amp;&amp; ant</code> , a few knobs allow fine tuning: </p>
+<h2>4.0 Using sbt to build your project with new backend / optimizer</h2>
 
-<ul>
-<li>fine grained optimization levels (shown below) to progressively move into more advanced optimizations.</li>
-<li>backdoor to use the "old" optimizer and backend, to ease comparison. All options of the "old" optimizer are available in this case ( <code>-optimise</code> <code>-Yinline</code>  <code>-Yinline-handlers</code>  <code>-Yclosure-elim</code>  and <code>-Ydead-code</code> ).</li>
-</ul><h2>4.0 Using sbt to build your project with new backend / optimizer</h2>
-
-<p>Section <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">Using Scala from a local directory</a> indicates the following changes to your project's <code>Build.scala</code>:</p>
+<p>Section <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">Using Scala from a local directory</a> covers the changes needed in your project's <code>Build.scala</code>:</p>
 
 <pre><code>scalaVersion := "2.11.0-SNAPSHOT",
 
