@@ -314,9 +314,9 @@ ant all.clean &amp;&amp; ant
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
-</ul><h1>4.4 Putting the new optimizer through its paces</h1>
+</ul><h1>5 Putting the new optimizer through its paces</h1>
 
-<h2>4.4.1 Pro tip: Optimizing the compiler and standard library themselves</h2>
+<h2>5.1 Pro tip: Optimizing the compiler and standard library themselves</h2>
 
 <p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored58/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
@@ -341,9 +341,9 @@ ant all.clean &amp;&amp; ant
 
 <p>The nightly build takes from 80 minutes to 2 hours, depending on hardware.</p>
 
-<h2>4.4.2 Experimental features</h2>
+<h2>5.2 Experimental features</h2>
 
-<h3>4.4.2.1 "really static" value classes and static modules</h3>
+<h3>5.2.1 "really static" value classes and static modules</h3>
 
 <blockquote>
 <p>Given there's some overlap in functionality with another proposal,
@@ -383,7 +383,7 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 <p>More defails (and examples) in the documentation of <code>scala.enforceStatic</code>
 <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala</a></p>
 
-<h3>4.4.2.2 Method handles</h3>
+<h3>5.2.2 Method handles</h3>
 
 <p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
 
@@ -399,7 +399,7 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 
 <p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. A discussion about performance at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
 
-<h1>5 FAQ</h1>
+<h1>6 FAQ</h1>
 
 <ul>
 <li>
@@ -408,13 +408,13 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 
 <ul>
 <li><strong>If MethodHandles are slow on JDK7, how come other programming languages are happily using them?</strong></li>
-</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 4.4.2.2 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 4.4.2.2.</p>
+</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 5.2.2 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 5.2.2.</p>
 
 <ul>
 <li><strong>What about tests?</strong></li>
-</ul><p>As Sec. 4.4 shows, the test suite passes under all optimization levels, from <code>-neo:GenBCode</code> to <code>-neo:o1</code> through <code>-neo:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
+</ul><p>As Sec. 5.1 shows, the test suite passes under all optimization levels, from <code>-neo:GenBCode</code> to <code>-neo:o1</code> through <code>-neo:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
 
-<h1>6 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+<h1>7 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
