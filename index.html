@@ -139,7 +139,11 @@ loop$1(scala.collection.mutable.ListBuffer,
 <p>Some anonymous closures depend only on <code>apply()</code> arguments, for example the char filter function:</p>
 
 <div class="highlight"><pre>  <span class="k">def</span> <span class="n">deeplyNestedMethod</span><span class="o">(</span><span class="n">str</span><span class="k">:</span> <span class="kt">String</span><span class="o">)</span> <span class="k">=</span> <span class="o">{</span>
-    <span class="n">str</span> <span class="n">filter</span> <span class="o">{</span> <span class="o">(</span><span class="n">char</span><span class="k">:</span> <span class="kt">Char</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'a</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'f</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span> <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'A</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'F</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span> <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="sc">'0'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="sc">'9'</span><span class="o">)</span> <span class="o">}</span>
+    <span class="n">str</span> <span class="n">filter</span> <span class="o">{</span>
+      <span class="o">(</span><span class="n">char</span><span class="k">:</span> <span class="kt">Char</span><span class="o">)</span> <span class="k">=&gt;</span>
+        <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'a</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'f</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span>
+        <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'A</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'F</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span>
+        <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="sc">'0'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="sc">'9'</span><span class="o">)</span> <span class="o">}</span>
   <span class="o">}</span>
 </pre></div>
 
@@ -277,7 +281,7 @@ ant all.clean &amp;&amp; ant
 <li>backdoor to use the "old" optimizer and backend, to ease comparison. All options of the "old" optimizer are available in this case ( <code>-optimise</code> <code>-Yinline</code>  <code>-Yinline-handlers</code>  <code>-Yclosure-elim</code>  and <code>-Ydead-code</code> ).</li>
 </ul><h2>4.0 Using sbt to build your project with new backend / optimizer</h2>
 
-<p>Section "Using Scala from a local directory" at <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html</a> indicates the following changes to Build.scala:</p>
+<p>Section <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">Using Scala from a local directory</a> indicates the following changes to Build.scala:</p>
 
 <pre><code>scalaVersion := "2.11.0-SNAPSHOT",
 
