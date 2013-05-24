@@ -67,12 +67,9 @@
 
 <p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). Instead, the new backend postpones the creation of AST nodes for closures, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
-<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. The implementation-level representation can be chosen between:</p>
+<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-closurify:delegating</code> ).</p>
 
-<ul>
-<li>inner classes, when using <code>-closurify:delegating</code> (yes, like under <code>-closurify:traditional</code>, with the big difference that additional optimizations are applicable).</li>
-<li>JSR-292 Method Handles, when using <code>-closurify:MH</code> as described in more detail in the following subsection.</li>
-</ul><h1>2 What's new in the new optimizer</h1>
+<h1>2 What's new in the new optimizer</h1>
 
 <h2>2.1 Distinction between intra-program and cross-library optimizations</h2>
 
@@ -332,7 +329,7 @@ ant all.clean &amp;&amp; ant
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>5 Putting the new optimizer through its paces</h1>
 
-<h2>5.1 Pro tip: Optimizing the compiler and the standard library themselves</h2>
+<h2>5.1 Optimizing the compiler and the standard library themselves</h2>
 
 <p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored58/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
