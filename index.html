@@ -274,7 +274,7 @@ git checkout -b GenRefactored58 origin/GenRefactored58
 ant all.clean &amp;&amp; ant
 </code></pre>
 
-<h2>4.0 Using sbt to build your project with new backend / optimizer</h2>
+<h2>4.0 Using sbt to build your project with the new backend / optimizer</h2>
 
 <p>Section <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">Using Scala from a local directory</a> covers the changes needed in your project's <code>Build.scala</code>:</p>
 
@@ -307,7 +307,7 @@ scalacOptions ++= Seq( . . . your options
 <td><code>-neo:o3</code></td>       <td>Cross-libraries optimization: this includes the same kind of optimization as above, with the caveat that bytecode from external <em>can be parsed</em> if needed to apply some optimization (e.g., this is the optimization level to picks to have <code>Range.foreach</code> inlined)</td> </tr>
 </table><p><em>Nota bene</em>: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</p>
 
-<h2>4.2 Choosing bytecode-level representation of closures (inner classes vs. method handles)</h2>
+<h2>4.2 Choosing bytecode-level representation of closures</h2>
 
 <table>
 <tr>
