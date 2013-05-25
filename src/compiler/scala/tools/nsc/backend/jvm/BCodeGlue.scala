@@ -89,19 +89,7 @@ abstract class BCodeGlue extends SubComponent {
         // case '(':
         case _ =>
           assert(chrs(off) == '(')
-          var resPos = off + 1
-          while (chrs(resPos) != ')') { resPos += 1 }
-          val resType = getType(resPos + 1)
-          val len = resPos - off + 1 + resType.len;
-          getCanonical(
-            asm.Type.METHOD,
-            off,
-            if (resType.hasObjectSort) {
-              len + 2 // "+ 2" accounts for the "L ... ;" in a descriptor for a non-array reference.
-            } else {
-              len
-            }
-          )
+          abort("The intended representation for bytecode-level method-types is BMType, not BType.")
       }
     }
 
@@ -122,121 +110,13 @@ abstract class BCodeGlue extends SubComponent {
     }
 
     /*
-     * @param typeDescriptor a field or method type descriptor.
+     * @param typeDescriptor a field descriptor (for method-type descriptors, use `getMethodType()`).
      *
      * must-single-thread
      */
-    def getType(typeDescriptor: String): BType = {
+    def getFieldType(typeDescriptor: String): BType = {
       val n = global.newTypeName(typeDescriptor)
       getType(n.start)
-    }
-
-    /*
-     * @param methodDescriptor a method descriptor.
-     *
-     * must-single-thread
-     */
-    def getMethodType(methodDescriptor: String): BType = {
-      val n = global.newTypeName(methodDescriptor)
-      newBType(asm.Type.METHOD, n.start, n.length) // TODO assert isValidMethodDescriptor
-    }
-
-    /*
-     * Returns the Java method type corresponding to the given argument and return types.
-     *
-     * @param returnType the return type of the method.
-     * @param argumentTypes the argument types of the method.
-     * @return the Java type corresponding to the given argument and return types.
-     *
-     * must-single-thread
-     */
-    def getMethodType(returnType: BType, argumentTypes: Array[BType]): BType = {
-      val n = global.newTypeName(getMethodDescriptor(returnType, argumentTypes))
-      newBType(asm.Type.METHOD, n.start, n.length)
-    }
-
-    /*
-     * Returns the Java types corresponding to the argument types of method descriptor whose first argument starts at idx0.
-     *
-     * @param idx0 index into chrs of the first argument.
-     * @return the Java types corresponding to the argument types of the given method descriptor.
-     *
-     * can-multi-thread
-     */
-    def getArgumentTypes(idx0: Int): Array[BType] = {
-      assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
-      val args = new Array[BType](getArgumentCount(idx0))
-      var off = idx0
-      var size = 0
-      while (chrs(off) != ')') {
-        args(size) = getType(off)
-        off += args(size).len
-        if (args(size).sort == asm.Type.OBJECT) { off += 2 }
-        // debug: assert("LVZBSCIJFD[)".contains(chrs(off)))
-        size += 1
-      }
-      // debug: var check = 0; while (check < args.length) { assert(args(check) != null); check += 1 }
-      args
-    }
-
-    /*
-     * Returns the Java types corresponding to the argument types of the given
-     * method descriptor.
-     *
-     * @param methodDescriptor a method descriptor.
-     * @return the Java types corresponding to the argument types of the given method descriptor.
-     *
-     * must-single-thread
-     */
-    def getArgumentTypes(methodDescriptor: String): Array[BType] = {
-      val n = global.newTypeName(methodDescriptor)
-      getArgumentTypes(n.start + 1)
-    }
-
-    /*
-     * Returns the number of argument types of this method type, whose first argument starts at idx0.
-     *
-     * @param idx0 index into chrs of the first argument.
-     * @return the number of argument types of this method type.
-     *
-     * can-multi-thread
-     */
-    def getArgumentCount(idx0: Int): Int = {
-      assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
-      var off  = idx0
-      var size = 0
-      var keepGoing = true
-      while (keepGoing) {
-        val car = chrs(off)
-        off += 1
-        if (car == ')') {
-          keepGoing = false
-        } else if (car == 'L') {
-          while (chrs(off) != ';') { off += 1 }
-          off += 1
-          size += 1
-        } else if (car != '[') {
-          size += 1
-        }
-      }
-
-      size
-    }
-
-    /*
-     * Returns the Java type corresponding to the return type of the given
-     * method descriptor.
-     *
-     * @param methodDescriptor a method descriptor.
-     * @return the Java type corresponding to the return type of the given method descriptor.
-     *
-     * must-single-thread
-     */
-    def getReturnType(methodDescriptor: String): BType = {
-      val n     = global.newTypeName(methodDescriptor)
-      val delta = n.pos(')') // `delta` is relative to the Name's zero-based start position, not a valid index into chrs.
-      assert(delta < n.length, s"not a valid method descriptor: $methodDescriptor")
-      getType(n.start + delta + 1)
     }
 
     /*
@@ -396,6 +276,10 @@ abstract class BCodeGlue extends SubComponent {
     }
   }
 
+  def toBType(ts: Array[asm.Type]): Array[BType] = {
+    ts map toBType
+  }
+
   /*
    * ASM trees represent types as strings (internal names, descriptors).
    * Given that we operate instead on BTypes, conversion is needed when visiting MethodNodes outside GenBCode.
@@ -440,6 +324,71 @@ abstract class BCodeGlue extends SubComponent {
     if (n == null) { return BT_ZERO }
     val sort = if (chrs(n.start) == '[') asm.Type.ARRAY else asm.Type.OBJECT;
     newBType(sort, n.start, n.length)
+  }
+
+  /*
+   * Bytecode-level Method types support sufficiently different operations,
+   * and moreover are usually discarded shortly after instantiation.
+   * Rather than having them compete for cache space in the chrs array
+   * with (logner-lived) BTypes, this class is dedicated to represent them.
+   */
+  case class BMType(returnType: BType, argumentTypes: Array[BType]) {
+
+    /*
+     * Returns the number of arguments of methods of this type.
+     * This method should only be used for method types.
+     *
+     * @return the number of arguments of methods of this type.
+     *
+     * can-multi-thread
+     */
+    def getArgumentCount: Int = { argumentTypes.length }
+
+    def getDescriptor: String = { BT.getMethodDescriptor(returnType, argumentTypes) }
+
+    /*
+     *  Given a zero-based formal-param-position, return its corresponding local-var-index,
+     *  taking into account the JVM-type-sizes of preceding formal params.
+     */
+    def convertFormalParamPosToLocalVarIdx(paramPos: Int, isInstanceMethod: Boolean): Int = {
+      var local = 0
+      (0 until paramPos) foreach { argPos => local += argumentTypes(argPos).getSize }
+
+      local + (if (isInstanceMethod) 1 else 0)
+    }
+
+    /*
+     *  Given a local-var-index, return its corresponding zero-based formal-param-position,
+     *  taking into account the JVM-type-sizes of preceding formal params.
+     */
+    def convertLocalVarIdxToFormalParamPos(localIdx: Int, isInstanceMethod: Boolean): Int = {
+      var remaining  = (if (isInstanceMethod) (localIdx - 1) else localIdx)
+      assert(remaining >= 0)
+      var result     = 0
+      while (remaining > 0) {
+        remaining -= argumentTypes(result).getSize
+        result    += 1
+      }
+      assert(remaining == 0)
+
+      result
+    }
+
+  }
+
+  object BMType {
+
+    def apply(methodDescriptor: String): BMType = {
+      val t = asm.Type.getMethodType(methodDescriptor)
+      apply(t)
+    }
+
+    def apply(at: asm.Type): BMType = {
+      val r  = toBType(at.getReturnType)
+      val as = toBType(at.getArgumentTypes)
+      apply(r, as)
+    }
+
   }
 
 }
