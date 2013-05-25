@@ -263,16 +263,17 @@ abstract class BCodeGlue extends SubComponent {
       case asm.Type.FLOAT   => BT.FLOAT_TYPE
       case asm.Type.LONG    => BT.LONG_TYPE
       case asm.Type.DOUBLE  => BT.DOUBLE_TYPE
-      case asm.Type.ARRAY   |
-           asm.Type.OBJECT  |
-           asm.Type.METHOD  =>
-        // TODO confirm whether this also takes care of the phantom types.
-        val key =
-          if (t.getSort == asm.Type.METHOD) t.getDescriptor
-          else t.getInternalName
 
-        val n = global.lookupTypeName(key.toCharArray)
-        newBType(t.getSort, n.start, n.length)
+      case asm.Type.ARRAY   |
+           asm.Type.OBJECT  =>
+        // TODO confirm whether this also takes care of the phantom types.
+        val key = t.getInternalName
+        val bt  = lookupRefBTypeIfExisting(key)
+        if (bt == BT_ZERO) brefType(key)
+        else bt
+
+      case asm.Type.METHOD  =>
+        abort("The intended representation for bytecode-level method-types is BMType, not BType.")
     }
   }
 
