@@ -165,7 +165,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
             from.tpe.typeSymbol.isPrimitiveValueClass) result
         else localTyper.typedPos(to.pos) {
           // `throw null` has the same effect as `throw new NullPointerException`, see JVM spec on instruction `athrow`
-          IF (from OBJ_EQ NULL) THEN Throw(gen.mkZero(ThrowableTpe)) ELSE result
+          IF (from OBJ_EQ NULL) THEN gen.sharedThrowNull ELSE result
         }
       }
 
