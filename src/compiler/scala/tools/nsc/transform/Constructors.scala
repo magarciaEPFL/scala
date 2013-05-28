@@ -1010,7 +1010,11 @@ abstract class Constructors extends Transform with ast.TreeDSL {
 
         cachingField += (osym -> fsym)
 
-        cachingFieldInits ::= mkAssign(fsym, intoConstructor(oldowner = null, tree = longForm))
+        cachingFieldInits ::= {
+          val initTree = mkAssign(fsym, intoConstructor(oldowner = null, tree = longForm))
+          resetPos traverse initTree
+          initTree
+        }
       }
 
       val cachedOuterFieldDecls: List[ValDef] =
