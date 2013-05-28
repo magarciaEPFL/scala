@@ -385,6 +385,7 @@ abstract class BCodeIdiomatic extends BCodeGlue {
     // can-multi-thread
     final def boolconst(b: Boolean) { iconst(if (b) 1 else 0) }
 
+    final def iconst(cst: Char) { iconst(cst.toInt) }
     // can-multi-thread
     final def iconst(cst: Int) {
       if (cst >= -1 && cst <= 5) {
@@ -548,9 +549,9 @@ abstract class BCodeIdiomatic extends BCodeGlue {
       val keyMax = keys(keys.length - 1)
 
       val isDenseEnough: Boolean = {
-        /* Calculate in long to guard against overflow. TODO what overflow? */
+        /* Calculate in long to guard against overflow. TODO what overflow??? */
         val keyRangeD: Double = (keyMax.asInstanceOf[Long] - keyMin + 1).asInstanceOf[Double]
-        val klenD:     Double = keys.length
+        val klenD:     Double = keys.length.toDouble
         val kdensity:  Double = (klenD / keyRangeD)
 
         kdensity >= minDensity
