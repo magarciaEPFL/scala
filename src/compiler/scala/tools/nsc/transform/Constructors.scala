@@ -698,6 +698,12 @@ abstract class Constructors extends Transform with ast.TreeDSL {
 
     defBuf ++= cachedOuterFieldDecls
 
+    if (cachedOuterFieldDecls.nonEmpty) {
+      debuglog(
+        s"In class ${clazz.debugLocationString}, multi-step navigation over outer replaced: ${cachedOuterFieldDecls.mkString("; ")}"
+      )
+    }
+
     populateOmittables()
 
     // Initialize all parameters fields that must be kept.
