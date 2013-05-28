@@ -440,8 +440,8 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
 
         case BooleanTag => bc.boolconst(const.booleanValue)
 
-        case ByteTag    => bc.iconst(const.byteValue)
-        case ShortTag   => bc.iconst(const.shortValue)
+        case ByteTag    => bc.iconst(const.byteValue.toInt)
+        case ShortTag   => bc.iconst(const.shortValue.toInt)
         case CharTag    => bc.iconst(const.charValue)
         case IntTag     => bc.iconst(const.intValue)
 
