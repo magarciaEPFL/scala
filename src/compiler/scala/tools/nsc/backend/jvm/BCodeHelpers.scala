@@ -533,12 +533,12 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
     /*
      * must-single-thread
      */
-    def asmMethodType(msym: Symbol): BType = {
+    def asmMethodType(msym: Symbol): BMType = {
       assert(msym.isMethod, s"not a method-symbol: $msym")
       val resT: BType =
         if (msym.isClassConstructor || msym.isConstructor) BT.VOID_TYPE
         else toTypeKind(msym.tpe.resultType);
-      BT.getMethodType( resT, mkArray(msym.tpe.paramTypes map toTypeKind) )
+      BMType(resT, mkArray(msym.tpe.paramTypes map toTypeKind) )
     }
 
     /*
@@ -918,7 +918,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       val thrownExceptions: List[String] = getExceptions(throws)
 
       val jReturnType = toTypeKind(methodInfo.resultType)
-      val mdesc = BT.getMethodType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
+      val mdesc = BMType(jReturnType, mkArray(paramJavaTypes)).getDescriptor
       val mirrorMethodName = m.javaSimpleName.toString
       val mirrorMethod: asm.MethodVisitor = jclass.visitMethod(
         flags,
@@ -1032,7 +1032,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
 
      * @param methodType the method that contains the class.
      */
-    case class EnclMethodEntry(owner: String, name: String, methodType: BType)
+    case class EnclMethodEntry(owner: String, name: String, methodType: BMType)
 
     /*
      * @return null if the current class is not internal to a method
@@ -1208,8 +1208,8 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       )
 
       val stringArrayJType: BType = arrayOf(JAVA_LANG_STRING)
-      val conJType: BType =
-        BT.getMethodType(
+      val conJType: BMType =
+        BMType(
           BT.VOID_TYPE,
           Array(exemplar(definitions.ClassClass).c, stringArrayJType, stringArrayJType)
         )
@@ -1304,7 +1304,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       )
 
       // INVOKEVIRTUAL `moduleName`.CREATOR() : android.os.Parcelable$Creator;
-      val bt = BT.getMethodType(androidCreatorType, Array.empty[BType])
+      val bt = BMType(androidCreatorType, Array.empty[BType])
       clinit.visitMethodInsn(
         asm.Opcodes.INVOKEVIRTUAL,
         moduleName,
