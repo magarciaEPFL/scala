@@ -576,13 +576,18 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
     }
 
     def visitDescr(desc: String) {
-      val bt = descrToBType(desc)
-      if (bt.isArray) { visitDescr(bt.getElementType.getDescriptor) }
-      else if (bt.sort == asm.Type.METHOD) {
-        visitDescr(bt.getReturnType.getDescriptor)
-        bt.getArgumentTypes foreach { at => visitDescr(at.getDescriptor) }
-      } else if (bt.hasObjectSort) {
-        visitInternalName(bt.getInternalName)
+      if(desc.startsWith("(")) {
+        val mt = BMType(desc)
+        visitDescr(mt.returnType.getDescriptor)
+        mt.argumentTypes foreach { at => visitDescr(at.getDescriptor) }
+      } else {
+        val bt = descrToBType(desc)
+        if (bt.isArray) {
+          visitDescr(bt.getElementType.getDescriptor)
+        }
+        else if (bt.hasObjectSort) {
+          visitInternalName(bt.getInternalName)
+        }
       }
     }
 
