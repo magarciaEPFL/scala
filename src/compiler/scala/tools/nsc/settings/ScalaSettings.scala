@@ -204,6 +204,10 @@ trait ScalaSettings extends AbsScalaSettings
   val neo         = ChoiceSetting ("-neo", "choice of bytecode emitter", "Choice of bytecode emitter.",
                                    List("GenASM", "GenBCode", "o1"),
                                    "o1")
+  val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
+                                   List("traditional", "delegating"),
+                                   "delegating") // TODO once merged into trunk "traditional" should be the default
+
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
 
@@ -246,5 +250,18 @@ trait ScalaSettings extends AbsScalaSettings
    */
   def neoLevel: Int           = { if (neo.value.startsWith("o") && isBCodeActive) neo.value.substring(1).toInt else 0 }
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
+
+  /*
+   *  Approaches to lower anonymous closures:
+   *
+   *    case "traditional"  => Good ol' dedicated inner class for each closure.
+   *                           Available under GenASM (the only option there), and also with GenBCode but only up to -neo:o1.
+   *
+   *    case "delegating"   => aka "Late-Closure-Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
+   *                           thus lowering the working set during compilation.
+   *                           Allows closure-related optimizations (actually all optimization levels are supported).
+   */
+  def isClosureConvTraditional = (closureConv.value == "traditional") || !isBCodeActive
+  def isClosureConvDelegating  = (closureConv.value == "delegating")  &&  isBCodeActive
 
 }
