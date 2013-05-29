@@ -590,12 +590,12 @@ abstract class BCodeOptInter extends BCodeTFA {
         )
       }
 
-      val calleeMethodType = BT.getMethodType(callee.desc) // must-single-thread
+      val calleeMethodType = BMType(callee.desc)
 
       /*
        * Situation (a.3) under which method-inlining is unfeasible: callee has Nothing type.
        */
-      if (calleeMethodType.getReturnType.isNothingType) {
+      if (calleeMethodType.returnType.isNothingType) {
         return Some(s"Method-inlining failed because ${methodSignature(calleeOwner, callee)} has Nothing type.")
       }
 
@@ -625,7 +625,7 @@ abstract class BCodeOptInter extends BCodeTFA {
         argStores.add(new VarInsnNode(Opcodes.ASTORE, nxtLocalIdx))
         nxtLocalIdx    += 1
       }
-      for(at <- calleeMethodType.getArgumentTypes) {
+      for(at <- calleeMethodType.argumentTypes) {
         val opc         = at.toASMType.getOpcode(Opcodes.ISTORE)
         argStores.insert(new VarInsnNode(opc, nxtLocalIdx))
         nxtLocalIdx    += at.getSize
@@ -643,7 +643,7 @@ abstract class BCodeOptInter extends BCodeTFA {
        * by DROPs (as needed) for all slots but stack-top.
        */
       def replaceRETURNs() {
-        val retType        = calleeMethodType.getReturnType
+        val retType        = calleeMethodType.returnType
         val hasReturnValue = !retType.isUnitType
         val retVarIdx      = host.maxLocals + callee.maxLocals
         nxtLocalIdx       += retType.getSize
