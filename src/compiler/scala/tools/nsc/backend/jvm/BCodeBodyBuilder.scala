@@ -591,7 +591,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
           mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
           genLoadArguments(args, paramTKs(app))
           genCallMethod(fun.symbol, invokeStyle, pos = app.pos)
-          generatedType = asmMethodType(fun.symbol).getReturnType
+          generatedType = asmMethodType(fun.symbol).returnType
 
         // 'new' constructor call: Note: since constructors are
         // thought to return an instance of what they construct,
@@ -706,7 +706,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
 
             genNormalMethodCall()
 
-            generatedType = asmMethodType(sym).getReturnType
+            generatedType = asmMethodType(sym).returnType
           }
 
       }
