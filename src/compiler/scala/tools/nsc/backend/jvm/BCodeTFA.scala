@@ -18,7 +18,7 @@ import scala.collection.{ immutable, mutable }
  *  @version 1.0
  *
  */
-abstract class BCodeTFA extends BCodeHelpers with BytecodeWriters {
+abstract class BCodeTFA extends BCodeOptCommon with BytecodeWriters {
 
   import global._
 
