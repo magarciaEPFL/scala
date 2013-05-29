@@ -165,9 +165,7 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
         val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
         if (!elidedParams.isEmpty) {
           changed = true
-          global synchronized {
-            BT.getMethodType(endpoint.desc)
-          }
+          BMType(endpoint.desc)
           log(
            s"In order to minimize closure-fields, one or more params were elided from endpoint ${methodSignature(masterCNode, endpoint)} " +
            s". Before the change, its method descriptor was $oldDescr"
@@ -284,7 +282,7 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
       // redundant-closure-field-name -> zero-based position the constructor param providing the value for it.
       val posOfRedundantCtorParam = mutable.Map.empty[String, Int]
       val ctor = (dCNode.toMethodList find { caller => caller.name == "<init>" }).get
-      val ctorBT = BT.getMethodType(ctor.desc)
+      val ctorBT = BMType(ctor.desc)
       Util.computeMaxLocalsMaxStack(ctor)
       cp.analyze(dCNode.name, ctor)
       for(
@@ -351,9 +349,7 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
       val oldCtorDescr = ctor.desc
       val elideCtorParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(dCNode, ctor)
       Util.makePublicMethod(ctor)
-      global synchronized {
-        BT.getMethodType(ctor.desc)
-      }
+      BMType(ctor.desc)
       assert(!elideCtorParams.isEmpty)
       for(callerInMaster <- masterCNode.toMethodList) {
         UnusedParamsElider.elideArguments(masterCNode, callerInMaster, dCNode, ctor, oldCtorDescr, elideCtorParams)

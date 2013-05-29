@@ -35,7 +35,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
    *  @param closuCtor the only constructor of the dclosure
    *
    */
-  case class DClosureEndpoint(epName: String, epMT: BType, closuBT: BType, closuCtor: MethodNode)
+  case class DClosureEndpoint(epName: String, epMT: BMType, closuBT: BType, closuCtor: MethodNode)
 
   abstract class LateClosureBuilder(cunit: CompilationUnit) extends PlainSkelBuilder(cunit) {
 
@@ -141,10 +141,10 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
        *   - apply-params-section (types).
        */
 
-      val delegateMT: BType = asmMethodType(delegateSym)
-      val delegateJavaName  = delegateSym.javaSimpleName.toString
+      val delegateMT: BMType = asmMethodType(delegateSym)
+      val delegateJavaName   = delegateSym.javaSimpleName.toString
 
-      val delegateParamTs = delegateMT.getArgumentTypes.toList
+      val delegateParamTs = delegateMT.argumentTypes.toList
       val closuStateBTs: List[BType] = {
         if (isImplClassEndpoint) {
           delegateParamTs.head :: delegateParamTs.tail.drop(arity)
@@ -274,7 +274,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
         def getUltimateAndPlumbing(key: String, mdescr: String): List[asm.tree.MethodNode] = {
           val closuIName       = castToBT.getInternalName
-          val fullyErasedBT    = BT.getMethodType(ObjectReference, Array.fill(arity){ ObjectReference })
+          val fullyErasedBT    = BMType(ObjectReference, Array.fill(arity){ ObjectReference })
           val fullyErasedDescr = fullyErasedBT.getDescriptor
           val fullyErasedMNode = new asm.tree.MethodNode(
             asm.Opcodes.ASM4,
@@ -317,13 +317,13 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
           val maybeSpczld = {
             (delegateApplySection exists { bt => bt.isNonUnitValueType }) ||
-            (delegateMT.getReturnType.isPrimitiveOrVoid)
+            (delegateMT.returnType.isPrimitiveOrVoid)
           }
 
           if (maybeSpczld) {
             val key = {
               "$mc" +
-              spclzdErasure(delegateMT.getReturnType).getDescriptor +
+              spclzdErasure(delegateMT.returnType).getDescriptor +
               spclzdDescriptors(delegateApplySection).mkString +
               "$sp"
             }
@@ -331,7 +331,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
               /* method descriptor for the "ultimate apply" ie the one with primitive types. */
               val spzldDescr: String = {
                 spclzdDescriptors(delegateApplySection).mkString("(", "", ")") +
-                spclzdErasure(delegateMT.getReturnType).getDescriptor
+                spclzdErasure(delegateMT.returnType).getDescriptor
               }
               return Pair(castToBT.getInternalName + key, getUltimateAndPlumbing(key, spzldDescr))
             }
@@ -424,7 +424,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
         def createClosuCtor(): asm.tree.MethodNode = {
 
           // registers the (possibly unseen) descriptor in Names.chrs via global.newTypeName
-          val ctorDescr = BT.getMethodType(BT.VOID_TYPE, mkArray(closuStateBTs)).getDescriptor
+          val ctorDescr = BMType(BT.VOID_TYPE, mkArray(closuStateBTs)).getDescriptor
 
           {
             // also registers "premonitorily" a ctor signature as above except outer is elided,
@@ -432,7 +432,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
             // Better to do it now as this code runs single-threaded, as opposed to `squashOuter()`.
             if (hasOuter) {
               assert(closuStateBTs.nonEmpty)
-              BT.getMethodType(BT.VOID_TYPE, mkArray(closuStateBTs.tail))
+              BMType(BT.VOID_TYPE, mkArray(closuStateBTs.tail))
             }
           }
 
@@ -531,7 +531,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           ultimate.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx)
         }
 
-        val ultimateMT = BT.getMethodType(ultimate.desc)
+        val ultimateMT = BMType(ultimate.desc)
 
         // in order to invoke the delegate, load the receiver if any
         if (hasStaticModuleOwner) {
@@ -550,7 +550,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
         }
 
         // after that, load each apply-argument
-        val callerParamsBTs = ultimateMT.getArgumentTypes.toList
+        val callerParamsBTs = ultimateMT.argumentTypes.toList
         assert(callerParamsBTs.size == delegateApplySection.size)
         var idx = 1
         for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(delegateApplySection)) {
@@ -582,9 +582,9 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           delegateMT.getDescriptor
         )
 
-        spclzdAdapt(ultimate, delegateMT.getReturnType, ultimateMT.getReturnType)
+        spclzdAdapt(ultimate, delegateMT.returnType, ultimateMT.returnType)
 
-        ultimate.visitInsn(ultimateMT.getReturnType.getOpcode(asm.Opcodes.IRETURN))
+        ultimate.visitInsn(ultimateMT.returnType.getOpcode(asm.Opcodes.IRETURN))
 
       } // end of helper method buildUltimateBody()
 
@@ -599,15 +599,15 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
         def loadLocal(idx: Int, tk: BType) { caller.visitVarInsn(tk.getOpcode(asm.Opcodes.ILOAD), idx) }
 
-        val ultimateMT = BT.getMethodType(ultimate.desc)
-        val callerMT   = BT.getMethodType(caller.desc)
+        val ultimateMT = BMType(ultimate.desc)
+        val callerMT   = BMType(caller.desc)
 
         // first, load the receiver (THIS)
         caller.visitVarInsn(asm.Opcodes.ALOAD, 0)
 
         // then, proceed to load each apply-argument
-        val callerParamsBTs = callerMT.getArgumentTypes.toList
-        val calleeParamsBTs = ultimateMT.getArgumentTypes.toList
+        val callerParamsBTs = callerMT.argumentTypes.toList
+        val calleeParamsBTs = ultimateMT.argumentTypes.toList
         assert(callerParamsBTs.size == calleeParamsBTs.size)
         var idx = 1
         for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(calleeParamsBTs)) {
@@ -623,9 +623,9 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           ultimate.desc
         )
 
-        spclzdAdapt(caller, ultimateMT.getReturnType, callerMT.getReturnType)
+        spclzdAdapt(caller, ultimateMT.returnType, callerMT.returnType)
 
-        caller.visitInsn(callerMT.getReturnType.getOpcode(asm.Opcodes.IRETURN))
+        caller.visitInsn(callerMT.returnType.getOpcode(asm.Opcodes.IRETURN))
 
       } // end of helper method buildPlumbingBody()
 

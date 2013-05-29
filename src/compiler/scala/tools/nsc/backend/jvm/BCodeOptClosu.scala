@@ -156,7 +156,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
       val elidedParams = UnusedParamsElider.elideUnusedParams(hostOwner, shio)
       if (!elidedParams.isEmpty()) {
         UnusedParamsElider.elideArguments(hostOwner, host, hostOwner, shio, oldDescr, elidedParams)
-        BT.getMethodType(shio.desc) // must-single-thread, register the new method descriptor in Names
+        BMType(shio.desc) // must-single-thread, register the new method descriptor in Names
       }
       Util.makePublicMethod(shio)
     }
@@ -433,7 +433,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
         val cpHiO: ProdConsAnalyzer = ProdConsAnalyzer.create()
         cpHiO.analyze(hiOOwner.name, hiO)
 
-        val mtHiO = BT.getMethodType(hiO.desc)
+        val mtHiO = BMType(hiO.desc)
         val isInstanceMethod = Util.isInstanceMethod(hiO)
 
         /*
@@ -512,7 +512,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
           }
 
           // (4) whether it's actually an apply or specialized-apply invocation
-          val arity = BT.getMethodType(fst.desc).getArgumentCount
+          val arity = BMType(fst.desc).getArgumentCount
           if (arity > definitions.MaxFunctionArity) {
             warn("the callee invokes apply() on the closure with more than " + definitions.MaxFunctionArity + " arguments.")
             return null
@@ -636,7 +636,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
         result
       }
 
-      val constructorMethodType = BT.getMethodType(constructor.desc)
+      val constructorMethodType = BMType(constructor.desc)
 
       /*
        *  The constructor of a closure-class has params for (a) the outer-instance; and (b) captured-locals.
@@ -664,7 +664,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
          *   find the single consumer of a LOAD of that local-var (should be a PUTFIELD)
          *   add pair to map.
          */
-        val constructorBT = BT.getMethodType(constructor.desc)
+        val constructorBT = BMType(constructor.desc)
 
         def findClosureStateField(localVarIdx: Int): String = {
           val consumers = cpConstructor.consumersOfLocalVar(localVarIdx)
@@ -986,7 +986,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
         val result =
           for(cu <- closureClassUtils)
           yield {
-            val constrParams: Array[BType] = cu.constructorMethodType.getArgumentTypes
+            val constrParams: Array[BType] = cu.constructorMethodType.argumentTypes
             constrParams foreach { constrParamBT => acc += constrParamBT.getSize }
             acc -= 1
             // assert(acc >= -1). In other words, not every closure-constructor has at least an outer instance param.
@@ -1083,15 +1083,15 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
         if (Util.isInstanceMethod(hiO)) {
           formals ::= lookupRefBType(callsite.owner)
         }
-        val hiOMethodType = BT.getMethodType(hiO.desc)
+        val hiOMethodType = BMType(hiO.desc)
         var maxLocals = hiO.maxLocals
-        foreachWithIndex(hiOMethodType.getArgumentTypes.toList) {
+        foreachWithIndex(hiOMethodType.argumentTypes.toList) {
           (hiOParamType, hiOParamPos) =>
             if (isInlinedParamPos(hiOParamPos)) {
               // splice-in the closure's constructor's params, the original closure-receiving param goes away.
               maxLocals -= 1
               val ccu = closureClassUtils.find(_.closureUsages.formalParamPosHiO == hiOParamPos).get
-              for(constrParamType <- ccu.constructorMethodType.getArgumentTypes) {
+              for(constrParamType <- ccu.constructorMethodType.argumentTypes) {
                 formals ::= constrParamType
                 maxLocals += constrParamType.getSize
               }
@@ -1099,7 +1099,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
               formals ::= hiOParamType
             }
         }
-        val shiOMethodType = BT.getMethodType(hiOMethodType.getReturnType, formals.reverse.toArray)
+        val shiOMethodType = BMType(hiOMethodType.returnType, formals.reverse.toArray)
 
         // (3) clone InsnList, get Label map
         val labelMap = Util.clonedLabels(hiO)
@@ -1349,7 +1349,7 @@ abstract class BCodeOptClosu extends BCodeOptIntra {
         val oldMaxLocals = shio.maxLocals
         val stores = new InsnList
         var accArgSizes = 0
-        for(argT <- BT.getMethodType(ccu.stubTemplate.desc).getArgumentTypes) {
+        for(argT <- BMType(ccu.stubTemplate.desc).argumentTypes) {
           val opcode = argT.getOpcode(Opcodes.ISTORE)
           stores.insert(new VarInsnNode(opcode, oldMaxLocals + accArgSizes))
           accArgSizes += argT.getSize
