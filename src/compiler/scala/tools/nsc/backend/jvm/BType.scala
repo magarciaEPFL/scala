@@ -44,7 +44,8 @@ class BType(val bits: Long) extends AnyVal {
       case asm.Type.DOUBLE  => asm.Type.DOUBLE_TYPE
       case asm.Type.ARRAY   |
            asm.Type.OBJECT  => asm.Type.getObjectType(getInternalName)
-      case asm.Type.METHOD  => asm.Type.getMethodType(getDescriptor)
+      case asm.Type.METHOD  =>
+        throw new RuntimeException("The intended representation for bytecode-level method-types is BMType, not BType.")
     }
   }
 
@@ -124,78 +125,6 @@ class BType(val bits: Long) extends AnyVal {
     val idx = iname.lastIndexOf('/')
     if (idx == -1) iname
     else iname.substring(idx + 1)
-  }
-
-  /*
-   * Returns the argument types of methods of this type.
-   * This method should only be used for method types.
-   *
-   * @return the argument types of methods of this type.
-   *
-   * can-multi-thread
-   */
-  def getArgumentTypes(implicit bct: BCodeGlue) : Array[BType] = {
-    bct.BT.getArgumentTypes(off + 1)
-  }
-
-  /*
-   * Returns the number of arguments of methods of this type.
-   * This method should only be used for method types.
-   *
-   * @return the number of arguments of methods of this type.
-   *
-   * can-multi-thread
-   */
-  def getArgumentCount(implicit bct: BCodeGlue) : Int = {
-    bct.BT.getArgumentCount(off + 1)
-  }
-
-  /*
-   * Returns the return type of methods of this type.
-   * This method should only be used for method types.
-   *
-   * @return the return type of methods of this type.
-   *
-   * can-multi-thread
-   */
-  def getReturnType(implicit bct: BCodeGlue) : BType = {
-    val chrs = bct.global.chrs
-    assert(chrs(off) == '(', s"doesn't look like a method descriptor: $getDescriptor")
-    var resPos = off + 1
-    while (chrs(resPos) != ')') { resPos += 1 }
-    bct.BT.getType(resPos + 1)
-  }
-
-  /*
-   *  Given a zero-based formal-param-position, return its corresponding local-var-index,
-   *  taking into account the JVM-type-sizes of preceding formal params.
-   */
-  def convertFormalParamPosToLocalVarIdx(paramPos: Int, isInstanceMethod: Boolean)(implicit bct: BCodeGlue) : Int = {
-    assert(sort == asm.Type.METHOD)
-    val paramTypes = getArgumentTypes
-    var local = 0
-    (0 until paramPos) foreach { argPos => local += paramTypes(argPos).getSize }
-
-    local + (if (isInstanceMethod) 1 else 0)
-  }
-
-  /*
-   *  Given a local-var-index, return its corresponding zero-based formal-param-position,
-   *  taking into account the JVM-type-sizes of preceding formal params.
-   */
-  def convertLocalVarIdxToFormalParamPos(localIdx: Int, isInstanceMethod: Boolean)(implicit bct: BCodeGlue) : Int = {
-    assert(sort == asm.Type.METHOD)
-    val paramTypes = getArgumentTypes
-    var remaining  = (if (isInstanceMethod) (localIdx - 1) else localIdx)
-    assert(remaining >= 0)
-    var result     = 0
-    while (remaining > 0) {
-      remaining -= paramTypes(result).getSize
-      result    += 1
-    }
-    assert(remaining == 0)
-
-    result
   }
 
   // ------------------------------------------------------------------------
