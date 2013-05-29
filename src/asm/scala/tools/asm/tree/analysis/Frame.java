@@ -68,12 +68,12 @@ public class Frame<V extends Value> {
     /**
      * The number of local variables of this frame.
      */
-    private int locals;
+    protected int locals;
 
     /**
      * The number of elements in the operand stack.
      */
-    private int top;
+    protected int top;
 
     /**
      * Constructs a new frame with the given size.
@@ -179,17 +179,54 @@ public class Frame<V extends Value> {
         return top;
     }
 
+    protected V peekValue(final int i) throws IndexOutOfBoundsException {
+        return values[i];
+    }
+
+    protected void pokeValue(final int i, final V v) throws IndexOutOfBoundsException {
+        values[i] = v;
+    }
+
     /**
      * Returns the value of the given operand stack slot.
      *
-     * @param i
-     *            the index of an operand stack slot.
+     * As stated in getStackSize(), for the purposes of stack-indexing:
+     *   "Long and double values are treated as single values."
+     *
+     * @param i the index of an operand stack slot.
      * @return the value of the given operand stack slot.
      * @throws IndexOutOfBoundsException
      *             if the operand stack slot does not exist.
      */
     public V getStack(final int i) throws IndexOutOfBoundsException {
+        assert i >= 0;
+        assert i < getStackSize();
         return values[i + locals];
+    }
+
+    /**
+     * Returns the value at the top of the operand stack.
+     *
+     * @return the value at the top of the operand stack.
+     * @throws IndexOutOfBoundsException if the operand stack slot does not
+     *         exist.
+     */
+    public V getStackTop() throws IndexOutOfBoundsException {
+        return getStack(getStackSize() - 1);
+    }
+
+    /**
+     *  Returns the n-th stack element counting from top starting at 0.
+     *  E.g., peekDown(0) amounts to getStackTop()
+     *        peekDown(1) is the element pushed just before the above, and so on.
+     *
+     *  As stated in analysis.Frame.getStackSize(), for the purposes of stack-indexing:
+     *   "Long and double values are treated as single values."
+     *
+     * */
+    public V peekDown(int n) {
+        int idxTop = getStackSize() - 1;
+        return getStack(idxTop - n);
     }
 
     /**
@@ -211,7 +248,10 @@ public class Frame<V extends Value> {
             throw new IndexOutOfBoundsException(
                     "Cannot pop operand off an empty stack.");
         }
-        return values[--top + locals];
+        V popped = getStackTop();
+        values[top - 1 + locals] = null; // post-top values ignored when merging, now that garbage collector also knows that.
+        top -= 1;
+        return popped;
     }
 
     /**
@@ -311,13 +351,19 @@ public class Frame<V extends Value> {
             interpreter.ternaryOperation(insn, value1, value2, value3);
             break;
         case Opcodes.POP:
-            if (pop().getSize() == 2) {
+            value1 = pop();
+            interpreter.drop(insn, value1);
+            if (value1.getSize() == 2) {
                 throw new AnalyzerException(insn, "Illegal use of POP");
             }
             break;
         case Opcodes.POP2:
-            if (pop().getSize() == 1) {
-                if (pop().getSize() != 1) {
+            value2 = pop();
+            interpreter.drop(insn, value2);
+            if (value2.getSize() == 1) {
+                value1 = pop();
+                interpreter.drop(insn, value1);
+                if (value1.getSize() != 1) {
                     throw new AnalyzerException(insn, "Illegal use of POP2");
                 }
             }
@@ -679,7 +725,13 @@ public class Frame<V extends Value> {
         boolean changes = false;
         for (int i = 0; i < locals + top; ++i) {
             V v = interpreter.merge(values[i], frame.values[i]);
-            if (!v.equals(values[i])) {
+            boolean isXNull = (null == v);
+            boolean isYNull = (null == values[i]);
+            boolean areDifferent = (
+                      (isXNull != isYNull) ||
+                      (!isXNull && !isYNull && !v.equals(values[i]))
+            );
+            if (areDifferent) {
                 values[i] = v;
                 changes = true;
             }
