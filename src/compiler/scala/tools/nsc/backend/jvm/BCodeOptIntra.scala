@@ -377,8 +377,12 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      *
+     *  TODO refreshInnerClasses() should also be run on dclosures
      */
     def cleanseClass() {
+
+      // a dclosure is optimized together with its master class by `DClosureOptimizer`
+      assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
 
       // (1) intra-method
       intraMethodFixpoints(full = true)
