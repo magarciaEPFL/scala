@@ -217,7 +217,7 @@ abstract class GenBCode extends BCodeOptClosu {
     class Worker1(needsOutFolder: Boolean) extends java.lang.Runnable {
 
       val isDebugRun            = settings.debug.value
-      val mustPopulateCodeRepo  = isIntraProgramOpt || isDebugRun
+      val mustPopulateCodeRepo  = isOptimizRun || isDebugRun
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
@@ -430,17 +430,14 @@ abstract class GenBCode extends BCodeOptClosu {
 
         val cnode   = item.plain
         val cnodeBT = lookupRefBType(cnode.name)
-
-        val fixer =
-          if (isOptimizRun) { new BCodeCleanser(cnode, isIntraProgramOpt) }
-          else              { new EssentialCleanser(cnode)                }
+        val fixer   = new BCodeCleanser(cnode)
 
         // the minimal fixups needed, even for unoptimized runs.
         fixer.codeFixupDCE()
         fixer.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
 
         if (isOptimizRun) {
-          fixer.asInstanceOf[BCodeCleanser].cleanseClass()
+          fixer.cleanseClass()
         }
 
         refreshInnerClasses(cnode)
