@@ -658,6 +658,11 @@ abstract class BCodeSkelBuilder extends BCodeOptInter {
     } // end of method genDefDef()
 
     def warnInliningWontHappen(receiverClazz: Symbol, pos: Position, callsite: asm.tree.MethodInsnNode = null) {
+      if (!settings.YinlinerWarnings) {
+        // otherwise partest prints out a summary message "there were N inliner warning(s); re-run with -Yinline-warnings for details"
+        // and the ensuing "[output differs]" (-neo:GenASM emits none of those warnings)
+        return
+      }
       val callDescr = "Won't inline callsite " + (if (callsite == null) "" else asm.optimiz.Util.textify(callsite))
       val msg =
         if (receiverClazz.isTrait) " to method declared in trait (SI-4767)"

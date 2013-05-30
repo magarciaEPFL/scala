@@ -155,7 +155,14 @@ abstract class BCodeOptInter extends BCodeTFA {
 
     def calleeId: String = { owner.name + "::" + callee.name + callee.desc }
 
-    def warn(msg: String) = cunit.inlinerWarning(pos, msg)
+    def warn(msg: String) {
+      if (!settings.YinlinerWarnings) {
+        // otherwise partest prints out a summary message "there were N inliner warning(s); re-run with -Yinline-warnings for details"
+        // and the ensuing "[output differs]" (-neo:GenASM emits none of those warnings)
+        return
+      }
+      cunit.inlinerWarning(pos, msg)
+    }
 
     /* is the target of the callsite part of the program being compiled? */
     def isBeingCompiled: Boolean = {
