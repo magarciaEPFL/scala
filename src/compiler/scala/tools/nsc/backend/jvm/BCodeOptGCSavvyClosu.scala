@@ -135,11 +135,6 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
       import asm.optimiz.UnusedParamsElider
       import asm.optimiz.StaticMaker
 
-      assertPipeline1Done(
-        "This optimization might register a yet unseen method descriptor. Before doing so, global is locked." +
-        "For that to work, pipeline-1 must have completed (because Worker1 registers itselfs new BTypes, without locking)."
-      )
-
       val dCNode: ClassNode = codeRepo.classes.get(d)
 
       /*
@@ -165,7 +160,6 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
         val elidedParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(masterCNode, endpoint)
         if (!elidedParams.isEmpty) {
           changed = true
-          BMType(endpoint.desc)
           log(
            s"In order to minimize closure-fields, one or more params were elided from endpoint ${methodSignature(masterCNode, endpoint)} " +
            s". Before the change, its method descriptor was $oldDescr"
@@ -240,7 +234,7 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
         }
       }
 
-      val cleanser = createBCodeCleanser(dCNode, isIntraProgramOpt = false)
+      val cleanser = createBCodeCleanser(dCNode)
       cleanser.intraMethodFixpoints(full = false)
 
       /*
@@ -349,7 +343,6 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
       val oldCtorDescr = ctor.desc
       val elideCtorParams: java.util.Set[java.lang.Integer] = UnusedParamsElider.elideUnusedParams(dCNode, ctor)
       Util.makePublicMethod(ctor)
-      BMType(ctor.desc)
       assert(!elideCtorParams.isEmpty)
       for(callerInMaster <- masterCNode.toMethodList) {
         UnusedParamsElider.elideArguments(masterCNode, callerInMaster, dCNode, ctor, oldCtorDescr, elideCtorParams)
