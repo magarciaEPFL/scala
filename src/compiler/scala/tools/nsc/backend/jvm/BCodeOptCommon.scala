@@ -41,7 +41,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
   final def wasElided(iname: String)   : Boolean = wasElided(lookupRefBType(iname))
   final def wasElided(cnode: ClassNode): Boolean = wasElided(cnode.name)
 
-  def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
+  def createBCodeCleanser(cnode: asm.tree.ClassNode): BCodeCleanserIface  // implemented by BCodeOptIntra
 
   trait BCodeCleanserIface {
     def intraMethodFixpoints(full: Boolean)
