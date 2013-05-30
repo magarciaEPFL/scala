@@ -25,6 +25,8 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
   import definitions._
   import asm.tree.{MethodNode, FieldNode}
 
+  val isIntraProgramOpt = settings.isIntraProgramOpt
+
   /*
    * Functionality to build the body of ASM MethodNode, except for `synchronized` and `try` expressions.
    */
@@ -1012,6 +1014,61 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
         bc.invokespecial(jowner, jname, mdescr)
         initModule()
       }
+
+      if (isIntraProgramOpt) {
+
+        /*
+         * Gather data for "method inlining".
+         *
+         * Conditions on the target method:
+         *
+         *   (a.1) must be marked @inline AND one of:
+         *         - called via INVOKESTATIC, INVOKESPECIAL, or INVOKEVIRTUAL
+         *         - method.isEffectivelyFinal (in particular, method.isFinal)
+         *         The above amounts to "cannot be overridden"
+         *         Therefore, the actual (runtime) method to dispatch can be determined statically,
+         *         moreover without type-flow analysis. Instead, walking up the superclass-hierarchy is enough.
+         *
+         *   (a.2) not a self-recursive call
+         *
+         *   (a.3) not a super-call
+         *
+         * Conditions on the host method (ie the method being emitted, which hosts the callsite candidate for inlining):
+         *   (b.1) not a bridge method
+         * Therefore, marking a method @inline does not preclude inlining inside it.
+         *
+         * The callsite thus tracked may be amenable to
+         *   - "closure inlining" (in case it takes one ore more closures as arguments)
+         *   - or "method inlining".
+         * The former will be tried first.
+         */
+        val knockOuts = (isMethSymBridge || (method == methSymbol) || style.isSuper)
+        if (!knockOuts && hasInline(method)) {
+          val callsite = mnode.instructions.getLast.asInstanceOf[asm.tree.MethodInsnNode]
+          val opc = callsite.getOpcode
+          val cannotBeOverridden = (
+            opc == asm.Opcodes.INVOKESTATIC  ||
+            opc == asm.Opcodes.INVOKESPECIAL ||
+            method.isFinal ||
+            method.isEffectivelyFinal
+          ) && (
+            opc != asm.Opcodes.INVOKEDYNAMIC   &&
+            opc != asm.Opcodes.INVOKEINTERFACE &&
+            callsite.name != "<init>"          &&
+            callsite.name != "<clinit>"
+          )
+          if (cannotBeOverridden) {
+            val isHiO = isHigherOrderMethod(bmType)
+            // the callsite may be INVOKEVIRTUAL (but not INVOKEINTERFACE) in addition to INVOKESTATIC or INVOKESPECIAL.
+            val inlnTarget = new InlineTarget(callsite, cunit, pos)
+            if (isHiO) { cgn.hiOs  ::= inlnTarget }
+            else       { cgn.procs ::= inlnTarget }
+          } else {
+            warnInliningWontHappen(receiver, pos, callsite)
+          }
+        }
+
+      } // inter-procedural optimizations
 
     } // end of genCallMethod()
 
