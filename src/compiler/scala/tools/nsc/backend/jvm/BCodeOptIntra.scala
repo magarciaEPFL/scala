@@ -32,8 +32,8 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
 
   import global._
 
-  final override def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean) = {
-    new BCodeCleanser(cnode, isIntraProgramOpt)
+  final override def createBCodeCleanser(cnode: asm.tree.ClassNode) = {
+    new BCodeCleanser(cnode)
   }
 
   /*
@@ -360,7 +360,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
    *
    *  The entry point is `cleanseClass()`.
    */
-  final class BCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean) extends QuickCleanser(cnode) with BCodeCleanserIface {
+  final class BCodeCleanser(cnode: asm.tree.ClassNode) extends QuickCleanser(cnode) with BCodeCleanserIface {
 
     val unboxElider           = new asm.optimiz.UnBoxElider
     val lvCompacter           = new asm.optimiz.LocalVarCompact
@@ -434,7 +434,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
       // (1) intra-method
       intraMethodFixpoints(full = true)
 
-      if (isIntraProgramOpt && isMasterClass(bt)) {
+      if (isMasterClass(bt)) {
 
         val dcloptim   = new DClosureOptimizerImpl(cnode)
         var keepGoing  = false
