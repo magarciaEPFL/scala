@@ -56,7 +56,7 @@
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
 
 <h2>
-<a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a><a name="Why">1.1</a> Why a new optimizer</h2>
+<a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a>1.1 Why a new optimizer</h2>
 
 <blockquote>
 <p>Aren't <em>next-silver-bullet</em> going to give us top performance, with zero effort required from us?</p>
@@ -466,7 +466,10 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 <li><strong>What about tests?</strong></li>
 </ul><p>As Sec. 5.1 shows, the test suite passes under all optimization levels, from <code>-neo:GenBCode</code> to <code>-neo:o1</code> through <code>-neo:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
 
-<p>Related to additional tests, an offer you can't resist:</p>
+<h1>
+<a name="7-comments-benchmarks-test-cases-bug-reports-are-welcome" class="anchor" href="#7-comments-benchmarks-test-cases-bug-reports-are-welcome"><span class="octicon octicon-link"></span></a><a name="FeedbackWelcome">7</a> Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+
+<p>Please help us help you. Regarding additional tests, an offer you can't resist:</p>
 
 <blockquote>
 <p>In case you'd like to shoot up your Scala contributor ranking at <a href="https://github.com/scala/scala/contributors">https://github.com/scala/scala/contributors</a> consider this: YOUR TESTS ARE WELCOME !!!</p>
@@ -474,11 +477,6 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 
 <p>How to write bytecode-level tests? It all starts subclassing <code>BytecodeTest</code>. As an example, a unit test for constant folding:
   <a href="https://github.com/magarciaEPFL/scala/commit/3281236219ad0a7894a0c1c743e8550e2ce20dbf">https://github.com/magarciaEPFL/scala/commit/3281236219ad0a7894a0c1c743e8550e2ce20dbf</a></p>
-
-<h1>
-<a name="7-comments-benchmarks-test-cases-bug-reports-are-welcome" class="anchor" href="#7-comments-benchmarks-test-cases-bug-reports-are-welcome"><span class="octicon octicon-link"></span></a><a name="FeedbackWelcome">7</a> Comments, benchmarks, test cases, bug reports, are welcome.</h1>
-
-<p>Please help us help you.</p>
 
 <p>Miguel Garcia
 <a href="http://lampwww.epfl.ch/%7Emagarcia">http://lampwww.epfl.ch/~magarcia</a></p>
