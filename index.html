@@ -32,7 +32,18 @@
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
         <h1>
-<a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a>1 Goodies</h1>
+<a name="toc" class="anchor" href="#toc"><span class="octicon octicon-link"></span></a>TOC</h1>
+
+<ol>
+<li><a href="#wiki-Goodies">Goodies</a></li>
+<li><a href="#wiki-WhatsNew">What's new in the new optimizer</a></li>
+<li><a href="#wiki-TestDriving">Test driving the new optimizer</a></li>
+<li><a href="#wiki-GettingStarted">Getting Started</a></li>
+<li><a href="#wiki-Paces">Putting the new optimizer through its paces</a></li>
+<li><a href="#wiki-FAQ">FAQ</a></li>
+<li><a href="#wiki-FeedbackWelcome">Comments, benchmarks, test cases, bug reports, are welcome</a></li>
+</ol><h1>
+<a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
 <p>The experimental branch <code>GenRefactored66</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
@@ -45,7 +56,7 @@
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
 
 <h2>
-<a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a>1.1 Why a new optimizer</h2>
+<a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a><a name="Why">1.1</a> Why a new optimizer</h2>
 
 <blockquote>
 <p>Aren't <em>next-silver-bullet</em> going to give us top performance, with zero effort required from us?</p>
@@ -74,7 +85,7 @@
 <p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-closurify:delegating</code> ).</p>
 
 <h1>
-<a name="2-whats-new-in-the-new-optimizer" class="anchor" href="#2-whats-new-in-the-new-optimizer"><span class="octicon octicon-link"></span></a>2 What's new in the new optimizer</h1>
+<a name="2-whats-new-in-the-new-optimizer" class="anchor" href="#2-whats-new-in-the-new-optimizer"><span class="octicon octicon-link"></span></a><a name="WhatsNew">2</a> What's new in the new optimizer</h1>
 
 <h2>
 <a name="21-distinction-between-intra-program-and-cross-library-optimizations" class="anchor" href="#21-distinction-between-intra-program-and-cross-library-optimizations"><span class="octicon octicon-link"></span></a>2.1 Distinction between intra-program and cross-library optimizations</h2>
@@ -197,7 +208,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>method inlining</li>
 <li>closure inlining</li>
 </ul><h1>
-<a name="3-test-driving-the-new-optimizer" class="anchor" href="#3-test-driving-the-new-optimizer"><span class="octicon octicon-link"></span></a>3 Test driving the new optimizer</h1>
+<a name="3-test-driving-the-new-optimizer" class="anchor" href="#3-test-driving-the-new-optimizer"><span class="octicon octicon-link"></span></a><a name="TestDriving">3</a> Test driving the new optimizer</h1>
 
 <h2>
 <a name="31-how-much-does-it-add-to-compilation-time" class="anchor" href="#31-how-much-does-it-add-to-compilation-time"><span class="octicon octicon-link"></span></a>3.1 How much does it add to compilation time?</h2>
@@ -283,7 +294,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <a href="https://issues.scala-lang.org/browse/SI-7407">SI-7407</a> return inside try + pattern-match inside finally causes VerifyError</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>
-<a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a>4 Getting Started</h1>
+<a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
 <p>The first step is checking out branch <code>GenRefactored66</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
@@ -350,7 +361,7 @@ scalacOptions ++= Seq( . . . your options
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
 </ul><h1>
-<a name="5-putting-the-new-optimizer-through-its-paces" class="anchor" href="#5-putting-the-new-optimizer-through-its-paces"><span class="octicon octicon-link"></span></a>5 Putting the new optimizer through its paces</h1>
+<a name="5-putting-the-new-optimizer-through-its-paces" class="anchor" href="#5-putting-the-new-optimizer-through-its-paces"><span class="octicon octicon-link"></span></a><a name="Paces">5</a> Putting the new optimizer through its paces</h1>
 
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
@@ -440,7 +451,7 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 <p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. A discussion about performance at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
 
 <h1>
-<a name="6-faq" class="anchor" href="#6-faq"><span class="octicon octicon-link"></span></a>6 FAQ</h1>
+<a name="6-faq" class="anchor" href="#6-faq"><span class="octicon octicon-link"></span></a><a name="FAQ">6</a> FAQ</h1>
 
 <ul>
 <li>
@@ -465,7 +476,7 @@ each with pros and cons, for now "really static" lives in an older branch, <code
   <a href="https://github.com/magarciaEPFL/scala/commit/3281236219ad0a7894a0c1c743e8550e2ce20dbf">https://github.com/magarciaEPFL/scala/commit/3281236219ad0a7894a0c1c743e8550e2ce20dbf</a></p>
 
 <h1>
-<a name="7-comments-benchmarks-test-cases-bug-reports-are-welcome" class="anchor" href="#7-comments-benchmarks-test-cases-bug-reports-are-welcome"><span class="octicon octicon-link"></span></a>7 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+<a name="7-comments-benchmarks-test-cases-bug-reports-are-welcome" class="anchor" href="#7-comments-benchmarks-test-cases-bug-reports-are-welcome"><span class="octicon octicon-link"></span></a><a name="FeedbackWelcome">7</a> Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
