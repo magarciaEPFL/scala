@@ -31,19 +31,21 @@
     <!-- MAIN CONTENT -->
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
-        <h1>1 Goodies</h1>
+        <h1>
+<a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a>1 Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored58</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored66</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored58">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored58</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored66">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored66</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to Section 4 (Getting Started).</p>
 
-<h2>1.1 Why a new optimizer</h2>
+<h2>
+<a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a>1.1 Why a new optimizer</h2>
 
 <blockquote>
 <p>Aren't <em>next-silver-bullet</em> going to give us top performance, with zero effort required from us?</p>
@@ -56,28 +58,33 @@
 <li>while leaving a door open to future developments (closures via method handles are <em>also</em> optimized)</li>
 <li>consisting of many focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>
 </li>
-</ul><h2>1.2 And a faster code emitter, too</h2>
+</ul><h2>
+<a name="12-and-a-faster-code-emitter-too" class="anchor" href="#12-and-a-faster-code-emitter-too"><span class="octicon octicon-link"></span></a>1.2 And a faster code emitter, too</h2>
 
 <p>Before the new optimizer runs (<code>GenBCodeOpt</code>) the new bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
 
 <ul>
 <li>the intermediate step to build Control Flow Graphs is not needed,</li>
 <li>disk writing and class file building overlap (the more source files, the larger the speedup)</li>
-</ul><h2>1.3 Leaner Closure ASTs</h2>
+</ul><h2>
+<a name="13-leaner-closure-asts" class="anchor" href="#13-leaner-closure-asts"><span class="octicon octicon-link"></span></a>1.3 Leaner Closure ASTs</h2>
 
 <p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). Instead, the new backend postpones the creation of AST nodes for closures, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
 <p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-closurify:delegating</code> ).</p>
 
-<h1>2 What's new in the new optimizer</h1>
+<h1>
+<a name="2-whats-new-in-the-new-optimizer" class="anchor" href="#2-whats-new-in-the-new-optimizer"><span class="octicon octicon-link"></span></a>2 What's new in the new optimizer</h1>
 
-<h2>2.1 Distinction between intra-program and cross-library optimizations</h2>
+<h2>
+<a name="21-distinction-between-intra-program-and-cross-library-optimizations" class="anchor" href="#21-distinction-between-intra-program-and-cross-library-optimizations"><span class="octicon octicon-link"></span></a>2.1 Distinction between intra-program and cross-library optimizations</h2>
 
 <p>The existing inliner, once activated, will inline both callees found in external libraries (against which the program is being compiled) as well as callees in the program being compiled. There's no way to tell it to focus only in the intra-program case. The advantage of applying intra-program optimizations only is that at runtime updated libraries may be used (granted, binary compatible ones).</p>
 
 <p>The new optimizer associates <code>-neo:o2</code> with "intra-program optimizations" and <code>-neo:o3</code> with "cross-libraries optimizations", as discussed in more detail in Sec. 4.1.</p>
 
-<h2>2.2 Inlining</h2>
+<h2>
+<a name="22-inlining" class="anchor" href="#22-inlining"><span class="octicon octicon-link"></span></a>2.2 Inlining</h2>
 
 <p>The inliner currently used in scalac has a few problems:</p>
 
@@ -134,7 +141,8 @@ loop$1(scala.collection.mutable.ListBuffer,
   ...
 </code></pre>
 
-<h2>2.3 GC-savvy closures: Singleton closures, Minimization of closure state</h2>
+<h2>
+<a name="23-gc-savvy-closures-singleton-closures-minimization-of-closure-state" class="anchor" href="#23-gc-savvy-closures-singleton-closures-minimization-of-closure-state"><span class="octicon octicon-link"></span></a>2.3 GC-savvy closures: Singleton closures, Minimization of closure state</h2>
 
 <p>Some anonymous closures depend only on <code>apply()</code> arguments, for example the char filter function:</p>
 
@@ -153,9 +161,11 @@ loop$1(scala.collection.mutable.ListBuffer,
 
 <p>These features are more useful on Android (besides micro-benchmarks) where a vast RAM doesn't masquerade redundant allocations.</p>
 
-<h2>2.4 Supported optimizations</h2>
+<h2>
+<a name="24-supported-optimizations" class="anchor" href="#24-supported-optimizations"><span class="octicon octicon-link"></span></a>2.4 Supported optimizations</h2>
 
-<h3>2.4.1 Intra-method optimizations</h3>
+<h3>
+<a name="241-intra-method-optimizations" class="anchor" href="#241-intra-method-optimizations"><span class="octicon octicon-link"></span></a>2.4.1 Intra-method optimizations</h3>
 
 <ul>
 <li>collapse a multi-jump chain to target its final destination via a single jump</li>
@@ -172,21 +182,25 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>caching repeatable reads of stable values</li>
 <li>eliding box/unbox pairs</li>
 <li>eliding redundant local vars</li>
-</ul><h3>2.4.2 Intra-class optimizations</h3>
+</ul><h3>
+<a name="242-intra-class-optimizations" class="anchor" href="#242-intra-class-optimizations"><span class="octicon octicon-link"></span></a>2.4.2 Intra-class optimizations</h3>
 
 <ul>
 <li>those private members of a class which see no use are elided</li>
 <li>tree-shake unused closures, minimize the fields of those remaining</li>
 <li>minimization of closure-allocations</li>
 <li>refresh the InnerClasses JVM attribute</li>
-</ul><h3>2.4.3 Whole-program optimizations</h3>
+</ul><h3>
+<a name="243-whole-program-optimizations" class="anchor" href="#243-whole-program-optimizations"><span class="octicon octicon-link"></span></a>2.4.3 Whole-program optimizations</h3>
 
 <ul>
 <li>method inlining</li>
 <li>closure inlining</li>
-</ul><h1>3 Test driving the new optimizer</h1>
+</ul><h1>
+<a name="3-test-driving-the-new-optimizer" class="anchor" href="#3-test-driving-the-new-optimizer"><span class="octicon octicon-link"></span></a>3 Test driving the new optimizer</h1>
 
-<h2>3.1 How much does it add to compilation time?</h2>
+<h2>
+<a name="31-how-much-does-it-add-to-compilation-time" class="anchor" href="#31-how-much-does-it-add-to-compilation-time"><span class="octicon octicon-link"></span></a>3.1 How much does it add to compilation time?</h2>
 
 <p>The new optimizer (except the whole-program step) is task-parallel:</p>
 
@@ -205,7 +219,8 @@ the producer has its value consumed only by the DROP in question.</li>
     <span class="o">)</span>
 </pre></div>
 
-<h2>3.2 Emitted code size</h2>
+<h2>
+<a name="32-emitted-code-size" class="anchor" href="#32-emitted-code-size"><span class="octicon octicon-link"></span></a>3.2 Emitted code size</h2>
 
 <p>Let's take scala/scala as case study, compiling src/compiler and src/reflect (on the one hand) and the standard library (on the other) using:</p>
 
@@ -228,11 +243,13 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>1004 instructions, when compiled with <code>-neo:GenASM -closurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison with <code>-neo:o2</code> is fair).</li>
 </ul><p>That's 881 vs 1004 instructions and not bytes, which still matters in case you're the one who has to read 881 vs 1004 lines of javap output.</p>
 
-<h2>3.3 Benchmarks</h2>
+<h2>
+<a name="33-benchmarks" class="anchor" href="#33-benchmarks"><span class="octicon octicon-link"></span></a>3.3 Benchmarks</h2>
 
 <p>Feedback is welcome!</p>
 
-<h2>3.4 Speeding up scalac</h2>
+<h2>
+<a name="34-speeding-up-scalac" class="anchor" href="#34-speeding-up-scalac"><span class="octicon octicon-link"></span></a>3.4 Speeding up scalac</h2>
 
 <p>Speedups in the range 10% to 20% have been observed against the latest <code>scalac</code>. The upper range is achieved by having a compiler optimized by the new optimizer compile using <code>-neo:GenBCode -closurify:delegating</code> (ie unoptimized compilation, using the new bytecode emitter and Leaner Closure ASTs). Just one data point:</p>
 
@@ -250,7 +267,8 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>actually, tools like Caliper or ScalaMeter, by themselves, tell how much faster sthg runs. When building an optimizer, it's more useful to know "why" stgh runs faster (specially with 20+ optimizations at play). With some work, the toolset that Grzegorz has jumpstarted can provide those insights. </li>
 </ul><p>The new optimizer may well make <em>your</em> code run faster. To find out, give it a try.</p>
 
-<h2>3.5 Bugs fixed</h2>
+<h2>
+<a name="35-bugs-fixed" class="anchor" href="#35-bugs-fixed"><span class="octicon octicon-link"></span></a>3.5 Bugs fixed</h2>
 
 <ul>
 <li>
@@ -264,17 +282,19 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-7407">SI-7407</a> return inside try + pattern-match inside finally causes VerifyError</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
-</ul><h1>4 Getting Started</h1>
+</ul><h1>
+<a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a>4 Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored58</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored66</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored58
-cd GenRefactored58
-git checkout -b GenRefactored58 origin/GenRefactored58
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored66
+cd GenRefactored66
+git checkout -b GenRefactored66 origin/GenRefactored66
 ant all.clean &amp;&amp; ant
 </code></pre>
 
-<h2>4.0 Using sbt to build your project with the new backend / optimizer</h2>
+<h2>
+<a name="40-using-sbt-to-build-your-project-with-the-new-backend--optimizer" class="anchor" href="#40-using-sbt-to-build-your-project-with-the-new-backend--optimizer"><span class="octicon octicon-link"></span></a>4.0 Using sbt to build your project with the new backend / optimizer</h2>
 
 <p>Section <a href="http://www.scala-sbt.org/snapshot/docs/Detailed-Topics/Configuring-Scala.html">Using Scala from a local directory</a> covers the changes needed in your project's <code>Build.scala</code>:</p>
 
@@ -288,33 +308,36 @@ scalacOptions ++= Seq( . . . your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored58</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored66</code>, building the compiler with <code>ant</code>).</p>
 
-<h2>4.1 Choosing optimization level via compiler flags</h2>
+<h2>
+<a name="41-choosing-optimization-level-via-compiler-flags" class="anchor" href="#41-choosing-optimization-level-via-compiler-flags"><span class="octicon octicon-link"></span></a>4.1 Choosing optimization level via compiler flags</h2>
 
 <p>Each optimization level includes all optimizations from lower levels, and assume the new bytecode emitter (<code>GenBCode</code>) is active:</p>
 
 <table>
 <tr>
-<td><code>-neo:GenASM</code></td>   <td>backdoor flag to use the old backend.</td> </tr>
+<td><code>-neo:GenASM</code></td>   <td>backdoor to use the old backend.</td> </tr>
 <tr>
 <td><code>-neo:GenBCode</code></td> <td>use the new code emitter, just emitting trees as delivered by CleanUp</td> </tr>
 <tr>
-<td><code>-neo:o1</code></td>       <td>Intra-method optimizations only, ie no inlining, no closure optimizations</td> </tr>
+<td><code>-neo:o1</code></td>       <td>Intra-method optimizations and all closure optimizations except closure stack-allocation (in detail: <code>-neo:o1</code> performs minimization of closure state and closure "singletonization")</td> </tr>
 <tr>
-<td><code>-neo:o2</code></td>       <td>Intra-program optimizations. This includes any method inlining, closure stack-allocation, or "advanced" closure optimization (ie minimization of closure state, "singletonize" closures) as long as it affects only what's being compiled, as opposed to peeking inside external libraries (see below).</td> </tr>
+<td><code>-neo:o2</code></td>       <td>Intra-program optimizations. This includes any method inlining and closure stack-allocation as long as it affects only what's being compiled, as opposed to peeking inside external libraries (see below).</td> </tr>
 <tr>
-<td><code>-neo:o3</code></td>       <td>Cross-libraries optimization: this includes the same kind of optimization as above, with the caveat that bytecode from external <em>can be parsed</em> if needed to apply some optimization (e.g., this is the optimization level to picks to have <code>Range.foreach</code> inlined)</td> </tr>
+<td><code>-neo:o3</code></td>       <td>Cross-libraries optimization: this includes the same kinds of optimization as above, with the caveat that bytecode from external <em>can be parsed</em> if needed to apply some optimization (e.g., this is the optimization level to picks to have <code>Range.foreach</code> inlined)</td> </tr>
 </table><p><em>Nota bene</em>: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</p>
 
-<h2>4.2 Choosing bytecode-level representation of closures</h2>
+<h2>
+<a name="42-choosing-bytecode-level-representation-of-closures" class="anchor" href="#42-choosing-bytecode-level-representation-of-closures"><span class="octicon octicon-link"></span></a>4.2 Choosing bytecode-level representation of closures</h2>
 
 <table>
 <tr>
 <td><code>-closurify:traditional</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to -neo:o1</td> </tr>
 <tr>
 <td><code>-closurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
-</table><h2>4.3 Diagnostics</h2>
+</table><h2>
+<a name="43-diagnostics" class="anchor" href="#43-diagnostics"><span class="octicon octicon-link"></span></a>4.3 Diagnostics</h2>
 
 <p>Diagnostics are displayed via <code>-Ylog:jvm</code> , for more details add <code>-Yinline-warnings</code> and if that's not enough adding <code>-Ydebug</code> will show both the individual bytecode instructions subject of the message as well as a listing of the enclosing method (all in ASM textual format, which is always available unlike <code>javap</code>).</p>
 
@@ -326,13 +349,15 @@ scalacOptions ++= Seq( . . . your options
 <li><a href="http://blog.cdleary.com/2010/05/notes-from-the-js-pit-closure-optimization/">Notes from the JS pit: closure optimization</a></li>
 <li><a href="http://lamp.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/2012Q2/RuntimeMP.pdf">Runtime metaprogramming via java.lang.invoke.MethodHandle</a></li>
 <li><a href="http://www.scalabench.org/publications.html">A comparison of the memory behaviour of Java and Scala programs</a></li>
-</ul><h1>5 Putting the new optimizer through its paces</h1>
+</ul><h1>
+<a name="5-putting-the-new-optimizer-through-its-paces" class="anchor" href="#5-putting-the-new-optimizer-through-its-paces"><span class="octicon octicon-link"></span></a>5 Putting the new optimizer through its paces</h1>
 
-<h2>5.1 Optimizing the compiler and the standard library themselves</h2>
+<h2>
+<a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored58/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored66/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored58</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored66</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
@@ -353,9 +378,11 @@ scalacOptions ++= Seq( . . . your options
 
 <p>The nightly build takes from 80 minutes to 2 hours, depending on hardware.</p>
 
-<h2>5.2 Experimental features</h2>
+<h2>
+<a name="52-experimental-features" class="anchor" href="#52-experimental-features"><span class="octicon octicon-link"></span></a>5.2 Experimental features</h2>
 
-<h3>5.2.1 "really static" value classes and static modules</h3>
+<h3>
+<a name="521-really-static-value-classes-and-static-modules" class="anchor" href="#521-really-static-value-classes-and-static-modules"><span class="octicon octicon-link"></span></a>5.2.1 "really static" value classes and static modules</h3>
 
 <blockquote>
 <p>Given there's some overlap in functionality with another proposal,
@@ -395,7 +422,8 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 <p>More defails (and examples) in the documentation of <code>scala.enforceStatic</code>
 <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala</a></p>
 
-<h3>5.2.2 Method handles</h3>
+<h3>
+<a name="522-method-handles" class="anchor" href="#522-method-handles"><span class="octicon octicon-link"></span></a>5.2.2 Method handles</h3>
 
 <p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
 
@@ -411,7 +439,8 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 
 <p>This prototype requires <code>-target:jvm-1.7</code>. Right now scalac doesn't produce the newest class file format of JDK8. In the meantime,  <code>-target:jvm-1.7</code> can be used on that platform. A discussion about performance at: <a href="https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ">https://groups.google.com/d/msg/scala-internals/uBxprJixpwk/jG78X1k_92IJ</a></p>
 
-<h1>6 FAQ</h1>
+<h1>
+<a name="6-faq" class="anchor" href="#6-faq"><span class="octicon octicon-link"></span></a>6 FAQ</h1>
 
 <ul>
 <li>
@@ -426,7 +455,17 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 <li><strong>What about tests?</strong></li>
 </ul><p>As Sec. 5.1 shows, the test suite passes under all optimization levels, from <code>-neo:GenBCode</code> to <code>-neo:o1</code> through <code>-neo:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
 
-<h1>7 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
+<p>Related to additional tests, an offer you can't resist:</p>
+
+<blockquote>
+<p>In case you'd like to shoot up your Scala contributor ranking at <a href="https://github.com/scala/scala/contributors">https://github.com/scala/scala/contributors</a> consider this: YOUR TESTS ARE WELCOME !!!</p>
+</blockquote>
+
+<p>How to write bytecode-level tests? It all starts subclassing <code>BytecodeTest</code>. As an example, a unit test for constant folding:
+  <a href="https://github.com/magarciaEPFL/scala/commit/3281236219ad0a7894a0c1c743e8550e2ce20dbf">https://github.com/magarciaEPFL/scala/commit/3281236219ad0a7894a0c1c743e8550e2ce20dbf</a></p>
+
+<h1>
+<a name="7-comments-benchmarks-test-cases-bug-reports-are-welcome" class="anchor" href="#7-comments-benchmarks-test-cases-bug-reports-are-welcome"><span class="octicon octicon-link"></span></a>7 Comments, benchmarks, test cases, bug reports, are welcome.</h1>
 
 <p>Please help us help you.</p>
 
