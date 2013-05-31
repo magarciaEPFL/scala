@@ -102,85 +102,17 @@ public class Analyzer<V extends Value> implements Opcodes {
      * @throws AnalyzerException
      *             if a problem occurs during the analysis.
      */
-    public Frame<V>[] analyze(final String owner, final MethodNode m)
-            throws AnalyzerException {
+    public Frame<V>[] analyze(final String owner, final MethodNode m) throws AnalyzerException {
+
         if ((m.access & (ACC_ABSTRACT | ACC_NATIVE)) != 0) {
             frames = (Frame<V>[]) new Frame<?>[0];
             return frames;
         }
-        n = m.instructions.size();
-        insns = m.instructions;
-        handlers = (List<TryCatchBlockNode>[]) new List<?>[n];
-        frames = (Frame<V>[]) new Frame<?>[n];
-        subroutines = new Subroutine[n];
-        queued = new boolean[n];
-        queue = new int[n];
-        top = 0;
 
-        // computes exception handlers for each instruction
-        for (int i = 0; i < m.tryCatchBlocks.size(); ++i) {
-            TryCatchBlockNode tcb = m.tryCatchBlocks.get(i);
-            int begin = insns.indexOf(tcb.start);
-            int end = insns.indexOf(tcb.end);
-            for (int j = begin; j < end; ++j) {
-                List<TryCatchBlockNode> insnHandlers = handlers[j];
-                if (insnHandlers == null) {
-                    insnHandlers = new ArrayList<TryCatchBlockNode>();
-                    handlers[j] = insnHandlers;
-                }
-                insnHandlers.add(tcb);
-            }
-        }
+        setupAnalysis(owner, m);
 
-        // computes the subroutine for each instruction:
-        Subroutine main = new Subroutine(null, m.maxLocals, null);
-        List<AbstractInsnNode> subroutineCalls = new ArrayList<AbstractInsnNode>();
-        Map<LabelNode, Subroutine> subroutineHeads = new HashMap<LabelNode, Subroutine>();
-        findSubroutine(0, main, subroutineCalls);
-        while (!subroutineCalls.isEmpty()) {
-            JumpInsnNode jsr = (JumpInsnNode) subroutineCalls.remove(0);
-            Subroutine sub = subroutineHeads.get(jsr.label);
-            if (sub == null) {
-                sub = new Subroutine(jsr.label, m.maxLocals, jsr);
-                subroutineHeads.put(jsr.label, sub);
-                findSubroutine(insns.indexOf(jsr.label), sub, subroutineCalls);
-            } else {
-                sub.callers.add(jsr);
-            }
-        }
-        for (int i = 0; i < n; ++i) {
-            if (subroutines[i] != null && subroutines[i].start == null) {
-                subroutines[i] = null;
-            }
-        }
-
-        // initializes the data structures for the control flow analysis
         Frame<V> current = newFrame(m.maxLocals, m.maxStack);
         Frame<V> handler = newFrame(m.maxLocals, m.maxStack);
-        current.setReturn(interpreter.newValue(Type.getReturnType(m.desc)));
-        Type[] args = Type.getArgumentTypes(m.desc);
-        int local = 0;
-        boolean isInstanceMethod = (m.access & ACC_STATIC) == 0;
-        if (isInstanceMethod) {
-            Type ctype = Type.getObjectType(owner);
-            current.setLocal(local, newFormal(isInstanceMethod, 0, ctype));
-            local += 1;
-        }
-        for (int i = 0; i < args.length; ++i) {
-            current.setLocal(local, newFormal(isInstanceMethod, local, args[i]));
-            local += 1;
-            if (args[i].getSize() == 2) {
-                current.setLocal(local, interpreter.newValue(null));
-                local += 1;
-            }
-        }
-        while (local < m.maxLocals) {
-            current.setLocal(local, newNonFormalLocal(local));
-            local += 1;
-        }
-        merge(0, current, null);
-
-        init(owner, m);
 
         // control flow analysis
         while (top > 0) {
@@ -201,6 +133,7 @@ public class Analyzer<V extends Value> implements Opcodes {
                     merge(insn + 1, f, subroutine);
                     newControlFlowEdge(insn, insn + 1);
                 } else {
+
                     current.init(f).execute(insnNode, interpreter);
                     subroutine = subroutine == null ? null : subroutine.copy();
 
@@ -294,6 +227,7 @@ public class Analyzer<V extends Value> implements Opcodes {
                         }
                     }
                 }
+
             } catch (AnalyzerException e) {
                 throw new AnalyzerException(e.node, "Error at instruction "
                         + insn + ": " + e.getMessage() + " in method " + m.name + m.desc + " in class " + owner, e);
@@ -304,6 +238,84 @@ public class Analyzer<V extends Value> implements Opcodes {
         }
 
         return frames;
+    }
+
+    private void setupAnalysis(final String owner, final MethodNode m) throws AnalyzerException {
+
+        n = m.instructions.size();
+        insns = m.instructions;
+        handlers = (List<TryCatchBlockNode>[]) new List<?>[n];
+        frames = (Frame<V>[]) new Frame<?>[n];
+        subroutines = new Subroutine[n];
+        queued = new boolean[n];
+        queue = new int[n];
+        top = 0;
+
+        // computes exception handlers for each instruction
+        for (int i = 0; i < m.tryCatchBlocks.size(); ++i) {
+            TryCatchBlockNode tcb = m.tryCatchBlocks.get(i);
+            int begin = insns.indexOf(tcb.start);
+            int end = insns.indexOf(tcb.end);
+            for (int j = begin; j < end; ++j) {
+                List<TryCatchBlockNode> insnHandlers = handlers[j];
+                if (insnHandlers == null) {
+                    insnHandlers = new ArrayList<TryCatchBlockNode>();
+                    handlers[j] = insnHandlers;
+                }
+                insnHandlers.add(tcb);
+            }
+        }
+
+        // computes the subroutine for each instruction:
+        Subroutine main = new Subroutine(null, m.maxLocals, null);
+        List<AbstractInsnNode> subroutineCalls = new ArrayList<AbstractInsnNode>();
+        Map<LabelNode, Subroutine> subroutineHeads = new HashMap<LabelNode, Subroutine>();
+        findSubroutine(0, main, subroutineCalls);
+        while (!subroutineCalls.isEmpty()) {
+            JumpInsnNode jsr = (JumpInsnNode) subroutineCalls.remove(0);
+            Subroutine sub = subroutineHeads.get(jsr.label);
+            if (sub == null) {
+                sub = new Subroutine(jsr.label, m.maxLocals, jsr);
+                subroutineHeads.put(jsr.label, sub);
+                findSubroutine(insns.indexOf(jsr.label), sub, subroutineCalls);
+            } else {
+                sub.callers.add(jsr);
+            }
+        }
+        for (int i = 0; i < n; ++i) {
+            if (subroutines[i] != null && subroutines[i].start == null) {
+                subroutines[i] = null;
+            }
+        }
+
+        // initializes the data structures for the control flow analysis
+        Frame<V> current = newFrame(m.maxLocals, m.maxStack);
+        Frame<V> handler = newFrame(m.maxLocals, m.maxStack);
+        current.setReturn(interpreter.newValue(Type.getReturnType(m.desc)));
+        Type[] args = Type.getArgumentTypes(m.desc);
+        int local = 0;
+        boolean isInstanceMethod = (m.access & ACC_STATIC) == 0;
+        if (isInstanceMethod) {
+            Type ctype = Type.getObjectType(owner);
+            current.setLocal(local, newFormal(isInstanceMethod, 0, ctype));
+            local += 1;
+        }
+        for (int i = 0; i < args.length; ++i) {
+            current.setLocal(local, newFormal(isInstanceMethod, local, args[i]));
+            local += 1;
+            if (args[i].getSize() == 2) {
+                current.setLocal(local, interpreter.newValue(null));
+                local += 1;
+            }
+        }
+        while (local < m.maxLocals) {
+            current.setLocal(local, newNonFormalLocal(local));
+            local += 1;
+        }
+        merge(0, current, null);
+
+        init(owner, m);
+
     }
 
     public Frame frameAt(AbstractInsnNode insn) {
