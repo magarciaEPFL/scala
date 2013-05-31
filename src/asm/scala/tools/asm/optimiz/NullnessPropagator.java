@@ -294,6 +294,13 @@ public class NullnessPropagator {
             if (insn.getOpcode() == Opcodes.ACONST_NULL) {
                 status = Nullness.NULL_STATUS;
             }
+            if (insn.getOpcode() == Opcodes.LDC) {
+                LdcInsnNode ldc = (LdcInsnNode)insn;
+                assert ldc.cst != null;
+                if ((ldc.cst instanceof String) || (ldc.cst instanceof Type)) {
+                    status = Nullness.NONNULL_STATUS;
+                }
+            }
             return new StatusValue(size, status);
         }
 
@@ -585,14 +592,6 @@ public class NullnessPropagator {
             //      For now, only the assumptions that apply to both branches are made (ie, no knowledge is gained from getStackTop()).
 
             super.execute(insn, interpreter);
-
-            switch (insn.getOpcode()) {
-                case Opcodes.LDC:
-                    LdcInsnNode ldc = (LdcInsnNode)insn;
-                    assert ldc.cst != null;
-                    ref = getStackTop();
-                    break;
-            }
 
             if (ref != null) {
                 markNONNULL(ref);
