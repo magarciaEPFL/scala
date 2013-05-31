@@ -120,6 +120,7 @@ public class Analyzer<V extends Value> implements Opcodes {
             Frame<V> f = frames[insn];
             Subroutine subroutine = subroutines[insn];
             queued[insn] = false;
+            int jump = -1; // index of a target instruction
 
             AbstractInsnNode insnNode = null;
             try {
@@ -134,78 +135,94 @@ public class Analyzer<V extends Value> implements Opcodes {
                     newControlFlowEdge(insn, insn + 1);
                 } else {
 
-                    current.init(f).execute(insnNode, interpreter);
                     subroutine = subroutine == null ? null : subroutine.copy();
 
-                    if (insnNode instanceof JumpInsnNode) {
-                        JumpInsnNode j = (JumpInsnNode) insnNode;
-                        if (insnOpcode != GOTO && insnOpcode != JSR) {
-                            merge(insn + 1, current, subroutine);
-                            newControlFlowEdge(insn, insn + 1);
-                        }
-                        int jump = insns.indexOf(j.label);
-                        if (insnOpcode == JSR) {
-                            merge(jump, current, new Subroutine(j.label,
-                                    m.maxLocals, j));
-                        } else {
-                            merge(jump, current, subroutine);
-                        }
-                        newControlFlowEdge(insn, jump);
-                    } else if (insnNode instanceof LookupSwitchInsnNode) {
-                        LookupSwitchInsnNode lsi = (LookupSwitchInsnNode) insnNode;
-                        int jump = insns.indexOf(lsi.dflt);
-                        merge(jump, current, subroutine);
-                        newControlFlowEdge(insn, jump);
-                        for (int j = 0; j < lsi.labels.size(); ++j) {
-                            LabelNode label = lsi.labels.get(j);
-                            jump = insns.indexOf(label);
-                            merge(jump, current, subroutine);
-                            newControlFlowEdge(insn, jump);
-                        }
-                    } else if (insnNode instanceof TableSwitchInsnNode) {
-                        TableSwitchInsnNode tsi = (TableSwitchInsnNode) insnNode;
-                        int jump = insns.indexOf(tsi.dflt);
-                        merge(jump, current, subroutine);
-                        newControlFlowEdge(insn, jump);
-                        for (int j = 0; j < tsi.labels.size(); ++j) {
-                            LabelNode label = tsi.labels.get(j);
-                            jump = insns.indexOf(label);
-                            merge(jump, current, subroutine);
-                            newControlFlowEdge(insn, jump);
-                        }
-                    } else if (insnOpcode == RET) {
-                        if (subroutine == null) {
-                            throw new AnalyzerException(insnNode,
-                                    "RET instruction outside of a sub routine");
-                        }
-                        for (int i = 0; i < subroutine.callers.size(); ++i) {
-                            JumpInsnNode caller = subroutine.callers.get(i);
-                            int call = insns.indexOf(caller);
-                            if (frames[call] != null) {
-                                merge(call + 1, frames[call], current,
-                                        subroutines[call], subroutine.access);
-                                newControlFlowEdge(insn, call + 1);
+                    switch (insnNode.getType()) {
+
+                        case AbstractInsnNode.JUMP_INSN:
+                            current.init(f).execute(insnNode, interpreter);
+                            JumpInsnNode ji = (JumpInsnNode) insnNode;
+                            if (insnOpcode != GOTO && insnOpcode != JSR) {
+                                merge(insn + 1, current, subroutine);
+                                newControlFlowEdge(insn, insn + 1);
                             }
-                        }
-                    } else if (insnOpcode != ATHROW
-                            && (insnOpcode < IRETURN || insnOpcode > RETURN)) {
-                        if (subroutine != null) {
-                            if (insnNode instanceof VarInsnNode) {
-                                int var = ((VarInsnNode) insnNode).var;
-                                subroutine.access[var] = true;
-                                if (insnOpcode == LLOAD || insnOpcode == DLOAD
-                                        || insnOpcode == LSTORE
-                                        || insnOpcode == DSTORE) {
-                                    subroutine.access[var + 1] = true;
+                            jump = insns.indexOf(ji.label);
+                            if (insnOpcode == JSR) {
+                                merge(jump, current, new Subroutine(ji.label,
+                                        m.maxLocals, ji));
+                            } else {
+                                merge(jump, current, subroutine);
+                            }
+                            newControlFlowEdge(insn, jump);
+                            break;
+
+                        case AbstractInsnNode.LOOKUPSWITCH_INSN:
+                            current.init(f).execute(insnNode, interpreter);
+                            LookupSwitchInsnNode lsi = (LookupSwitchInsnNode) insnNode;
+                            jump = insns.indexOf(lsi.dflt);
+                            merge(jump, current, subroutine);
+                            newControlFlowEdge(insn, jump);
+                            for (int j = 0; j < lsi.labels.size(); ++j) {
+                                LabelNode label = lsi.labels.get(j);
+                                jump = insns.indexOf(label);
+                                merge(jump, current, subroutine);
+                                newControlFlowEdge(insn, jump);
+                            }
+                            break;
+
+                        case AbstractInsnNode.TABLESWITCH_INSN:
+                            current.init(f).execute(insnNode, interpreter);
+                            TableSwitchInsnNode tsi = (TableSwitchInsnNode) insnNode;
+                            jump = insns.indexOf(tsi.dflt);
+                            merge(jump, current, subroutine);
+                            newControlFlowEdge(insn, jump);
+                            for (int j = 0; j < tsi.labels.size(); ++j) {
+                                LabelNode label = tsi.labels.get(j);
+                                jump = insns.indexOf(label);
+                                merge(jump, current, subroutine);
+                                newControlFlowEdge(insn, jump);
+                            }
+                            break;
+
+                        default:
+                            current.init(f).execute(insnNode, interpreter);
+                            if (insnOpcode == RET) {
+                                if (subroutine == null) {
+                                    throw new AnalyzerException(insnNode,
+                                            "RET instruction outside of a sub routine");
                                 }
-                            } else if (insnNode instanceof IincInsnNode) {
-                                int var = ((IincInsnNode) insnNode).var;
-                                subroutine.access[var] = true;
+                                for (int i = 0; i < subroutine.callers.size(); ++i) {
+                                    JumpInsnNode caller = subroutine.callers.get(i);
+                                    int call = insns.indexOf(caller);
+                                    if (frames[call] != null) {
+                                        merge(call + 1, frames[call], current,
+                                                subroutines[call], subroutine.access);
+                                        newControlFlowEdge(insn, call + 1);
+                                    }
+                                }
+                            } else if (insnOpcode != ATHROW
+                                    && (insnOpcode < IRETURN || insnOpcode > RETURN)) {
+                                if (subroutine != null) {
+                                    if (insnNode instanceof VarInsnNode) {
+                                        int var = ((VarInsnNode) insnNode).var;
+                                        subroutine.access[var] = true;
+                                        if (insnOpcode == LLOAD || insnOpcode == DLOAD
+                                                || insnOpcode == LSTORE
+                                                || insnOpcode == DSTORE) {
+                                            subroutine.access[var + 1] = true;
+                                        }
+                                    } else if (insnNode instanceof IincInsnNode) {
+                                        int var = ((IincInsnNode) insnNode).var;
+                                        subroutine.access[var] = true;
+                                    }
+                                }
+                                // finally we arrive to the most common case, control-flow fall-through
+                                merge(insn + 1, current, subroutine);
+                                newControlFlowEdge(insn, insn + 1);
                             }
-                        }
-                        merge(insn + 1, current, subroutine);
-                        newControlFlowEdge(insn, insn + 1);
+                            break;
                     }
+
                 }
 
                 List<TryCatchBlockNode> insnHandlers = handlers[insn];
@@ -218,7 +235,7 @@ public class Analyzer<V extends Value> implements Opcodes {
                         } else {
                             type = Type.getObjectType(tcb.type);
                         }
-                        int jump = insns.indexOf(tcb.handler);
+                        jump = insns.indexOf(tcb.handler);
                         if (newControlFlowExceptionEdge(insn, tcb)) {
                             handler.init(f);
                             handler.clearStack();
