@@ -140,25 +140,35 @@ public class Analyzer<V extends Value> implements Opcodes {
                     switch (insnNode.getType()) {
 
                         case AbstractInsnNode.JUMP_INSN:
-                            current.init(f).execute(insnNode, interpreter);
                             JumpInsnNode ji = (JumpInsnNode) insnNode;
-                            if (insnOpcode != GOTO && insnOpcode != JSR) {
+                            jump = insns.indexOf(ji.label);
+                            if (insnOpcode == GOTO) {
+                                current.init(f).execute(ji, interpreter);
+                                merge(jump, current, subroutine);
+                                newControlFlowEdge(insn, jump);
+                            } else if (insnOpcode == JSR) {
+                                current.init(f).execute(ji, interpreter);
+                                merge(jump, current, new Subroutine(ji.label, m.maxLocals, ji));
+                                newControlFlowEdge(insn, jump);
+                            } else {
+                                // IFEQ, IFNE, IFLT, IFGE, IFGT, IFLE,
+                                // IF_ICMPEQ, IF_ICMPNE,
+                                // IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE,
+                                // IF_ACMPEQ, IF_ACMPNE,
+                                // IFNULL or IFNONNULL.
+                                current.init(f).execute(ji, interpreter);
+                                // frame for conditional-jump-not-taken situation:
                                 merge(insn + 1, current, subroutine);
                                 newControlFlowEdge(insn, insn + 1);
-                            }
-                            jump = insns.indexOf(ji.label);
-                            if (insnOpcode == JSR) {
-                                merge(jump, current, new Subroutine(ji.label,
-                                        m.maxLocals, ji));
-                            } else {
+                                // frame for conditional-jump-yes-taken situation:
                                 merge(jump, current, subroutine);
+                                newControlFlowEdge(insn, jump);
                             }
-                            newControlFlowEdge(insn, jump);
                             break;
 
                         case AbstractInsnNode.LOOKUPSWITCH_INSN:
-                            current.init(f).execute(insnNode, interpreter);
                             LookupSwitchInsnNode lsi = (LookupSwitchInsnNode) insnNode;
+                            current.init(f).execute(lsi, interpreter);
                             jump = insns.indexOf(lsi.dflt);
                             merge(jump, current, subroutine);
                             newControlFlowEdge(insn, jump);
@@ -171,8 +181,8 @@ public class Analyzer<V extends Value> implements Opcodes {
                             break;
 
                         case AbstractInsnNode.TABLESWITCH_INSN:
-                            current.init(f).execute(insnNode, interpreter);
                             TableSwitchInsnNode tsi = (TableSwitchInsnNode) insnNode;
+                            current.init(f).execute(tsi, interpreter);
                             jump = insns.indexOf(tsi.dflt);
                             merge(jump, current, subroutine);
                             newControlFlowEdge(insn, jump);
