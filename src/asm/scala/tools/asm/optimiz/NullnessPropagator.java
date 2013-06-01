@@ -508,6 +508,52 @@ public class NullnessPropagator {
             super(src);
         }
 
+        @Override
+        public void executeCondJump(
+                final JumpInsnNode             insn,
+                final Interpreter<StatusValue> interpreter,
+                final Frame<StatusValue>       outgoingFallThrough0,
+                final Frame<StatusValue>       outgoingTaken0) throws AnalyzerException {
+
+            NullnessFrame outgoingFallThrough = (NullnessFrame)outgoingFallThrough0;
+            NullnessFrame outgoingTaken       = (NullnessFrame)outgoingTaken0;
+
+            // `this` is the pre-state, it can't be modified. Copy and write instead.
+            outgoingFallThrough.init(this);
+
+            StatusValue ref = this.getStackTop();
+            outgoingFallThrough.execute(insn, interpreter); // we recover the lost precision below.
+            outgoingTaken.init(outgoingFallThrough);
+
+            switch (insn.getOpcode()) {
+                case Opcodes.IFNULL:
+                    outgoingFallThrough.markNONNULL(ref);
+                    outgoingTaken.markNULL(ref);
+                    break;
+                case Opcodes.IFNONNULL:
+                    outgoingFallThrough.markNULL(ref);
+                    outgoingTaken.markNONNULL(ref);
+                    break;
+                case Opcodes.IFEQ:
+                case Opcodes.IFNE:
+                case Opcodes.IFLT:
+                case Opcodes.IFGE:
+                case Opcodes.IFGT:
+                case Opcodes.IFLE:
+                case Opcodes.IF_ICMPEQ:
+                case Opcodes.IF_ICMPNE:
+                case Opcodes.IF_ICMPLT:
+                case Opcodes.IF_ICMPGE:
+                case Opcodes.IF_ICMPGT:
+                case Opcodes.IF_ICMPLE:
+                case Opcodes.IF_ACMPEQ:
+                case Opcodes.IF_ACMPNE:
+                    // no special handling needed for these instructions as part of NullnessFrame
+                    break;
+            }
+
+        }
+
         /**
          *  In order to track the effects of an instruction beyond what the dataflow framework does, the general recipe is:
          *
@@ -588,8 +634,10 @@ public class NullnessPropagator {
                     ref = null;
             }
 
-            // TODO It would be great to have computed dedicated state frames for each branch of IFNULL and IFNONNULL.
-            //      For now, only the assumptions that apply to both branches are made (ie, no knowledge is gained from getStackTop()).
+            // Dedicated state frames for each branch of IFNULL and IFNONNULL are computed by executeCondJump().
+            // In case someone forgets to invoke that override for a conditional-jump, this override (ie execute()'s)
+            // also provides a valid answer, but less precise:
+            // only the assumptions that apply to both branches are made (ie, no knowledge is gained from getStackTop()).
 
             super.execute(insn, interpreter);
 
@@ -606,6 +654,21 @@ public class NullnessPropagator {
                 return;
             }
             StatusValue checked = sv.checkedNONNULL();
+            for(int i = 0; i < locals + top; i++) {
+                if (peekValue(i) == sv) {
+                    pokeValue(i, checked);
+                }
+            }
+        }
+
+        private void markNULL(StatusValue sv) {
+            if (sv.isNull()) return;
+            if (sv.isNonNull()) {
+                // TODO inform about potential runtime NPE (if available, display source-line from LineNumberNode, see also ClassNode.sourceFile).
+                markINDOUBT(sv);
+                return;
+            }
+            StatusValue checked = sv.checkedNULL();
             for(int i = 0; i < locals + top; i++) {
                 if (peekValue(i) == sv) {
                     pokeValue(i, checked);
