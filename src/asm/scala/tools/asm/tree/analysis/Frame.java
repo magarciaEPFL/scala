@@ -41,6 +41,7 @@ import scala.tools.asm.tree.InvokeDynamicInsnNode;
 import scala.tools.asm.tree.MethodInsnNode;
 import scala.tools.asm.tree.MultiANewArrayInsnNode;
 import scala.tools.asm.tree.VarInsnNode;
+import scala.tools.asm.tree.JumpInsnNode;
 
 /**
  * A symbolic execution stack frame. A stack frame contains a set of local
@@ -309,8 +310,30 @@ public class Frame<V extends Value> {
         values[top++ + locals] = value;
     }
 
-    public void execute(final AbstractInsnNode insn,
-            final Interpreter<V> interpreter) throws AnalyzerException {
+    /**
+     * This method should be overridden if different (outgoing) frames are desired
+     * for each of the possible outcomes of the conditional jump:
+     *   - branch avoided ie fallthrough
+     *   - branch was taken
+     *
+     * Lacking an override, this method deliveres the same frame-state for both outgoing frames above.
+     * Those outgoing frames are provided by the caller (that caller is an Analyzer where `newFrame` can be overridden).
+     *
+     */
+    public void executeCondJump(
+            final JumpInsnNode    insn,
+            final Interpreter<V>  interpreter,
+            final Frame<V>        outgoingFallThrough,
+            final Frame<V>        outgoingTaken) throws AnalyzerException {
+
+        outgoingFallThrough.init(this);
+        // not needed in this case: outgoingTaken.init(this);
+        outgoingFallThrough.execute(insn, interpreter);
+        outgoingTaken.init(outgoingFallThrough);
+
+    }
+
+    public void execute(final AbstractInsnNode insn, final Interpreter<V> interpreter) throws AnalyzerException {
         V value1, value2, value3, value4;
         List<V> values;
         int var;

@@ -114,6 +114,9 @@ public class Analyzer<V extends Value> implements Opcodes {
         Frame<V> current = newFrame(m.maxLocals, m.maxStack);
         Frame<V> handler = newFrame(m.maxLocals, m.maxStack);
 
+        Frame<V> outgoingFallThrough = newFrame(m.maxLocals, m.maxStack);
+        Frame<V> outgoingTaken       = newFrame(m.maxLocals, m.maxStack);
+
         // control flow analysis
         while (top > 0) {
             int insn = queue[--top];
@@ -156,12 +159,12 @@ public class Analyzer<V extends Value> implements Opcodes {
                                 // IF_ICMPLT, IF_ICMPGE, IF_ICMPGT, IF_ICMPLE,
                                 // IF_ACMPEQ, IF_ACMPNE,
                                 // IFNULL or IFNONNULL.
-                                current.init(f).execute(ji, interpreter);
+                                f.executeCondJump(ji, interpreter, outgoingFallThrough, outgoingTaken);
                                 // frame for conditional-jump-not-taken situation:
-                                merge(insn + 1, current, subroutine);
+                                merge(insn + 1, outgoingFallThrough, subroutine);
                                 newControlFlowEdge(insn, insn + 1);
                                 // frame for conditional-jump-yes-taken situation:
-                                merge(jump, current, subroutine);
+                                merge(jump, outgoingTaken, subroutine);
                                 newControlFlowEdge(insn, jump);
                             }
                             break;
