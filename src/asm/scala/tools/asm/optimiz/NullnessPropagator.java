@@ -38,7 +38,9 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *    (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it).
  *        This might enable further reductions (e.g., dead-store elimination).
  *
- *    (c) Scala unbox of null is replaced by a 0 load of the appropriate sort (I, L, F, or D).
+ *    (c) simplify an ASTORE both whose RHS and LHS are known to contain null (POP1 replaces it).
+ *
+ *    (d) Scala unbox of null is replaced by a 0 load of the appropriate sort (I, L, F, or D).
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
@@ -66,6 +68,7 @@ public class NullnessPropagator {
         boolean alwaysAvoided = false;
 
         JumpInsnNode jmp = null;
+        VarInsnNode   vi = null;
 
         int i = 0;
         while (i < insns.length) {
@@ -77,9 +80,16 @@ public class NullnessPropagator {
                 switch (opc) {
 
                     case Opcodes.ALOAD:
-                        VarInsnNode vi = (VarInsnNode)insns[i];
+                        vi = (VarInsnNode)insns[i];
                         if (frame.getLocal(vi.var).isNull()) {
                             mnode.instructions.set(vi, new InsnNode(Opcodes.ACONST_NULL));
+                        }
+                        break;
+
+                    case Opcodes.ASTORE:
+                        vi = (VarInsnNode)insns[i];
+                        if (frame.getStackTop().isNull() && frame.getLocal(vi.var).isNull()) {
+                            mnode.instructions.set(vi, Util.getDrop(1));
                         }
                         break;
 
