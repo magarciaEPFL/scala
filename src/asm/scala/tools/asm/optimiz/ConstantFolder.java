@@ -37,7 +37,8 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *
  *    (2) a single pass is made over the method's instructions. This is where constants are "propagated".
  *
- *          (a) loads that can be expressed as shorthand (e.g. ICONST_1)
+ *          (a.1) loads that are amenable to shorthand (e.g. ICONST_1) are rewritten.
+ *          (a.2) stores where the LHS already contains the value denoted by the RHS are replaced by DROP instruction.
  *
  *          (b) binary operations with constant result are left in place,
  *              but a DROP and a load of the constant-result are inserted rigth after them.
@@ -101,6 +102,8 @@ public class ConstantFolder implements Opcodes {
             CFValue value2   = null;
             boolean succeeds = false;
 
+            VarInsnNode vin = null;
+
             if (insn != null) {
 
                 int opc = insn.getOpcode();
@@ -110,7 +113,7 @@ public class ConstantFolder implements Opcodes {
                     case Opcodes.LLOAD:
                     case Opcodes.FLOAD:
                     case Opcodes.DLOAD:
-                        VarInsnNode vin = (VarInsnNode)insn;
+                        vin = (VarInsnNode)insn;
                         CFValue vv = frame.getLocal(vin.var);
                         if (vv.isConstant()) {
                             AbstractInsnNode lin = ((Constant)vv).pushInsn();
@@ -119,6 +122,26 @@ public class ConstantFolder implements Opcodes {
                                 mnode.instructions.set(insn, lin);
                                 changed = true; // actually not needed: control-flow unaltered, no code has been killed.
                             }
+                        }
+                        break;
+
+                    case Opcodes.ISTORE:
+                    case Opcodes.LSTORE:
+                        // float and double left out on purpose
+                        if (frame.getStackTop().isConstant()) {
+                            Constant st = ((Constant)frame.getStackTop());
+                            vin = (VarInsnNode)insn;
+                            if (frame.getLocal(vin.var).isConstant()) {
+                                Constant va = (Constant)frame.getLocal(vin.var);
+                                if (va.equals(st)) {
+                                    // no need for assignment, LHS already contains the RHS value.
+                                    int size = (opc == Opcodes.ISTORE ? 1 : 2);
+                                    mnode.instructions.set(insn, Util.getDrop(size));
+                                    changed = true; // actually not needed: control-flow unaltered, no code has been killed.
+                                }
+                            }
+
+
                         }
                         break;
 
