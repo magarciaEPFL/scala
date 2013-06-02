@@ -19,6 +19,7 @@ import scala.tools.asm.tree.InsnNode;
 import scala.tools.asm.tree.VarInsnNode;
 import scala.tools.asm.tree.InsnList;
 import scala.tools.asm.tree.LdcInsnNode;
+import scala.tools.asm.tree.FieldInsnNode;
 
 import scala.tools.asm.tree.analysis.AnalyzerException;
 import scala.tools.asm.tree.analysis.Analyzer;
@@ -299,18 +300,38 @@ public class NullnessPropagator {
 
         @Override
         public StatusValue newOperation(final AbstractInsnNode insn) throws AnalyzerException {
+
             final int size = SizingUtil.getResultSize(insn);
             Nullness status = Nullness.INDOUBT_STATUS;
-            if (insn.getOpcode() == Opcodes.ACONST_NULL) {
-                status = Nullness.NULL_STATUS;
+
+            switch (insn.getOpcode()) {
+
+                case Opcodes.ACONST_NULL:
+                    status = Nullness.NULL_STATUS;
+                    break;
+
+                case Opcodes.LDC:
+                    LdcInsnNode ldc = (LdcInsnNode)insn;
+                    assert ldc.cst != null;
+                    if ((ldc.cst instanceof String) || (ldc.cst instanceof Type)) {
+                        status = Nullness.NONNULL_STATUS;
+                    }
+                    break;
+
+                case Opcodes.GETSTATIC:
+                    FieldInsnNode fi = (FieldInsnNode)insn;
+                    if (fi.name.equals("MODULE$") && fi.owner.endsWith("$")) {
+                        // the field-load won't be elided.
+                        // Instead, control-flow can be simplified based on the non-nullness information.
+                        status = Nullness.NONNULL_STATUS;
+                    }
+                    break;
+
+                default:
+                    ;
+
             }
-            if (insn.getOpcode() == Opcodes.LDC) {
-                LdcInsnNode ldc = (LdcInsnNode)insn;
-                assert ldc.cst != null;
-                if ((ldc.cst instanceof String) || (ldc.cst instanceof Type)) {
-                    status = Nullness.NONNULL_STATUS;
-                }
-            }
+
             return new StatusValue(size, status);
         }
 
@@ -417,8 +438,6 @@ public class NullnessPropagator {
             if (SSLUtil.isScalaBoxCall(callsite)) return true;
             return false;
         }
-
-        // TODO similar to `neverReturnsNull`, but for FieldInsnNode (e.g. GETSTATIC for a module never pushes null, right?)
 
     } // end of nested class StatusInterpreter
 
