@@ -275,7 +275,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
   class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
 
     val copyPropagator      = new asm.optimiz.CopyPropagator
-    val deadStoreElim       = new asm.optimiz.DeadStoreElim
+    val deadStoreElimPrim   = new asm.optimiz.DeadStoreElimPrim
     val ppCollapser         = new asm.optimiz.PushPopCollapser
     val jumpReducer         = new asm.optimiz.JumpReducer
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
@@ -330,8 +330,8 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
         copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
         keepGoing |= copyPropagator.changed
 
-        deadStoreElim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
-        keepGoing |= deadStoreElim.changed
+        deadStoreElimPrim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+        keepGoing |= deadStoreElimPrim.changed
 
         ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         keepGoing |= ppCollapser.changed

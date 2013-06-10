@@ -41,7 +41,7 @@ import scala.tools.asm.tree.analysis.*;
  *  @version 1.0
  *
  */
-public class DeadStoreElim {
+public class DeadStoreElimPrim {
 
     public boolean changed = false;
 
