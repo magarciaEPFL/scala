@@ -85,6 +85,7 @@ public class NullnessPropagator {
                         if (frame.getLocal(vi.var).isNull()) {
                             // (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it)
                             mnode.instructions.set(vi, new InsnNode(Opcodes.ACONST_NULL));
+                            changed = true;
                         }
                         break;
 
@@ -93,6 +94,7 @@ public class NullnessPropagator {
                         if (frame.getStackTop().isNull() && frame.getLocal(vi.var).isNull()) {
                             // (c) simplify an ASTORE both whose RHS and LHS are known to contain null (POP1 replaces it).
                             mnode.instructions.set(vi, Util.getDrop(1));
+                            changed = true;
                         }
                         break;
 
