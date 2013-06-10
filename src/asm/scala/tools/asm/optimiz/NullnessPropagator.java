@@ -30,11 +30,9 @@ import scala.tools.asm.tree.analysis.Interpreter;
 /**
  *  Infers null resp. non-null reaching certain program points, using that information to:
  *
- *    (a) simplify control-flow when a conditional jump will always be taken or avoided,
- *        for three classes of instructions:
+ *    (a) simplify control-flow when a conditional jump will always be taken or avoided, for the instructions:
  *          (a.1) IF_ACMPEQ, IF_ACMPNE
  *          (a.2) IFNULL,    IFNONNULL
- *          (a.3) INSTANCEOF
  *
  *    (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it).
  *        This might enable further reductions (e.g., dead-store elimination).
@@ -42,6 +40,8 @@ import scala.tools.asm.tree.analysis.Interpreter;
  *    (c) simplify an ASTORE both whose RHS and LHS are known to contain null (POP1 replaces it).
  *
  *    (d) Scala unbox of null is replaced by a 0 load of the appropriate sort (I, L, F, or D).
+ *
+ *    (e) INSTANCEOF of null replaced by POP1; ICONST_0.
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
  *  @version 1.0
@@ -83,6 +83,7 @@ public class NullnessPropagator {
                     case Opcodes.ALOAD:
                         vi = (VarInsnNode)insns[i];
                         if (frame.getLocal(vi.var).isNull()) {
+                            // (b) simplify an ALOAD for a local-var known to contain null (ACONST_NULL replaces it)
                             mnode.instructions.set(vi, new InsnNode(Opcodes.ACONST_NULL));
                         }
                         break;
@@ -90,6 +91,7 @@ public class NullnessPropagator {
                     case Opcodes.ASTORE:
                         vi = (VarInsnNode)insns[i];
                         if (frame.getStackTop().isNull() && frame.getLocal(vi.var).isNull()) {
+                            // (c) simplify an ASTORE both whose RHS and LHS are known to contain null (POP1 replaces it).
                             mnode.instructions.set(vi, Util.getDrop(1));
                         }
                         break;
@@ -149,7 +151,7 @@ public class NullnessPropagator {
 
                     case Opcodes.INSTANCEOF:
                         if (frame.getStackTop().isNull()) {
-                            // drop ref, ICONST_0
+                            // (e) INSTANCEOF of null replaced by POP1; ICONST_0
                             TypeInsnNode iof = (TypeInsnNode)insns[i];
                             mnode.instructions.insert(iof, new InsnNode(Opcodes.ICONST_0));
                             mnode.instructions.insert(iof, Util.getDrop(1));
