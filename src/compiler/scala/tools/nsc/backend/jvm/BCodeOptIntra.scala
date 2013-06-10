@@ -224,6 +224,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
   class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
 
     val copyPropagator      = new asm.optimiz.CopyPropagator
+    val deadStoreElimPrim   = new asm.optimiz.DeadStoreElimPrim
     val nullnessPropagator  = new asm.optimiz.NullnessPropagator
     val constantFolder      = new asm.optimiz.ConstantFolder
 
@@ -275,6 +276,9 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
         copyPropagator.transform(cName, mnode) // replace the last link in a chain of data accesses by a direct access to the chain-start.
         keepGoing |= copyPropagator.changed
+
+        deadStoreElimPrim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
+        keepGoing |= deadStoreElimPrim.changed
 
         changed = (changed || keepGoing)
 
