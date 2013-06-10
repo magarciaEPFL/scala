@@ -400,15 +400,17 @@ public class UnusedParamsElider {
     public static void elimRedundantLocalVarAccesses(final String cName, final MethodNode mnode) throws AnalyzerException {
       UnreachableCode   unreachableCode   = new UnreachableCode();
       DeadStoreElimPrim deadStoreElimPrim = new DeadStoreElimPrim();
+      DeadStoreElimRef  deadStoreElimRef  = new DeadStoreElimRef();
       PushPopCollapser  ppCollapser       = new PushPopCollapser();
 
       do {
 
           unreachableCode.transform(cName, mnode); // remove unreachable code
           deadStoreElimPrim.transform(cName, mnode);   // replace STOREs to non-live local-vars with DROP instructions.
+          deadStoreElimRef.transform(cName, mnode);    // replace STOREs to non-live local-vars with DROP instructions.
           ppCollapser.transform(cName, mnode);     // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
 
-      } while (deadStoreElimPrim.changed || ppCollapser.changed);
+      } while (deadStoreElimPrim.changed || deadStoreElimRef.changed || ppCollapser.changed);
 
     }
 }
