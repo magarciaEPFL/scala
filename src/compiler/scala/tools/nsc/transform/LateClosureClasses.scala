@@ -183,13 +183,105 @@ trait LateClosureClasses { _: UnCurry =>
 
       val callDisguisedAsClosure = gen.mkAsInstanceOf(fakeCallsite, closureType, wrapInApply = false)
 
+      val localDefs = capturingOuterInstances(unit, closureOwner, hoistedMethodDef)
+
       localTyper.typedPos(fun.pos) {
         Block(
-          hoistedMethodDef :: Nil,
+          localDefs,
           callDisguisedAsClosure
         )
       }
     } // end of method closureConversionModern()
+
+    /*
+     *
+     * Sometimes an outer-pointer is needed only as stepping stone to access members of an outer-instance
+     * that's not the direct outer-instance. Example:
+     *
+     *     class C {
+     *       var name = "C"
+     *       class MyActor {
+     *         def doSomeWork() {
+     *           (1 to 10) foreach { i => println(name) }
+     *         }
+     *       }
+     *     }
+     *
+     * The "nearest outer-instance that's actually needed" isn't a MyActor but a C (for the anon-closure with body `println(name)`).
+     * That outer-value can be captured via a local-value, thus allowing `squashOuterForLCC()` to make the endpoint static.
+     *
+     * In other cases, a reference to THIS can't be avoided in the delegate,
+     * and the transformation sketched above isn't applied. Details are given as comments, below.
+     *
+     */
+    private def capturingOuterInstances(
+      unit:             CompilationUnit,
+      closureOwner:     Symbol,
+      hoistedMethodDef: DefDef): List[Tree] = {
+
+      val unchanged = (hoistedMethodDef :: Nil)
+      val curClass  = currentClass.asInstanceOf[ClassSymbol]
+
+      // in case no outers exist, no need to explore further.
+      if (!explicitOuter.isInner(curClass)) return unchanged;
+
+      def isFeasibleOuter(s: Symbol) = !(s.hasModuleFlag && s.isStatic)
+
+      // collect symbols of This(qual) where qual.symbol belongs to the outer-chain of currentClass.
+      val tc = new CollectTreeTraverser( {
+        case th: This
+          if (th.symbol == curClass) || isFeasibleOuter(th.symbol)
+        =>
+          th.symbol.asInstanceOf[ClassSymbol]
+      } )
+      tc.traverse(hoistedMethodDef.rhs)
+
+      val keys:       List[ClassSymbol] = tc.results.toList.distinct
+      val isCaptured:  Set[ClassSymbol] = keys.toSet
+
+      // in case This(currentClass) occurs in the anon-closure-body, there's no point in caching outer-instances.
+      if ( isCaptured.isEmpty
+        || isCaptured(curClass)
+        || (isCaptured exists (_.isAnonymousClass))
+      ) return unchanged;
+
+      val vd: Map[ /* OuterClass */ Symbol, ValDef ] = (
+        for(t <- keys) yield {
+          val vname = unit.freshTermName("capturedOuter$");
+          val vsym  = closureOwner.newValue(vname, NoPosition, FINAL) setInfo t.tpe;
+          val vd    = atPos(NoPosition)(ValDef(vsym, This(t)))
+
+          (t -> vd)
+        }
+      ).toMap;
+
+      val capturedValDefs: List[ValDef] = (keys map vd)
+
+      /*
+       * Rephrases accesses to an outer instance, as val-reads (thus capturing the outer-value).
+       *
+       * see also `ThisSubstituter` and `substituteThis`
+       */
+      object substituter extends Transformer {
+
+        def capturedID(th: This) = {
+          val csym = th.symbol
+          localTyper.typedPos(th.pos)(Ident(vd(csym).symbol))
+        }
+
+        override def transform(tree: Tree): Tree = tree match {
+          case th: This if isCaptured(th.symbol.asInstanceOf[ClassSymbol]) =>
+            capturedID(th)
+          case _ =>
+            super.transform(tree)
+        }
+
+      }
+
+      val updHoistedDef = deriveDefDef(hoistedMethodDef)(substituter.transform)
+
+      capturedValDefs  ::: (updHoistedDef :: Nil)
+    } // end of method capturingOuterInstances()
 
     /*
      *  Currently closureConversionModern goes after closures with param-types that unproblematically
