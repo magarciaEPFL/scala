@@ -98,12 +98,15 @@ trait LateClosureClasses { _: UnCurry =>
      *  {
      *    def hoisted(x_1: T_1, ..., x_N: T_n): R = body
      *
-     *    hoisted(zeroes-for-params-above).asInstanceOf[AbstractFunctionN[T_1, .., T_N, R]]
+     *    lccDisguiserMethod(
+     *      hoisted(zeroes-for-params-above)
+     *    ).asInstanceOf[AbstractFunctionN[T_1, .., T_N, R]]
      *  }
      *
-     *  The bytecode emitter will either:
-     *    (a) emit an anonymous closure class and its instantiation; or
-     *    (b) emit a method handle given as constructor-argument to a closure instantiation.
+     *  where `lccDisguiserMethod` is a synthetic method for compiter-internal use only (not accessible from user code).
+     *  The type-cast and the lccDisguiserMethod() callsite form an "indivisible unit" because the return type of the latter is Object.
+     *  That way, no phase in the pipeline need perform any special-handling for it.
+     *  It's the bytecode emitter that at the very last moment emits the Late-Closure-Class for the above, as well as its instantion.
      *
      *
      *  Motivation
