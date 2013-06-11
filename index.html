@@ -45,12 +45,12 @@
 </ol><h1>
 <a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored74</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored77</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored74">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored74</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored77">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored77</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to <a href="#GettingStarted">Getting Started</a>.</p>
@@ -310,11 +310,11 @@ the producer has its value consumed only by the DROP in question.</li>
 </ul><h1>
 <a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored74</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored77</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored74
-cd GenRefactored74
-git checkout -b GenRefactored74 origin/GenRefactored74
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored77
+cd GenRefactored77
+git checkout -b GenRefactored77 origin/GenRefactored77
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -333,7 +333,7 @@ scalacOptions ++= Seq( . . . your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored74</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored77</code>, building the compiler with <code>ant</code>).</p>
 
 <h2>
 <a name="41-meaning-of-optimization-levels" class="anchor" href="#41-meaning-of-optimization-levels"><span class="octicon octicon-link"></span></a>4.1 Meaning of optimization levels</h2>
@@ -381,9 +381,9 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored74/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored77/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored74</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored77</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
