@@ -279,7 +279,7 @@ the producer has its value consumed only by the DROP in question.</li>
 </ul><p>The new optimizer may well make <em>your</em> code run faster. To find out, give it a try.</p>
 
 <h2>
-<a name="35-bugs-fixed" class="anchor" href="#35-bugs-fixed"><span class="octicon octicon-link"></span></a>3.5 Bugs fixed</h2>
+<a name="35-bugs-fixed-or-not-encountered-by-design" class="anchor" href="#35-bugs-fixed-or-not-encountered-by-design"><span class="octicon octicon-link"></span></a>3.5 Bugs fixed, or not encountered "by design"</h2>
 
 <ul>
 <li>
@@ -289,7 +289,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6105">SI-6105</a> Conditional optimization: true || x == true, false &amp;&amp; y == false</li>
 <li>
-<a href="https://issues.scala-lang.org/browse/SI-6164">SI-6164</a> pipeline clasfile building and writing (GenASM, GenBCode) </li>
+<a href="https://issues.scala-lang.org/browse/SI-6164">SI-6164</a> pipeline classfile building and writing (GenASM, GenBCode) </li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6191">SI-6191</a> spurious SCOPE_EXIT warnings</li>
 <li>
@@ -300,6 +300,10 @@ the producer has its value consumed only by the DROP in question.</li>
 <a href="https://issues.scala-lang.org/browse/SI-6723">SI-6723</a> 2.10 regression: inliner warnings with Map literal and -optimize </li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-6759">SI-6759</a> Seek clarification about necessary and sufficient conditions for inclusion in InnerClasses JVM attribute </li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-7050">SI-7050</a> phase closelim is a mess </li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-7182">SI-7182</a> Finally blocks are duplicated for each 'return' in a try/catch/finally </li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-7407">SI-7407</a> return inside try + pattern-match inside finally causes VerifyError</li>
 <li>
