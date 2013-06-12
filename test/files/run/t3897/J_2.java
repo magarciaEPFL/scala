@@ -5,7 +5,7 @@ public class J_2 {
     Field[] fields = clazz.getDeclaredFields();
     for (int i = 0 ; i < fields.length; i++) {
       String name = fields[i].getName();
-      if (name.length() >= 7 && name.substring(0, 7).equals("bitmap$")) { }
+      if (name.startsWith("bitmap$") || name.startsWith("shio$")) { }
       else System.out.println("(" + name + "," + fields[i].getGenericType() + ")");
     }    
   }
@@ -13,7 +13,7 @@ public class J_2 {
     Method[] methods = clazz.getDeclaredMethods();
     for (int i = 0 ; i < methods.length; i++) {
       String name = methods[i].getName();
-      if (name.length() >= 7 && name.substring(0, 7).equals("bitmap$")) { }
+      if (name.startsWith("bitmap$") || name.startsWith("shio$")) { }
       else System.out.println("(" + name + "," + methods[i].getGenericReturnType() + ")");
     }    
   }
