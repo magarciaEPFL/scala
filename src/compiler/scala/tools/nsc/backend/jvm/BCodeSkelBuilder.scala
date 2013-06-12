@@ -21,7 +21,7 @@ import scala.tools.asm
  *  @version 1.0
  *
  */
-abstract class BCodeSkelBuilder extends BCodeTFA {
+abstract class BCodeSkelBuilder extends BCodeOptInter {
   import global._
   import definitions._
 
@@ -274,6 +274,7 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
     var isMethSymBridge            = false
     var returnType: BType          = null
     var methSymbol: Symbol         = null
+    var cgn: CallGraphNode         = null
     // in GenASM this is local to genCode(), ie should get false whenever a new method is emitted (including fabricated ones eg addStaticInit())
     var isModuleInitialized        = false
     // used by genLoadTry() and genSynchronized()
@@ -558,6 +559,10 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
       isMethSymStaticCtor = methSymbol.isStaticConstructor
       isMethSymBridge     = methSymbol.isBridge
 
+      if (hasInline(methSymbol) && !(methSymbol.isFinal || methSymbol.isEffectivelyFinal)) {
+        warnInliningWontHappen(claszSymbol, dd.pos)
+      }
+
       resetMethodBookkeeping(dd)
 
       // add method-local vars for params
@@ -640,13 +645,30 @@ abstract class BCodeSkelBuilder extends BCodeTFA {
         } // end of emitNormalMethodBody()
 
         lineNumber(rhs)
+        cgn = new CallGraphNode(cnode, mnode)
         emitNormalMethodBody()
+        if (!cgn.isEmpty) {
+          cgns += cgn
+        }
 
         // Note we don't invoke visitMax, thus there are no FrameNode among mnode.instructions.
         // The only non-instruction nodes to be found are LabelNode and LineNumberNode.
       }
       mnode = null
     } // end of method genDefDef()
+
+    def warnInliningWontHappen(receiverClazz: Symbol, pos: Position, callsite: asm.tree.MethodInsnNode = null) {
+      if (!settings.YinlinerWarnings) {
+        // otherwise partest prints out a summary message "there were N inliner warning(s); re-run with -Yinline-warnings for details"
+        // and the ensuing "[output differs]" (-neo:GenASM emits none of those warnings)
+        return
+      }
+      val callDescr = "Won't inline callsite " + (if (callsite == null) "" else asm.optimiz.Util.textify(callsite))
+      val msg =
+        if (receiverClazz.isTrait) " to method declared in trait (SI-4767)"
+        else " to non-final method: @inline doesn't imply final."
+      cunit.inlinerWarning(pos, callDescr + msg)
+    }
 
     /*
      *  must-single-thread
