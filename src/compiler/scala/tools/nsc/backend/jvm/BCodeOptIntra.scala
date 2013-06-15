@@ -450,8 +450,8 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
           // (2) intra-class, useful for master classes, but can by applied to any class.
           keepGoing  = removeUnusedLiftedMethods()
 
-          // (3) inter-class but in a controlled way (any given class is mutated by at most one Worker2 instance).
-          keepGoing |= dcloptim.minimizeDClosureFields()
+          // (3) intra-class.
+          dcloptim.statifyLiftedMethods()
 
           ifDebug { runTypeFlowAnalysis() }
 
@@ -463,7 +463,7 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
           keepGoing && (rounds < MAX_ROUNDS)
         )
 
-        dcloptim.minimizeDClosureAllocations()
+        dcloptim.singletonizeDClosures()
 
         ifDebug { runTypeFlowAnalysis() }
 
