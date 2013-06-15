@@ -110,15 +110,15 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
       val delegateSym = fakeCallsite.symbol.asInstanceOf[MethodSymbol]
       val hasStaticModuleOwner = isStaticModule(delegateSym.owner)
       val hasOuter = !delegateSym.isStaticMember && !hasStaticModuleOwner
-      val isStaticImplMethod = delegateSym.owner.isImplClass
+      val isImplClassMethod = delegateSym.owner.isImplClass
 
       assert(
-        if (isStaticImplMethod) !hasOuter else true,
+        if (isImplClassMethod) !hasOuter else true,
          "How come a delegate-method (for a Late-Closure-Class) is static yet the dclosure is supposed to have an outer-instance. " +
         s"Delegate: ${delegateSym.fullLocationString}"
       )
       assert(
-        if (hasOuter) !isStaticImplMethod else true,
+        if (hasOuter) !isImplClassMethod else true,
          "A Late-Closure-Class that captures an outer-instance can't delegate to a (static) method in an implementation class. " +
         s"Delegate: ${delegateSym.fullLocationString}"
       )
@@ -146,7 +146,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
       val delegateParamTs = delegateMT.argumentTypes.toList
       val closuStateBTs: List[BType] = {
-        if (!isStaticImplMethod) {
+        if (!isImplClassMethod) {
           val tmp = delegateParamTs.drop(arity)
           if (hasOuter) outerTK :: tmp else tmp
         }
@@ -162,7 +162,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
         ifDebug {
           assert(allDifferent(delegateParamNames), "Duplicate param names found among " + delegateParamNames.mkString(" , "))
         }
-        if (!isStaticImplMethod) {
+        if (!isImplClassMethod) {
           val tmp = delegateParamNames.drop(arity)
           if (hasOuter) nme.OUTER.toString :: tmp else tmp
         }
@@ -172,7 +172,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
       }
 
       val delegateApplySection: List[BType] = {
-        if (!isStaticImplMethod) { delegateParamTs.take(arity) }
+        if (!isImplClassMethod) { delegateParamTs.take(arity) }
         else { delegateParamTs.tail.take(arity) }
       }
 
@@ -192,7 +192,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           }
         // the rest of captured values
         val capturedValues: List[Tree] = {
-          if (!isStaticImplMethod) { args.drop(arity) }
+          if (!isImplClassMethod) { args.drop(arity) }
           else { args.head :: args.drop(arity + 1) }
         }
         assert(
@@ -543,7 +543,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
             outerTK.getDescriptor
           )
         }
-        else if (!isStaticImplMethod) {
+        else if (!isImplClassMethod) {
           if (hasOuter) { loadField(nme.OUTER.toString) }
         } else {
           loadField(closuStateNames.head)
@@ -561,7 +561,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
         // now it only remains to load non-outer closure-state fields
         val restFieldNames = {
-          if (!isStaticImplMethod) {
+          if (!isImplClassMethod) {
             if (hasOuter) closuStateNames.tail else closuStateNames
           } else {
             closuStateNames.tail
