@@ -25,6 +25,8 @@ abstract class BCodeTypes extends BCodeIdiomatic {
   val isCompilingStdLib = !(settings.sourcepath.isDefault)
 
   val isLateClosuresOn = settings.isClosureConvDelegating
+  // `ReflectingClosurifier` explains what this closure-conversion approach is all about.
+  val isReflectClosuresOn  = settings.isClosureConvReflect
 
   var srBoxedUnit : BType = BT_ZERO // scala/runtime/BoxedUnit
 
@@ -36,6 +38,8 @@ abstract class BCodeTypes extends BCodeIdiomatic {
   var jioSerializableReference    : BType = BT_ZERO // java/io/Serializable
   var scalaSerializableReference  : BType = BT_ZERO // scala/Serializable
   var classCastExceptionReference : BType = BT_ZERO // java/lang/ClassCastException
+  var jlrMethod                   : BType = BT_ZERO // java/lang/reflect/Method
+  var jlClass                     : BType = BT_ZERO // java/lang/Class
 
   var lateClosureInterfaces: Array[Tracked] = null // the only interface a Late-Closure-Class implements is scala.Serializable
 
@@ -70,6 +74,10 @@ abstract class BCodeTypes extends BCodeIdiomatic {
 
   var PartialFunctionReference:         BType = BT_ZERO // scala.PartialFunction
   var AbstractPartialFunctionReference: BType = BT_ZERO // scala.runtime.AbstractPartialFunction
+
+  // scala.runtim.ReflBasedFunRX and scala.runtim.ReflBasedFunMX
+  val ReflBasedFunRReference = new Array[Tracked](definitions.MaxFunctionArity + 1)
+  val ReflBasedFunMReference = new Array[Tracked](definitions.MaxFunctionArity + 1)
 
   var BoxesRunTime: BType = BT_ZERO
 
@@ -152,6 +160,8 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     jioSerializableReference    = exemplar(JavaSerializableClass).c
     scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
+    jlrMethod                   = exemplar(MethodClass).c
+    jlClass                     = exemplar(ClassClass).c
 
     lateClosureInterfaces = Array(exemplar(SerializableClass))
 
@@ -161,6 +171,11 @@ abstract class BCodeTypes extends BCodeIdiomatic {
       AbstractFunctionReference(idx)   = exemplar(AbstractFunctionClass(idx))
       abstractFunctionArityMap        += (AbstractFunctionReference(idx).c -> idx)
       AbstractPartialFunctionReference = exemplar(AbstractPartialFunctionClass).c
+
+      if (isReflectClosuresOn) {
+        ReflBasedFunRReference(idx) = exemplar(ReflBasedFunRClass(idx))
+        ReflBasedFunMReference(idx) = exemplar(ReflBasedFunMClass(idx))
+      }
 
       if (isLateClosuresOn) {
         /*
@@ -191,7 +206,6 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     // later a few analyses (e.g. refreshInnerClasses) will look up BTypes based on descriptors in instructions
     // we make sure those BTypes can be found via lookup as opposed to creating them on the fly.
     BoxesRunTime = brefType("scala/runtime/BoxesRunTime")
-
   } // end of method initBCodeTypes()
 
   /*
