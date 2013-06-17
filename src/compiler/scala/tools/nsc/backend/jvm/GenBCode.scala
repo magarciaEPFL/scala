@@ -96,7 +96,7 @@ import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
  *  @version 1.0
  *
  */
-abstract class GenBCode extends BCodeOptClosu {
+abstract class GenBCode extends ReflectingClosurification {
   import global._
 
   val phaseName = "jvm"
@@ -111,7 +111,7 @@ abstract class GenBCode extends BCodeOptClosu {
     override def description = "Generate bytecode from ASTs"
     override def erasedTypes = true
 
-    val isOptimizRun  = settings.isIntraMethodOptimizOn
+    val isOptimizRun         = settings.isIntraMethodOptimizOn
 
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = scala.math.min(
@@ -219,7 +219,7 @@ abstract class GenBCode extends BCodeOptClosu {
     class Worker1(needsOutFolder: Boolean) extends _root_.java.lang.Runnable {
 
       val isDebugRun            = settings.debug.value
-      val mustPopulateCodeRepo  = isOptimizRun || isDebugRun
+      val mustPopulateCodeRepo  = (isOptimizRun || isDebugRun || isReflectClosuresOn)
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
       var lateClosuresCount = 0
@@ -442,8 +442,25 @@ abstract class GenBCode extends BCodeOptClosu {
           fixer.cleanseClass()
         }
 
+        if (isReflectClosuresOn) {
+          // add definitions supporting reflection-based closures
+          if (isMasterClass(cnodeBT)) {
+            val dcs = closuRepo.dclosures.get(cnodeBT).filterNot(wasElided)
+            if (dcs.nonEmpty) {
+              new ReflectingClosurifier(cnode, cnodeBT, dcs)
+            }
+          }
+          // rewrite usages of LCCs into reflection-based closures
+          if (!closuRepo.isDelegatingClosure(cnodeBT)) {
+            new ReflClosuUsages(cnode)
+          }
+        }
+
         refreshInnerClasses(cnode)
-        item.lateClosures foreach refreshInnerClasses
+        if (!isReflectClosuresOn) {
+          // under -closurify:reflect, all LCCs are elided.
+          item.lateClosures foreach refreshInnerClasses
+        }
 
         addToQ3(item)
 
@@ -469,7 +486,8 @@ abstract class GenBCode extends BCodeOptClosu {
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
-          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
+          val si3 = if (isReflectClosuresOn) null else SubItem3(lateC.name, getByteArray(lateC))
+          q3 put Item3(arrivalPos + lateClosuresCount, null, si3, null, outFolder)
         }
 
       }

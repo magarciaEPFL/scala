@@ -452,19 +452,11 @@ object AbstractFunction
 
 /** Reflection-based functions, part 1 of 2: delegate not declared in an implementation-class. **/
 
-object ReflBasedFunRZero extends ReflBasedFunR(0) {
-  override def covariantSpecs = FunctionZero.covariantSpecs
-}
+object ReflBasedFunRZero extends ReflBasedFunR(0)
 
-object ReflBasedFunROne extends ReflBasedFunR(1) {
-  override def covariantSpecs = FunctionOne.covariantSpecs
-  override def contravariantSpecs = FunctionOne.contravariantSpecs
-}
+object ReflBasedFunROne extends ReflBasedFunR(1)
 
-object ReflBasedFunRTwo extends ReflBasedFunR(2) {
-  override def covariantSpecs = FunctionTwo.covariantSpecs
-  override def contravariantSpecs = FunctionTwo.contravariantSpecs
-}
+object ReflBasedFunRTwo extends ReflBasedFunR(2)
 
 class ReflBasedFunR(val i: Int) extends Group("ReflBasedFunR") with Arity
 {
@@ -486,7 +478,11 @@ final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, receiv
       |   */
       |  def apply(${funArgs}): R = {
       |    ${conveyAppArgs()}
-      |    delegate.invoke(receiver, args: _*).asInstanceOf[R]
+      |    try {
+      |      delegate.invoke(receiver, args: _*).asInstanceOf[R]
+      |    } catch {
+      |      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+      |    }
       |  }
       |
     """.stripMargin
@@ -506,19 +502,11 @@ object ReflBasedFunR
 
 /** Reflection-based functions, part 2 of 2: delegate declared in an implementation-class. **/
 
-object ReflBasedFunMZero extends ReflBasedFunM(0) {
-  override def covariantSpecs = FunctionZero.covariantSpecs
-}
+object ReflBasedFunMZero extends ReflBasedFunM(0)
 
-object ReflBasedFunMOne extends ReflBasedFunM(1) {
-  override def covariantSpecs = FunctionOne.covariantSpecs
-  override def contravariantSpecs = FunctionOne.contravariantSpecs
-}
+object ReflBasedFunMOne extends ReflBasedFunM(1)
 
-object ReflBasedFunMTwo extends ReflBasedFunM(2) {
-  override def covariantSpecs = FunctionTwo.covariantSpecs
-  override def contravariantSpecs = FunctionTwo.contravariantSpecs
-}
+object ReflBasedFunMTwo extends ReflBasedFunM(2)
 
 class ReflBasedFunM(val i: Int) extends Group("ReflBasedFunM") with Arity
 {
@@ -540,7 +528,11 @@ final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, args: 
       |   */
       |  def apply(${funArgs}): R = {
       |    ${conveyAppArgs()}
-      |    delegate.invoke(null, args: _*).asInstanceOf[R]
+      |    try {
+      |      delegate.invoke(null, args: _*).asInstanceOf[R]
+      |    } catch {
+      |      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+      |    }
       |  }
       |
     """.stripMargin

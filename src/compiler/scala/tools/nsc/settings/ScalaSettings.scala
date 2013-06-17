@@ -206,7 +206,7 @@ trait ScalaSettings extends AbsScalaSettings
                                    "o1")
 
   val closureConv = ChoiceSetting ("-closurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
-                                   List("traditional", "delegating"),
+                                   List("traditional", "delegating", "reflect"),
                                    "delegating") // TODO once merged into trunk "traditional" should be the default
 
   // Feature extensions
@@ -238,7 +238,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   def isBCodeActive   = !isICodeAskedFor
   def isBCodeAskedFor = (neo.value != "GenASM")
-  def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
+  def isICodeAskedFor = ((neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser)
 
   /*
    *  Each optimization level (neoLevel) includes all optimizations from lower levels:
@@ -257,7 +257,7 @@ trait ScalaSettings extends AbsScalaSettings
    *              located in libraries we're compiling against (therefore, those libraries should be the same at runtime).
    *
    */
-  def neoLevel: Int           = { if (neo.value.startsWith("o") && isBCodeActive) neo.value.substring(1).toInt else 0 }
+  def neoLevel: Int           = (if (neo.value.startsWith("o") && isBCodeActive) neo.value.substring(1).toInt else 0)
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
   def isIntraProgramOpt       = (neoLevel >= 2)
   def isCrossLibOpt           = (neoLevel >= 3)
@@ -271,8 +271,11 @@ trait ScalaSettings extends AbsScalaSettings
    *    case "delegating"   => aka "Late-Closure-Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
    *                           thus lowering the working set during compilation.
    *                           Allows closure-related optimizations (actually all optimization levels are supported).
+   *
+   *    case "reflect"      => an anon-closure is represented as an `scala.runtime.ReflBasedFunX` instance, customized via arguments.
    */
   def isClosureConvTraditional = (closureConv.value == "traditional") || !isBCodeActive
-  def isClosureConvDelegating  = (closureConv.value == "delegating")  &&  isBCodeActive
+  def isClosureConvDelegating  = (closureConv.value == "delegating"   || closureConv.value == "reflect")  &&  isBCodeActive
+  def isClosureConvReflect     = (closureConv.value == "reflect")     &&  isBCodeActive
 
 }

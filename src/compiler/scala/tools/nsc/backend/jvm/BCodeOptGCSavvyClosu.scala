@@ -72,7 +72,7 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
      * only isLiftedMethods or dclosure-endpoints will be mutated.
      *
      */
-    def minimizeDClosureFields(): Boolean = {
+    def minimizeDClosureState(): Boolean = {
 
       var rounds = 0
       do { rounds += 1 }
@@ -140,6 +140,10 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
      *
      */
     private def minimizeDClosureFields(endpoint: MethodNode, d: BType): Boolean = {
+
+      // see `ReflectingClosurifier` for explanation on why field-minimization skipped for reflection-based closures.
+      if (isReflectClosuresOn) return false;
+
       import asm.optimiz.UnusedParamsElider
       import asm.optimiz.StaticMaker
 
@@ -404,6 +408,10 @@ abstract class BCodeOptGCSavvyClosu extends BCodeOuterSquash {
      *
      */
     private def singletonizeDClosures() {
+
+      // see `ReflectingClosurifier` for explanation on why closure-singletonizing skipped for reflection-based closures.
+      if (isReflectClosuresOn) return;
+
       for(d <- closuRepo.liveDClosures(masterCNode)) {
 
         val dCNode = codeRepo.classes.get(d)

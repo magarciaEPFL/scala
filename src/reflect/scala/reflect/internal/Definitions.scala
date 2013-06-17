@@ -583,6 +583,8 @@ trait Definitions extends api.StandardDefinitions {
     lazy val TupleClass: Array[Symbol] = prepend(NoSymbol, mkArityArray("Tuple", MaxTupleArity, 1))
     lazy val FunctionClass         = mkArityArray("Function", MaxFunctionArity, 0)
     lazy val AbstractFunctionClass = mkArityArray("runtime.AbstractFunction", MaxFunctionArity, 0)
+    lazy val ReflBasedFunRClass    = mkArityArray("runtime.ReflBasedFunR",    MaxFunctionArity, 0)
+    lazy val ReflBasedFunMClass    = mkArityArray("runtime.ReflBasedFunM",    MaxFunctionArity, 0)
 
     /** Creators for TupleN, ProductN, FunctionN. */
     def tupleType(elems: List[Type])                            = aritySpecificType(TupleClass, elems)

@@ -9,7 +9,7 @@
 
 package scala.runtime
 
-final class ReflBasedFunM2[@specialized(scala.Int, scala.Long, scala.Double) -T1, @specialized(scala.Int, scala.Long, scala.Double) -T2, @specialized(scala.Unit, scala.Boolean, scala.Int, scala.Float, scala.Long, scala.Double) +R](delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction2[T1, T2, R] {
+final class ReflBasedFunM2[-T1, -T2, +R](delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction2[T1, T2, R] {
 
   /** Apply the body of this function to the argument{s}.
    *  @return   the result of function application.
@@ -17,7 +17,11 @@ final class ReflBasedFunM2[@specialized(scala.Int, scala.Long, scala.Double) -T1
   def apply(v1: T1, v2: T2): R = {
     args(1) = v1.asInstanceOf[AnyRef]
     args(2) = v2.asInstanceOf[AnyRef]
-    delegate.invoke(null, args: _*).asInstanceOf[R]
+    try {
+      delegate.invoke(null, args: _*).asInstanceOf[R]
+    } catch {
+      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+    }
   }
 
     

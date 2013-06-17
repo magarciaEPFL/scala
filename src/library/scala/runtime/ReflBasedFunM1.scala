@@ -9,14 +9,18 @@
 
 package scala.runtime
 
-final class ReflBasedFunM1[@specialized(scala.Int, scala.Long, scala.Float, scala.Double/*, scala.AnyRef*/) -T1, @specialized(scala.Unit, scala.Boolean, scala.Int, scala.Float, scala.Long, scala.Double/*, scala.AnyRef*/) +R](delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction1[T1, R] {
+final class ReflBasedFunM1[-T1, +R](delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction1[T1, R] {
 
   /** Apply the body of this function to the argument{s}.
    *  @return   the result of function application.
    */
   def apply(v1: T1): R = {
     args(1) = v1.asInstanceOf[AnyRef]
-    delegate.invoke(null, args: _*).asInstanceOf[R]
+    try {
+      delegate.invoke(null, args: _*).asInstanceOf[R]
+    } catch {
+      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+    }
   }
 
     

@@ -9,14 +9,18 @@
 
 package scala.runtime
 
-final class ReflBasedFunM0[@specialized(Specializable.Primitives) +R](delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction0[R] {
+final class ReflBasedFunM0[+R](delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction0[R] {
 
   /** Apply the body of this function to the argument{s}.
    *  @return   the result of function application.
    */
   def apply(): R = {
     
-    delegate.invoke(null, args: _*).asInstanceOf[R]
+    try {
+      delegate.invoke(null, args: _*).asInstanceOf[R]
+    } catch {
+      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+    }
   }
 
     

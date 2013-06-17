@@ -35,7 +35,11 @@ final class ReflBasedFunM20[-T1, -T2, -T3, -T4, -T5, -T6, -T7, -T8, -T9, -T10, -
     args(18) = v18.asInstanceOf[AnyRef]
     args(19) = v19.asInstanceOf[AnyRef]
     args(20) = v20.asInstanceOf[AnyRef]
-    delegate.invoke(null, args: _*).asInstanceOf[R]
+    try {
+      delegate.invoke(null, args: _*).asInstanceOf[R]
+    } catch {
+      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+    }
   }
 
     

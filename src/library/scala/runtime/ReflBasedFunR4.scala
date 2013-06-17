@@ -19,7 +19,11 @@ final class ReflBasedFunR4[-T1, -T2, -T3, -T4, +R](delegate: java.lang.reflect.M
     args(1) = v2.asInstanceOf[AnyRef]
     args(2) = v3.asInstanceOf[AnyRef]
     args(3) = v4.asInstanceOf[AnyRef]
-    delegate.invoke(receiver, args: _*).asInstanceOf[R]
+    try {
+      delegate.invoke(receiver, args: _*).asInstanceOf[R]
+    } catch {
+      case ita: java.lang.reflect.InvocationTargetException => throw ita.getCause()
+    }
   }
 
     
