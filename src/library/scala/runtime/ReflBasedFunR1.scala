@@ -15,9 +15,10 @@ final class ReflBasedFunR1[-T1, +R](delegate: java.lang.reflect.Method, receiver
    *  @return   the result of function application.
    */
   def apply(v1: T1): R = {
-    args(0) = v1.asInstanceOf[AnyRef]
+    val cargs = args.clone()
+    cargs(0) = v1.asInstanceOf[AnyRef]
     try {
-      delegate.invoke(receiver, args: _*).asInstanceOf[R]
+      delegate.invoke(receiver, cargs: _*).asInstanceOf[R]
     } catch {
       case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
     }

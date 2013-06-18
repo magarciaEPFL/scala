@@ -477,9 +477,10 @@ final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, receiv
       |   *  @return   the result of function application.
       |   */
       |  def apply(${funArgs}): R = {
+      |    val cargs = args.clone()
       |    ${conveyAppArgs()}
       |    try {
-      |      delegate.invoke(receiver, args: _*).asInstanceOf[R]
+      |      delegate.invoke(receiver, cargs: _*).asInstanceOf[R]
       |    } catch {
       |      case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
       |    }
@@ -487,7 +488,7 @@ final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, receiv
       |
     """.stripMargin
 
-  private def conveyAppArgs() = (to map { i: Int => s"args(${i - 1}) = v$i.asInstanceOf[AnyRef]" }).mkString("\n    ")
+  private def conveyAppArgs() = (to map { i: Int => s"cargs(${i - 1}) = v$i.asInstanceOf[AnyRef]" }).mkString("\n    ")
 }
 object ReflBasedFunR
 {
@@ -527,9 +528,10 @@ final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, args: 
       |   *  @return   the result of function application.
       |   */
       |  def apply(${funArgs}): R = {
+      |    val cargs = args.clone()
       |    ${conveyAppArgs()}
       |    try {
-      |      delegate.invoke(null, args: _*).asInstanceOf[R]
+      |      delegate.invoke(null, cargs: _*).asInstanceOf[R]
       |    } catch {
       |      case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
       |    }
@@ -537,7 +539,7 @@ final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, args: 
       |
     """.stripMargin
 
-  private def conveyAppArgs() = (to map { i: Int => s"args($i) = v$i.asInstanceOf[AnyRef]" }).mkString("\n    ")
+  private def conveyAppArgs() = (to map { i: Int => s"cargs($i) = v$i.asInstanceOf[AnyRef]" }).mkString("\n    ")
 }
 object ReflBasedFunM
 {

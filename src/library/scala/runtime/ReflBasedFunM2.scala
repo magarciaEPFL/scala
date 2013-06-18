@@ -15,10 +15,11 @@ final class ReflBasedFunM2[-T1, -T2, +R](delegate: java.lang.reflect.Method, arg
    *  @return   the result of function application.
    */
   def apply(v1: T1, v2: T2): R = {
-    args(1) = v1.asInstanceOf[AnyRef]
-    args(2) = v2.asInstanceOf[AnyRef]
+    val cargs = args.clone()
+    cargs(1) = v1.asInstanceOf[AnyRef]
+    cargs(2) = v2.asInstanceOf[AnyRef]
     try {
-      delegate.invoke(null, args: _*).asInstanceOf[R]
+      delegate.invoke(null, cargs: _*).asInstanceOf[R]
     } catch {
       case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
     }

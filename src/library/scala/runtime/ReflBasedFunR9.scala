@@ -15,17 +15,18 @@ final class ReflBasedFunR9[-T1, -T2, -T3, -T4, -T5, -T6, -T7, -T8, -T9, +R](dele
    *  @return   the result of function application.
    */
   def apply(v1: T1, v2: T2, v3: T3, v4: T4, v5: T5, v6: T6, v7: T7, v8: T8, v9: T9): R = {
-    args(0) = v1.asInstanceOf[AnyRef]
-    args(1) = v2.asInstanceOf[AnyRef]
-    args(2) = v3.asInstanceOf[AnyRef]
-    args(3) = v4.asInstanceOf[AnyRef]
-    args(4) = v5.asInstanceOf[AnyRef]
-    args(5) = v6.asInstanceOf[AnyRef]
-    args(6) = v7.asInstanceOf[AnyRef]
-    args(7) = v8.asInstanceOf[AnyRef]
-    args(8) = v9.asInstanceOf[AnyRef]
+    val cargs = args.clone()
+    cargs(0) = v1.asInstanceOf[AnyRef]
+    cargs(1) = v2.asInstanceOf[AnyRef]
+    cargs(2) = v3.asInstanceOf[AnyRef]
+    cargs(3) = v4.asInstanceOf[AnyRef]
+    cargs(4) = v5.asInstanceOf[AnyRef]
+    cargs(5) = v6.asInstanceOf[AnyRef]
+    cargs(6) = v7.asInstanceOf[AnyRef]
+    cargs(7) = v8.asInstanceOf[AnyRef]
+    cargs(8) = v9.asInstanceOf[AnyRef]
     try {
-      delegate.invoke(receiver, args: _*).asInstanceOf[R]
+      delegate.invoke(receiver, cargs: _*).asInstanceOf[R]
     } catch {
       case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
     }

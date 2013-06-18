@@ -15,14 +15,15 @@ final class ReflBasedFunM6[-T1, -T2, -T3, -T4, -T5, -T6, +R](delegate: java.lang
    *  @return   the result of function application.
    */
   def apply(v1: T1, v2: T2, v3: T3, v4: T4, v5: T5, v6: T6): R = {
-    args(1) = v1.asInstanceOf[AnyRef]
-    args(2) = v2.asInstanceOf[AnyRef]
-    args(3) = v3.asInstanceOf[AnyRef]
-    args(4) = v4.asInstanceOf[AnyRef]
-    args(5) = v5.asInstanceOf[AnyRef]
-    args(6) = v6.asInstanceOf[AnyRef]
+    val cargs = args.clone()
+    cargs(1) = v1.asInstanceOf[AnyRef]
+    cargs(2) = v2.asInstanceOf[AnyRef]
+    cargs(3) = v3.asInstanceOf[AnyRef]
+    cargs(4) = v4.asInstanceOf[AnyRef]
+    cargs(5) = v5.asInstanceOf[AnyRef]
+    cargs(6) = v6.asInstanceOf[AnyRef]
     try {
-      delegate.invoke(null, args: _*).asInstanceOf[R]
+      delegate.invoke(null, cargs: _*).asInstanceOf[R]
     } catch {
       case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
     }
