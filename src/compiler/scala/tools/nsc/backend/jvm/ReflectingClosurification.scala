@@ -140,6 +140,7 @@ abstract class ReflectingClosurification extends BCodeOptClosu {
       val ep = closuRepo.endpoint.get(dc).mnode
       reflectiveCache(ep, dc)
       reflectiveFactory(ep, dc)
+      elidedClasses.add(dc)
     }
     Util.computeMaxLocalsMaxStack(clinit)
 
@@ -247,14 +248,6 @@ abstract class ReflectingClosurification extends BCodeOptClosu {
         if (Util.isStaticMethod(ep)) {
           // null receiver
           factory.visitInsn(Opcodes.ACONST_NULL)
-        } else if (isOwnedByStaticModule(dc)) {
-          // GETSTATIC the/module/Class$.MODULE$ : Lthe/module/Class;
-          factory.visitFieldInsn(
-            Opcodes.GETSTATIC,
-            epOwner.getInternalName /* + "$" */ ,
-            strMODULE_INSTANCE_FIELD,
-            epOwner.getDescriptor
-          )
         } else {
           factory.visitVarInsn(Opcodes.ALOAD, 0)
           formalIdx = 1
@@ -341,11 +334,6 @@ abstract class ReflectingClosurification extends BCodeOptClosu {
       }
     }
 
-    def isOwnedByStaticModule(dc: BType): Boolean = {
-      val epOwner: BType = closuRepo.endpoint.get(dc).ownerClass
-      codeRepo.classes.get(epOwner).isStaticModule
-    }
-
   } // end of trait ReflectiveFactories
 
   def reflFactoryName(ep: MethodNode): String = (ep.name + "reflFactory$")
@@ -355,6 +343,26 @@ abstract class ReflectingClosurification extends BCodeOptClosu {
     val appMNode = dCNode.toMethodList.find(_.name.startsWith("apply")).get
     BMType(appMNode.desc).getArgumentCount
   }
+
+  /*
+   * Dclosures whose endpoint is owned by a module-class aren't (always) safe for -closurify:reflect,
+   * because of the requirement to pass the module-instance as constructor-argument to the ReflBasedFun.
+   * In case the MODULE$ field hasn't been initialized yet, tje ReflBasedFun instance will have a null receiver.
+   * For Late-Closure-Classes that's not a problem, because GETSTATIC of the MODULE$ occurs at apply() time.
+   *
+   * In the example below, any usage of a reflection-based lambda (with endpoint in the subclass with the <init> shown)
+   * during the execution of the super-constructor will have a null receiver.
+   *
+   *   private <init>()V
+   *    ALOAD 0
+   *    LDC "inclusive"
+   *    INVOKESPECIAL RangeTest.<init> (Ljava/lang/String;)V
+   *    ALOAD 0
+   *    PUTSTATIC InclusiveRangeTest$.MODULE$ : LInclusiveRangeTest$;
+   *   RETURN
+   *
+   */
+  def isAmenableToReflection(dc: BType) = (!closuRepo.isOwnedByStaticModule(dc))
 
   /*
    *  A ReflBasedFun can be either M-style or R-style.
@@ -462,7 +470,7 @@ abstract class ReflectingClosurification extends BCodeOptClosu {
 
         case ti: TypeInsnNode =>
           val dc = closuRepo.instantiatedDClosure(ti)
-          if (dc != BT_ZERO) {
+          if (dc != BT_ZERO && isAmenableToReflection(dc)) {
             assert(ti.getNext.getOpcode == Opcodes.DUP)
             mnode.instructions.remove(ti.getNext)
             mnode.instructions.remove(ti)
@@ -470,7 +478,7 @@ abstract class ReflectingClosurification extends BCodeOptClosu {
 
         case init: MethodInsnNode =>
           val dc = closuRepo.initializedDClosure(init)
-          if (dc != BT_ZERO) {
+          if (dc != BT_ZERO && isAmenableToReflection(dc)) {
             mnode.instructions.set(init, reflFactoryCall(dc, init))
           }
 

@@ -445,7 +445,7 @@ abstract class GenBCode extends ReflectingClosurification {
         if (isReflectClosuresOn) {
           // add definitions supporting reflection-based closures
           if (isMasterClass(cnodeBT)) {
-            val dcs = closuRepo.dclosures.get(cnodeBT).filterNot(wasElided)
+            val dcs = closuRepo.dclosures.get(cnodeBT).filterNot(wasElided).filter(isAmenableToReflection)
             if (dcs.nonEmpty) {
               new ReflectingClosurifier(cnode, cnodeBT, dcs)
             }
@@ -457,10 +457,7 @@ abstract class GenBCode extends ReflectingClosurification {
         }
 
         refreshInnerClasses(cnode)
-        if (!isReflectClosuresOn) {
-          // under -closurify:reflect, all LCCs are elided.
-          item.lateClosures foreach refreshInnerClasses
-        }
+        item.lateClosures.filterNot(wasElided) foreach refreshInnerClasses
 
         addToQ3(item)
 
@@ -486,7 +483,7 @@ abstract class GenBCode extends ReflectingClosurification {
         var lateClosuresCount = 0
         for(lateC <- lateClosures.reverse) {
           lateClosuresCount += 1
-          val si3 = if (isReflectClosuresOn) null else SubItem3(lateC.name, getByteArray(lateC))
+          val si3 = if (wasElided(lateC)) null else SubItem3(lateC.name, getByteArray(lateC))
           q3 put Item3(arrivalPos + lateClosuresCount, null, si3, null, outFolder)
         }
 

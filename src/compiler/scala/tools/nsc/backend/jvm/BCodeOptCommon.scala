@@ -518,6 +518,11 @@ abstract class BCodeOptCommon extends BCodeHelpers {
       exclusiveDClosures(master) contains d
     }
 
+    def isOwnedByStaticModule(dc: BType): Boolean = {
+      val epOwner: BType = closuRepo.endpoint.get(dc).ownerClass
+      codeRepo.classes.get(epOwner).isStaticModule
+    }
+
     /*
      * The set of delegating-closures used by no other class than the argument
      * (besides the trivial usage of each dclosure by itself)
