@@ -429,7 +429,7 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored82/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L209">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored82/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
 <p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored82</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
