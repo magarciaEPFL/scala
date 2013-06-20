@@ -177,7 +177,7 @@ abstract class BCodeOptCommon extends BCodeHelpers {
           res = parseClassAndEnterExemplar(bt)
         }
       }
-      assert(exemplars.containsKey(bt))
+      assert(exemplars.containsKey(bt), s"exemplars contains no key for ${bt.getInternalName}")
       res
     }
 
@@ -518,6 +518,11 @@ abstract class BCodeOptCommon extends BCodeHelpers {
       exclusiveDClosures(master) contains d
     }
 
+    def isOwnedByStaticModule(dc: BType): Boolean = {
+      val epOwner: BType = closuRepo.endpoint.get(dc).ownerClass
+      codeRepo.classes.get(epOwner).isStaticModule
+    }
+
     /*
      * The set of delegating-closures used by no other class than the argument
      * (besides the trivial usage of each dclosure by itself)
@@ -577,12 +582,29 @@ abstract class BCodeOptCommon extends BCodeHelpers {
     /*
      * Matches a "NEW dclosure" instruction returning the dclosure's BType in that case. Otherwise null.
      */
-    private def instantiatedDClosure(insn: AbstractInsnNode): BType = {
+    def instantiatedDClosure(insn: AbstractInsnNode): BType = {
       if (insn.getOpcode == asm.Opcodes.NEW) {
         val ti  = insn.asInstanceOf[TypeInsnNode]
         val dbt = lookupRefBType(ti.desc)
         if (isDelegatingClosure(dbt)) {
           return dbt
+        }
+      }
+
+      BT_ZERO
+    }
+
+    /*
+     * Matches a "INVOKESPECIAL dclosure.<init>(...)" instruction returning the dclosure's BType in that case. Otherwise null.
+     */
+    def initializedDClosure(insn: AbstractInsnNode): BType = {
+      if (insn.getOpcode == asm.Opcodes.INVOKESPECIAL) {
+        val mi  = insn.asInstanceOf[MethodInsnNode]
+        if (mi.name == nme.CONSTRUCTOR.toString) {
+          val dbt = lookupRefBType(mi.owner)
+          if (isDelegatingClosure(dbt)) {
+            return dbt
+          }
         }
       }
 
