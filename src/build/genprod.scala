@@ -29,8 +29,10 @@ object genprod extends App {
   def productFiles  = arities map Product.make
   def tupleFiles    = arities map Tuple.make
   def functionFiles = (0 :: arities) map Function.make
-  def absFunctionFiles = (0 :: arities) map AbstractFunction.make
-  def allfiles      = productFiles ::: tupleFiles ::: functionFiles ::: absFunctionFiles
+  def absFunctionFiles  = (0 :: arities) map AbstractFunction.make
+  def refFunctionRFiles = (0 :: arities) map ReflBasedFunR.make
+  def refFunctionMFiles = (0 :: arities) map ReflBasedFunM.make
+  def allfiles      = productFiles ::: tupleFiles ::: functionFiles ::: absFunctionFiles ::: refFunctionRFiles ::: refFunctionMFiles
 
   trait Arity extends Group {
     def i: Int    // arity
@@ -445,5 +447,107 @@ object AbstractFunction
     case 1    => AbstractFunctionOne
     case 2    => AbstractFunctionTwo
     case _    => new AbstractFunction(i)
+  }
+}
+
+/** Reflection-based functions, part 1 of 2: delegate not declared in an implementation-class. **/
+
+object ReflBasedFunRZero extends ReflBasedFunR(0)
+
+object ReflBasedFunROne extends ReflBasedFunR(1)
+
+object ReflBasedFunRTwo extends ReflBasedFunR(2)
+
+class ReflBasedFunR(val i: Int) extends Group("ReflBasedFunR") with Arity
+{
+  override def packageDef = "scala.runtime"
+
+  val superTypeArgs = typeArgsString(targs ::: List("R"))
+
+  def apply() = {
+<file name={"runtime/" + fileName}>{header}
+final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, receiver: Object, args: Array[Object]) extends AbstractFunction{i}{superTypeArgs} {{
+{moreMethods}
+}}
+</file>}
+
+  override def moreMethods =
+    s"""
+      |  /** Apply the body of this function to the argument{s}.
+      |   *  @return   the result of function application.
+      |   */
+      |  def apply(${funArgs}): R = {
+      |    val cargs = args.clone()
+      |    ${conveyAppArgs()}
+      |    try {
+      |      delegate.invoke(receiver, cargs: _*).asInstanceOf[R]
+      |    } catch {
+      |      case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
+      |    }
+      |  }
+      |
+    """.stripMargin
+
+  private def conveyAppArgs() = (to map { i: Int => s"cargs(${i - 1}) = v$i.asInstanceOf[AnyRef]" }).mkString("\n    ")
+}
+object ReflBasedFunR
+{
+  def make(i: Int)  = apply(i)()
+  def apply(i: Int) = i match {
+    case 0    => ReflBasedFunRZero
+    case 1    => ReflBasedFunROne
+    case 2    => ReflBasedFunRTwo
+    case _    => new ReflBasedFunR(i)
+  }
+}
+
+/** Reflection-based functions, part 2 of 2: delegate declared in an implementation-class. **/
+
+object ReflBasedFunMZero extends ReflBasedFunM(0)
+
+object ReflBasedFunMOne extends ReflBasedFunM(1)
+
+object ReflBasedFunMTwo extends ReflBasedFunM(2)
+
+class ReflBasedFunM(val i: Int) extends Group("ReflBasedFunM") with Arity
+{
+  override def packageDef = "scala.runtime"
+
+  val superTypeArgs = typeArgsString(targs ::: List("R"))
+
+  def apply() = {
+<file name={"runtime/" + fileName}>{header}
+final class {className}{contraCoArgs}(delegate: java.lang.reflect.Method, args: Array[Object]) extends AbstractFunction{i}{superTypeArgs} {{
+{moreMethods}
+}}
+</file>}
+
+  override def moreMethods =
+    s"""
+      |  /** Apply the body of this function to the argument{s}.
+      |   *  @return   the result of function application.
+      |   */
+      |  def apply(${funArgs}): R = {
+      |    val cargs = args.clone()
+      |    ${conveyAppArgs()}
+      |    try {
+      |      delegate.invoke(null, cargs: _*).asInstanceOf[R]
+      |    } catch {
+      |      case ite: java.lang.reflect.InvocationTargetException => throw ite.getCause()
+      |    }
+      |  }
+      |
+    """.stripMargin
+
+  private def conveyAppArgs() = (to map { i: Int => s"cargs($i) = v$i.asInstanceOf[AnyRef]" }).mkString("\n    ")
+}
+object ReflBasedFunM
+{
+  def make(i: Int)  = apply(i)()
+  def apply(i: Int) = i match {
+    case 0    => ReflBasedFunMZero
+    case 1    => ReflBasedFunMOne
+    case 2    => ReflBasedFunMTwo
+    case _    => new ReflBasedFunM(i)
   }
 }
