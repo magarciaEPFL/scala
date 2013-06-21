@@ -123,6 +123,24 @@ Lookup via <code>getDeclaredMethod()</code> is the expensive part of "reflection
 
 <p>Given the lambdas subclass <code>AbstractFunctionX</code> , the receiver won't notice the difference. The "target method" is public thus posing no access restriction when called from the lambda.</p>
 
+<p>The standard library doesn't get shrinked unlike the compiler, which goes from 12MB down to 8MB as shown below. That shouldn't come as a surprise: the library accepts anon-closures, while clients of it provide them.</p>
+
+<ul>
+<li>out of the box, ie <code>-neo:o1 -closurify:delegate</code>
+</li>
+</ul><pre><code>dir build/pack/lib
+-rw-r--r-- 1 magarcia users 12298669 Jun 19 00:30 scala-compiler.jar
+-rw-r--r-- 1 magarcia users  6653449 Jun 19 00:30 scala-library.jar
+</code></pre>
+
+<ul>
+<li>using reflection-based closures, leaving optimization level to its default. In other words <code>-neo:o1 -closurify:reflect</code>
+</li>
+</ul><pre><code>dir build/pack/lib
+-rw-r--r-- 1 magarcia users 8934181 Jun 19 13:44 scala-compiler.jar
+-rw-r--r-- 1 magarcia users 6141671 Jun 19 13:44 scala-library.jar
+</code></pre>
+
 <p>Thread about this feature at the scala-on-android group: <a href="https://groups.google.com/forum/#!topic/scala-on-android/Uvn_JHemy74">https://groups.google.com/forum/#!topic/scala-on-android/Uvn_JHemy74</a></p>
 
 <h1>
