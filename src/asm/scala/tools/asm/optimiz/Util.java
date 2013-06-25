@@ -306,6 +306,55 @@ public class Util {
         return (m.access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE)) == 0;
     }
 
+    public static boolean isJavaBox(final AbstractInsnNode insn) {
+        return (insn.getType() == AbstractInsnNode.METHOD_INSN) && isJavaBoxCall((MethodInsnNode) insn);
+    }
+
+    public static boolean isJavaBoxCall(final MethodInsnNode mi) {
+
+        if (!"valueOf".equals(mi.name)) return false;
+
+        Type[] argTs = Type.getArgumentTypes(mi.desc);
+        if (argTs.length != 1) return false;
+
+        switch (argTs[0].getSort()) {
+            case Type.BOOLEAN: return "java/lang/Boolean".equals(mi.owner)   && "(Z)Ljava/lang/Boolean;".equals(mi.desc);
+            case Type.BYTE:    return "java/lang/Byte".equals(mi.owner)      && "(B)Ljava/lang/Byte;".equals(mi.desc);
+            case Type.CHAR:    return "java/lang/Character".equals(mi.owner) && "(C)Ljava/lang/Character;".equals(mi.desc);
+            case Type.SHORT:   return "java/lang/Short".equals(mi.owner)     && "(S)Ljava/lang/Short;".equals(mi.desc);
+            case Type.INT:     return "java/lang/Integer".equals(mi.owner)   && "(I)Ljava/lang/Integer;".equals(mi.desc);
+            case Type.LONG:    return "java/lang/Long".equals(mi.owner)      && "(J)Ljava/lang/Long;".equals(mi.desc);
+            case Type.FLOAT:   return "java/lang/Float".equals(mi.owner)     && "(F)Ljava/lang/Float;".equals(mi.desc);
+            case Type.DOUBLE:  return "java/lang/Double".equals(mi.owner)    && "(D)Ljava/lang/Double;".equals(mi.desc);
+
+            default: return false;
+        }
+
+    }
+
+    public static boolean isJavaUnBox(final AbstractInsnNode insn) {
+        return (insn.getType() == AbstractInsnNode.METHOD_INSN) && isJavaUnBoxCall((MethodInsnNode) insn);
+    }
+
+    public static boolean isJavaUnBoxCall(final MethodInsnNode mi) {
+
+        Type rt = Type.getReturnType(mi.desc);
+
+        switch (rt.getSort()) {
+            case Type.BOOLEAN: return "java/lang/Boolean".equals(mi.owner)   && "()Z".equals(mi.desc)  &&  "booleanValue".equals(mi.name);
+            case Type.BYTE:    return "java/lang/Byte".equals(mi.owner)      && "()B".equals(mi.desc)  &&  "byteValue".equals(mi.name);
+            case Type.CHAR:    return "java/lang/Character".equals(mi.owner) && "()C".equals(mi.desc)  &&  "charValue".equals(mi.name);
+            case Type.SHORT:   return "java/lang/Short".equals(mi.owner)     && "()S".equals(mi.desc)  &&  "shortValue".equals(mi.name);
+            case Type.INT:     return "java/lang/Integer".equals(mi.owner)   && "()I".equals(mi.desc)  &&  "intValue".equals(mi.name);
+            case Type.LONG:    return "java/lang/Long".equals(mi.owner)      && "()J".equals(mi.desc)  &&  "longValue".equals(mi.name);
+            case Type.FLOAT:   return "java/lang/Float".equals(mi.owner)     && "()F".equals(mi.desc)  &&  "floatValue".equals(mi.name);
+            case Type.DOUBLE:  return "java/lang/Double".equals(mi.owner)    && "()D".equals(mi.desc)  &&  "doubleValue".equals(mi.name);
+
+            default: return false;
+        }
+
+    }
+
     // ------------------------------------------------------------------------
     // maxLocals and maxStack
     // ------------------------------------------------------------------------
