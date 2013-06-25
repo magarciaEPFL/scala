@@ -209,6 +209,22 @@ public abstract class Interpreter<V extends Value> {
             V expected) throws AnalyzerException;
 
     /**
+     * Interprets a bytecode return instruction. This method is called for the
+     * following opcodes:
+     *
+     * POP, POP2
+     *
+     * @param insn the bytecode instruction to be interpreted.
+     * @param value the argument of the instruction to be interpreted.
+     * @throws AnalyzerException if an error occured during the interpretation.
+     */
+    public void drop(
+        AbstractInsnNode insn,
+        V value) throws AnalyzerException {
+
+    }
+
+    /**
      * Merges two values. The merge operation must return a value that
      * represents both values (for instance, if the two values are two types,
      * the merged value must be a common super type of the two types. If the two
