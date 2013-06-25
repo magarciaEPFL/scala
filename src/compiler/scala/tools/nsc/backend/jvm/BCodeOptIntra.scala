@@ -221,6 +221,33 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
   } // end of class EssentialCleanser
 
+  class QuickCleanser(cnode: asm.tree.ClassNode) extends EssentialCleanser(cnode) {
+
+    val constantFolder      = new asm.optimiz.ConstantFolder
+
+    //--------------------------------------------------------------------
+    // First optimization pack
+    //--------------------------------------------------------------------
+
+    /*
+     *  Intra-method optimizations performed until a fixpoint is reached.
+     */
+    final def basicIntraMethodOpt(mnode: asm.tree.MethodNode) {
+      val cName = cnode.name
+      var keepGoing = false
+      do {
+        keepGoing = false
+
+        keepGoing |= cleanseMethod(cName, mnode)
+
+        constantFolder.transform(cName, mnode);       // propagates primitive constants, performs ops and simplifies control-flow based on that.
+        keepGoing |= constantFolder.changed
+
+      } while (keepGoing)
+    }
+
+  } // end of class QuickCleanser
+
   /*
    * One of the intra-method optimizations (dead-code elimination)
    * and a few of the inter-procedural ones (inlining)
