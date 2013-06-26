@@ -691,12 +691,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       constructors            -> "move field definitions into constructors",
       mixer                   -> "mixin composition",
       cleanup                 -> "platform-specific cleanups, generate reflective calls",
-      genicode                -> "generate portable intermediate code",
-      inliner                 -> "optimization: do inlining",
-      inlineExceptionHandlers -> "optimization: inline exception handlers",
-      closureElimination      -> "optimization: eliminate uncalled closures",
-      constantOptimization    -> "optimization: optimize null and other constants",
-      deadCode                -> "optimization: eliminate dead code",
       terminal                -> "The last phase in the compiler chain"
     )
 
@@ -705,9 +699,15 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   // This is slightly inelegant but it avoids adding a new member to SubComponent,
   // and attractive -Xshow-phases output is unlikely if the descs span 20 files anyway.
   private val otherPhaseDescriptions = Map(
-    "flatten"  -> "eliminate inner classes",
-    "jvm"      -> "generate JVM bytecode"
-  ) withDefaultValue ""
+    "flatten"        -> "eliminate inner classes",
+    "icode"          -> "generate portable intermediate code",
+    "inliner"        -> "optimization: do inlining",
+    "inlinehandlers" -> "optimization: inline exception handlers",
+    "closelim"       -> "optimization: eliminate uncalled closures",
+    "constopt"       -> "optimization: optimize null and other constants",
+    "dce"            -> "optimization: eliminate dead code",
+    "jvm"            -> "generate JVM bytecode"
+  )
 
   protected def computePlatformPhases() = platform.platformPhases foreach { sub =>
     addToPhasesSet(sub, otherPhaseDescriptions(sub.phaseName))

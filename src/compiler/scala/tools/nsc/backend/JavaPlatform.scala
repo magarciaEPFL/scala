@@ -38,14 +38,11 @@ trait JavaPlatform extends Platform {
     // replaces the tighter abstract definition here. If we had DOT typing rules, the two
     // types would be conjoined and everything would work out. Yet another reason to push for DOT.
 
-  private def classEmitPhase =
-    if (settings.isBCodeActive) genBCode
-    else genASM
+  private def emitterPhases: List[SubComponent] =
+    if (settings.isBCodeActive) List(genBCode)
+    else List(genicode, inliner, inlineExceptionHandlers, closureElimination, constantOptimization, deadCode, genASM)
 
-  def platformPhases = List(
-    flatten,        // get rid of inner classes
-    classEmitPhase  // generate .class files
-  )
+  def platformPhases: List[SubComponent] = flatten :: emitterPhases
 
   lazy val externalEquals          = getDecl(BoxesRunTimeClass, nme.equals_)
   lazy val externalEqualsNumNum    = getDecl(BoxesRunTimeClass, nme.equalsNumNum)
