@@ -1,1 +1,1 @@
--Xplugin:. -Xshow-phases -P:ploogin:inploog
+-Xplugin:. -Ybackend:GenASM -Xshow-phases -P:ploogin:inploog

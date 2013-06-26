@@ -400,7 +400,7 @@ abstract class ClassfileParser {
     // was "at flatten.prev"
     enteringFlatten {
       for (part0 <- parts; if !(part0 == ""); part = newTermName(part0)) {
-        val sym1 = enteringIcode {
+        val sym1 = exitingCleanup {
           sym.linkedClassOfClass.info
           sym.info.decl(part.encode)
         }//.suchThat(module == _.isModule)
