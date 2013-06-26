@@ -45,12 +45,12 @@
 </ol><h1>
 <a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored82</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored85</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored82">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored82</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored85">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored85</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to <a href="#GettingStarted">Getting Started</a>.</p>
@@ -85,63 +85,6 @@
 <p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-closurify:delegating</code> ).</p>
 
 <p>Another closure-conversion approach,  <code>-closurify:reflect</code> , achieves 30% code reduction, at the cost of having <code>apply()</code> perform a reflective invocation, as described next.</p>
-
-<h2>
-<a name="14-reflection-based-lambdas-aka--closurifyreflect-" class="anchor" href="#14-reflection-based-lambdas-aka--closurifyreflect-"><span class="octicon octicon-link"></span></a>1.4 Reflection-based lambdas (aka <code>-closurify:reflect</code> )</h2>
-
-<p>Remember all those little classfiles for anonymous closures?
-How about using the following as template instead? (in the example, for lambdas of arity 2).</p>
-
-<div class="highlight"><pre><span class="k">package</span> <span class="nn">scala.runtime</span>
-
-<span class="k">final</span> <span class="k">class</span> <span class="nc">ReflBasedFunR2</span><span class="o">[</span><span class="kt">-T1</span>, <span class="kt">-T2</span>, <span class="kt">+R</span><span class="o">](</span>
-  <span class="n">delegate</span><span class="k">:</span> <span class="kt">java.lang.reflect.Method</span><span class="o">,</span>
-  <span class="n">receiver</span><span class="k">:</span> <span class="kt">Object</span><span class="o">,</span>
-  <span class="n">args</span><span class="k">:</span> <span class="kt">Array</span><span class="o">[</span><span class="kt">Object</span><span class="o">]</span>
-<span class="o">)</span> <span class="k">extends</span> <span class="nc">AbstractFunction2</span><span class="o">[</span><span class="kt">T1</span>, <span class="kt">T2</span>, <span class="kt">R</span><span class="o">]</span> <span class="o">{</span>
-
-  <span class="cm">/** Apply the body of this function to the argument{s}.</span>
-<span class="cm">   *  @return   the result of function application.</span>
-<span class="cm">   */</span>
-  <span class="k">def</span> <span class="n">apply</span><span class="o">(</span><span class="n">v1</span><span class="k">:</span> <span class="kt">T1</span><span class="o">,</span> <span class="n">v2</span><span class="k">:</span> <span class="kt">T2</span><span class="o">)</span><span class="k">:</span> <span class="kt">R</span> <span class="o">=</span> <span class="o">{</span>
-    <span class="n">args</span><span class="o">(</span><span class="mi">0</span><span class="o">)</span> <span class="k">=</span> <span class="n">v1</span><span class="o">.</span><span class="n">asInstanceOf</span><span class="o">[</span><span class="kt">AnyRef</span><span class="o">]</span>
-    <span class="n">args</span><span class="o">(</span><span class="mi">1</span><span class="o">)</span> <span class="k">=</span> <span class="n">v2</span><span class="o">.</span><span class="n">asInstanceOf</span><span class="o">[</span><span class="kt">AnyRef</span><span class="o">]</span>
-    <span class="k">try</span> <span class="o">{</span>
-      <span class="n">delegate</span><span class="o">.</span><span class="n">invoke</span><span class="o">(</span><span class="n">receiver</span><span class="o">,</span> <span class="n">args</span><span class="k">:</span> <span class="k">_</span><span class="kt">*</span><span class="o">).</span><span class="n">asInstanceOf</span><span class="o">[</span><span class="kt">R</span><span class="o">]</span>
-    <span class="o">}</span> <span class="k">catch</span> <span class="o">{</span>
-      <span class="k">case</span> <span class="n">ite</span><span class="k">:</span> <span class="kt">java.lang.reflect.InvocationTargetException</span> <span class="o">=&gt;</span>
-        <span class="k">throw</span> <span class="n">ite</span><span class="o">.</span><span class="n">getCause</span><span class="o">()</span>
-    <span class="o">}</span>
-  <span class="o">}</span>
-
-<span class="o">}</span>
-</pre></div>
-
-<p>Isn't that a lot slower? On Android I haven't tried, but when compiling the compiler the slowdown lies around 5%. To lessen the performance impact, 
-the "target method" is looked up at most once, and cached afterwards.
-Lookup via <code>getDeclaredMethod()</code> is the expensive part of "reflection", successive invocations on it are comparatively unexpensive.</p>
-
-<p>Given the lambdas subclass <code>AbstractFunctionX</code> , the receiver won't notice the difference. The "target method" is public thus posing no access restriction when called from the lambda.</p>
-
-<p>The standard library doesn't get shrinked unlike the compiler, which goes from 12MB down to 8MB as shown below. That shouldn't come as a surprise: the library accepts anon-closures, while clients of it provide them.</p>
-
-<ul>
-<li>out of the box, ie <code>-neo:o1 -closurify:delegate</code>
-</li>
-</ul><pre><code>dir build/pack/lib
--rw-r--r-- 1 magarcia users 12298669 Jun 19 00:30 scala-compiler.jar
--rw-r--r-- 1 magarcia users  6653449 Jun 19 00:30 scala-library.jar
-</code></pre>
-
-<ul>
-<li>using reflection-based closures, leaving optimization level to its default. In other words <code>-neo:o1 -closurify:reflect</code>
-</li>
-</ul><pre><code>dir build/pack/lib
--rw-r--r-- 1 magarcia users 8934181 Jun 19 13:44 scala-compiler.jar
--rw-r--r-- 1 magarcia users 6141671 Jun 19 13:44 scala-library.jar
-</code></pre>
-
-<p>Thread about this feature at the scala-on-android group: <a href="https://groups.google.com/forum/#!topic/scala-on-android/Uvn_JHemy74">https://groups.google.com/forum/#!topic/scala-on-android/Uvn_JHemy74</a></p>
 
 <h1>
 <a name="2-whats-new-in-the-new-optimizer" class="anchor" href="#2-whats-new-in-the-new-optimizer"><span class="octicon octicon-link"></span></a><a name="WhatsNew">2</a> What's new in the new optimizer</h1>
@@ -371,16 +314,20 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-7560">SI-7560</a> the ICode optimizer doesn't DCE-away trivial branches </li>
 <li>
-<a href="https://issues.scala-lang.org/browse/SI-7589">SI-7589</a> VerifyError under <code>-Yinline -Yinline-handlers</code> </li>
+<a href="https://issues.scala-lang.org/browse/SI-7589">SI-7589</a> VerifyError under <code>-Yinline -Yinline-handlers</code>
+</li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-7607">SI-7607</a> optimizer changes behavior of IDIV, LDIV, IREM, LREM bytecode instructions when the result is dropped<br>
+</li>
 <li>all <code>ICodeReader</code> bugs (not used anymore)</li>
 </ul><h1>
 <a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored82</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored85</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored82
-cd GenRefactored82
-git checkout -b GenRefactored82 origin/GenRefactored82
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored85
+cd GenRefactored85
+git checkout -b GenRefactored85 origin/GenRefactored85
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -399,7 +346,7 @@ scalacOptions ++= Seq( . . . your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored82</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored85</code>, building the compiler with <code>ant</code>).</p>
 
 <h2>
 <a name="41-meaning-of-optimization-levels" class="anchor" href="#41-meaning-of-optimization-levels"><span class="octicon octicon-link"></span></a>4.1 Meaning of optimization levels</h2>
@@ -428,8 +375,6 @@ scalacOptions ++= Seq( . . . your options
 </td> </tr>
 <tr>
 <td><code>-closurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
-<tr>
-<td><code>-closurify:reflect</code></td> <td>aka "Reflection-based lambdas" Rather than having a dedicated classfile for each anon-closure, a single closure-class is used per function-arity. The target method (denoting the closure body) is kept as a <code>java.lang.reflect.Method</code> instance. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
 </table><h2>
 <a name="43-diagnostics" class="anchor" href="#43-diagnostics"><span class="octicon octicon-link"></span></a>4.3 Diagnostics</h2>
 
@@ -449,9 +394,9 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored82/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored85/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored82</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored85</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
