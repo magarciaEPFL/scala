@@ -135,6 +135,8 @@ abstract class GenBCode extends BCodeSyncAndTry {
      */
     override def run() {
 
+      assert(settings.isBCodeActive, "Attempt to run GenBCode in a run whose bytecode emitter is GenASM")
+
       arrivalPos = 0 // just in case
       scalaPrimitives.init
       initBCodeTypes()

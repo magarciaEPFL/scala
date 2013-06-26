@@ -230,8 +230,9 @@ trait ScalaSettings extends AbsScalaSettings
   /**
    * Helper utilities for use by checkConflictingSettings()
    */
+  def isICodeActive   =  isICodeAskedFor
   def isBCodeActive   = !isICodeAskedFor
-  def isBCodeAskedFor = (neo.value != "GenASM")
-  def isICodeAskedFor = { (neo.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser }
+  def isBCodeAskedFor = (neo.value == "GenBCode")
+  def isICodeAskedFor = (neo.value == "GenASM" || optimiseSettings.exists(_.value) || writeICode.isSetByUser)
 
 }

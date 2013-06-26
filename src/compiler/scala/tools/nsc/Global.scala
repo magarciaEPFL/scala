@@ -621,7 +621,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   // phaseName = "bcode"
   object genBCode extends {
     val global: Global.this.type = Global.this
-    val runsAfter = List("dce")
+    val runsAfter = List("cleanup")
     val runsRightAfter = None
   } with GenBCode
 
@@ -691,12 +691,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       constructors            -> "move field definitions into constructors",
       mixer                   -> "mixin composition",
       cleanup                 -> "platform-specific cleanups, generate reflective calls",
-      genicode                -> "generate portable intermediate code",
-      inliner                 -> "optimization: do inlining",
-      inlineExceptionHandlers -> "optimization: inline exception handlers",
-      closureElimination      -> "optimization: eliminate uncalled closures",
-      constantOptimization    -> "optimization: optimize null and other constants",
-      deadCode                -> "optimization: eliminate dead code",
       terminal                -> "The last phase in the compiler chain"
     )
 
@@ -705,9 +699,15 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   // This is slightly inelegant but it avoids adding a new member to SubComponent,
   // and attractive -Xshow-phases output is unlikely if the descs span 20 files anyway.
   private val otherPhaseDescriptions = Map(
-    "flatten"  -> "eliminate inner classes",
-    "jvm"      -> "generate JVM bytecode"
-  ) withDefaultValue ""
+    "flatten"        -> "eliminate inner classes",
+    "icode"          -> "generate portable intermediate code",
+    "inliner"        -> "optimization: do inlining",
+    "inlinehandlers" -> "optimization: inline exception handlers",
+    "closelim"       -> "optimization: eliminate uncalled closures",
+    "constopt"       -> "optimization: optimize null and other constants",
+    "dce"            -> "optimization: eliminate dead code",
+    "jvm"            -> "generate JVM bytecode"
+  )
 
   protected def computePlatformPhases() = platform.platformPhases foreach { sub =>
     addToPhasesSet(sub, otherPhaseDescriptions(sub.phaseName))
@@ -1056,6 +1056,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   @inline final def exitingSpecialize[T](op: => T): T     = exitingPhase(currentRun.specializePhase)(op)
   @inline final def exitingTyper[T](op: => T): T          = exitingPhase(currentRun.typerPhase)(op)
   @inline final def exitingUncurry[T](op: => T): T        = exitingPhase(currentRun.uncurryPhase)(op)
+  @inline final def exitingCleanup[T](op: => T): T        = exitingPhase(currentRun.cleanupPhase)(op)
   @inline final def enteringErasure[T](op: => T): T       = enteringPhase(currentRun.erasurePhase)(op)
   @inline final def enteringExplicitOuter[T](op: => T): T = enteringPhase(currentRun.explicitouterPhase)(op)
   @inline final def enteringFlatten[T](op: => T): T       = enteringPhase(currentRun.flattenPhase)(op)
@@ -1423,7 +1424,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
       if (canCheck) {
         phase = globalPhase
-        if (globalPhase.id >= icodePhase.id) icodeChecker.checkICodes()
+        if (settings.isICodeActive && globalPhase.id >= icodePhase.id) icodeChecker.checkICodes()
         else treeChecker.checkTrees()
       }
     }
@@ -1529,7 +1530,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
         // progress update
         informTime(globalPhase.description, startTime)
-        val shouldWriteIcode = (
+        val shouldWriteIcode = settings.isICodeActive && (
              (settings.writeICode.isSetByUser && (settings.writeICode containsPhase globalPhase))
           || (!settings.Xprint.doAllPhases && (settings.Xprint containsPhase globalPhase) && runIsAtOptimiz)
         )

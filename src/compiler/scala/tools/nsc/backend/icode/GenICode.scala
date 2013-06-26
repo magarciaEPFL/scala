@@ -52,7 +52,7 @@ abstract class GenICode extends SubComponent  {
     }
 
     override def apply(unit: CompilationUnit): Unit = {
-      if (settings.isBCodeActive) { return }
+      assert(!settings.isBCodeActive, "Attempt to run GenICode in a run whose bytecode emitter is GenBCode")
       this.unit = unit
       unit.icode.clear()
       informProgress("Generating icode for " + unit)
