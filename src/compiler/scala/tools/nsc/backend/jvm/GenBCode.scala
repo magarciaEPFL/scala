@@ -717,7 +717,7 @@ abstract class GenBCode extends BCodeOptClosu {
         val candidates: List[MethodNode] =
           for(
             mn <- candidateMethods;
-            if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
+            if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.endpointMTLambdaStyle.getDescriptor)
           ) yield mn;
 
         assert(candidates.nonEmpty && candidates.tail.isEmpty)

@@ -773,6 +773,16 @@ abstract class BCodeIdiomatic extends BCodeGlue {
 
     @inline final def toFieldList:  List[asm.tree.FieldNode] = { JListWrapper(cnode.fields).toList }
 
+    @inline final def getMethodOrNull(name: String, descr: String): asm.tree.MethodNode = {
+      val iter = cnode.methods.iterator()
+      while(iter.hasNext) {
+        val curr = iter.next()
+        if (curr.name == name && curr.desc == descr) return curr;
+      }
+
+      null
+    }
+
   }
 
   implicit class InsnIterMethodNode(mnode: asm.tree.MethodNode) {
