@@ -968,7 +968,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       debuglog(s"Potentially conflicting names for forwarders: $conflictingNames")
 
       for (m <- moduleClass.info.membersBasedOnFlags(ExcludedForwarderFlags, symtab.Flags.METHOD)) {
-        if (m.isType || m.isDeferred || (m.owner eq definitions.ObjectClass) || m.isConstructor)
+        if (m.isType || m.isDeferred || (m.owner eq definitions.ObjectClass) || m.isConstructor || m.isLiftedMethod)
           debuglog(s"No forwarder for '$m' from $jclassName to '$moduleClass'")
         else if (conflictingNames(m.name))
           log(s"No forwarder for $m due to conflict with ${linkedClass.info.member(m.name)}")
