@@ -33,9 +33,41 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
    *  @param epMT      ASM method type of the endpoint
    *  @param closuBT   BType of the dclosure-class targeting the endpoint
    *  @param closuCtor the only constructor of the dclosure
+   *  @param arity     arity of the dclosure
+   *  @param isImplClassMethod
+   *                   whether the class declaring the endpoint is an implementation class
+   *                   (used to find out whether the first formal of the endpoint denotes a self-reference,
+   *                   followed by formals for apply-args if any).
    *
    */
-  case class DClosureEndpoint(epName: String, epMT: BMType, closuBT: BType, closuCtor: MethodNode)
+  case class DClosureEndpoint(epName:    String,
+                              epMT:      BMType,
+                              closuBT:   BType,
+                              closuCtor: MethodNode,
+                              arity:     Int,
+                              isImplClassMethod: Boolean) {
+
+    def delegateParamTs = epMT.argumentTypes.toList
+
+    def formalsForCaptured: List[BType] =
+      if (isImplClassMethod) delegateParamTs.head :: delegateParamTs.tail.drop(arity)
+      else delegateParamTs.drop(arity)
+
+    def delegateApplySection: List[BType] =
+      if (isImplClassMethod) delegateParamTs.tail.take(arity)
+      else delegateParamTs.take(arity)
+
+    /*
+     * A LambdaMetaFactory in JDK8 delivers lambdas that assume
+     * the endpoint to have arguments for all captured values and for apply-args (in that order).
+     * In contrast, endpoints emerge from LambdaLift with formal-params for captured values appended after those for apply-args.
+     * Moreover, the first formal of an endpoint in an implementation class denotes the self-reference.
+     *
+     * This method returns the adapted method-type after re-shuffling formal-params to follow the LambdaMetaFactory contract.
+     */
+    val endpointMTLambdaStyle = BMType(epMT.returnType, mkArray(formalsForCaptured ::: delegateApplySection))
+
+  }
 
   abstract class LateClosureBuilder(cunit: CompilationUnit) extends PlainSkelBuilder(cunit) {
 
@@ -471,6 +503,8 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
       // registers the closure's internal name in Names.chrs, and let populateDClosureMaps() know about closure endpoint
       val closuBT = brefType(closuCNode.name)
 
+      val delegateInfoPack = DClosureEndpoint(delegateJavaName, delegateMT, closuBT, ctor, arity, isImplClassMethod)
+
       val fieldsMap: Map[String, BType] = closuStateNames.zip(closuStateBTs).toMap
 
       /*
@@ -539,17 +573,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           loadField(closuStateNames.head)
         }
 
-        // after that, load each apply-argument
-        val callerParamsBTs = ultimateMT.argumentTypes.toList
-        assert(callerParamsBTs.size == delegateApplySection.size)
-        var idx = 1
-        for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(delegateApplySection)) {
-          loadLocal(idx, callerParamBT)
-          spclzdAdapt(ultimate, callerParamBT, calleeParamBT)
-          idx += callerParamBT.getSize
-        }
-
-        // now it only remains to load non-outer closure-state fields
+        // after that, load non-outer closure-state fields
         val restFieldNames = {
           if (!isImplClassMethod) {
             if (hasOuter) closuStateNames.tail else closuStateNames
@@ -562,14 +586,25 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
           // no adapt needed because the closure-fields were derived from the delegate's params for captured valued.
         }
 
+        // now it only remains to load each apply-argument
+        val callerParamsBTs = ultimateMT.argumentTypes.toList
+        assert(callerParamsBTs.size == delegateApplySection.size)
+        var idx = 1
+        for(Pair(callerParamBT, calleeParamBT) <- callerParamsBTs.zip(delegateApplySection)) {
+          loadLocal(idx, callerParamBT)
+          spclzdAdapt(ultimate, callerParamBT, calleeParamBT)
+          idx += callerParamBT.getSize
+        }
+
         val callOpc =
           if (hasOuter || hasStaticModuleOwner) asm.Opcodes.INVOKEVIRTUAL
           else asm.Opcodes.INVOKESTATIC
+
         ultimate.visitMethodInsn(
           callOpc,
           outerTK.getInternalName,
           delegateJavaName,
-          delegateMT.getDescriptor
+          delegateInfoPack.endpointMTLambdaStyle.getDescriptor
         )
 
         spclzdAdapt(ultimate, delegateMT.returnType, ultimateMT.returnType)
@@ -631,7 +666,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
       log(
         sm"""genLateClosure: added Late-Closure-Class ${closuCNode.name}
-            | for endpoint ${delegateJavaName}${delegateMT.getDescriptor}
+            | for endpoint ${delegateJavaName}
             | in class ${outerTK.getInternalName}. Enclosing method ${methodSignature(cnode, mnode)}
             | position in source file: ${fakeCallsite.pos}"""
       )
@@ -646,10 +681,7 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
        *     or
        *   - a specialized overload (created by, guess who, "specialize") for the above
        */
-      closuresForDelegates.put(
-        delegateSym,
-        DClosureEndpoint(delegateJavaName, delegateMT, closuBT, ctor)
-      )
+      closuresForDelegates.put(delegateSym, delegateInfoPack)
 
       /*
        * There's a problem with running a Type-Flow Analysis at this point to confirm the well-formedness of `closuCNode`:
@@ -661,6 +693,96 @@ abstract class BCodeLateClosuBuilder extends BCodeSkelBuilder {
 
       castToBT
     } // end of genLateClosure()
+
+    override def genPlainClass(cd: ClassDef) {
+      super.genPlainClass(cd)
+      // adapt the endpoints of dclosures for LambdaMetaFactory
+      closuresForDelegates.values foreach adaptLambdaMetaFactoryStyle
+    }
+
+    /*
+     * A LambdaMetaFactory in JDK8 delivers lambdas that assume
+     * the endpoint to have arguments for all captured values and for apply-args (in that order).
+     * In contrast, endpoints emerge from LambdaLift with formal-params for captured values appended after those for apply-args.
+     * Moreover, the first formal of an endpoint in an implementation class denotes the self-reference.
+     *
+     * This method returns the adapted method-type after re-shuffling formal-params to follow the LambdaMetaFactory contract.
+     */
+    private def adaptLambdaMetaFactoryStyle(infoPack: DClosureEndpoint) {
+      import asm.optimiz.Util
+
+      val DClosureEndpoint(epName, epMT, closuBT, closuCtor, arity, isImplClassMethod) = infoPack
+
+      val ep = cnode.getMethodOrNull(epName, epMT.getDescriptor)
+
+      val appArgsSection: List[BType] = infoPack.delegateApplySection
+      val slotsAppArgs = accSlots(appArgsSection)
+
+      // `currIdx` ranges over the indices of local-vars before re-shuffling
+      val hasThis     = Util.isInstanceMethod(ep)
+      var currIdx     = if (hasThis) 1 else 0;
+      val updLocalIdx = Array.fill(currIdx + accSlots(epMT.argumentTypes))(-1)
+      var remainingCaptured = infoPack.formalsForCaptured
+      val slotsCaptured: Int = accSlots(remainingCaptured)
+
+      // scan formal-params in their original (ie non-LambdaMetaFactory-style form)
+      // computing the updated idx along the way.
+
+      // (1) map self-reference (if any) to its new position
+      var slackDueToSelfRef = 0
+      if (isImplClassMethod) {
+        updLocalIdx(currIdx) = currIdx;
+        slackDueToSelfRef = epMT.argumentTypes(0).getSize
+        currIdx += slackDueToSelfRef
+        remainingCaptured = remainingCaptured.tail
+      }
+
+      // (2) map apply-args to their new position
+      for (appArgT <- infoPack.delegateApplySection) {
+        updLocalIdx(currIdx) = (currIdx - slackDueToSelfRef) + slotsCaptured;
+        currIdx += appArgT.getSize
+      }
+
+      // (3) map formals for captured-values to their new position
+      for (capturedT <- remainingCaptured) {
+        updLocalIdx(currIdx) = currIdx - slotsAppArgs;
+        currIdx += capturedT.getSize
+      }
+
+      def isShifted(oldIdx: Int) = {
+        val res = (oldIdx < updLocalIdx.length && (!hasThis || (oldIdx > 0)))
+        if (res) { assert(updLocalIdx(oldIdx) != -1) }
+        res
+      }
+
+      // (4)
+      ep.toList foreach {
+        case vi: asm.tree.VarInsnNode =>
+          val oldIdx = vi.`var`
+          if (isShifted(oldIdx)) {
+            vi.`var` = updLocalIdx(oldIdx)
+          }
+        case _ => ()
+      }
+
+      // (5)
+      val lvnIter = ep.localVariables.iterator()
+      while (lvnIter.hasNext()) {
+        val lvn: asm.tree.LocalVariableNode = lvnIter.next()
+        val oldIdx = lvn.index
+        if (isShifted(oldIdx)) {
+          lvn.index = updLocalIdx(oldIdx)
+        }
+      }
+
+      // (6)
+      ep.desc = infoPack.endpointMTLambdaStyle.getDescriptor
+
+      Util.computeMaxLocalsMaxStack(ep);
+
+    }
+
+    private def accSlots(ts: Iterable[BType]): Int = ts.map(_.getSize).fold(0)(_ + _)
 
   }
 
