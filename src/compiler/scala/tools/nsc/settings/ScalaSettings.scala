@@ -226,7 +226,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   val Ybackend = ChoiceSetting ("-Ybackend", "choice of bytecode emitter", "Choice of bytecode emitter.",
                                 List("GenASM", "GenBCode", "o1"),
-                                "GenBCode")
+                                "o1")
 
   val YbcodeEmitterThreads = IntSetting ("-Ybcode-emitter-threads",
     "Number of threads in the pool betweeen class file building and writing.",
