@@ -25,6 +25,14 @@ abstract class BCodeOptCommon extends BCodeHelpers {
 
   import global._
 
+  // volatile so that Worker2 threads see it
+  @volatile var isInliningDone          = false // affects only which checks (regarding dclosure usages) are applicable.
+  @volatile var isClassNodeBuildingDone = false // allows checking whether Worker1 thread is done, e.g. to register a new method descriptor as BType.
+
+  final def assertPipeline1Done(msg: String) {
+    assert(isClassNodeBuildingDone, msg)
+  }
+
   /*
    *  Single-access point for requests to parse bytecode for inlining purposes.
    *  Given the BType of a class with internal name,
@@ -397,7 +405,26 @@ abstract class BCodeOptCommon extends BCodeHelpers {
 
   } // end of object codeRepo
 
+  //--------------------------------------------------------
+  // Tracking of delegating-closures
+  //--------------------------------------------------------
+
+  final def isDClosure(iname: String) = closuRepo.isDelegatingClosure(iname)
+
   case class MethodRef(ownerClass: BType, mnode: MethodNode)
+
+  /*
+   *  @return the callee, for a MethodNodeInsn, represented as MethodRef. Otherwise null.
+   */
+  final def accessedMethodRef(insn: AbstractInsnNode): MethodRef = {
+    insn match {
+      case mi: MethodInsnNode =>
+        val ownerBT = lookupRefBType(mi.owner)
+        val mnode   = codeRepo.getMethod(ownerBT, mi.name, mi.desc).mnode
+        MethodRef(ownerBT, mnode)
+      case _ => null
+    }
+  }
 
   /*
    * Repository for Late-Closure-Classes.
@@ -429,11 +456,6 @@ abstract class BCodeOptCommon extends BCodeHelpers {
     }
 
   } // end of object closuRepo
-
-  def clearBCodeOpt() {
-    closuRepo.clear()
-    clearBCodeTypes()
-  }
 
   /*
    * @param mnode a MethodNode, usually found via codeRepo.getMethod(bt: BType, name: String, desc: String)
