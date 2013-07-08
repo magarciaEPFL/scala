@@ -46,7 +46,9 @@ import scala.language.postfixOps
 /*</export> */
 abstract class UnCurry extends InfoTransform
                           with scala.reflect.internal.transform.UnCurry
-                          with TypingTransformers with ast.TreeDSL {
+                          with TypingTransformers
+                          with ast.TreeDSL
+                          with LateClosureClasses {
   val global: Global               // need to repeat here because otherwise last mixin defines global as
                                    // SymbolTable. If we had DOT this would not be an issue
   import global._                  // the global environment
@@ -62,10 +64,10 @@ abstract class UnCurry extends InfoTransform
 
 // uncurry and uncurryType expand type aliases
 
-  class UnCurryTransformer(unit: CompilationUnit) extends TypingTransformer(unit) {
+  class UnCurryTransformer(unit: CompilationUnit) extends TypingTransformer(unit) with LCCTransformer {
     private var needTryLift       = false
     private var inPattern         = false
-    private var inConstructorFlag = 0L
+            var inConstructorFlag = 0L
     private val byNameArgs        = mutable.HashSet[Tree]()
     private val noApply           = mutable.HashSet[Tree]()
     private val newMembers        = mutable.Map[Symbol, mutable.Buffer[Tree]]()
@@ -212,13 +214,14 @@ abstract class UnCurry extends InfoTransform
     }
 
 
-    /**  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
+    /*
+     *  Performs closure conversion according to one of two approaches:
+     *    (a) hoisting the closure body, unless
+     *          - the closure is a constructor-argument; or
+     *          - a compiler setting dictates varargs methods should be eta-expanded to T* rather than Seq[T].
+     *    (b) traditional, ie the closure body goes to the anon-closure-class.
      *
-     *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
-     *      def apply(x_1: T_1, ..., x_N: T_n): R = body
-     *    }
-     *    new $anon()
-     *
+     *  The documentation of `closureConversionModern()` compares the pros and cons of both closure conversion approaches.
      */
     def transformFunction(fun: Function): Tree = {
       fun.tpe match {
@@ -235,38 +238,63 @@ abstract class UnCurry extends InfoTransform
         // nullary or parameterless
         case fun1 if fun1 ne fun => fun1
         case _ =>
-          val parents = addSerializable(abstractFunctionForFunctionType(fun.tpe))
-          val anonClass = fun.symbol.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation serialVersionUIDAnnotation
-          anonClass setInfo ClassInfoType(parents, newScope, anonClass)
 
-          val targs     = fun.tpe.typeArgs
-          val (formals, restpe) = (targs.init, targs.last)
-
-          val applyMethodDef = {
-            val methSym = anonClass.newMethod(nme.apply, fun.pos, FINAL)
-            val paramSyms = map2(formals, fun.vparams) {
-              (tp, param) => methSym.newSyntheticValueParam(tp, param.name)
-            }
-            methSym setInfoAndEnter MethodType(paramSyms, restpe)
-
-            fun.vparams foreach  (_.symbol.owner =  methSym)
-            fun.body changeOwner (fun.symbol     -> methSym)
-
-            val body    = localTyper.typedPos(fun.pos)(fun.body)
-            val methDef = DefDef(methSym, List(fun.vparams), body)
-
-            // Have to repack the type to avoid mismatches when existentials
-            // appear in the result - see SI-4869.
-            methDef.tpt setType localTyper.packedType(body, methSym)
-            methDef
+          // checking inConstructorFlag prevents hitting SI-6666
+          def isAmenableToModernConversion = {
+            (inConstructorFlag == 0) && isAmenableToLateDelegatingClosures(fun)
           }
 
-          localTyper.typedPos(fun.pos) {
-            Block(
-              List(ClassDef(anonClass, NoMods, ListOfNil, List(applyMethodDef), fun.pos)),
-              Typed(New(anonClass.tpe), TypeTree(fun.tpe)))
+          if (doConvertTraditional || !isAmenableToModernConversion) {
+            convertedTraditional += 1
+            closureConversionTraditional(fun)
           }
+          else {
+            convertedModern += 1
+            closureConversionModern(unit, fun)
+          }
+      }
+    }
 
+    /*  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
+     *
+     *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
+     *      def apply(x_1: T_1, ..., x_N: T_n): R = body
+     *    }
+     *    new $anon()
+     *
+     *  The documentation of `closureConversionModern()` compares the pros and cons of both closure conversion approaches.
+     */
+    def closureConversionTraditional(fun: Function): Tree = {
+      val parents = addSerializable(abstractFunctionForFunctionType(fun.tpe))
+      val anonClass = fun.symbol.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation serialVersionUIDAnnotation
+      anonClass setInfo ClassInfoType(parents, newScope, anonClass)
+
+      val targs     = fun.tpe.typeArgs
+      val (formals, restpe) = (targs.init, targs.last)
+
+      val applyMethodDef = {
+        val methSym = anonClass.newMethod(nme.apply, fun.pos, FINAL)
+        val paramSyms = map2(formals, fun.vparams) {
+          (tp, param) => methSym.newSyntheticValueParam(tp, param.name)
+        }
+        methSym setInfoAndEnter MethodType(paramSyms, restpe)
+
+        fun.vparams foreach  (_.symbol.owner =  methSym)
+        fun.body changeOwner (fun.symbol     -> methSym)
+
+        val body    = localTyper.typedPos(fun.pos)(fun.body)
+        val methDef = DefDef(methSym, List(fun.vparams), body)
+
+        // Have to repack the type to avoid mismatches when existentials
+        // appear in the result - see SI-4869.
+        methDef.tpt setType localTyper.packedType(body, methSym)
+        methDef
+      }
+
+      localTyper.typedPos(fun.pos) {
+        Block(
+          List(ClassDef(anonClass, NoMods, ListOfNil, List(applyMethodDef), fun.pos)),
+          Typed(New(anonClass.tpe), TypeTree(fun.tpe)))
       }
     }
 

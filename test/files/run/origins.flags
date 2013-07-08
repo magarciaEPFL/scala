@@ -1,1 +1,1 @@
--no-specialization
+-Yclosurify:traditional -no-specialization
