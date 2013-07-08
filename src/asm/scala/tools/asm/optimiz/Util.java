@@ -374,6 +374,138 @@ public class Util {
     }
 
     // ------------------------------------------------------------------------
+    // cloning
+    // ------------------------------------------------------------------------
+
+    public static Map<LabelNode, LabelNode> clonedLabels(final MethodNode mnode) {
+        return clonedLabels(mnode.instructions);
+    }
+
+    public static Map<LabelNode, LabelNode> clonedLabels(final InsnList is) {
+        ListIterator<AbstractInsnNode> iter   = is.iterator();
+        Map<LabelNode, LabelNode>      result = new HashMap<LabelNode, LabelNode>();
+        while (iter.hasNext()) {
+            AbstractInsnNode insn = iter.next();
+            if (insn.getType() == AbstractInsnNode.LABEL) {
+                result.put((LabelNode)insn, fabricateLabelNode());
+            }
+        }
+        return result;
+    }
+
+    public static LabelNode fabricateLabelNode() {
+        Label     lab  = new Label();
+        LabelNode labN = new LabelNode(lab);
+        lab.info       = labN;
+        return labN;
+    }
+
+    /**
+     * Returns a list of cloned instructions for those in input, except that FrameNodes aren't cloned
+     * (therefore, the returned list may well be shorter than input).
+     * The correspondence between original and clone is mapped in insnMap,
+     * a Map provided by the caller which is populated in this method.
+     */
+    public static InsnList clonedInsns(
+            final InsnList                                input,
+            final Map<LabelNode, LabelNode>               labelMap,
+            final Map<AbstractInsnNode, AbstractInsnNode> insnMap
+    ) {
+        assert insnMap.isEmpty();
+        ListIterator<AbstractInsnNode> iter = input.iterator();
+        InsnList output = new InsnList();
+        while (iter.hasNext()) {
+            AbstractInsnNode nxt = iter.next();
+            if (nxt.getType() != AbstractInsnNode.FRAME) {
+                // don't clone any frames as they most likely won't make sense at the new usage point
+                AbstractInsnNode cln = nxt.clone(labelMap);
+                output.add(cln);
+                insnMap.put(nxt, cln);
+            }
+        }
+        return output;
+    }
+
+    /**
+     * @param prefix at the new usage point, pasting cloned names of local vars as-is might lead to duplicates,
+     *               in particular for `this`. Thus a prefix (e.g., the callee's name) may be provided by the invoker.
+     */
+    public static List<LocalVariableNode> clonedLocalVariableNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
+        Iterator<LocalVariableNode> iter   = mnode.localVariables.iterator();
+        List<LocalVariableNode>     output = new LinkedList<LocalVariableNode>();
+        while (iter.hasNext()) {
+            LocalVariableNode oldLVN = iter.next();
+            LocalVariableNode newLVN = clonedLocalVariableNode(oldLVN, labelMap, prefix);
+            output.add(newLVN);
+        }
+        return output;
+    }
+
+    public static LocalVariableNode clonedLocalVariableNode(final LocalVariableNode old, final Map<LabelNode, LabelNode> labelMap, final String prefix) {
+        LocalVariableNode result = new LocalVariableNode(
+            prefix + old.name,
+            old.desc,
+            old.signature,
+            labelMap.get(old.start),
+            labelMap.get(old.end),
+            old.index
+        );
+        return result;
+    }
+
+    public static List<TryCatchBlockNode> clonedTryCatchBlockNodes(final MethodNode mnode, final Map<LabelNode, LabelNode> labelMap) {
+        Iterator<TryCatchBlockNode> iter    = mnode.tryCatchBlocks.iterator();
+        List<TryCatchBlockNode>     output  = new LinkedList<TryCatchBlockNode>();
+        while (iter.hasNext()) {
+            TryCatchBlockNode oldTCB = iter.next();
+            TryCatchBlockNode newTCB = clonedTryCatchBlockNode(oldTCB, labelMap);
+            output.add(newTCB);
+        }
+        return output;
+    }
+
+    public static TryCatchBlockNode clonedTryCatchBlockNode(final TryCatchBlockNode old, final Map<LabelNode, LabelNode> labelMap) {
+        TryCatchBlockNode result = new TryCatchBlockNode(
+            labelMap.get(old.start),
+            labelMap.get(old.end),
+            labelMap.get(old.handler),
+            old.type
+        );
+        return result;
+    }
+
+    /**
+     *
+     * Warning: none of
+     *   visibleAnnotations nor invisibleAnnotations nor attrs nor annotationDefault nor
+     *   visibleParameterAnnotations nor invisibleParameterAnnotations
+     * are copied over from `orig` to the copy. That's responsibility of the invoker.
+     *
+     * */
+    public static ClonedMethod clonedMethodNode(final MethodNode orig) {
+
+        MethodNode dup =
+                new MethodNode(
+                        Opcodes.ASM4,
+                        orig.access, orig.name,
+                        orig.desc,   orig.signature,
+                        (orig.exceptions.toArray(new String[orig.exceptions.size()]))
+                );
+
+        Map<LabelNode, LabelNode> labelMap = Util.clonedLabels(orig);
+        Map<AbstractInsnNode, AbstractInsnNode> insnMap = new java.util.HashMap<AbstractInsnNode, AbstractInsnNode>();
+        dup.instructions = Util.clonedInsns(orig.instructions, labelMap, insnMap);
+
+        dup.tryCatchBlocks = Util.clonedTryCatchBlockNodes(orig, labelMap);
+        dup.localVariables = Util.clonedLocalVariableNodes(orig, labelMap, "");
+
+        dup.maxLocals = orig.maxLocals;
+        dup.maxStack  = orig.maxStack;
+
+        return new ClonedMethod(dup, labelMap, insnMap);
+    }
+
+    // ------------------------------------------------------------------------
     // method descriptors and their formal params
     // ------------------------------------------------------------------------
 
@@ -506,5 +638,22 @@ public class Util {
         trace.p.print(pw);
         return sw.toString().trim();
     }
+
+    public static class ClonedMethod {
+
+        public final MethodNode mnode;
+        public final Map<LabelNode, LabelNode> labelMap;
+        public final Map<AbstractInsnNode, AbstractInsnNode> insnMap;
+
+        public ClonedMethod(
+                final MethodNode mnode,
+                final Map<LabelNode, LabelNode> labelMap,
+                final Map<AbstractInsnNode, AbstractInsnNode> insnMap) {
+            this.mnode    = mnode;
+            this.labelMap = labelMap;
+            this.insnMap  = insnMap;
+        }
+
+    } // end of class ClonedMethod
 
 }
