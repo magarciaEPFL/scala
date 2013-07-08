@@ -198,7 +198,7 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
     /*
      *  Removes dead code.
      *
-     *  When writing classfiles with "optimization level zero" (ie -neo:GenBCode)
+     *  When writing classfiles with "optimization level zero" (ie -Ybackend:GenBCode)
      *  the very least we want to do is remove dead code beforehand,
      *  so as to prevent an artifact of stack-frames computation from showing up,
      *  the artifact described at http://asm.ow2.org/doc/developer-guide.html#deadcode
@@ -381,8 +381,12 @@ abstract class BCodeOptIntra extends BCodeOuterSquash {
      *  An introduction to ASM bytecode rewriting can be found in Ch. 8. "Method Analysis" in
      *  the ASM User Guide, http://download.forge.objectweb.org/asm/asm4-guide.pdf
      *
+     *  TODO refreshInnerClasses() should also be run on dclosures
      */
     def cleanseClass() {
+
+      // a dclosure is optimized together with its master class by `DClosureOptimizer`
+      assert(!isDClosure(cnode.name), "A delegating-closure pretented to be optimized as plain class: " + cnode.name)
 
       // (1) intra-method
       intraMethodFixpoints(full = true)
