@@ -45,12 +45,12 @@
 </ol><h1>
 <a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored85</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored87</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored85">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored85</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored87">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored87</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to <a href="#GettingStarted">Getting Started</a>.</p>
@@ -82,9 +82,9 @@
 
 <p>The release version of <code>scalac</code> processes closures by creating inner classes early in the compilation pipeline (the "traditional" approach to closure conversion). Instead, the new backend postpones the creation of AST nodes for closures, simplifying the job of specialization, erasure, and other compiler phases. </p>
 
-<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-closurify:delegating</code> ).</p>
+<p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-Yclosurify:delegating</code> ).</p>
 
-<p>Another closure-conversion approach,  <code>-closurify:reflect</code> , achieves 30% code reduction, at the cost of having <code>apply()</code> perform a reflective invocation, as described next.</p>
+<p>Another closure-conversion approach,  <code>-Yclosurify:reflect</code> , achieves 30% code reduction, at the cost of having <code>apply()</code> perform a reflective invocation, as described next.</p>
 
 <h1>
 <a name="2-whats-new-in-the-new-optimizer" class="anchor" href="#2-whats-new-in-the-new-optimizer"><span class="octicon octicon-link"></span></a><a name="WhatsNew">2</a> What's new in the new optimizer</h1>
@@ -94,7 +94,7 @@
 
 <p>The existing inliner, once activated, will inline both callees found in external libraries (against which the program is being compiled) as well as callees in the program being compiled. There's no way to tell it to focus only in the intra-program case. The advantage of applying intra-program optimizations only is that at runtime updated libraries may be used (granted, binary compatible ones).</p>
 
-<p>The new optimizer associates <code>-neo:o2</code> with "intra-program optimizations" and <code>-neo:o3</code> with "cross-libraries optimizations", as discussed in more detail in Sec. 4.1.</p>
+<p>The new optimizer associates <code>-Ybackend:o2</code> with "intra-program optimizations" and <code>-Ybackend:o3</code> with "cross-libraries optimizations", as discussed in more detail in Sec. 4.1.</p>
 
 <h2>
 <a name="22-inlining" class="anchor" href="#22-inlining"><span class="octicon octicon-link"></span></a>2.2 Inlining</h2>
@@ -246,14 +246,14 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>The above reflects not so much code reductions (in terms of instruction count) but smaller constant pools due to Lean Closure Classes (an LCC just delegates to the class where the anon-closure is instantiated, which usually already has the constant pool entries that under "traditional" closure conversion have to be duplicated in the anon-closure-class).</p>
 
-<p>To benefit from code size reductions as well, <code>-neo:o1</code> (intra-method optimizations) or up will do the trick. Moreover, on a multicore <code>-neo:o1</code> doesn't increase appreciably compilation time, I'm actually thinking making it default.</p>
+<p>To benefit from code size reductions as well, <code>-Ybackend:o1</code> (intra-method optimizations) or up will do the trick. Moreover, on a multicore <code>-Ybackend:o1</code> doesn't increase appreciably compilation time, I'm actually thinking making it default.</p>
 
 <p>For example, method <code>driver()</code> in <code>test/files/run/t7181.scala</code> results in:</p>
 
 <ul>
-<li>881 instructions, when compiled with <code>-neo:o2 -closurify:delegating</code>
+<li>881 instructions, when compiled with <code>-Ybackend:o2 -Yclosurify:delegating</code>
 </li>
-<li>1004 instructions, when compiled with <code>-neo:GenASM -closurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison with <code>-neo:o2</code> is fair).</li>
+<li>1004 instructions, when compiled with <code>-Ybackend:GenASM -Yclosurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison with <code>-Ybackend:o2</code> is fair).</li>
 </ul><p>That's 881 vs 1004 instructions and not bytes, which still matters in case you're the one who has to read 881 vs 1004 lines of javap output.</p>
 
 <h2>
@@ -264,7 +264,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <h2>
 <a name="34-speeding-up-scalac" class="anchor" href="#34-speeding-up-scalac"><span class="octicon octicon-link"></span></a>3.4 Speeding up scalac</h2>
 
-<p>Speedups in the range 10% to 20% have been observed against the latest <code>scalac</code>. The upper range is achieved by having a compiler optimized by the new optimizer compile using <code>-neo:GenBCode -closurify:delegating</code> (ie unoptimized compilation, using the new bytecode emitter and Leaner Closure ASTs). Just one data point:</p>
+<p>Speedups in the range 10% to 20% have been observed against the latest <code>scalac</code>. The upper range is achieved by having a compiler optimized by the new optimizer compile using <code>-Ybackend:GenBCode -Yclosurify:delegating</code> (ie unoptimized compilation, using the new bytecode emitter and Leaner Closure ASTs). Just one data point:</p>
 
 <pre><code>[stopwatch] [locker.comp.timer: 1:43.359 sec]
 ...
@@ -325,11 +325,11 @@ the producer has its value consumed only by the DROP in question.</li>
 </ul><h1>
 <a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored85</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored87</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored85
-cd GenRefactored85
-git checkout -b GenRefactored85 origin/GenRefactored85
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored87
+cd GenRefactored87
+git checkout -b GenRefactored87 origin/GenRefactored87
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -343,12 +343,12 @@ ant all.clean &amp;&amp; ant
 scalaHome := Some(file("scala-with-new-backend/build/pack")),
 
 scalacOptions ++= Seq( . . . your options
-                      "-neo:o3", // the highest level of the new optimizer
+                      "-Ybackend:o3", // the highest level of the new optimizer
                        . . . more of your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored85</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored87</code>, building the compiler with <code>ant</code>).</p>
 
 <h2>
 <a name="41-meaning-of-optimization-levels" class="anchor" href="#41-meaning-of-optimization-levels"><span class="octicon octicon-link"></span></a>4.1 Meaning of optimization levels</h2>
@@ -357,15 +357,15 @@ scalacOptions ++= Seq( . . . your options
 
 <table>
 <tr>
-<td><code>-neo:GenASM</code></td>   <td>backdoor to use the old backend.</td> </tr>
+<td><code>-Ybackend:GenASM</code></td>   <td>backdoor to use the old backend.</td> </tr>
 <tr>
-<td><code>-neo:GenBCode</code></td> <td>use the new code emitter, just emitting trees as delivered by CleanUp</td> </tr>
+<td><code>-Ybackend:GenBCode</code></td> <td>use the new code emitter, just emitting trees as delivered by CleanUp</td> </tr>
 <tr>
-<td><code>-neo:o1</code></td>       <td>Intra-method optimizations and all closure optimizations except closure stack-allocation (in detail: <code>-neo:o1</code> performs minimization of closure state and closure "singletonization")</td> </tr>
+<td><code>-Ybackend:o1</code></td>       <td>Intra-method optimizations and all closure optimizations except closure stack-allocation (in detail: <code>-Ybackend:o1</code> performs minimization of closure state and closure "singletonization")</td> </tr>
 <tr>
-<td><code>-neo:o2</code></td>       <td>Intra-program optimizations. This includes any method inlining and closure stack-allocation as long as it affects only what's being compiled, as opposed to peeking inside external libraries (see below).</td> </tr>
+<td><code>-Ybackend:o2</code></td>       <td>Intra-program optimizations. This includes any method inlining and closure stack-allocation as long as it affects only what's being compiled, as opposed to peeking inside external libraries (see below).</td> </tr>
 <tr>
-<td><code>-neo:o3</code></td>       <td>Cross-libraries optimization: this includes the same kinds of optimization as above, with the caveat that bytecode from external <em>can be parsed</em> if needed to apply some optimization (e.g., this is the optimization level to picks to have <code>Range.foreach</code> inlined)</td> </tr>
+<td><code>-Ybackend:o3</code></td>       <td>Cross-libraries optimization: this includes the same kinds of optimization as above, with the caveat that bytecode from external <em>can be parsed</em> if needed to apply some optimization (e.g., this is the optimization level to picks to have <code>Range.foreach</code> inlined)</td> </tr>
 </table><p><em>Nota bene</em>: In order to ease migration from old to new optimizer, for now no error is emitted when mixing compiler flags for old and new optimizer. In this case the compiler silently falls back to the old optimizer. This "feature" allows keeping the test suite as is: all those tests asking for <code>-optimise</code> or one of its variants can run without modification.</p>
 
 <h2>
@@ -373,10 +373,10 @@ scalacOptions ++= Seq( . . . your options
 
 <table>
 <tr>
-<td><code>-closurify:traditional</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to <code>-neo:o1</code>
+<td><code>-Yclosurify:traditional</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to <code>-Ybackend:o1</code>
 </td> </tr>
 <tr>
-<td><code>-closurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
+<td><code>-Yclosurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
 </table><h2>
 <a name="43-diagnostics" class="anchor" href="#43-diagnostics"><span class="octicon octicon-link"></span></a>4.3 Diagnostics</h2>
 
@@ -396,14 +396,14 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored85/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored87/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored85</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-neo:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored87</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-Ybackend:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
 <pre><code>-      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-optimise"/&gt;&lt;/antcall&gt;
-+      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-neo:o3"/&gt;&lt;/antcall&gt;
++      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-Ybackend:o3"/&gt;&lt;/antcall&gt;
 </code></pre>
 
 <p>Second, <code>ant all.clean &amp;&amp; ant &amp;&amp; ant replacelocker &amp;&amp; ant nightly</code></p>
@@ -412,8 +412,8 @@ scalacOptions ++= Seq( . . . your options
 
 <pre><code>init:
      . . . 
-     [echo]       scalac args: -Yreify-copypaste  -neo:o1
-     [echo] scalac quick args: -Yreify-copypaste  -neo:o1 
+     [echo]       scalac args: -Yreify-copypaste  -Ybackend:o1
+     [echo] scalac quick args: -Yreify-copypaste  -Ybackend:o1 
      . . . 
 </code></pre>
 
@@ -494,7 +494,7 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 
 <ul>
 <li><strong>What about tests?</strong></li>
-</ul><p>As Sec. 5.1 shows, the test suite passes under all optimization levels, from <code>-neo:GenBCode</code> to <code>-neo:o1</code> through <code>-neo:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
+</ul><p>As Sec. 5.1 shows, the test suite passes under all optimization levels, from <code>-Ybackend:GenBCode</code> to <code>-Ybackend:o1</code> through <code>-Ybackend:o3</code>. It's always possible to include additional tests, for a correct optimizer: <em>they will also pass!</em> Thus if you are not convinced about the correctness argument, how about finding counter-examples? If you find one, please post it at scala-internals for discussion.</p>
 
 <h1>
 <a name="7-comments-benchmarks-test-cases-bug-reports-are-welcome" class="anchor" href="#7-comments-benchmarks-test-cases-bug-reports-are-welcome"><span class="octicon octicon-link"></span></a><a name="FeedbackWelcome">7</a> Comments, benchmarks, test cases, bug reports, are welcome.</h1>
