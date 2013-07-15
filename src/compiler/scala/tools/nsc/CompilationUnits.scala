@@ -114,11 +114,6 @@ trait CompilationUnits { self: Global =>
      */
     def targetPos: Position = NoPosition
 
-    /** The icode representation of classes in this compilation unit.
-     *  It is empty up to phase 'icode'.
-     */
-    val icode: LinkedHashSet[icodes.IClass] = new LinkedHashSet
-
     def echo(pos: Position, msg: String) =
       reporter.echo(pos, msg)
 

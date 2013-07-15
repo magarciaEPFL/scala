@@ -32,9 +32,6 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
    */
   abstract class PlainBodyBuilder(cunit: CompilationUnit) extends LateClosureBuilder(cunit) {
 
-    import icodes.TestOp
-    import icodes.opcodes.InvokeStyle
-
     /*  If the selector type has a member with the right name,
      *  it is the host class; otherwise the symbol's owner.
      */
@@ -120,7 +117,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
           code match {
             case POS => () // nothing
             case NEG => bc.neg(resKind)
-            case NOT => bc.genPrimitiveArithmetic(icodes.NOT, resKind)
+            case NOT => bc.genPrimitiveArithmetic(jvm.NOT, resKind)
             case _ => abort(s"Unknown unary operation: ${fun.symbol.fullName} code: $code")
           }
 
@@ -223,10 +220,83 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
       resKind
     }
 
+
+    /**
+     * Return the primitive code of the given operation. If the
+     * operation is an array get/set, we inspect the type of the receiver
+     * to demux the operation.
+     *
+     * @param fun The method symbol
+     * @param tpe The type of the receiver object. It is used only for array
+     *            operations
+     */
+    def getPrimitive(fun: Symbol, tpe: Type): Int = {
+      import definitions._
+      val code = scalaPrimitives.getPrimitive(fun)
+
+      def elementType = enteringTyper {
+        val arrayParent = tpe :: tpe.parents collectFirst {
+          case TypeRef(_, ArrayClass, elem :: Nil) => elem
+        }
+        arrayParent getOrElse sys.error(fun.fullName + " : " + (tpe :: tpe.baseTypeSeq.toList).mkString(", "))
+      }
+
+      code match {
+
+        case scalaPrimitives.APPLY =>
+          toTypeKind(elementType) match {
+            case BOOL    => scalaPrimitives.ZARRAY_GET
+            case BYTE    => scalaPrimitives.BARRAY_GET
+            case SHORT   => scalaPrimitives.SARRAY_GET
+            case CHAR    => scalaPrimitives.CARRAY_GET
+            case INT     => scalaPrimitives.IARRAY_GET
+            case LONG    => scalaPrimitives.LARRAY_GET
+            case FLOAT   => scalaPrimitives.FARRAY_GET
+            case DOUBLE  => scalaPrimitives.DARRAY_GET
+            case other if other.isRefOrArrayType => scalaPrimitives.OARRAY_GET
+            case _ =>
+              abort("Unexpected array element type: " + elementType)
+          }
+
+        case scalaPrimitives.UPDATE =>
+          toTypeKind(elementType) match {
+            case BOOL    => scalaPrimitives.ZARRAY_SET
+            case BYTE    => scalaPrimitives.BARRAY_SET
+            case SHORT   => scalaPrimitives.SARRAY_SET
+            case CHAR    => scalaPrimitives.CARRAY_SET
+            case INT     => scalaPrimitives.IARRAY_SET
+            case LONG    => scalaPrimitives.LARRAY_SET
+            case FLOAT   => scalaPrimitives.FARRAY_SET
+            case DOUBLE  => scalaPrimitives.DARRAY_SET
+            case other if other.isRefOrArrayType => scalaPrimitives.OARRAY_SET
+            case _ =>
+              abort("Unexpected array element type: " + elementType)
+          }
+
+        case scalaPrimitives.LENGTH =>
+          toTypeKind(elementType) match {
+            case BOOL    => scalaPrimitives.ZARRAY_LENGTH
+            case BYTE    => scalaPrimitives.BARRAY_LENGTH
+            case SHORT   => scalaPrimitives.SARRAY_LENGTH
+            case CHAR    => scalaPrimitives.CARRAY_LENGTH
+            case INT     => scalaPrimitives.IARRAY_LENGTH
+            case LONG    => scalaPrimitives.LARRAY_LENGTH
+            case FLOAT   => scalaPrimitives.FARRAY_LENGTH
+            case DOUBLE  => scalaPrimitives.DARRAY_LENGTH
+            case other if other.isRefOrArrayType => scalaPrimitives.OARRAY_LENGTH
+            case _ =>
+              abort("Unexpected array element type: " + elementType)
+          }
+
+        case _ =>
+          code
+      }
+    }
+
     def genPrimitiveOp(tree: Apply, expectedType: BType): BType = {
       val sym = tree.symbol
       val Apply(fun @ Select(receiver, _), _) = tree
-      val code = scalaPrimitives.getPrimitive(sym, receiver.tpe)
+      val code = getPrimitive(sym, receiver.tpe)
 
       import scalaPrimitives.{isArithmeticOp, isArrayOp, isLogicalOp, isComparisonOp}
 
@@ -586,7 +656,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
         // therefore, we can ignore this fact, and generate code that leaves nothing
         // on the stack (contrary to what the type in the AST says).
         case Apply(fun @ Select(Super(_, mix), _), args) =>
-          val invokeStyle = icodes.opcodes.SuperCall(mix)
+          val invokeStyle = SuperCall(mix)
           // if (fun.symbol.isConstructor) Static(true) else SuperCall(mix);
           mnode.visitVarInsn(asm.Opcodes.ALOAD, 0)
           genLoadArguments(args, paramTKs(app))
@@ -632,7 +702,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
               mnode.visitTypeInsn(asm.Opcodes.NEW, rt.getInternalName)
               bc dup generatedType
               genLoadArguments(args, paramTKs(app))
-              genCallMethod(ctor, icodes.opcodes.Static(onInstance = true))
+              genCallMethod(ctor, Static(onInstance = true))
 
             case _ =>
               abort(s"Cannot instantiate $tpt of kind: $generatedType")
@@ -665,9 +735,9 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
             def genNormalMethodCall() {
 
               val invokeStyle =
-                if (sym.isStaticMember) icodes.opcodes.Static(onInstance = false)
-                else if (sym.isPrivate || sym.isClassConstructor) icodes.opcodes.Static(onInstance = true)
-                else icodes.opcodes.Dynamic;
+                if (sym.isStaticMember) Static(onInstance = false)
+                else if (sym.isPrivate || sym.isClassConstructor) Static(onInstance = true)
+                else Dynamic;
 
               if (invokeStyle.hasInstance) {
                 genLoadQualifier(fun)
@@ -934,7 +1004,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
         // Optimization for expressions of the form "" + x.  We can avoid the StringBuilder.
         case List(Literal(Constant("")), arg) =>
           genLoad(arg, ObjectReference)
-          genCallMethod(String_valueOf, icodes.opcodes.Static(onInstance = false))
+          genCallMethod(String_valueOf, Static(onInstance = false))
 
         case concatenations =>
           bc.genStartConcat
@@ -973,7 +1043,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
       // whether to reference the type of the receiver or
       // the type of the method owner
       val useMethodOwner = (
-           style != icodes.opcodes.Dynamic
+           style != Dynamic
         || hostSymbol.isBottomClass
         || methodOwner == definitions.ObjectClass
       )
@@ -1076,7 +1146,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
     def genScalaHash(tree: Tree): BType = {
       genLoadModule(ScalaRunTimeModule) // TODO why load ScalaRunTimeModule if ## has InvokeStyle of Static(false) ?
       genLoad(tree, ObjectReference)
-      genCallMethod(hashMethodSym, icodes.opcodes.Static(onInstance = false))
+      genCallMethod(hashMethodSym, Static(onInstance = false))
 
       INT
     }
@@ -1117,10 +1187,10 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
         (tk: @unchecked) match {
           case LONG   => emit(asm.Opcodes.LCMP)
           case FLOAT  =>
-            if (op == icodes.LT || op == icodes.LE) emit(asm.Opcodes.FCMPG)
+            if (op == jvm.LT || op == jvm.LE) emit(asm.Opcodes.FCMPG)
             else emit(asm.Opcodes.FCMPL)
           case DOUBLE =>
-            if (op == icodes.LT || op == icodes.LE) emit(asm.Opcodes.DCMPG)
+            if (op == jvm.LT || op == jvm.LE) emit(asm.Opcodes.DCMPG)
             else emit(asm.Opcodes.DCMPL)
         }
         bc.emitIF(op, success)
@@ -1135,8 +1205,8 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
       } else if (tk.isRefOrArrayType) { // REFERENCE(_) | ARRAY(_)
         // @unchecked because references aren't compared with GT, GE, LT, LE.
         (op : @unchecked) match {
-          case icodes.EQ => bc emitIFNULL    success
-          case icodes.NE => bc emitIFNONNULL success
+          case jvm.EQ => bc emitIFNULL    success
+          case jvm.NE => bc emitIFNONNULL success
         }
       } else {
         (tk: @unchecked) match {
@@ -1145,11 +1215,11 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
             emit(asm.Opcodes.LCMP)
           case FLOAT  =>
             emit(asm.Opcodes.FCONST_0)
-            if (op == icodes.LT || op == icodes.LE) emit(asm.Opcodes.FCMPG)
+            if (op == jvm.LT || op == jvm.LE) emit(asm.Opcodes.FCMPG)
             else emit(asm.Opcodes.FCMPL)
           case DOUBLE =>
             emit(asm.Opcodes.DCONST_0)
-            if (op == icodes.LT || op == icodes.LE) emit(asm.Opcodes.DCMPG)
+            if (op == jvm.LT || op == jvm.LE) emit(asm.Opcodes.DCMPG)
             else emit(asm.Opcodes.DCMPL)
         }
         bc.emitIF(op, success)
@@ -1158,7 +1228,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
     }
 
     val testOpForPrimitive: Array[TestOp] = Array(
-      icodes.EQ, icodes.NE, icodes.EQ, icodes.NE, icodes.LT, icodes.LE, icodes.GE, icodes.GT
+      jvm.EQ, jvm.NE, jvm.EQ, jvm.NE, jvm.LT, jvm.LE, jvm.GE, jvm.GT
     )
 
     /*
@@ -1187,14 +1257,14 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
 
       def default() = {
         genLoad(tree, BOOL)
-        genCZJUMP(success, failure, icodes.NE, BOOL)
+        genCZJUMP(success, failure, jvm.NE, BOOL)
       }
 
       lineNumber(tree)
       tree match {
 
         case Apply(fun, args) if isPrimitive(fun.symbol) =>
-          import scalaPrimitives.{ ZNOT, ZAND, ZOR, EQ, getPrimitive }
+          import scalaPrimitives.{ ZNOT, ZAND, ZOR, EQ }
 
           // lhs and rhs of test
           lazy val Select(lhs, _) = fun
@@ -1211,7 +1281,7 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
             genCond(rhs, success, failure)
           }
 
-          getPrimitive(fun.symbol) match {
+          scalaPrimitives.getPrimitive(fun.symbol) match {
             case ZNOT   => genCond(lhs, failure, success)
             case ZAND   => genZandOrZor(and = true)
             case ZOR    => genZandOrZor(and = false)
@@ -1274,18 +1344,18 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
         }
         genLoad(l, ObjectReference)
         genLoad(r, ObjectReference)
-        genCallMethod(equalsMethod, icodes.opcodes.Static(onInstance = false))
-        genCZJUMP(success, failure, icodes.NE, BOOL)
+        genCallMethod(equalsMethod, Static(onInstance = false))
+        genCZJUMP(success, failure, jvm.NE, BOOL)
       }
       else {
         if (isNull(l)) {
           // null == expr -> expr eq null
           genLoad(r, ObjectReference)
-          genCZJUMP(success, failure, icodes.EQ, ObjectReference)
+          genCZJUMP(success, failure, jvm.EQ, ObjectReference)
         } else if (isNull(r)) {
           // expr == null -> expr eq null
           genLoad(l, ObjectReference)
-          genCZJUMP(success, failure, icodes.EQ, ObjectReference)
+          genCZJUMP(success, failure, jvm.EQ, ObjectReference)
         } else {
           // l == r -> if (l eq null) r eq null else l.equals(r)
           val eqEqTempLocal = locals.makeLocal(AnyRefReference, nme.EQEQ_LOCAL_VAR.toString)
@@ -1296,17 +1366,17 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
           genLoad(r, ObjectReference)
           locals.store(eqEqTempLocal)
           bc dup ObjectReference
-          genCZJUMP(lNull, lNonNull, icodes.EQ, ObjectReference)
+          genCZJUMP(lNull, lNonNull, jvm.EQ, ObjectReference)
 
           markProgramPoint(lNull)
           bc drop ObjectReference
           locals.load(eqEqTempLocal)
-          genCZJUMP(success, failure, icodes.EQ, ObjectReference)
+          genCZJUMP(success, failure, jvm.EQ, ObjectReference)
 
           markProgramPoint(lNonNull)
           locals.load(eqEqTempLocal)
-          genCallMethod(Object_equals, icodes.opcodes.Dynamic)
-          genCZJUMP(success, failure, icodes.NE, BOOL)
+          genCallMethod(Object_equals, Dynamic)
+          genCZJUMP(success, failure, jvm.NE, BOOL)
         }
       }
     }
@@ -1319,6 +1389,53 @@ abstract class BCodeBodyBuilder extends BCodeLateClosuBuilder {
     def genSynchronized(tree: Apply, expectedType: BType): BType
     def genLoadTry(tree: Try): BType
 
+  }
+
+  /** This class represents a method invocation style. */
+  sealed abstract class InvokeStyle {
+    /** Is this a dynamic method call? */
+    def isDynamic: Boolean = false
+
+    /** Is this a static method call? */
+    def isStatic: Boolean = false
+
+    def isSuper: Boolean = false
+
+    /** Is this an instance method call? */
+    def hasInstance: Boolean = true
+
+    /** Returns a string representation of this style. */
+    override def toString(): String
+  }
+
+  /** Virtual calls.
+   *  On JVM, translated to either `invokeinterface` or `invokevirtual`.
+   */
+  case object Dynamic extends InvokeStyle {
+    override def isDynamic = true
+    override def toString(): String = "dynamic"
+  }
+
+  /**
+   * Special invoke:
+   *   Static(true)  is used for calls to private members, ie `invokespecial` on JVM.
+   *   Static(false) is used for calls to class-level instance-less static methods, ie `invokestatic` on JVM.
+   */
+  case class Static(onInstance: Boolean) extends InvokeStyle {
+    override def isStatic    = true
+    override def hasInstance = onInstance
+    override def toString(): String = {
+      if(onInstance) "static-instance"
+      else           "static-class"
+    }
+  }
+
+  /** Call through super[mix].
+   *  On JVM, translated to `invokespecial`.
+   */
+  case class SuperCall(mix: Name) extends InvokeStyle {
+    override def isSuper = true
+    override def toString(): String = { "super(" + mix + ")" }
   }
 
 }

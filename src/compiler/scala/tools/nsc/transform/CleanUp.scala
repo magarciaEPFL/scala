@@ -23,12 +23,11 @@ abstract class CleanUp extends Transform with ast.TreeDSL {
   /* used in GenBCode: collects ClassDef symbols owning a main(Array[String]) method */
   private var entryPoints: List[Symbol] = null
   def getEntryPoints: List[Symbol] = {
-    assert(settings.isBCodeActive, "Candidate Java entry points are collected here only when GenBCode in use.")
     entryPoints sortBy ("" + _.fullName) // For predictably ordered error messages.
   }
 
   override def newPhase(prev: scala.tools.nsc.Phase): StdPhase = {
-    entryPoints = if (settings.isBCodeActive) Nil else null;
+    entryPoints = Nil;
     super.newPhase(prev)
   }
 

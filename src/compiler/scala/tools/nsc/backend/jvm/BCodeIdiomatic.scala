@@ -165,16 +165,13 @@ abstract class BCodeIdiomatic extends BCodeGlue {
     def jmethod: asm.MethodVisitor
 
     import asm.Opcodes;
-    import icodes.opcodes.{ InvokeStyle, Static, Dynamic,  SuperCall }
 
     final def emit(opc: Int) { jmethod.visitInsn(opc) }
 
     /*
      * can-multi-thread
      */
-    final def genPrimitiveArithmetic(op: icodes.ArithmeticOp, kind: BType) {
-
-      import icodes.{ ADD, SUB, MUL, DIV, REM, NOT }
+    final def genPrimitiveArithmetic(op: ArithmeticOp, kind: BType) {
 
       op match {
 
@@ -262,9 +259,7 @@ abstract class BCodeIdiomatic extends BCodeGlue {
     /*
      * can-multi-thread
      */
-    final def genPrimitiveComparison(op: icodes.ComparisonOp, kind: BType) {
-
-      import icodes.{ CMPL, CMP, CMPG }
+    final def genPrimitiveComparison(op: ComparisonOp, kind: BType) {
 
       ((op, kind): @unchecked) match {
         case (CMP,  LONG)   => emit(Opcodes.LCMP)
@@ -484,13 +479,13 @@ abstract class BCodeIdiomatic extends BCodeGlue {
     // can-multi-thread
     final def goTo(label: asm.Label) { jmethod.visitJumpInsn(Opcodes.GOTO, label) }
     // can-multi-thread
-    final def emitIF(cond: icodes.TestOp, label: asm.Label)      { jmethod.visitJumpInsn(cond.opcodeIF,     label) }
+    final def emitIF(cond: TestOp, label: asm.Label)      { jmethod.visitJumpInsn(cond.opcodeIF,     label) }
     // can-multi-thread
-    final def emitIF_ICMP(cond: icodes.TestOp, label: asm.Label) { jmethod.visitJumpInsn(cond.opcodeIFICMP, label) }
+    final def emitIF_ICMP(cond: TestOp, label: asm.Label) { jmethod.visitJumpInsn(cond.opcodeIFICMP, label) }
     // can-multi-thread
-    final def emitIF_ACMP(cond: icodes.TestOp, label: asm.Label) {
-      assert((cond == icodes.EQ) || (cond == icodes.NE), cond)
-      val opc = (if (cond == icodes.EQ) Opcodes.IF_ACMPEQ else Opcodes.IF_ACMPNE)
+    final def emitIF_ACMP(cond: TestOp, label: asm.Label) {
+      assert((cond == EQ) || (cond == NE), cond)
+      val opc = (if (cond == EQ) Opcodes.IF_ACMPEQ else Opcodes.IF_ACMPNE)
       jmethod.visitJumpInsn(opc, label)
     }
     // can-multi-thread

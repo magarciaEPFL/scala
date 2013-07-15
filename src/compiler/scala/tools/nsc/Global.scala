@@ -26,12 +26,8 @@ import ast.parser._
 import typechecker._
 import transform.patmat.PatternMatching
 import transform._
-import backend.icode.{ ICodes, GenICode, ICodeCheckers }
 import backend.{ ScalaPrimitives, Platform, JavaPlatform }
 import backend.jvm.GenBCode
-import backend.jvm.GenASM
-import backend.opt.{ Inliners, InlineExceptionHandlers, ConstantOptimization, ClosureElimination, DeadCodeElimination }
-import backend.icode.analysis._
 import scala.language.postfixOps
 
 class Global(var currentSettings: Settings, var reporter: Reporter)
@@ -111,11 +107,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val global: Global.this.type = Global.this
   } with ConstantFolder
 
-  /** ICode generator */
-  object icodes extends {
-    val global: Global.this.type = Global.this
-  } with ICodes
-
   /** Scala primitives, used in genicode */
   object scalaPrimitives extends {
     val global: Global.this.type = Global.this
@@ -125,18 +116,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   object overridingPairs extends {
     val global: Global.this.type = Global.this
   } with OverridingPairs
-
-  // Optimizer components
-
-  /** ICode analysis for optimization */
-  object analysis extends {
-    val global: Global.this.type = Global.this
-  } with TypeFlowAnalysis
-
-  /** Copy propagation for optimization */
-  object copyPropagation extends {
-    val global: Global.this.type = Global.this
-  } with CopyPropagation
 
   // Components for collecting and generating output
 
@@ -563,59 +542,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val runsRightAfter = None
   } with CleanUp
 
-  // phaseName = "icode"
-  object genicode extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("cleanup")
-    val runsRightAfter = None
-  } with GenICode
-
-  // phaseName = "inliner"
-  object inliner extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("icode")
-    val runsRightAfter = None
-  } with Inliners
-
-  // phaseName = "inlinehandlers"
-  object inlineExceptionHandlers extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("inliner")
-    val runsRightAfter = None
-  } with InlineExceptionHandlers
-
-  // phaseName = "closelim"
-  object closureElimination extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("inlinehandlers")
-    val runsRightAfter = None
-  } with ClosureElimination
-
-  // phaseName = "constopt"
-  object constantOptimization extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("closelim")
-    val runsRightAfter = None
-  } with ConstantOptimization
-
-  // phaseName = "dce"
-  object deadCode extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("closelim")
-    val runsRightAfter = None
-  } with DeadCodeElimination
-
-  // phaseName = "jvm", ASM-based version
-  object genASM extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("dce")
-    val runsRightAfter = None
-  } with GenASM
-
   // phaseName = "bcode"
   object genBCode extends {
     val global: Global.this.type = Global.this
-    val runsAfter = List("dce")
+    val runsAfter = List("cleanup")
     val runsRightAfter = None
   } with GenBCode
 
@@ -646,13 +576,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   object treeChecker extends {
     val global: Global.this.type = Global.this
   } with TreeCheckers
-
-  /** Icode verification */
-  object icodeCheckers extends {
-    val global: Global.this.type = Global.this
-  } with ICodeCheckers
-
-  object icodeChecker extends icodeCheckers.ICodeChecker()
 
   object typer extends analyzer.Typer(
     analyzer.NoContext.make(EmptyTree, RootClass, newScope)
@@ -685,12 +608,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       constructors            -> "move field definitions into constructors",
       mixer                   -> "mixin composition",
       cleanup                 -> "platform-specific cleanups, generate reflective calls",
-      genicode                -> "generate portable intermediate code",
-      inliner                 -> "optimization: do inlining",
-      inlineExceptionHandlers -> "optimization: inline exception handlers",
-      closureElimination      -> "optimization: eliminate uncalled closures",
-      constantOptimization    -> "optimization: optimize null and other constants",
-      deadCode                -> "optimization: eliminate dead code",
       terminal                -> "The last phase in the compiler chain"
     )
 
@@ -1050,10 +967,10 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   @inline final def exitingSpecialize[T](op: => T): T     = exitingPhase(currentRun.specializePhase)(op)
   @inline final def exitingTyper[T](op: => T): T          = exitingPhase(currentRun.typerPhase)(op)
   @inline final def exitingUncurry[T](op: => T): T        = exitingPhase(currentRun.uncurryPhase)(op)
+  @inline final def exitingCleanup[T](op: => T): T        = exitingPhase(currentRun.cleanupPhase)(op)
   @inline final def enteringErasure[T](op: => T): T       = enteringPhase(currentRun.erasurePhase)(op)
   @inline final def enteringExplicitOuter[T](op: => T): T = enteringPhase(currentRun.explicitouterPhase)(op)
   @inline final def enteringFlatten[T](op: => T): T       = enteringPhase(currentRun.flattenPhase)(op)
-  @inline final def enteringIcode[T](op: => T): T         = enteringPhase(currentRun.icodePhase)(op)
   @inline final def enteringMixin[T](op: => T): T         = enteringPhase(currentRun.mixinPhase)(op)
   @inline final def enteringPickler[T](op: => T): T       = enteringPhase(currentRun.picklerPhase)(op)
   @inline final def enteringRefchecks[T](op: => T): T     = enteringPhase(currentRun.refchecksPhase)(op)
@@ -1349,20 +1266,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val flattenPhase                 = phaseNamed("flatten")
     val mixinPhase                   = phaseNamed("mixin")
     val cleanupPhase                 = phaseNamed("cleanup")
-    val icodePhase                   = phaseNamed("icode")
-    val inlinerPhase                 = phaseNamed("inliner")
-    val inlineExceptionHandlersPhase = phaseNamed("inlinehandlers")
-    val closelimPhase                = phaseNamed("closelim")
-    val dcePhase                     = phaseNamed("dce")
     // val jvmPhase                     = phaseNamed("jvm")
 
     def runIsAt(ph: Phase)   = globalPhase.id == ph.id
-    def runIsAtOptimiz       = {
-      runIsAt(inlinerPhase)                 || // listing phases in full for robustness when -Ystop-after has been given.
-      runIsAt(inlineExceptionHandlersPhase) ||
-      runIsAt(closelimPhase)                ||
-      runIsAt(dcePhase)
-    }
 
     isDefined = true
 
@@ -1424,8 +1330,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
       if (canCheck) {
         phase = globalPhase
-        if (globalPhase.id >= icodePhase.id) icodeChecker.checkICodes()
-        else treeChecker.checkTrees()
+        if (globalPhase.id <= cleanupPhase.id) treeChecker.checkTrees()
       }
     }
 
@@ -1520,14 +1425,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
 
         // progress update
         informTime(globalPhase.description, startTime)
-        val shouldWriteIcode = (
-             (settings.writeICode.isSetByUser && (settings.writeICode containsPhase globalPhase))
-          || (!settings.Xprint.doAllPhases && (settings.Xprint containsPhase globalPhase) && runIsAtOptimiz)
-        )
-        if (shouldWriteIcode) {
-          // Write *.icode files when -Xprint-icode or -Xprint:<some-optimiz-phase> was given.
-          writeICode()
-        } else if ((settings.Xprint containsPhase globalPhase) || settings.printLate && runIsAt(cleanupPhase)) {
+        if ((settings.Xprint containsPhase globalPhase) || settings.printLate && runIsAt(cleanupPhase)) {
           // print trees
           if (settings.Xshowtrees || settings.XshowtreesCompact || settings.XshowtreesStringified) nodePrinters.printAll()
           else printAllUnits()
@@ -1703,25 +1601,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
   /** Returns the file with the given suffix for the given class. Used for icode writing. */
   def getFile(clazz: Symbol, suffix: String): File = getFile(clazz.sourceFile, clazz.fullName split '.', suffix)
 
-  private def writeICode() {
-    val printer = new icodes.TextPrinter(null, icodes.linearizer)
-    icodes.classes.values.foreach((cls) => {
-      val suffix = if (cls.symbol.hasModuleFlag) "$.icode" else ".icode"
-      val file = getFile(cls.symbol, suffix)
-//      if (file.exists())
-//        file = new File(file.getParentFile(), file.getName() + "1")
-      try {
-        val stream = new FileOutputStream(file)
-        printer.setWriter(new PrintWriter(stream, true))
-        printer.printClass(cls)
-        informProgress("wrote " + file)
-      } catch {
-        case ex: IOException =>
-          if (settings.debug) ex.printStackTrace()
-        globalError("could not write file " + file)
-      }
-    })
-  }
   def createJavadoc    = false
 }
 
