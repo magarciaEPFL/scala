@@ -707,7 +707,7 @@ abstract class GenICode extends SubComponent  {
             debuglog("BOX : " + fun.symbol.fullName)
             val ctx1 = genLoad(expr, ctx, toTypeKind(expr.tpe))
             val nativeKind = toTypeKind(expr.tpe)
-            if (settings.Xdce) {
+            if (settings.Xdce && false) {
               // we store this boxed value to a local, even if not really needed.
               // boxing optimization might use it, and dead code elimination will
               // take care of unnecessary stores

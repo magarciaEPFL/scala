@@ -84,7 +84,7 @@ abstract class ClosureElimination extends SubComponent {
    *
    */
   class ClosureElim {
-    def analyzeClass(cls: IClass): Unit = if (settings.Xcloselim) {
+    def analyzeClass(cls: IClass): Unit = if (settings.Xcloselim && false) {
       log(s"Analyzing ${cls.methods.size} methods in $cls.")
       cls.methods foreach { m =>
         analyzeMethod(m)
