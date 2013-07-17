@@ -265,7 +265,7 @@ abstract class Inliners extends SubComponent {
     }
 
     def analyzeClass(cls: IClass): Unit =
-      if (settings.inline) {
+      if (settings.inline && false) {
         inlineLog("class", s"${cls.symbol.decodedName}", s"analyzing ${cls.methods.size} methods in $cls")
 
         this.currentIClazz = cls
