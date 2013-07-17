@@ -88,7 +88,7 @@ abstract class InlineExceptionHandlers extends SubComponent {
 
     /** Apply exception handler inlining to a class */
     override def apply(c: IClass): Unit =
-      if (settings.inlineHandlers) {
+      if (settings.inlineHandlers && false) {
         val startTime = System.currentTimeMillis
         currentClass = c
 
