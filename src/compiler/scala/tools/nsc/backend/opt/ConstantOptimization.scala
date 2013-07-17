@@ -42,7 +42,7 @@ abstract class ConstantOptimization extends SubComponent {
     def name = phaseName
 
     override def apply(c: IClass) {
-      if (settings.YconstOptimization) {
+      if (settings.YconstOptimization && false) {
         val analyzer = new ConstantOptimizer
         analyzer optimizeClass c
       }
