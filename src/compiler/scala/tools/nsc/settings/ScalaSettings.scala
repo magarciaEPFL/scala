@@ -258,7 +258,7 @@ trait ScalaSettings extends AbsScalaSettings
    *              located in libraries we're compiling against (therefore, those libraries should be the same at runtime).
    *
    */
-  private def neoLevel: Int   = 2
+  private def neoLevel: Int   = 3
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
   def isIntraProgramOpt       = (neoLevel >= 2)
   def isCrossLibOpt           = (neoLevel >= 3)
