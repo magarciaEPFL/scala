@@ -204,7 +204,7 @@ trait ScalaSettings extends AbsScalaSettings
    * Settings motivated by GenBCode and the ASM-based optimizer
    */
   val Ybackend = ChoiceSetting ("-Ybackend", "choice of bytecode emitter", "Choice of bytecode emitter.",
-                                List("GenASM", "GenBCode", "o1", "o2", "o3"),
+                                List("GenBCode", "o1", "o2", "o3"),
                                 "o1")
   val closureConv = ChoiceSetting ("-Yclosurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
                                    List("traditional", "delegating"),
@@ -237,9 +237,9 @@ trait ScalaSettings extends AbsScalaSettings
    * Helper utilities for use by checkConflictingSettings()
    * To ease the transition, ICode is given preference whenever a compiler flag asks for it, directly or indirectly.
    */
-  def isBCodeActive   = !isICodeAskedFor
-  def isBCodeAskedFor = (Ybackend.value != "GenASM")
-  def isICodeAskedFor = ((Ybackend.value == "GenASM") || optimiseSettings.exists(_.value) || writeICode.isSetByUser)
+  def isBCodeActive   = true
+  def isBCodeAskedFor = false
+  def isICodeAskedFor = false
 
   /*
    *  Each optimization level (neoLevel) includes all optimizations from lower levels:
@@ -258,7 +258,7 @@ trait ScalaSettings extends AbsScalaSettings
    *              located in libraries we're compiling against (therefore, those libraries should be the same at runtime).
    *
    */
-  private def neoLevel: Int   = (if (Ybackend.value.startsWith("o") && isBCodeActive) Ybackend.value.substring(1).toInt else 0)
+  private def neoLevel: Int   = 1
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
   def isIntraProgramOpt       = (neoLevel >= 2)
   def isCrossLibOpt           = (neoLevel >= 3)
@@ -271,7 +271,7 @@ trait ScalaSettings extends AbsScalaSettings
    *    case "delegating"   => aka "Late-Closure-Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
    *                           thus lowering the working set during compilation. Allows closure optimizations.
    */
-  def isClosureConvTraditional = !isClosureConvDelegating
-  def isClosureConvDelegating  = isBCodeActive && (if (closureConv.isSetByUser) closureConv.value == "delegating" else true)
+  def isClosureConvTraditional = false
+  def isClosureConvDelegating  = true
 
 }
