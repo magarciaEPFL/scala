@@ -89,8 +89,9 @@ abstract class BCodeOptCommon extends BCodeHelpers {
      *
      */
     def getMethodAccess(bt: BType, name: String, desc: String): Option[Int] = {
-      val cn = getClassNode(bt) // must-single-thread
-      if (cn == null) { return None }
+      val cn =
+        try   { getClassNode(bt) }
+        catch { case _: MissingRequirementError => return None }
       val iter = cn.methods.iterator()
       while (iter.hasNext) {
         val mn = iter.next()
@@ -183,19 +184,14 @@ abstract class BCodeOptCommon extends BCodeHelpers {
 
     /*  can-multi-thread*/
     def getClassNodeOrNull(bt: BType): asm.tree.ClassNode = {
-      try {
-        var res = classes.get(bt)
-        if (res == null) {
-          res = parsed.get(bt)
-          // we can't call parseClassAndEnterExemplar(bt) because in the time window from the checks above and
-          // the time parseClassAndEnterExemplar() runs, Worker1 may have added to codeRepo.classes the class we didn't find.
-        }
-        res
+      var res = classes.get(bt)
+      if (res == null) {
+        res = parsed.get(bt)
+        // we can't call parseClassAndEnterExemplar(bt) because in the time window from the checks above and
+        // the time parseClassAndEnterExemplar() runs, Worker1 may have added to codeRepo.classes the class we didn't find.
+        // TODO bytecode parsing shouldn't fail, otherwise how could the callsite have compiled?
       }
-      catch {
-        case ex: MissingRequirementError =>
-          null // TODO bytecode parsing shouldn't fail, otherwise how could the callsite have compiled?
-      }
+      res
     }
 
     /*
