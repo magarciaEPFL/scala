@@ -831,17 +831,19 @@ TODO:
     <attribute name="project"/>  <!-- project: asm/forkjoin -->
     <attribute name="args" default=""/>
     <attribute name="jar"  default="yes"/>
+    <attribute name="required-classes" default="${@{project}-classes}"/>
+    <attribute name="output-dir"       default="${@{project}-classes}"/>
     <sequential>
       <uptodate property="@{project}.available" targetfile="${build-libs.dir}/@{project}.complete">
         <srcfiles dir="${src.dir}/@{project}"/></uptodate>
       <if><not><isset property="@{project}.available"/></not><then>
         <stopwatch name="@{project}.timer"/>
-        <mkdir dir="${@{project}-classes}"/>
+        <mkdir dir="@{output-dir}"/>
         <javac
           debug="true"
           srcdir="${src.dir}/@{project}"
-          destdir="${@{project}-classes}"
-          classpath="${@{project}-classes}"
+          destdir="@{output-dir}"
+          classpath="@{required-classes}"
           includes="**/*.java"
           target="1.6" source="1.5"
           compiler="javac1.6">
@@ -856,7 +858,10 @@ TODO:
     </sequential>
   </macrodef>
 
-  <target name="asm.done"      depends="init"> <simple-javac project="asm" jar="no"/> </target>
+  <target name="asm.done"      depends="init">
+    <simple-javac project="asm" jar="no"/>
+    <simple-javac project="bcodeopt" jar="no" required-classes="${asm-classes}" output-dir="${asm-classes}"/>
+  </target>
   <target name="forkjoin.done" depends="init"> <simple-javac project="forkjoin" args="-XDignore.symbol.file"/></target>
 
 <!-- ===========================================================================

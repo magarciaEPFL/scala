@@ -200,6 +200,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/actors.iml" filepath="$PROJECT_DIR$/actors.iml" />
       <module fileurl="file://$PROJECT_DIR$/asm.iml" filepath="$PROJECT_DIR$/asm.iml" />
+      <module fileurl="file://$PROJECT_DIR$/bcodeopt.iml" filepath="$PROJECT_DIR$/bcodeopt.iml" />
       <module fileurl="file://$PROJECT_DIR$/compiler.iml" filepath="$PROJECT_DIR$/compiler.iml" />
       <module fileurl="file://$PROJECT_DIR$/continuations-library.iml" filepath="$PROJECT_DIR$/continuations-library.iml" />
       <module fileurl="file://$PROJECT_DIR$/continuations-plugin.iml" filepath="$PROJECT_DIR$/continuations-plugin.iml" />
