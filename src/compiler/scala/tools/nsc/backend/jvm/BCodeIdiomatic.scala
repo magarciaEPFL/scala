@@ -298,7 +298,7 @@ abstract class BCodeIdiomatic extends BCodeGlue {
         if (el.isArray || el.hasObjectSort) JAVA_LANG_OBJECT
         else el;
 
-      val bt = BT.getMethodType(StringBuilderReference, Array(jtype))
+      val bt = BMType(StringBuilderReference, Array(jtype))
 
       invokevirtual(StringBuilderClassName, "append", bt.getDescriptor)
     }
