@@ -120,6 +120,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
     val copyPropagator      = new backend.bcode.CopyPropagator
     val deadStoreElimPrim   = new backend.bcode.DeadStoreElimPrim
+    val deadStoreElimRef    = new backend.bcode.DeadStoreElimRef
     val nullnessPropagator  = new backend.bcode.NullnessPropagator
     val constantFolder      = new backend.bcode.ConstantFolder
 
@@ -174,6 +175,9 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
         deadStoreElimPrim.transform(cName, mnode)  // replace STOREs to non-live local-vars with DROP instructions.
         keepGoing |= deadStoreElimPrim.changed
+
+        deadStoreElimRef.transform(cName, mnode)   // replace STOREs to non-live local-vars with DROP instructions.
+        keepGoing |= deadStoreElimRef.changed
 
         changed = (changed || keepGoing)
 
