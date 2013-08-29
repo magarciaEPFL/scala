@@ -114,6 +114,7 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
     val deadStoreElimPrim   = new backend.bcode.DeadStoreElimPrim
     val deadStoreElimRef    = new backend.bcode.DeadStoreElimRef
     val ppCollapser         = new backend.bcode.PushPopCollapser
+    val jumpReducer         = new backend.bcode.JumpReducer
     val nullnessPropagator  = new backend.bcode.NullnessPropagator
     val constantFolder      = new backend.bcode.ConstantFolder
 
@@ -174,6 +175,9 @@ abstract class BCodeOptIntra extends BCodeSyncAndTry {
 
         ppCollapser.transform(cName, mnode)    // propagate a DROP to the instruction(s) that produce the value in question, drop the DROP.
         keepGoing |= ppCollapser.changed
+
+        jumpReducer.transform(mnode)           // simplifies branches that need not be taken to get to their destination.
+        keepGoing |= jumpReducer.changed
 
         changed = (changed || keepGoing)
 
