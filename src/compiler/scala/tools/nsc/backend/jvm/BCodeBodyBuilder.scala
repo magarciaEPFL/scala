@@ -90,7 +90,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
 
     def genThrow(expr: Tree): BType = {
       val thrownKind = tpeTK(expr)
-      assert(exemplars.get(thrownKind).isSubtypeOf(ThrowableReference))
+      assert(thrownKind.isNullType || exemplars.get(thrownKind).isSubtypeOf(ThrowableReference))
       genLoad(expr, thrownKind)
       lineNumber(expr)
       emit(asm.Opcodes.ATHROW) // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
