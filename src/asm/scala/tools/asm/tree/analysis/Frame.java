@@ -230,6 +230,79 @@ public class Frame<V extends Value> {
     }
 
     /**
+     *  For a callsite expecting a receiver (ie one of INVOKEVIRTUAL, INVOKESPECIAL, or INVOKEINTERFACE)
+     *  returns the content of the stack slot that provides such receiver.
+     *
+     *  To recap, a Frame reserves two slots for a local-var of category-2 size,
+     *  but all stack values take just one slot, irrespective of their size.
+     *
+     * */
+    public V getReceiver(MethodInsnNode callsite) {
+        assert isInstanceCallsite(callsite);
+        int args = Type.getArgumentTypes(callsite.desc).length;
+        return peekDown(args);
+    }
+
+    /**
+     *  INVOKEDYNAMIC and INVOKESTATIC don't qualify as `isInstanceCallsite()`
+     * */
+    public static boolean isInstanceCallsite(final MethodInsnNode callsite) {
+        switch (callsite.getOpcode()) {
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKEINTERFACE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     *  The returned array contains as first value that for the first formal param, and so on.
+     *  This method works for all calling conventions.
+     *
+     *  A callsite for an instance-level method expects the receiver instance as "extra argument",
+     *  that value is not included among those returned. For that, use getReceiver().
+     *
+     *  To recap, a Frame reserves two slots for a local-var of category-2 size,
+     *  but all stack values take just one slot, irrespective of their size.
+     *
+     * */
+    public V[] getActualArguments(MethodInsnNode callsite) {
+        int args = Type.getArgumentTypes(callsite.desc).length;
+        int onePastLast = getLocals() + getStackSize();
+        V[] result = java.util.Arrays.copyOfRange(values, onePastLast - args, onePastLast);
+        assert result.length == args;
+        return result;
+    }
+
+    public V[] getArgumentsInclReceiver(MethodInsnNode callsite) {
+        int args = expectedArgs(callsite);
+        return java.util.Arrays.copyOfRange(values, getStackSize() - args, getStackSize());
+    }
+
+    /**
+     *  @return the number of arguments the callsite expects on the operand stack,
+     *          ie for instance-level methods that's one more than the number of arguments in the method's descriptor.
+     */
+    public static int expectedArgs(final MethodInsnNode callsite) {
+        int result = Type.getArgumentTypes(callsite.desc).length;
+        switch (callsite.getOpcode()) {
+            case Opcodes.INVOKEVIRTUAL:
+            case Opcodes.INVOKESPECIAL:
+            case Opcodes.INVOKEINTERFACE:
+                result++;
+                break;
+            case Opcodes.INVOKEDYNAMIC:
+                result++;
+                break;
+            case Opcodes.INVOKESTATIC:
+                break;
+        }
+        return result;
+    }
+
+    /**
      * Clears the operand stack of this frame.
      */
     public void clearStack() {
