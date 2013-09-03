@@ -1,0 +1,20 @@
+Foo_1.scala:5: warning: a pure expression does nothing in statement position; you may be omitting necessary parentheses
+    null
+    ^
+
+  // access flags 0x1
+  public pre1(Z)V
+    ILOAD 1
+    IFNE L0
+    GOTO L1
+   L0
+   FRAME SAME
+    GOTO L2
+   L1
+   FRAME SAME
+   L2
+   FRAME SAME1 I
+    RETURN
+    MAXSTACK = 1
+    MAXLOCALS = 2
+
