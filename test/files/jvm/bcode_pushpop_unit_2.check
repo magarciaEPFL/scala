@@ -1,0 +1,10 @@
+
+  // access flags 0x1
+  public main([Ljava/lang/String;)V
+    ALOAD 1
+    ARRAYLENGTH
+    POP
+    RETURN
+    MAXSTACK = 2
+    MAXLOCALS = 2
+
