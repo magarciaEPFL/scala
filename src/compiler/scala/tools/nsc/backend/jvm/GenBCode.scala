@@ -111,6 +111,8 @@ abstract class GenBCode extends BCodeOptIntra {
     override def description = "Generate bytecode from ASTs using the ASM library"
     override def erasedTypes = true
 
+    val isOptimizRun  = settings.isIntraMethodOptimizOn
+
     // number of woker threads for pipeline-2 (the pipeline in charge of most optimizations except inlining).
     val MAX_THREADS = settings.YbcodeEmitterThreads.value
 
@@ -275,6 +277,8 @@ abstract class GenBCode extends BCodeOptIntra {
      */
     class Worker2 extends java.lang.Runnable {
 
+      val isIntraMethodOptimizOn = settings.isIntraMethodOptimizOn
+
       def run() {
 
         val id = java.lang.Thread.currentThread.getId
@@ -307,8 +311,15 @@ abstract class GenBCode extends BCodeOptIntra {
 
         val cnode   = item.plain
 
-        val essential = new EssentialCleanser(cnode)
-        essential.codeFixupDCE()    // the very least fixups that must be done, even for unoptimized runs.
+        val cleanser = new QuickCleanser(cnode)
+        cleanser.codeFixupDCE()       // the minimal fixups needed, even for unoptimized runs.
+        if (isOptimizRun) {
+          import backend.bcode.Util
+          for(mnode <- cnode.toMethodList; if Util.hasBytecodeInstructions(mnode)) {
+            Util.computeMaxLocalsMaxStack(mnode)
+            cleanser.basicIntraMethodOpt(mnode)   // intra-method optimizations performed until a fixpoint is reached
+          }
+        }
 
         refreshInnerClasses(cnode)
 
