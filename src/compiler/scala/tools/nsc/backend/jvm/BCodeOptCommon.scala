@@ -4,7 +4,8 @@
  */
 
 
-package scala.tools.nsc
+package scala
+package tools.nsc
 package backend
 package jvm
 
@@ -39,6 +40,12 @@ abstract class BCodeOptCommon extends BCodeHelpers {
   final def wasElided(bt:    BType)    : Boolean = elidedClasses.contains(bt)
   final def wasElided(iname: String)   : Boolean = wasElided(lookupRefBType(iname))
   final def wasElided(cnode: ClassNode): Boolean = wasElided(cnode.name)
+
+  def createBCodeCleanser(cnode: asm.tree.ClassNode, isIntraProgramOpt: Boolean): BCodeCleanserIface  // implemented by BCodeOptIntra
+
+  trait BCodeCleanserIface {
+    def intraMethodFixpoints(full: Boolean)
+  }
 
   /*
    *  Single-access point for requests to parse bytecode for inlining purposes.
