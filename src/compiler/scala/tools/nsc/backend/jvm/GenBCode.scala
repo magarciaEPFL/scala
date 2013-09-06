@@ -391,17 +391,16 @@ abstract class GenBCode extends BCodeOptIntra {
 
         val cnode   = item.plain
 
+        val fixer =
+          if (isOptimizRun) { new BCodeCleanser(cnode)     }
+          else              { new EssentialCleanser(cnode) }
+
+        // the minimal fixups needed, even for unoptimized runs.
+        fixer.codeFixupDCE()
+        fixer.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+
         if (isOptimizRun) {
-          val cleanser = new BCodeCleanser(cnode)
-          cleanser.codeFixupDCE()
-          cleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
-          cleanser.cleanseClass()
-        }
-        else {
-          // the minimal fixups needed, even for unoptimized runs.
-          val essential = new EssentialCleanser(cnode)
-          essential.codeFixupDCE()
-          essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
+          fixer.asInstanceOf[BCodeCleanser].cleanseClass()
         }
 
         refreshInnerClasses(cnode)
