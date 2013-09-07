@@ -298,7 +298,7 @@ abstract class BCodeIdiomatic extends BCodeGlue {
         if (el.isArray || el.hasObjectSort) JAVA_LANG_OBJECT
         else el;
 
-      val bt = BType.getMethodType(StringBuilderReference, Array(jtype))
+      val bt = BT.getMethodType(StringBuilderReference, Array(jtype))
 
       invokevirtual(StringBuilderClassName, "append", bt.getDescriptor)
     }
@@ -325,18 +325,18 @@ abstract class BCodeIdiomatic extends BCodeGlue {
         s"Cannot emit primitive conversion from $from to $to"
       )
 
-          def pickOne(opcs: Array[Int]) { // TODO index on to.sort
-            val chosen = (to: @unchecked) match {
-              case BYTE   => opcs(0)
-              case SHORT  => opcs(1)
-              case CHAR   => opcs(2)
-              case INT    => opcs(3)
-              case LONG   => opcs(4)
-              case FLOAT  => opcs(5)
-              case DOUBLE => opcs(6)
-            }
-            if (chosen != -1) { emit(chosen) }
-          }
+      def pickOne(opcs: Array[Int]) { // TODO index on to.sort
+        val chosen = (to: @unchecked) match {
+          case BYTE   => opcs(0)
+          case SHORT  => opcs(1)
+          case CHAR   => opcs(2)
+          case INT    => opcs(3)
+          case LONG   => opcs(4)
+          case FLOAT  => opcs(5)
+          case DOUBLE => opcs(6)
+        }
+        if (chosen != -1) { emit(chosen) }
+      }
 
       if (from == to) { return }
       // the only conversion involving BOOL that is allowed is (BOOL -> BOOL)
