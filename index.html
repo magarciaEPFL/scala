@@ -45,12 +45,12 @@
 </ol><h1>
 <a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored92</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored99r</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
 
 <p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored92">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored92</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99r">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99r</a></li>
 <li>
 <a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
 </ul><p>To get up and running, please skip to <a href="#GettingStarted">Getting Started</a>.</p>
@@ -136,7 +136,7 @@ that would cause IllegalAccessError from class scala/tools/nsc/transform/Special
 
 <p>The warning makes sense: <code>loop()</code> is a local method:</p>
 
-<div class="highlight"><pre><span class="c1">// scala.collection.immutable.List</span>
+<div class="highlight highlight-scala"><pre><span class="c1">// scala.collection.immutable.List</span>
   <span class="nd">@inline</span> <span class="k">final</span> <span class="k">def</span> <span class="n">mapConserve</span><span class="o">[</span><span class="kt">B</span> <span class="k">&gt;:</span> <span class="kt">A</span> <span class="k">&lt;:</span> <span class="kt">AnyRef</span><span class="o">](</span><span class="n">f</span><span class="k">:</span> <span class="kt">A</span> <span class="o">=&gt;</span> <span class="n">B</span><span class="o">)</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">B</span><span class="o">]</span> <span class="k">=</span> <span class="o">{</span>
     <span class="nd">@tailrec</span>
     <span class="k">def</span> <span class="n">loop</span><span class="o">(</span><span class="n">mapped</span><span class="k">:</span> <span class="kt">ListBuffer</span><span class="o">[</span><span class="kt">B</span><span class="o">],</span> <span class="n">unchanged</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">A</span><span class="o">],</span> <span class="n">pending</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">A</span><span class="o">])</span><span class="k">:</span> <span class="kt">List</span><span class="o">[</span><span class="kt">B</span><span class="o">]</span> <span class="k">=</span>
@@ -159,7 +159,7 @@ loop$1(scala.collection.mutable.ListBuffer,
 
 <p>Some anonymous closures depend only on <code>apply()</code> arguments, for example the char filter function:</p>
 
-<div class="highlight"><pre>  <span class="k">def</span> <span class="n">deeplyNestedMethod</span><span class="o">(</span><span class="n">str</span><span class="k">:</span> <span class="kt">String</span><span class="o">)</span> <span class="k">=</span> <span class="o">{</span>
+<div class="highlight highlight-scala"><pre>  <span class="k">def</span> <span class="n">deeplyNestedMethod</span><span class="o">(</span><span class="n">str</span><span class="k">:</span> <span class="kt">String</span><span class="o">)</span> <span class="k">=</span> <span class="o">{</span>
     <span class="n">str</span> <span class="n">filter</span> <span class="o">{</span>
       <span class="o">(</span><span class="n">char</span><span class="k">:</span> <span class="kt">Char</span><span class="o">)</span> <span class="k">=&gt;</span>
         <span class="o">(</span><span class="n">char</span> <span class="o">&gt;=</span> <span class="-Symbol">'a</span><span class="err">'</span> <span class="o">&amp;&amp;</span> <span class="n">char</span> <span class="o">&lt;=</span> <span class="-Symbol">'f</span><span class="err">'</span><span class="o">)</span> <span class="o">||</span>
@@ -226,7 +226,7 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <p>There's no reason to limit the worker pool to 8 threads, that's "configurable" at:</p>
 
-<div class="highlight"><pre>    <span class="k">val</span> <span class="nc">MAX_THREADS</span> <span class="k">=</span> <span class="n">scala</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">min</span><span class="o">(</span>
+<div class="highlight highlight-scala"><pre>    <span class="k">val</span> <span class="nc">MAX_THREADS</span> <span class="k">=</span> <span class="n">scala</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">min</span><span class="o">(</span>
       <span class="mi">32</span><span class="o">,</span>
       <span class="n">java</span><span class="o">.</span><span class="n">lang</span><span class="o">.</span><span class="nc">Runtime</span><span class="o">.</span><span class="n">getRuntime</span><span class="o">.</span><span class="n">availableProcessors</span>
     <span class="o">)</span>
@@ -335,11 +335,11 @@ the producer has its value consumed only by the DROP in question.</li>
 </ul><h1>
 <a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored92</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored99r</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored92
-cd GenRefactored92
-git checkout -b GenRefactored92 origin/GenRefactored92
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored99r
+cd GenRefactored99r
+git checkout -b GenRefactored99r origin/GenRefactored99r
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -358,7 +358,7 @@ scalacOptions ++= Seq( . . . your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored92</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored99r</code>, building the compiler with <code>ant</code>).</p>
 
 <h2>
 <a name="41-meaning-of-optimization-levels" class="anchor" href="#41-meaning-of-optimization-levels"><span class="octicon octicon-link"></span></a>4.1 Meaning of optimization levels</h2>
@@ -406,9 +406,9 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored92/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
+<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored99r/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
 
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored92</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-Ybackend:o1</code> and such flags. The following steps are needed to overcome all that:</p>
+<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored99r</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-Ybackend:o1</code> and such flags. The following steps are needed to overcome all that:</p>
 
 <p>First, update <code>build.xml</code> to the desired level of optimization:</p>
 
