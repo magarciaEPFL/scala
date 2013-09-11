@@ -464,7 +464,8 @@ abstract class BCodeSkelBuilder extends BCodeOptInter {
     }
     def lineNumber(tree: Tree) {
       if (!emitLines || !tree.pos.isDefined) return;
-      val nr = tree.pos.line
+      val iPos = tree.pos
+      val nr   = (iPos inUltimateSource iPos.source).line
       if (nr != lastEmittedLineNr) {
         lastEmittedLineNr = nr
         lastInsn match {
