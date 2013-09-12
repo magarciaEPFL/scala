@@ -432,8 +432,8 @@ abstract class GenBCode extends BCodeOptClosu {
         val cnodeBT = lookupRefBType(cnode.name)
 
         val fixer =
-          if (isOptimizRun) { new BCodeCleanser(cnode)     }
-          else              { new EssentialCleanser(cnode) }
+          if (isOptimizRun) { new BCodeCleanser(cnode, isIntraProgramOpt) }
+          else              { new EssentialCleanser(cnode)                }
 
         // the minimal fixups needed, even for unoptimized runs.
         fixer.codeFixupDCE()
