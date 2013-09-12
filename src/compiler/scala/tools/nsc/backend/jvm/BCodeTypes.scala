@@ -263,9 +263,16 @@ abstract class BCodeTypes extends BCodeIdiomatic {
 
     import asm.Opcodes._
     def hasFlags(mask: Int) = (flags & mask) != 0
+    def isPublic     = hasFlags(ACC_PUBLIC)
     def isInterface  = hasFlags(ACC_INTERFACE)
     def isFinal      = hasFlags(ACC_FINAL)
     def isInnerClass = { innersChain != null }
+    def isTraditionalClosureClass = {
+      isInnerClass && isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
+    }
+    def isLCC = {
+      isFinal && (c.getSimpleName.contains(tpnme.LCC_FUN_NAME.toString)) && isFunctionType(c)
+    }
     def isLambda = {
       // ie isLCC || isTraditionalClosureClass
       isFinal && (c.getSimpleName.contains(tpnme.ANON_FUN_NAME.toString)) && isFunctionType(c)
@@ -647,6 +654,25 @@ abstract class BCodeTypes extends BCodeIdiomatic {
       if (other.isRefOrArrayType) { AnyRefReference }
       else                        { abort(s"Uncomparable BTypes: $a with $other") }
     }
+  }
+
+  /*
+   * Whether the argument (the signature of a method) takes as argument
+   * one ore more Function or PartialFunction (in particular an anonymous closure).
+   *
+   * can-multi-thread
+   */
+  final def isHigherOrderMethod(mtype: BMType): Boolean = {
+    val ats = mtype.argumentTypes
+    var idx = 0
+    while (idx < ats.length) {
+      val t = ats(idx)
+      if (isFunctionType(t) || isPartialFunctionType(t)) {
+        return true
+      }
+      idx += 1
+    }
+    false
   }
 
   /*
