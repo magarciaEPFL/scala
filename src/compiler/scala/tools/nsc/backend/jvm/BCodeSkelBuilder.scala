@@ -552,7 +552,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
 
       methSymbol  = dd.symbol
       jMethodName = methSymbol.javaSimpleName.toString
-      returnType  = asmMethodType(dd.symbol).getReturnType
+      returnType  = asmMethodType(dd.symbol).returnType
       isMethSymStaticCtor = methSymbol.isStaticConstructor
       isMethSymBridge     = methSymbol.isBridge
 
