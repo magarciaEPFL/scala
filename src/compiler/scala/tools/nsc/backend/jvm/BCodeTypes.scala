@@ -147,16 +147,6 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     scalaSerializableReference  = exemplar(SerializableClass).c
     classCastExceptionReference = exemplar(ClassCastExceptionClass).c
 
-    /*
-     *  The bytecode emitter special-cases String concatenation, in that three methods of `JCodeMethodN`
-     *  ( `genStartConcat()` , `genStringConcat()` , and `genEndConcat()` )
-     *  don't obtain the method descriptor of the callee via `asmMethodType()` (as normally done)
-     *  but directly emit callsites on StringBuilder using literal constant for method descriptors.
-     *  In order to make sure those method descriptors are available as BTypes, they are initialized here.
-     */
-    BT.getMethodType("()V")                   // necessary for JCodeMethodN.genStartConcat
-    BT.getMethodType("()Ljava/lang/String;")  // necessary for JCodeMethodN.genEndConcat
-
     PartialFunctionReference    = exemplar(PartialFunctionClass).c
     for(idx <- 0 to definitions.MaxFunctionArity) {
       FunctionReference(idx)           = exemplar(FunctionClass(idx))
@@ -168,8 +158,6 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     // later a few analyses (e.g. refreshInnerClasses) will look up BTypes based on descriptors in instructions
     // we make sure those BTypes can be found via lookup as opposed to creating them on the fly.
     BoxesRunTime = brefType("scala/runtime/BoxesRunTime")
-    asmBoxTo.values   foreach { mnat: MethodNameAndType => BT.getMethodType(mnat.mdesc) }
-    asmUnboxTo.values foreach { mnat: MethodNameAndType => BT.getMethodType(mnat.mdesc) }
 
   }
 
