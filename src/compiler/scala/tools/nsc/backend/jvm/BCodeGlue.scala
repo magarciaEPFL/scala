@@ -22,7 +22,7 @@ abstract class BCodeGlue extends SubComponent {
 
   import global._
 
-  object BType {
+  object BT {
 
     import global.chrs
 
@@ -143,7 +143,7 @@ abstract class BCodeGlue extends SubComponent {
      *
      * can-multi-thread
      */
-    private def getArgumentTypes(idx0: Int): Array[BType] = {
+    def getArgumentTypes(idx0: Int): Array[BType] = {
       assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
       val args = new Array[BType](getArgumentCount(idx0))
       var off = idx0
@@ -167,7 +167,7 @@ abstract class BCodeGlue extends SubComponent {
      *
      * can-multi-thread
      */
-    private def getArgumentCount(idx0: Int): Int = {
+    def getArgumentCount(idx0: Int): Int = {
       assert(chrs(idx0 - 1) == '(', "doesn't look like a method descriptor.")
       var off  = idx0
       var size = 0
@@ -232,7 +232,7 @@ abstract class BCodeGlue extends SubComponent {
       buf.toString()
     }
 
-  } // end of object BType
+  } // end of object BT
 
   /*
    * Based on ASM's Type class. Namer's chrs is used in this class for the same purposes as the `buf` char array in asm.Type.
@@ -304,7 +304,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getElementType: BType = {
       assert(isArray, s"Asked for the element type of a non-array type: $this")
-      BType.getType(off + getDimensions)
+      BT.getType(off + getDimensions)
     }
 
     /*
@@ -343,7 +343,7 @@ abstract class BCodeGlue extends SubComponent {
      * can-multi-thread
      */
     def getArgumentTypes: Array[BType] = {
-      BType.getArgumentTypes(off + 1)
+      BT.getArgumentTypes(off + 1)
     }
 
     /*
@@ -358,7 +358,7 @@ abstract class BCodeGlue extends SubComponent {
       assert(chrs(off) == '(', s"doesn't look like a method descriptor: $toString")
       var resPos = off + 1
       while (chrs(resPos) != ')') { resPos += 1 }
-      BType.getType(resPos + 1)
+      BT.getType(resPos + 1)
     }
 
     // ------------------------------------------------------------------------
@@ -457,7 +457,7 @@ abstract class BCodeGlue extends SubComponent {
      */
     def getComponentType: BType = {
       assert(isArray, s"Asked for the component type of a non-array type: $this")
-      BType.getType(off + 1)
+      BT.getType(off + 1)
     }
 
     // ------------------------------------------------------------------------
@@ -482,7 +482,7 @@ abstract class BCodeGlue extends SubComponent {
      *
      * can-multi-thread
      */
-    private def getDescriptor(buf: StringBuffer) {
+    def getDescriptor(buf: StringBuffer) {
       if (isPrimitiveOrVoid) {
         // descriptor is in byte 3 of 'off' for primitive types (buf == null)
         buf.append(((off & 0xFF000000) >>> 24).asInstanceOf[Char])
@@ -591,18 +591,18 @@ abstract class BCodeGlue extends SubComponent {
    *
    *  can-multi-thread
    */
-  def brefType(iname: TypeName): BType = { BType.getObjectType(iname.start, iname.length) }
+  def brefType(iname: TypeName): BType = BT.getObjectType(iname.start, iname.length)
 
   // due to keyboard economy only
-  val UNIT   = BType.VOID_TYPE
-  val BOOL   = BType.BOOLEAN_TYPE
-  val CHAR   = BType.CHAR_TYPE
-  val BYTE   = BType.BYTE_TYPE
-  val SHORT  = BType.SHORT_TYPE
-  val INT    = BType.INT_TYPE
-  val LONG   = BType.LONG_TYPE
-  val FLOAT  = BType.FLOAT_TYPE
-  val DOUBLE = BType.DOUBLE_TYPE
+  val UNIT   = BT.VOID_TYPE
+  val BOOL   = BT.BOOLEAN_TYPE
+  val CHAR   = BT.CHAR_TYPE
+  val BYTE   = BT.BYTE_TYPE
+  val SHORT  = BT.SHORT_TYPE
+  val INT    = BT.INT_TYPE
+  val LONG   = BT.LONG_TYPE
+  val FLOAT  = BT.FLOAT_TYPE
+  val DOUBLE = BT.DOUBLE_TYPE
 
   val BOXED_UNIT    = brefType("java/lang/Void")
   val BOXED_BOOLEAN = brefType("java/lang/Boolean")
@@ -687,22 +687,22 @@ abstract class BCodeGlue extends SubComponent {
   def descrToBType(typeDescriptor: String): BType = {
     val c: Char = typeDescriptor(0)
     c match {
-      case 'V' => BType.VOID_TYPE
-      case 'Z' => BType.BOOLEAN_TYPE
-      case 'C' => BType.CHAR_TYPE
-      case 'B' => BType.BYTE_TYPE
-      case 'S' => BType.SHORT_TYPE
-      case 'I' => BType.INT_TYPE
-      case 'F' => BType.FLOAT_TYPE
-      case 'J' => BType.LONG_TYPE
-      case 'D' => BType.DOUBLE_TYPE
+      case 'V' => BT.VOID_TYPE
+      case 'Z' => BT.BOOLEAN_TYPE
+      case 'C' => BT.CHAR_TYPE
+      case 'B' => BT.BYTE_TYPE
+      case 'S' => BT.SHORT_TYPE
+      case 'I' => BT.INT_TYPE
+      case 'F' => BT.FLOAT_TYPE
+      case 'J' => BT.LONG_TYPE
+      case 'D' => BT.DOUBLE_TYPE
       case 'L' =>
         val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
         val n = global.lookupTypeName(iname.toCharArray)
         new BType(asm.Type.OBJECT, n.start, n.length)
       case _   =>
         val n = global.lookupTypeName(typeDescriptor.toCharArray)
-        BType.getType(n.start)
+        BT.getType(n.start)
     }
   }
 
