@@ -713,4 +713,53 @@ abstract class BCodeGlue extends SubComponent {
       DOUBLE -> MethodNameAndType("unboxToDouble",  "(Ljava/lang/Object;)D")
     )
   }
+
+  /*
+   * ASM trees represent types as strings (internal names, descriptors).
+   * Given that we operate instead on BTypes, conversion is needed when visiting MethodNodes outside GenBCode.
+   *
+   * can-multi-thread
+   */
+  def descrToBType(typeDescriptor: String): BType = {
+    val c: Char = typeDescriptor(0)
+    c match {
+      case 'V' => BType.VOID_TYPE
+      case 'Z' => BType.BOOLEAN_TYPE
+      case 'C' => BType.CHAR_TYPE
+      case 'B' => BType.BYTE_TYPE
+      case 'S' => BType.SHORT_TYPE
+      case 'I' => BType.INT_TYPE
+      case 'F' => BType.FLOAT_TYPE
+      case 'J' => BType.LONG_TYPE
+      case 'D' => BType.DOUBLE_TYPE
+      case 'L' =>
+        val iname = typeDescriptor.substring(1, typeDescriptor.length() - 1)
+        val n = global.lookupTypeName(iname.toCharArray)
+        new BType(asm.Type.OBJECT, n.start, n.length)
+      case _   =>
+        val n = global.lookupTypeName(typeDescriptor.toCharArray)
+        BType.getType(n.start)
+    }
+  }
+
+  /*
+   * Use only to lookup reference types, otherwise use `descrToBType()`
+   *
+   * can-multi-thread
+   */
+  def lookupRefBType(iname: String): BType = {
+    import global.chrs
+    val n    = global.lookupTypeName(iname.toCharArray)
+    val sort = if (chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+    new BType(sort, n.start, n.length)
+  }
+
+  def lookupRefBTypeIfExisting(iname: String): BType = {
+    import global.chrs
+    val n    = global.lookupTypeNameIfExisting(iname.toCharArray, false)
+    if (n == null) { return null }
+    val sort = if (chrs(n.start) == '[') BType.ARRAY else BType.OBJECT;
+    new BType(sort, n.start, n.length)
+  }
+
 }
