@@ -704,6 +704,10 @@ abstract class BCodeTypes extends BCodeIdiomatic {
     false
   }
 
+  def isClosureClass(bt: BType): Boolean = {
+    val tr = exemplars.get(bt); (tr != null && tr.isLambda)
+  }
+
   /*
    *  For an argument of exactly one of the types
    *  scala.runtime.AbstractFunctionX where 0 <= X <= definitions.MaxFunctionArity
