@@ -14,9 +14,9 @@ object Test extends BytecodeTest {
       val got = countNullChecks(methodNode.instructions)
       assert(got == expected, s"expected $expected but got $got comparisons")
     }
-    test("string", expected = 2)
-    test("module", expected = 2)
-    test("moduleIndirect", expected = 2)
+    test("string", expected = 0)
+    test("module", expected = 0)
+    test("moduleIndirect", expected = 0)
   }
 
   def countNullChecks(insnList: asm.tree.InsnList): Int =
