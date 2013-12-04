@@ -165,6 +165,12 @@ public class ClassNode extends ClassVisitor {
     public List<MethodNode> methods;
 
     /**
+     * See GenBCode's PlainClassBuilder.genPlainClass()
+     * Used when removing redundant outer-pointers via squashOuter()
+     */
+    public boolean isStaticModule;
+
+    /**
      * Constructs a new {@link ClassNode}. <i>Subclasses must not use this
      * constructor</i>. Instead, they must use the {@link #ClassNode(int)}
      * version.
