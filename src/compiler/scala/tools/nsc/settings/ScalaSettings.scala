@@ -226,6 +226,10 @@ trait ScalaSettings extends AbsScalaSettings
     Some((1, Int.MaxValue)), (_: String) => None
   )
 
+  val closureConv = ChoiceSetting ("-Yclosurify", "closure desugaring", "Bytecode-level representation of anonymous closures.",
+                                   List("traditional", "delegating"),
+                                   "delegating") // TODO once merged into trunk "traditional" should be the default
+
   // Feature extensions
   val XmacroSettings          = MultiStringSetting("-Xmacro-settings", "option", "Custom settings for macros.")
 
@@ -268,5 +272,19 @@ trait ScalaSettings extends AbsScalaSettings
    */
   private def neoLevel: Int   = (if (Ybackend.value.startsWith("o") && isBCodeActive) Ybackend.value.substring(1).toInt else 0)
   def isIntraMethodOptimizOn  = (neoLevel >= 1)
+
+  /*
+   *  Approaches to lower anonymous closures:
+   *
+   *    case "traditional"  => Good ol' dedicated inner class for each closure.
+   *
+   *    case "delegating"   => aka "Late-Closure-Classes" ie their creation is postponed (instead of UnCurry during GenBCode)
+   *                           thus lowering the working set during compilation. Allows closure optimizations.
+   */
+  def isClosureConvDelegating  = (
+    !Ydelambdafy.isSetByUser &&
+    isBCodeActive &&
+    (if (closureConv.isSetByUser) closureConv.value == "delegating" else true)
+  )
 
 }
