@@ -718,6 +718,7 @@ abstract class BCodeIdiomatic extends BCodeGlue {
 
   implicit class InsnIterMethodNode(mnode: asm.tree.MethodNode) {
     @inline final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit) { mnode.instructions.foreachInsn(f) }
+    @inline final def toList: List[asm.tree.AbstractInsnNode] = { mnode.instructions.toList }
   }
 
   implicit class InsnIterInsnList(lst: asm.tree.InsnList) {
@@ -728,6 +729,13 @@ abstract class BCodeIdiomatic extends BCodeGlue {
         f(insnIter.next())
       }
     }
+
+    @inline final def toList: List[asm.tree.AbstractInsnNode] = {
+      var result: List[asm.tree.AbstractInsnNode] = Nil
+      lst foreachInsn { insn => if (insn != null) { result ::= insn }  }
+      result.reverse
+    }
+
   }
 
   /*
