@@ -706,6 +706,16 @@ abstract class BCodeIdiomatic extends BCodeGlue {
     }
   }
 
+  implicit class MethodIterClassNode(cnode: asm.tree.ClassNode) {
+
+    @inline final def foreachMethod(f: (asm.tree.MethodNode) => Unit) { toMethodList.foreach(f) }
+
+    @inline final def toMethodList: List[asm.tree.MethodNode] = { JListWrapper(cnode.methods).toList }
+
+    @inline final def toFieldList:  List[asm.tree.FieldNode] = { JListWrapper(cnode.fields).toList }
+
+  }
+
   implicit class InsnIterMethodNode(mnode: asm.tree.MethodNode) {
     @inline final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit) { mnode.instructions.foreachInsn(f) }
   }
