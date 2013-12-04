@@ -138,12 +138,35 @@ abstract class GenBCode extends BCodeOptIntra {
                      mirror:       asm.tree.ClassNode,
                      plain:        asm.tree.ClassNode,
                      bean:         asm.tree.ClassNode,
-                     lateClosures: List[asm.tree.ClassNode],
-                     outFolder:    scala.tools.nsc.io.AbstractFile) {
+                     lateClosures:      List[asm.tree.ClassNode],
+                     dClosureEndpoints: Iterable[DClosureEndpoint],
+                     outFolder:         scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
+
+      /* LCC-internal-name -> endpoint-as-MethodNode */
+      def epByDCName: Map[String, MethodNode] = {
+
+        if (dClosureEndpoints == null) {
+          assert(lateClosures.isEmpty)
+          return null
+        }
+
+        val isDelegateMethodName = (dClosureEndpoints map (epInfo => epInfo.epName)).toSet
+        assert(isDelegateMethodName.size == dClosureEndpoints.size, "Names of endpoints should be unique within their master-class")
+
+        val mnodeByName: Map[String, MethodNode] = (
+          plain.toMethodList filter { mn => isDelegateMethodName(mn.name) } map { mn => Pair(mn.name, mn) }
+        ).toMap
+
+        val result =
+          for(epInfo <- dClosureEndpoints)
+          yield Pair(epInfo.closuBT.getInternalName, mnodeByName(epInfo.epName))
+
+        result.toMap
+      }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
     private val q2 = new java.util.concurrent.LinkedBlockingQueue[Item2]
 
     /* ---------------- q3 ---------------- */
@@ -281,7 +304,7 @@ abstract class GenBCode extends BCodeOptIntra {
         val item2 =
           Item2(arrivalPos + lateClosuresCount,
                 mirrorC, plainC, beanC,
-                lateClosures,
+                lateClosures, dClosureEndpoints,
                 outF)
         lateClosuresCount += lateClosures.size
 
@@ -319,6 +342,10 @@ abstract class GenBCode extends BCodeOptIntra {
      *          - removing dead code, and then
      *          - converting the plain ClassNode to byte array and placing it on queue-3
      *
+     *    (b) with intra-procedural optimization on,
+     *          - cleanseClass() is invoked on the plain class, and then
+     *          - the plain class is serialized as above (ending up in queue-3)
+     *
      *  can-multi-thread
      */
     class Worker2 extends java.lang.Runnable {
@@ -351,6 +378,8 @@ abstract class GenBCode extends BCodeOptIntra {
 
       /*
        *  Performs optimizations using task parallelism.
+       *  A task has exclusive access to ASM ClassNodes that need to be mutated in-tandem,
+       *  for example a master class and the dclosures it's responsible for.
        *  Afterwards, adds the ClassNode(s) to queue-3.
        */
       def visit(item: Item2) {
@@ -360,11 +389,14 @@ abstract class GenBCode extends BCodeOptIntra {
         if (isOptimizRun) {
           val cleanser = new BCodeCleanser(cnode)
           cleanser.codeFixupDCE()
+          cleanser.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
           cleanser.cleanseClass()
         }
         else {
+          // the minimal fixups needed, even for unoptimized runs.
           val essential = new EssentialCleanser(cnode)
-          essential.codeFixupDCE()    // the minimal fixups needed, even for unoptimized runs.
+          essential.codeFixupDCE()
+          essential.codeFixupSquashLCC(item.lateClosures, item.epByDCName)
         }
 
         refreshInnerClasses(cnode)
@@ -382,7 +414,7 @@ abstract class GenBCode extends BCodeOptIntra {
           cw.toByteArray
         }
 
-        val Item2(arrivalPos, mirror, plain, bean, lateClosures, outFolder) = item
+        val Item2(arrivalPos, mirror, plain, bean, lateClosures, _, outFolder) = item
 
         val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
         val plainC  = SubItem3(plain.name, getByteArray(plain))
