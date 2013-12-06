@@ -293,6 +293,7 @@ trait ScalaSettings extends AbsScalaSettings
    */
   def isClosureConvDelegating  = (
     !Ydelambdafy.isSetByUser &&
+    !etaExpandKeepsStar.value &&
     isBCodeActive &&
     (if (closureConv.isSetByUser) closureConv.value == "delegating" else true)
   )
