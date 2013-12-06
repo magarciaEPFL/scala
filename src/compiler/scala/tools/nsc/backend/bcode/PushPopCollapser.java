@@ -391,12 +391,8 @@ public class PushPopCollapser {
                     break;
 
                 case Opcodes.GETSTATIC:
-                    if (SSLUtil.isSideEffectFreeGETSTATIC(prod)) {
-                        removeProducer(prod);
-                    } else {
-                        assert size == SizingUtil.getResultSize(prod);
-                        skipExam.add(appendDrop(prod, size));
-                    }
+                    assert size == SizingUtil.getResultSize(prod);
+                    skipExam.add(appendDrop(prod, size));
                     break;
 
                 case Opcodes.PUTSTATIC:
@@ -576,7 +572,7 @@ public class PushPopCollapser {
                 return false;
 
             case Opcodes.GETSTATIC:
-                return SSLUtil.isSideEffectFreeGETSTATIC(producer);
+                return false;
 
             case Opcodes.GETFIELD:
                 return false;

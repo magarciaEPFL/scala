@@ -25,27 +25,6 @@ public class SSLUtil {
     // utilities made available to clients
     // ------------------------------------------------------------------------
 
-    public static boolean isSideEffectFree(final AbstractInsnNode producer) {
-        if (isSideEffectFreeCall(producer) || isSideEffectFreeGETSTATIC(producer)) return true;
-        return false;
-    }
-
-    public static boolean isSideEffectFreeGETSTATIC(final AbstractInsnNode producer) {
-        if (producer.getType() == AbstractInsnNode.FIELD_INSN) {
-            FieldInsnNode fi = (FieldInsnNode)producer;
-            if ("scala/runtime/BoxedUnit".equals(fi.owner)) {
-                return "UNIT".equals(fi.name);
-            }
-            if ("scala/Unit$".equals(fi.owner)) {
-                return "MODULE$".equals(fi.name); // SI-6527
-            }
-            if ("scala/collection/immutable/Nil$".equals(fi.owner)) {
-                return "MODULE$".equals(fi.name);
-            }
-        }
-        return false;
-    }
-
     public static boolean isSideEffectFreeCall(final AbstractInsnNode producer) {
         if (isScalaUnBox(producer) || isScalaBox(producer)) return true;
         if (Util.isJavaBox(producer)) return true; // Java unbox isn't "side effect free" because on null it NPEs.
