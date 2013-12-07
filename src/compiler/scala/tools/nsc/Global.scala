@@ -30,7 +30,7 @@ import backend.icode.{ ICodes, GenICode, ICodeCheckers }
 import backend.{ ScalaPrimitives, Platform, JavaPlatform }
 import backend.jvm.GenBCode
 import backend.jvm.GenASM
-import backend.opt.{ Inliners, InlineExceptionHandlers, ConstantOptimization, ClosureElimination, DeadCodeElimination }
+import backend.opt.{ Inliners, ConstantOptimization, ClosureElimination, DeadCodeElimination }
 import backend.icode.analysis._
 import scala.language.postfixOps
 
@@ -596,13 +596,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
     val runsRightAfter = None
   } with Inliners
 
-  // phaseName = "inlinehandlers"
-  object inlineExceptionHandlers extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("inliner")
-    val runsRightAfter = None
-  } with InlineExceptionHandlers
-
   // phaseName = "closelim"
   object closureElimination extends {
     val global: Global.this.type = Global.this
@@ -706,7 +699,6 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       cleanup                 -> "platform-specific cleanups, generate reflective calls",
       genicode                -> "generate portable intermediate code",
       inliner                 -> "optimization: do inlining",
-      inlineExceptionHandlers -> "optimization: inline exception handlers",
       closureElimination      -> "optimization: eliminate uncalled closures",
       constantOptimization    -> "optimization: optimize null and other constants",
       deadCode                -> "optimization: eliminate dead code",
