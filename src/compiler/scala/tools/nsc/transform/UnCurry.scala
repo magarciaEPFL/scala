@@ -46,7 +46,9 @@ import scala.language.postfixOps
 /*</export> */
 abstract class UnCurry extends InfoTransform
                           with scala.reflect.internal.transform.UnCurry
-                          with TypingTransformers with ast.TreeDSL {
+                          with TypingTransformers
+                          with ast.TreeDSL
+                          with LateClosureClasses {
   val global: Global               // need to repeat here because otherwise last mixin defines global as
                                    // SymbolTable. If we had DOT this would not be an issue
   import global._                  // the global environment
@@ -62,10 +64,10 @@ abstract class UnCurry extends InfoTransform
 
 // uncurry and uncurryType expand type aliases
 
-  class UnCurryTransformer(unit: CompilationUnit) extends TypingTransformer(unit) {
+  class UnCurryTransformer(unit: CompilationUnit) extends TypingTransformer(unit) with LCCTransformer {
     private val inlineFunctionExpansion = settings.Ydelambdafy.value == "inline"
     private var needTryLift       = false
-    private var inConstructorFlag = 0L
+            var inConstructorFlag = 0L
     private val byNameArgs        = mutable.HashSet[Tree]()
     private val noApply           = mutable.HashSet[Tree]()
     private val newMembers        = mutable.Map[Symbol, mutable.Buffer[Tree]]()
@@ -194,13 +196,14 @@ abstract class UnCurry extends InfoTransform
     }
 
 
-    /**  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
+    /*
+     *  Performs closure conversion according to one of two approaches:
+     *    (a) hoisting the closure body, unless
+     *          - the closure is a constructor-argument; or
+     *          - a compiler setting dictates varargs methods should be eta-expanded to T* rather than Seq[T].
+     *    (b) traditional, ie the closure body goes to the anon-closure-class.
      *
-     *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
-     *      def apply(x_1: T_1, ..., x_N: T_n): R = body
-     *    }
-     *    new $anon()
-     *
+     *  The documentation of `closureConversionModern()` compares the pros and cons of both closure conversion approaches.
      */
     def transformFunction(fun: Function): Tree = {
       fun.tpe match {
@@ -222,7 +225,15 @@ abstract class UnCurry extends InfoTransform
           def mkMethod(owner: Symbol, name: TermName, additionalFlags: FlagSet = NoFlags): DefDef =
             gen.mkMethodFromFunction(localTyper)(fun, owner, name, additionalFlags)
 
-          if (inlineFunctionExpansion) {
+          // checking inConstructorFlag prevents hitting SI-6666
+          def isAmenableToModernConversion = (
+            (inConstructorFlag == 0) && isAmenableToLateDelegatingClosures(fun)
+          )
+
+          if (settings.isClosureConvDelegating && isAmenableToModernConversion) {
+            closureConversionModern(unit, fun)
+          }
+          else if (inlineFunctionExpansion) {
             val parents = addSerializable(abstractFunctionForFunctionType(fun.tpe))
             val anonClass = fun.symbol.owner newAnonymousFunctionClass(fun.pos, inConstructorFlag) addAnnotation SerialVersionUIDAnnotation
             anonClass setInfo ClassInfoType(parents, newScope, anonClass)
@@ -497,7 +508,7 @@ abstract class UnCurry extends InfoTransform
             treeCopy.CaseDef(tree, pat1, transform(guard), transform(body))
 
           // if a lambda is already the right shape we don't need to transform it again
-          case fun @ Function(_, Apply(target, _)) if (!inlineFunctionExpansion) && isLiftedLambdaBody(target) =>
+          case fun @ Function(_, Apply(target, _)) if (!settings.isClosureConvDelegating && !inlineFunctionExpansion) && isLiftedLambdaBody(target) =>
             super.transform(fun)
 
           case fun @ Function(_, _) =>
