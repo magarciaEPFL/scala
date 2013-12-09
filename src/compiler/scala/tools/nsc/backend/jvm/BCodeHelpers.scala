@@ -543,10 +543,13 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
      *  Returns all direct member inner classes of `csym`,
      *  thus making sure they get entries in the InnerClasses JVM attribute
      *  even if otherwise not mentioned in the class being built.
+     *  Late-Closure-Classes aren't accounted for here.
+     *  Instead, `refreshInnerClasses()` (which is needed anyway) takes care of adding
+     *  to the table of inner classes only those LCCs that are actually in use (eg, an LCC that's inlined is deleted).
      *
      *  must-single-thread
      */
-    final def trackMemberClasses(csym: Symbol, lateClosuresBTs: List[BType]): List[BType] = {
+    final def trackMemberClasses(csym: Symbol): List[BType] = {
       val lateInnerClasses = exitingErasure {
         for (sym <- List(csym, csym.linkedClassOfClass); memberc <- sym.info.decls.map(innerClassSymbolFor) if memberc.isClass)
         yield memberc
@@ -1127,7 +1130,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
 
       addForwarders(isRemote(modsym), mirrorClass, mirrorName, modsym)
 
-      innerClassBufferASM ++= trackMemberClasses(modsym, Nil /* TODO what about Late-Closure-Classes */ )
+      innerClassBufferASM ++= trackMemberClasses(modsym) // no Late-Closure-Classes in mirror classes
       addInnerClassesASM(mirrorClass, innerClassBufferASM.toList)
 
       mirrorClass.visitEnd()
@@ -1247,7 +1250,7 @@ abstract class BCodeHelpers extends BCodeTypes with BytecodeWriters {
       constructor.visitMaxs(0, 0) // just to follow protocol, dummy arguments
       constructor.visitEnd()
 
-      innerClassBufferASM ++= trackMemberClasses(cls, Nil /* TODO what about Late-Closure-Classes */ )
+      innerClassBufferASM ++= trackMemberClasses(cls) // no Late-Closure-Classes in BeanInfo classes
       addInnerClassesASM(beanInfoClass, innerClassBufferASM.toList)
 
       beanInfoClass.visitEnd()

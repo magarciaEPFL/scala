@@ -114,7 +114,7 @@ abstract class BCodeSkelBuilder extends BCodeOptInter {
 
       addClassFields()
 
-      innerClassBufferASM ++= trackMemberClasses(claszSymbol, Nil)
+      innerClassBufferASM ++= trackMemberClasses(claszSymbol)
 
       gen(cd.impl)
 
