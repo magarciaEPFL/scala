@@ -729,4 +729,43 @@ abstract class BCodeIdiomatic extends BCodeGlue {
       }
     }
   }
+
+  /*
+   *  Upon finding a name already seen among previous List elements, adds a numeric postfix to make it unique.
+   */
+  def uniquify(names: List[String]): List[String] = {
+    val seen = mutable.Set.empty[String]
+
+      @scala.annotation.tailrec def uniquified(current: String, attempt: Int): String = {
+        if (seen contains current) {
+          val currentBis = (current + "$" + attempt.toString)
+          if (seen contains currentBis) {
+            uniquified(current, attempt + 1)
+          } else currentBis
+        } else current
+      }
+
+    var rest = names
+    var result: List[String] = Nil
+    while (rest.nonEmpty) {
+      val u    = uniquified(rest.head.trim, 1)
+      seen    += u
+      result ::= u
+      rest     = rest.tail
+    }
+
+    result.reverse
+  }
+
+  def allDifferent[ElemType](xs: Iterable[ElemType]): Boolean = {
+    val seen = mutable.Set.empty[ElemType]
+    val iter = xs.iterator
+    while (iter.hasNext) {
+      val nxt = iter.next()
+      if (seen contains nxt) { return false }
+      seen += nxt
+    }
+    true
+  }
+
 }

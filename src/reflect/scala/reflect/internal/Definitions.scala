@@ -345,6 +345,14 @@ trait Definitions extends api.StandardDefinitions {
      */
     lazy val SpecializableModule  = requiredModule[Specializable]
 
+    /** Late-ClosureClasses.
+     */
+    lazy val lccDisguiserMethod = {
+      val flags = (FINAL | SYNTHETIC | ARTIFACT)
+      enterNewMethod(ScalaRunTimeModule, newTermName("lccDisguiserMethod"), List(AnyTpe), ObjectClass.tpe, flags)
+    }
+
+
     lazy val ScalaRunTimeModule = requiredModule[scala.runtime.ScalaRunTime.type]
     lazy val SymbolModule       = requiredModule[scala.Symbol.type]
          def Symbol_apply       = getMemberMethod(SymbolModule, nme.apply)
