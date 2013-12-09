@@ -234,6 +234,7 @@ trait JavaUniverseForce { self: runtime.JavaUniverse  =>
     definitions.UnqualifiedOwners
     definitions.PredefModule
     definitions.SpecializableModule
+    definitions.lccDisguiserMethod
     definitions.ScalaRunTimeModule
     definitions.SymbolModule
     definitions.StringAddClass
