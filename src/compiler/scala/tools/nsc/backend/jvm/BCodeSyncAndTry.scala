@@ -10,7 +10,6 @@ package backend
 package jvm
 
 import scala.collection.{ mutable, immutable }
-import scala.annotation.switch
 
 import scala.tools.asm
 
