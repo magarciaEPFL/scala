@@ -223,6 +223,19 @@ abstract class BCodeGlue extends SubComponent {
     }
 
     /*
+     * @return the prefix of the internal name until the last '/' (if '/' present), empty string otherwise.
+     *
+     * can-multi-thread
+     */
+    def getRuntimePackage: String = {
+      assert(hasObjectSort, s"not of object sort: $toString")
+      val iname = getInternalName
+      val idx = iname.lastIndexOf('/')
+      if (idx == -1) ""
+      else iname.substring(0, idx)
+    }
+
+    /*
      * @return the suffix of the internal name until the last '/' (if '/' present), internal name otherwise.
      *
      * can-multi-thread

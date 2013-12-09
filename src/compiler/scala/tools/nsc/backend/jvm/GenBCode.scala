@@ -13,6 +13,7 @@ import scala.collection.{ mutable, immutable }
 import scala.annotation.switch
 
 import scala.tools.asm
+import asm.tree.{FieldNode, MethodInsnNode, MethodNode}
 
 /*
  *  Prepare in-memory representations of classfiles using the ASM Tree API, and serialize them to disk.
@@ -138,11 +139,12 @@ abstract class GenBCode extends BCodeOptIntra {
                      mirror:       asm.tree.ClassNode,
                      plain:        asm.tree.ClassNode,
                      bean:         asm.tree.ClassNode,
+                     lateClosures: List[asm.tree.ClassNode],
                      outFolder:    scala.tools.nsc.io.AbstractFile) {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
     private val q2 = new java.util.concurrent.LinkedBlockingQueue[Item2]
 
     /* ---------------- q3 ---------------- */
@@ -185,6 +187,7 @@ abstract class GenBCode extends BCodeOptIntra {
     class Worker1(needsOutFolder: Boolean) extends java.lang.Runnable {
 
       val caseInsensitively = mutable.Map.empty[String, Symbol]
+      var lateClosuresCount = 0
 
       def run() {
         while (true) {
@@ -206,7 +209,7 @@ abstract class GenBCode extends BCodeOptIntra {
 
       /*
        *  Checks for duplicate internal names case-insensitively,
-       *  builds ASM ClassNodes for mirror, plain, and bean classes;
+       *  builds ASM ClassNodes for mirror, plain, bean, and late-closure classes;
        *  enqueues them in queue-2.
        *
        */
@@ -254,17 +257,60 @@ abstract class GenBCode extends BCodeOptIntra {
             )
           } else null
 
+        val lateClosures = pcb.lateClosures
+
+        assert(lateClosures.isEmpty == pcb.closuresForDelegates.isEmpty)
+
+        // ----------- add entries for Late-Closure-Classes to exemplars ( "plain class" already tracked by virtue of initJClass() )
+
+        for(lateC <- lateClosures) {
+          // blanket invariant: after Worker1 each class (compiled or imported) has its `exemplars` counterpart. Ditto after Inlining.
+          val trackedClosu = buildExemplarForLCC(lateC)
+          exemplars.put(trackedClosu.c, trackedClosu)
+        }
+
+        var dClosureEndpoints: Iterable[DClosureEndpoint] = null
+        if (lateClosures.nonEmpty) {
+          val masterBT = lookupRefBType(plainC.name) // this is the "master class" responsible for "its" dclosures
+          dClosureEndpoints = pcb.closuresForDelegates.values
+          assert(lateClosures.size == dClosureEndpoints.size)
+          populateDClosureMaps(plainC, masterBT, dClosureEndpoints)
+        }
+
           // ----------- hand over to pipeline-2
 
         val item2 =
-          Item2(arrivalPos,
-                claszSymbol.pos,
+          Item2(arrivalPos + lateClosuresCount,
+            claszSymbol.pos,
                 mirrorC, plainC, beanC,
+                lateClosures,
                 outF)
+        lateClosuresCount += lateClosures.size
 
         q2 put item2 // at the very end of this method so that no Worker2 thread starts mutating before we're done.
 
       } // end of method visit(Item1)
+
+      /*
+       *  precondition: the argument's internal name already registered as BType
+       *
+       *  Discussion on whether a Late-Closure-Class (LCC) needs to be an inner class. No it doesn't. Reasoning:
+       *    (a) an LCC mentions only:
+       *        (a.1) the types listed in its endpoint.
+       *              The LCC's endpoint is a public method in a class C (the "master class" of the LCC).
+       *        (a.2) type C, because the LCC's outer pointer points to C
+       *    (b) Both C and LCC are in the same bytecode-level package.
+       *
+       *  Under -closurify:delegating or -closurify:MH , an anon-closure-class has no member classes.
+       */
+      private def buildExemplarForLCC(lateC: asm.tree.ClassNode): Tracked = {
+        val key = lookupRefBType(lateC.name)
+        val tsc: Tracked = exemplars.get(lookupRefBType(lateC.superName))
+        val tr = Tracked(key, lateC.access, tsc, lateClosureInterfaces, EMPTY_InnerClassEntry_ARRAY)
+        tr.directMemberClasses = Nil
+
+        tr
+      } // end of method buildExemplarForLCC
 
     } // end of class BCodePhase.Worker1
 
@@ -327,6 +373,7 @@ abstract class GenBCode extends BCodeOptIntra {
         }
 
         refreshInnerClasses(cnode)
+        item.lateClosures foreach refreshInnerClasses
 
         addToQ3(item)
 
@@ -340,13 +387,20 @@ abstract class GenBCode extends BCodeOptIntra {
           cw.toByteArray
         }
 
-        val Item2(arrivalPos, _, mirror, plain, bean, outFolder) = item
+        val Item2(arrivalPos, _, mirror, plain, bean, lateClosures, outFolder) = item
 
         val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
         val plainC  = SubItem3(plain.name, getByteArray(plain))
         val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
 
         q3 put Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+
+        // -------------- Late-Closure-Classes, if any --------------
+        var lateClosuresCount = 0
+        for(lateC <- lateClosures.reverse) {
+          lateClosuresCount += 1
+          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
+        }
 
       }
 
@@ -366,6 +420,8 @@ abstract class GenBCode extends BCodeOptIntra {
      *
      */
     override def run() {
+
+      log(s"Early anon-closures: ${uncurry.convertedTraditional} Late anon-closures: ${uncurry.convertedModern}")
 
       arrivalPos = 0 // just in case
       scalaPrimitives.init
@@ -505,6 +561,28 @@ abstract class GenBCode extends BCodeOptIntra {
 
       gen(cunit.body)
     }
+
+    def populateDClosureMaps(cnode: asm.tree.ClassNode, masterBT: BType, dClosureEndpoints: Iterable[DClosureEndpoint]) {
+
+      // add entry to `closuRepo.endpoint`
+      val isDelegateMethodName = (dClosureEndpoints map (dce => dce.epName)).toSet
+      val candidateMethods = (cnode.toMethodList filter (mn => isDelegateMethodName(mn.name)))
+      for(dClosureEndpoint <- dClosureEndpoints) {
+        val candidates: List[MethodNode] =
+          for(
+            mn <- candidateMethods;
+            if (mn.name == dClosureEndpoint.epName) && (mn.desc == dClosureEndpoint.epMT.getDescriptor)
+          ) yield mn;
+
+        assert(candidates.nonEmpty && candidates.tail.isEmpty)
+        val delegateMethodNode = candidates.head
+
+        // so that it can be invoked from another class (its Late-Closure-Class)
+        backend.bcode.Util.makePublicMethod(delegateMethodNode)
+
+      }
+
+    } // end of method populateDClosureMaps()
 
   } // end of class BCodePhase
 
