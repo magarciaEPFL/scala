@@ -405,7 +405,21 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>An attempt to <code>ant nightly</code> on a clean checkout of branch <code>GenRefactored99sK</code> doesn't achieve the desired effect, because the old optimizer is used (<code>-optimize</code> activates the old optimizer). In fact, the compiler used for the first time to compile the new backend doesn't understand yet flags like <code>-Ybackend:o1</code>. You'll have to be creative.</p>
+<p>An attempt to <code>ant nightly</code> on a clean checkout of branch <code>GenRefactored99sK</code> doesn't achieve the desired effect, because the old optimizer is used (<code>-optimize</code> activates the old optimizer). In fact, the compiler used for the first time to compile the new backend doesn't understand yet flags like <code>-Ybackend:o1</code>.</p>
+
+<p>In order to run the test suite under the new optimizer, one may hardcode the optimization level of choice as shown below (run <code>ant quick.clean &amp;&amp; ant</code> for the update to take effect).</p>
+
+<div class="highlight highlight-diff"><pre><span class="gd">--- a/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala</span>
+<span class="gi">+++ b/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala</span>
+<span class="gu">@@ -218,7 +218,7 @@ trait ScalaSettings extends AbsScalaSettings</span>
+    */
+   val Ybackend = ChoiceSetting ("-Ybackend", "choice of bytecode emitter", "Choice of bytecode emitter.",
+                                 List("GenASM", "GenBCode", "o1", "o2", "o3"),
+<span class="gd">-                                "o1")</span>
+<span class="gi">+                                "o3")</span>
+</pre></div>
+
+<p>With the optimization level hardcoded as shown above, one may also delete all occurrences of "<code>-optimise</code>"  in <code>build.xml</code> and <code>build-ant-macros.xml</code>. That way, <code>ant all.clean &amp;&amp; ant &amp;&amp; ant nightly</code> will both run the test suite and build a distribution optimized under <code>BCodeOpt</code>.</p>
 
 <h2>
 <a name="52-experimental-features" class="anchor" href="#52-experimental-features"><span class="octicon octicon-link"></span></a>5.2 Experimental features</h2>
