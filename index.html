@@ -45,34 +45,27 @@
 </ol><h1>
 <a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored99sH</code> bundles improvements in three areas: optimizer, code emitter, and AST-level representation of closures. These improvements make the compiler faster and the emitted code more compact.</p>
+<p>The experimental branch <code>GenRefactored99sK</code> at repo <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a> improves three areas of <code>scalac</code>: optimizer, code emitter, and AST-level representation of closures. The resulting compiler is on average 15% faster, and also emits more compact code than the mainline Scala compiler.</p>
 
-<p>The delta with respect to <code>scalac</code> and a breakdown of the changes introduced are covered in:</p>
+<p>A small subset of the above functionality has already been merged and will be available in Scala 2.11 once it's released. However, the bulk of the new backend won't. For all practical purposes, don't use that small "subset" available in <code>scalac</code>. You'll be missing on the delta with respect to full-blown new backend, and it's a huge delta:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sH">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sH</a></li>
-<li>
-<a href="https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ">https://groups.google.com/d/msg/scala-internals/N1wnQcjcDvk/bnxrAQMxSsQJ</a> (this post contains URLs to commits superseded above, but the high-level description remains accurate).</li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sK">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sK</a></li>
 </ul><p>To get up and running, please skip to <a href="#GettingStarted">Getting Started</a>.</p>
 
 <h2>
 <a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a>1.1 Why a new optimizer</h2>
 
-<blockquote>
-<p>Aren't <em>next-silver-bullet</em> going to give us top performance, with zero effort required from us?</p>
-</blockquote>
+<p>It might be the officially supported optimizer, but not everyone likes it. It's very telling a major Scala framework <a href="http://doc.akka.io/docs/akka/snapshot/intro/getting-started.html">warns against using it</a>.</p>
 
-<p>The experimental optimizer instead:</p>
+<p>You might also have heard "everything will be better with MethodHandles". Well, who knows, it might turn out that way in the end. Instead, the new optimizer ("<code>BCodeOpt</code>") improves performance today, while leaving the open the door to future developments (by handling lambdas in a manner that's forward-compatible with MethodHandles).</p>
 
-<ul>
-<li>improves performance today (you know, just in case method handles in JDK 7 remain slow and buggy, for lack of backporting LambdaForm fixes from JDK 8)</li>
-<li>while leaving a door open to future developments (closures via method handles are <em>also</em> optimized)</li>
-<li>consisting of many focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a>
-</li>
-</ul><h2>
+<p>Additionally, the new optimizer is more maintainable: it consists of several focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a></p>
+
+<h2>
 <a name="12-and-a-faster-code-emitter-too" class="anchor" href="#12-and-a-faster-code-emitter-too"><span class="octicon octicon-link"></span></a>1.2 And a faster code emitter, too</h2>
 
-<p>Before the new optimizer runs (<code>GenBCodeOpt</code>) the new bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
+<p>Before the new optimizer runs (<code>BCodeOpt</code>) the new bytecode emitter (<code>GenBCode</code>) turns Abstract Syntax Trees directly into ASM Trees, outperforming by 30% its existing counterpart (<code>GenICode + GenASM</code>).</p>
 
 <ul>
 <li>the intermediate step to build Control Flow Graphs is not needed,</li>
@@ -84,8 +77,6 @@
 
 <p>Under "modern" closure conversion, the  bytecode emitter takes responsibility for producing the JVM-level representation of closures. This is the default (compiler option <code>-Yclosurify:delegating</code> ).</p>
 
-<p>Another closure-conversion approach,  <code>-Yclosurify:reflect</code> , achieves 30% code reduction, at the cost of having <code>apply()</code> perform a reflective invocation, as described next.</p>
-
 <h1>
 <a name="2-whats-new-in-the-new-optimizer" class="anchor" href="#2-whats-new-in-the-new-optimizer"><span class="octicon octicon-link"></span></a><a name="WhatsNew">2</a> What's new in the new optimizer</h1>
 
@@ -94,7 +85,12 @@
 
 <p>The existing inliner, once activated, will inline both callees found in external libraries (against which the program is being compiled) as well as callees in the program being compiled. There's no way to tell it to focus only in the intra-program case. The advantage of applying intra-program optimizations only is that at runtime updated libraries may be used (granted, binary compatible ones).</p>
 
-<p>The new optimizer associates <code>-Ybackend:o2</code> with "intra-program optimizations" and <code>-Ybackend:o3</code> with "cross-libraries optimizations", as discussed in more detail in Sec. 4.1.</p>
+<ul>
+<li>intra-program optimizations   are activated via <code>-Ybackend:o2</code>
+</li>
+<li>cross-libraries optimizations are activated via <code>-Ybackend:o3</code>
+</li>
+</ul><p>Details in Sec. 4.1.</p>
 
 <h2>
 <a name="22-inlining" class="anchor" href="#22-inlining"><span class="octicon octicon-link"></span></a>2.2 Inlining</h2>
@@ -105,7 +101,7 @@
 <li>closure elimination is implemented as repeated method inlinings. Upon being forced to stop with that (e.g., recursive method) none of the previous inlinings is undone, leaving both the closure class and a trail of duplicate code.</li>
 <li>code may be inlined from third-party libraries or the JDK. In general methods not marked <code>@inline</code> may be inlined as discussed in thread <a href="https://groups.google.com/d/topic/scala-internals/uyFWFRbUD0o/discussion">the perils of inlining</a> </li>
 <li>invocation cycles (ie M1() calling M2() calling M1() etc) are "broken" only after hitting the maximum method size threshold, leaving a trail of duplicate code behind.</li>
-</ul><p>Instead, the experimental optimizer just follows a simple principle:</p>
+</ul><p>Instead, the new optimizer just follows a simple principle:</p>
 
 <blockquote>
 <p>only inline @inline-marked methods, and always inline them, including under separate-compilation</p>
@@ -183,12 +179,12 @@ loop$1(scala.collection.mutable.ListBuffer,
 <ul>
 <li>collapse a multi-jump chain to target its final destination via a single jump</li>
 <li>remove unreachable code</li>
-<li>remove those LabelNodes and LineNumbers that aren't in use</li>
+<li>remove those <code>LabelNodes</code> and <code>LineNumbers</code> that aren't in use</li>
 <li>remove dangling exception handlers</li>
 <li>copy propagation</li>
 <li>dead-store elimination</li>
-<li>Preserve side-effects, but remove those (producer, consumer) pairs where the consumer is a DROP and
-the producer has its value consumed only by the DROP in question.</li>
+<li>Preserve side-effects, but remove those (producer, consumer) pairs where the consumer is a <code>DROP</code> and
+the producer has its value consumed only by the <code>DROP</code> in question.</li>
 <li>simplify branches that need not be taken to get to their destination.</li>
 <li>nullness propagation</li>
 <li>constant folding</li>
@@ -219,23 +215,17 @@ the producer has its value consumed only by the DROP in question.</li>
 
 <ul>
 <li>intra-method optimizations are run in parallel for different methods;</li>
-<li>intra-class optimizations are run parallel for different classes</li>
+<li>intra-class optimizations are run in parallel for different classes</li>
 </ul><p>Visually:</p>
 
 <p><img src="http://lampwww.epfl.ch/%7Emagarcia/ScalaCompilerCornerReloaded/yk.png" alt="experimental optimizer uses task parallelism"></p>
 
-<p>There's no reason to limit the worker pool to 8 threads, that's "configurable" at:</p>
-
-<div class="highlight highlight-scala"><pre>    <span class="k">val</span> <span class="nc">MAX_THREADS</span> <span class="k">=</span> <span class="n">scala</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">min</span><span class="o">(</span>
-      <span class="mi">32</span><span class="o">,</span>
-      <span class="n">java</span><span class="o">.</span><span class="n">lang</span><span class="o">.</span><span class="nc">Runtime</span><span class="o">.</span><span class="n">getRuntime</span><span class="o">.</span><span class="n">availableProcessors</span>
-    <span class="o">)</span>
-</pre></div>
+<p>There's no reason to limit the worker pool to 8 threads, that's configurable via <code>-Ybcode-emitter-threads N</code></p>
 
 <h2>
 <a name="32-emitted-code-size" class="anchor" href="#32-emitted-code-size"><span class="octicon octicon-link"></span></a>3.2 Emitted code size</h2>
 
-<p>Let's take scala/scala as case study, compiling src/compiler and src/reflect (on the one hand) and the standard library (on the other) using:</p>
+<p>Let's take <code>scala/scala</code> as case study, compiling <code>src/compiler</code> and <code>src/reflect</code> (on the one hand) and the standard library (on the other) using:</p>
 
 <ol>
 <li>GenICode and GenASM.</li>
@@ -253,7 +243,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <ul>
 <li>881 instructions, when compiled with <code>-Ybackend:o2 -Yclosurify:delegating</code>
 </li>
-<li>1004 instructions, when compiled with <code>-Ybackend:GenASM -Yclosurify:traditional -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison with <code>-Ybackend:o2</code> is fair).</li>
+<li>1004 instructions, when compiled with <code>-Ybackend:GenASM -optimise</code> (actually, <code>-optimise</code> increases code size, but the comparison with <code>-Ybackend:o2</code> is fair).</li>
 </ul><p>That's 881 vs 1004 instructions and not bytes, which still matters in case you're the one who has to read 881 vs 1004 lines of javap output.</p>
 
 <h2>
@@ -277,7 +267,7 @@ the producer has its value consumed only by the DROP in question.</li>
 <li>millions of <code>::</code> allocated. Neither the old nor the new optimizer are tuned to reduce that.</li>
 <li>for deeper insights:  <a href="https://github.com/gkossakowski/scalac-aspects">https://github.com/gkossakowski/scalac-aspects</a>
 </li>
-<li>actually, tools like Caliper or ScalaMeter, by themselves, tell how much faster sthg runs. When building an optimizer, it's more useful to know "why" stgh runs faster (specially with 20+ optimizations at play). With some work, the toolset that Grzegorz has jumpstarted can provide those insights. </li>
+<li>actually, tools like Caliper or ScalaMeter, by themselves, tell how much faster something runs. When building an optimizer, it's more useful to know "why" something runs faster (specially with 20+ optimizations at play). With some work, the toolset that Grzegorz has jumpstarted can provide those insights. </li>
 </ul><p>The new optimizer may well make <em>your</em> code run faster. To find out, give it a try.</p>
 
 <h2>
@@ -331,15 +321,24 @@ the producer has its value consumed only by the DROP in question.</li>
 <a href="https://issues.scala-lang.org/browse/SI-7792">SI-7792</a> Explicit return causes scalac -optimize to fail</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-7807">SI-7807</a> java.lang.VerifyError when using nested try/catch and ControlThrowable</li>
-<li>all <code>ICodeReader</code> bugs (not used anymore)</li>
+<li>all <code>ICodeReader</code> bugs (the ASM class file reader is used instead)</li>
+<li>all <code>-Ydelambdafy:method</code> bugs (the new backend doesn't require custom typing to represent lightweight-lambdas internally)
+
+<ul>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-8017">SI-8017</a> -Ydelambdafy:method + lambda taking/returning a value class = kaboom</li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-8034">SI-8034</a> compiler can't compile itself under -Ydelambdafy:method</li>
+</ul>
+</li>
 </ul><h1>
 <a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored99sH</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored99sK</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored99sH
-cd GenRefactored99sH
-git checkout -b GenRefactored99sH origin/GenRefactored99sH
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored99sK
+cd GenRefactored99sK
+git checkout -b GenRefactored99sK origin/GenRefactored99sK
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -358,7 +357,7 @@ scalacOptions ++= Seq( . . . your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored99sH</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored99sK</code>, building the compiler with <code>ant</code>).</p>
 
 <h2>
 <a name="41-meaning-of-optimization-levels" class="anchor" href="#41-meaning-of-optimization-levels"><span class="octicon octicon-link"></span></a>4.1 Meaning of optimization levels</h2>
@@ -383,7 +382,7 @@ scalacOptions ++= Seq( . . . your options
 
 <table>
 <tr>
-<td><code>-Yclosurify:traditional</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to <code>-Ybackend:o1</code>
+<td><code>-Ydelambdafy:inline</code></td>   <td>Good ol' dedicated inner class for each closure. Available under GenASM (the only option there), and also with GenBCode but only up to <code>-Ybackend:o1</code>
 </td> </tr>
 <tr>
 <td><code>-Yclosurify:delegating</code></td> <td>aka "Late Closure Classes" ie their creation is postponed (instead of UnCurry during GenBCode) thus lowering the working set during compilation. Allows closure-related optimizations (all optimization levels supported)</td> </tr>
@@ -406,77 +405,12 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>The minimal-effort way: tweaking <a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored99sH/src/compiler/scala/tools/nsc/settings/ScalaSettings.scala#L206">this line in <code>ScalaSettings.scala</code></a> followed by <code>ant all.clean &amp;&amp; ant</code></p>
-
-<p>The good-conscience way: An attempt to build a nightly on a clean checkout of branch <code>GenRefactored99sH</code> doesn't achieve the desired effect, because the old optimizer is used. In fact, the compiler used to compile the new backend doesn't understand (yet) about <code>-Ybackend:o1</code> and such flags. The following steps are needed to overcome all that:</p>
-
-<p>First, update <code>build.xml</code> to the desired level of optimization:</p>
-
-<pre><code>-      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-optimise"/&gt;&lt;/antcall&gt;
-+      &lt;antcall target="@{name}"&gt;&lt;param name="scalac.args.optimise" value="-Ybackend:o3"/&gt;&lt;/antcall&gt;
-</code></pre>
-
-<p>Second, <code>ant all.clean &amp;&amp; ant &amp;&amp; ant replacelocker &amp;&amp; ant nightly</code></p>
-
-<p>The console will show something like:</p>
-
-<pre><code>init:
-     . . . 
-     [echo]       scalac args: -Yreify-copypaste  -Ybackend:o1
-     [echo] scalac quick args: -Yreify-copypaste  -Ybackend:o1 
-     . . . 
-</code></pre>
-
-<p>The nightly build takes from 80 minutes to 2 hours, depending on hardware.</p>
+<p>An attempt to <code>ant nightly</code> on a clean checkout of branch <code>GenRefactored99sK</code> doesn't achieve the desired effect, because the old optimizer is used (<code>-optimize</code> activates the old optimizer). In fact, the compiler used for the first time to compile the new backend doesn't understand yet flags like <code>-Ybackend:o1</code>. You'll have to be creative.</p>
 
 <h2>
 <a name="52-experimental-features" class="anchor" href="#52-experimental-features"><span class="octicon octicon-link"></span></a>5.2 Experimental features</h2>
 
-<h3>
-<a name="521-really-static-value-classes-and-static-modules" class="anchor" href="#521-really-static-value-classes-and-static-modules"><span class="octicon octicon-link"></span></a>5.2.1 "really static" value classes and static modules</h3>
-
-<blockquote>
-<p>Given there's some overlap in functionality with another proposal,
-<a href="https://github.com/scala/scala/pull/2416">https://github.com/scala/scala/pull/2416</a>
-each with pros and cons, for now "really static" lives in an older branch, <code>GenRefactored39</code></p>
-</blockquote>
-
-<p>Before <code>@enforceStatic</code>, functionality defined on objects (and in the companion to value-classes) was accessed following the idiom:</p>
-
-<pre><code>  load singleton-module
-  invokevirtual(arg1 ... argN)
-</code></pre>
-
-<p>After JIT-compilation, performance is great because there's a single method method implementation to dispatch.</p>
-
-<p>However the above can be expressed more succinctly with "really static" methods, with corresponding invokestatic callistes. This is what the @enforceStatic annotation allows, when applied to: </p>
-
-<ul>
-<li>static module (ie an object definition that lacks outer instance) </li>
-<li>value class.</li>
-</ul><p>In case the compiler can't honor the request for really-static-ness, a descriptive error message is shown. This can happen in two situations:</p>
-
-<p>First, upon extending another class:</p>
-
-<pre><code>  @enforceStatic
-  case class Valued(val repr: Int) extends AnyVal {
-    def odd = (repr&amp;1)==1
-  }
-
-   error: Won't statify the static module class of Valued because it has a superClass other than AnyRef: scala.runtime.AbstractFunction1
-  case class Valued(val repr: Int) extends AnyVal {
-             ^
-</code></pre>
-
-<p>Second, upon extending non-marker interfaces: For example, a value-class that <code>extends AnyVal with Serializable</code> is ok, but extending an interface that declares one or more members results in an error for an @enforceStatic-tagged class.</p>
-
-<p>More defails (and examples) in the documentation of <code>scala.enforceStatic</code>
-<a href="https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala">https://github.com/magarciaEPFL/scala/blob/GenRefactored39/src/library/scala/enforceStatic.scala</a></p>
-
-<h3>
-<a name="522-method-handles" class="anchor" href="#522-method-handles"><span class="octicon octicon-link"></span></a>5.2.2 Method handles</h3>
-
-<p>In principle, method handles can help with specialization, structural types, and anonymous closure classes. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
+<p>In principle, method handles can help with specialization, structural types, and lambdas. The prototype in branch <code>GenMHv3</code> puts MHs to work to replace anon-closure-classes, with mixed results (the good: smaller jars; the bad: performance on JDK7). For perspective, the delta with respect to the non-MethodHandles backend is: </p>
 
 <p><a href="https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3">https://github.com/magarciaEPFL/scala/compare/magarciaEPFL:GenRefactored14...GenMHv3</a></p>
 
@@ -500,7 +434,7 @@ each with pros and cons, for now "really static" lives in an older branch, <code
 
 <ul>
 <li><strong>If MethodHandles are slow on JDK7, how come other programming languages are happily using them?</strong></li>
-</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 5.2.2 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (optimized) Lean Closure Classes that the new backend emits. Admittedly, more work is needed, as described in Sec. 5.2.2.</p>
+</ul><p>There's no contradiction. Other languages use MethodHandles for what Scala would accomplish via structural types, and in that setting MHs are faster than Java reflection. Instead, the prototype described in Sec. 5.2 leverages MHs in an area far more important to Scala (anonymous closures), and in that setting they don't outperform the (yet) Lean Closure Classes that the new backend emits.</p>
 
 <ul>
 <li><strong>What about tests?</strong></li>
