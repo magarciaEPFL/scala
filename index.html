@@ -58,7 +58,7 @@
 <h2>
 <a name="11-why-a-new-optimizer" class="anchor" href="#11-why-a-new-optimizer"><span class="octicon octicon-link"></span></a>1.1 Why a new optimizer</h2>
 
-<p>It might be the officially supported optimizer, but not everyone likes it. It's very telling a major Scala framework <a href="http://doc.akka.io/docs/akka/snapshot/intro/getting-started.html">warns against using it</a>.</p>
+<p>It might be the officially supported optimizer, but not everyone likes it. It's very telling a major Scala framework <a href="http://doc.akka.io/docs/akka/snapshot/intro/getting-started.html">recommends against using it</a>.</p>
 
 <p>You might also have heard "everything will be better with MethodHandles". Well, who knows, it might turn out that way in the end. Instead, the new optimizer ("<code>BCodeOpt</code>") improves performance today, while leaving the open the door to future developments (by handling lambdas in a manner that's forward-compatible with MethodHandles).</p>
 
