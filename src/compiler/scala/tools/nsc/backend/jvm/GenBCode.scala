@@ -333,6 +333,8 @@ abstract class GenBCode extends BCodeSyncAndTry {
           catch {
             case e: FileConflictException =>
               error(s"error writing $jclassName: ${e.getMessage}")
+            case e: java.lang.RuntimeException if e.getMessage contains "too large!" =>
+              error(s"Could not write class $jclassName because it exceeds JVM code size limits. ${e.getMessage}")
           }
         }
       }
