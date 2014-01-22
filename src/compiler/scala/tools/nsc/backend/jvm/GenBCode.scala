@@ -135,6 +135,7 @@ abstract class GenBCode extends BCodeOptClosu {
     /* ---------------- q2 ---------------- */
 
     case class Item2(arrivalPos:   Int,
+                     srcPos:       Position,
                      mirror:       asm.tree.ClassNode,
                      plain:        asm.tree.ClassNode,
                      bean:         asm.tree.ClassNode,
@@ -166,7 +167,7 @@ abstract class GenBCode extends BCodeOptClosu {
       }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null, null, null)
     private val q2 = new java.util.concurrent.LinkedBlockingQueue[Item2]
 
     /* ---------------- q3 ---------------- */
@@ -330,6 +331,7 @@ abstract class GenBCode extends BCodeOptClosu {
 
         val item2 =
           Item2(arrivalPos + lateClosuresCount,
+                claszSymbol.pos,
                 mirrorC, plainC, beanC,
                 lateClosures, dClosureEndpoints,
                 outF)
@@ -455,19 +457,27 @@ abstract class GenBCode extends BCodeOptClosu {
           cw.toByteArray
         }
 
-        val Item2(arrivalPos, mirror, plain, bean, lateClosures, _, outFolder) = item
+        val Item2(arrivalPos, srcPos, mirror, plain, bean, lateClosures, _, outFolder) = item
 
-        val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
-        val plainC  = SubItem3(plain.name, getByteArray(plain))
-        val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
+        try {
 
-        q3 put Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+          val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
+          val plainC  = SubItem3(plain.name, getByteArray(plain))
+          val beanC   = if (bean == null)   null else SubItem3(bean.name, getByteArray(bean))
 
-        // -------------- Late-Closure-Classes, if any --------------
-        var lateClosuresCount = 0
-        for(lateC <- lateClosures.reverse) {
-          lateClosuresCount += 1
-          q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
+          q3 put Item3(arrivalPos, mirrorC, plainC, beanC, outFolder)
+
+          // -------------- Late-Closure-Classes, if any --------------
+          var lateClosuresCount = 0
+          for(lateC <- lateClosures.reverse) {
+            lateClosuresCount += 1
+            q3 put Item3(arrivalPos + lateClosuresCount, null, SubItem3(lateC.name, getByteArray(lateC)), null, outFolder)
+          }
+
+        } catch {
+          case e: java.lang.RuntimeException if e.getMessage contains "too large!" =>
+            // ASM's MethodWriter was modified to throw a descriptive error message in 3fa2c97853de2110227f50982187b4377b8772bc
+            reporter.error(srcPos, s"Could not write class ${plain.name} because it exceeds JVM code size limits. ${e.getMessage}")
         }
 
       }
@@ -613,8 +623,6 @@ abstract class GenBCode extends BCodeOptClosu {
           catch {
             case e: FileConflictException =>
               error(s"error writing $jclassName: ${e.getMessage}")
-            case e: java.lang.RuntimeException if e.getMessage contains "too large!" =>
-              error(s"Could not write class $jclassName because it exceeds JVM code size limits. ${e.getMessage}")
           }
         }
       }
