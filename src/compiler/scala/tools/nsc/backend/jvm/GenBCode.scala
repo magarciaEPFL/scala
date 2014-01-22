@@ -73,6 +73,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
     /* ---------------- q2 ---------------- */
 
     case class Item2(arrivalPos:   Int,
+                     srcPos:       Position,
                      mirror:       asm.tree.ClassNode,
                      plain:        asm.tree.ClassNode,
                      bean:         asm.tree.ClassNode,
@@ -80,7 +81,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
       def isPoison = { arrivalPos == Int.MaxValue }
     }
 
-    private val poison2 = Item2(Int.MaxValue, null, null, null, null)
+    private val poison2 = Item2(Int.MaxValue, null, null, null, null, null)
     private val q2 = new _root_.java.util.LinkedList[Item2]
 
     /* ---------------- q3 ---------------- */
@@ -194,6 +195,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
 
         val item2 =
           Item2(arrivalPos,
+                claszSymbol.pos,
                 mirrorC, plainC, beanC,
                 outF)
 
@@ -221,6 +223,9 @@ abstract class GenBCode extends BCodeSyncAndTry {
           else {
             try   { addToQ3(item) }
             catch {
+              case e: java.lang.RuntimeException if e.getMessage contains "too large!" =>
+                // ASM's MethodWriter was modified to throw a descriptive error message in 3fa2c97853de2110227f50982187b4377b8772bc
+                reporter.error(item.srcPos, s"Could not write class ${item.plain.name} because it exceeds JVM code size limits. ${e.getMessage}")
               case ex: Throwable =>
                 ex.printStackTrace()
                 error(s"Error while emitting ${item.plain.name}\n${ex.getMessage}")
@@ -237,7 +242,7 @@ abstract class GenBCode extends BCodeSyncAndTry {
           cw.toByteArray
         }
 
-        val Item2(arrivalPos, mirror, plain, bean, outFolder) = item
+        val Item2(arrivalPos, _, mirror, plain, bean, outFolder) = item
 
         val mirrorC = if (mirror == null) null else SubItem3(mirror.name, getByteArray(mirror))
         val plainC  = SubItem3(plain.name, getByteArray(plain))
