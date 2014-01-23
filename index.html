@@ -60,7 +60,7 @@
 
 <p>It might be the officially supported optimizer, but not everyone likes it. It's very telling a major Scala framework <a href="http://doc.akka.io/docs/akka/snapshot/intro/getting-started.html">recommends against using it</a>.</p>
 
-<p>You might also have heard "everything will be better with MethodHandles". Well, who knows, it might turn out that way in the end. Instead, the new optimizer ("<code>BCodeOpt</code>") improves performance today, while leaving the open the door to future developments (by handling lambdas in a manner that's forward-compatible with MethodHandles).</p>
+<p>You might also have heard "everything will be better with MethodHandles". Well, who knows, it might turn out that way in the end. Instead, the new optimizer ("<code>BCodeOpt</code>") improves performance today, while leaving the door open to future developments (by handling lambdas in a manner that's forward-compatible with MethodHandles).</p>
 
 <p>Additionally, the new optimizer is more maintainable: it consists of several focused, individually simple, transformations; that are combined to implement bytecode-level refactorings, using ASM <a href="http://asm.ow2.org/">http://asm.ow2.org/</a></p>
 
