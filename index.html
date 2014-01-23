@@ -31,7 +31,7 @@
     <!-- MAIN CONTENT -->
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
-        <p><em>Last updated: December 10th, 2013</em></p>
+        <p><em>Last updated: January 23rd, 2014</em></p>
 
 <h1>
 <a name="toc" class="anchor" href="#toc"><span class="octicon octicon-link"></span></a>TOC</h1>
@@ -47,12 +47,12 @@
 </ol><h1>
 <a name="1-goodies" class="anchor" href="#1-goodies"><span class="octicon octicon-link"></span></a><a name="Goodies">1</a> Goodies</h1>
 
-<p>The experimental branch <code>GenRefactored99sK</code> at repo <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a> improves three areas of <code>scalac</code>: optimizer, code emitter, and AST-level representation of closures. The resulting compiler is on average 15% faster, and also emits more compact code than the mainline Scala compiler.</p>
+<p>The experimental branch <code>GenRefactored99sR</code> at repo <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a> improves three areas of <code>scalac</code>: optimizer, code emitter, and AST-level representation of closures. The resulting compiler is on average 15% faster, and also emits more compact code than the mainline Scala compiler.</p>
 
 <p>A small subset of the above functionality has already been merged and will be available in Scala 2.11 once it's released. However, the bulk of the new backend won't. For all practical purposes, don't use that small "subset" available in <code>scalac</code>. You'll be missing on the delta with respect to full-blown new backend, and it's a huge delta:</p>
 
 <ul>
-<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sK">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sK</a></li>
+<li><a href="https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sR">https://github.com/magarciaEPFL/scala/compare/master...GenRefactored99sR</a></li>
 </ul><p>To get up and running, please skip to <a href="#GettingStarted">Getting Started</a>.</p>
 
 <h2>
@@ -336,11 +336,11 @@ the producer has its value consumed only by the <code>DROP</code> in question.</
 </ul><h1>
 <a name="4-getting-started" class="anchor" href="#4-getting-started"><span class="octicon octicon-link"></span></a><a name="GettingStarted">4</a> Getting Started</h1>
 
-<p>The first step is checking out branch <code>GenRefactored99sK</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
+<p>The first step is checking out branch <code>GenRefactored99sR</code> of repository <a href="https://github.com/magarciaEPFL/scala">https://github.com/magarciaEPFL/scala</a></p>
 
-<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored99sK
-cd GenRefactored99sK
-git checkout -b GenRefactored99sK origin/GenRefactored99sK
+<pre><code>git clone git://github.com/magarciaEPFL/scala.git GenRefactored99sR
+cd GenRefactored99sR
+git checkout -b GenRefactored99sR origin/GenRefactored99sR
 ant all.clean &amp;&amp; ant
 </code></pre>
 
@@ -359,7 +359,7 @@ scalacOptions ++= Seq( . . . your options
                      ),
 </code></pre>
 
-<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored99sK</code>, building the compiler with <code>ant</code>).</p>
+<p>where "scala-with-new-backend" is the folder one gets after  following the steps in the sub-section above (cloning, checking out branch <code>GenRefactored99sR</code>, building the compiler with <code>ant</code>).</p>
 
 <h2>
 <a name="41-meaning-of-optimization-levels" class="anchor" href="#41-meaning-of-optimization-levels"><span class="octicon octicon-link"></span></a>4.1 Meaning of optimization levels</h2>
@@ -407,7 +407,7 @@ scalacOptions ++= Seq( . . . your options
 <h2>
 <a name="51-optimizing-the-compiler-and-the-standard-library-themselves" class="anchor" href="#51-optimizing-the-compiler-and-the-standard-library-themselves"><span class="octicon octicon-link"></span></a>5.1 Optimizing the compiler and the standard library themselves</h2>
 
-<p>An attempt to <code>ant nightly</code> on a clean checkout of branch <code>GenRefactored99sK</code> doesn't achieve the desired effect, because the old optimizer is used (<code>-optimize</code> activates the old optimizer). In fact, the compiler used for the first time to compile the new backend doesn't understand yet flags like <code>-Ybackend:o1</code>.</p>
+<p>An attempt to <code>ant nightly</code> on a clean checkout of branch <code>GenRefactored99sR</code> doesn't achieve the desired effect, because the old optimizer is used (<code>-optimize</code> activates the old optimizer). In fact, the compiler used for the first time to compile the new backend doesn't understand yet flags like <code>-Ybackend:o1</code>.</p>
 
 <p>In order to run the test suite under the new optimizer, one may hardcode the optimization level of choice as shown below (run <code>ant quick.clean &amp;&amp; ant</code> for the update to take effect).</p>
 
