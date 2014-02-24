@@ -33,6 +33,8 @@
       <section id="main_content" class="inner">
         <p><em>Last updated: February 24th, 2014</em></p>
 
+<p><em>Based on <code>scalac</code> as of February 24th, 2014</em></p>
+
 <h1>
 <a name="toc" class="anchor" href="#toc"><span class="octicon octicon-link"></span></a>TOC</h1>
 
@@ -275,6 +277,8 @@ the producer has its value consumed only by the <code>DROP</code> in question.</
 <h2>
 <a name="35-bugs-fixed" class="anchor" href="#35-bugs-fixed"><span class="octicon octicon-link"></span></a>3.5 Bugs fixed</h2>
 
+<p>Previously, as bugs got fixed in the old optimizer, I proceeded to remove them from the list below. Later I realized doing so misrepresented (ie made appear smaller than it really is) the maintenance effort consumed by the old optimizer. Just imagine the list below but just longer.</p>
+
 <ul>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-3882">SI-3882</a> Regression with -optimise: "Illegal index: 0 overlaps List((variable par1,LONG))" </li>
@@ -329,6 +333,11 @@ the producer has its value consumed only by the <code>DROP</code> in question.</
 <a href="https://issues.scala-lang.org/browse/SI-8315">SI-8315</a> crashy interplay between inlining, dead code elimination</li>
 <li>
 <a href="https://issues.scala-lang.org/browse/SI-8330">SI-8330</a> Mismatch in stack heights</li>
+<li>
+<a href="https://issues.scala-lang.org/browse/SI-8334">SI-8334</a> Crash in dead code elimination: could not find init</li>
+</ul><p>In addition:</p>
+
+<ul>
 <li>all <code>ICodeReader</code> bugs (the ASM class file reader is used instead)</li>
 <li>all <code>-Ydelambdafy:method</code> bugs (the new backend doesn't require custom typing to represent lightweight-lambdas internally)
 
